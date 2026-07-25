@@ -13,7 +13,7 @@ Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent ho
 - **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
 - **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
 - **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity (IDE + CLI), opencode, và GitHub Copilot
+- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
 
 ## ⚡ Quick Start
 
@@ -58,7 +58,7 @@ bash scripts/setup_hooks.sh
 # powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity (IDE + CLI), opencode, hoặc GitHub Copilot. Không cần thao tác thủ công.
+Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
 
 ### Bước 4: Chạy server
 
@@ -93,8 +93,8 @@ uvicorn src.main:app --reload --port 8000
 │   ├── test_agents/      #    Agent/graph tests
 │   └── test_api/         #    API endpoint tests
 ├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot/opencode/antigravity-cli
-│   ├── log_antigravity.py#    Antigravity IDE + CLI transcript scanner
+│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
+│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
 │   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
 │   ├── submit_log.py     #    Submit logs on git push
 │   └── setup_hooks.sh    #    One-time hook installer
@@ -169,8 +169,6 @@ Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
 | Gemini CLI | `.gemini/settings.json` | Tự động |
 | GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
 | Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
-| Antigravity CLI | Pre-push scan transcript | Tự động trên `git push` |
-| opencode CLI | `.opencode/hooks.json` | Tự động |
 
 Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
 

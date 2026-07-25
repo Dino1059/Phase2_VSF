@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Shared AI hook logger — works with Claude Code, Gemini CLI, Codex, Cursor, Copilot, opencode, antigravity-cli.
+Shared AI hook logger — works with Claude Code, Gemini CLI, Codex, Cursor, Copilot.
 Reads JSON from stdin, normalizes to common format, appends to .ai-log/session.jsonl
 """
 import json
@@ -138,16 +138,6 @@ def normalize(data: dict, tool: str) -> dict | None:
             "prompt": data.get("prompt", "")[:1000],
             "tool_name": data.get("toolName", ""),
             "tool_args": data.get("toolArgs"),
-        })
-
-    elif tool == "opencode":
-        base.update({
-            "prompt": data.get("prompt", "")[:1000],
-        })
-
-    elif tool == "antigravity-cli":
-        base.update({
-            "prompt": data.get("prompt", "")[:1000],
         })
 
     # Skip only true noise: no prompt AND no tool-specific payload (tool_input,
