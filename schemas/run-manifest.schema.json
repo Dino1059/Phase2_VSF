@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunManifest",
+  "type": "object",
+  "properties": {
+    "run_id": { "type": "string" },
+    "snapshot_id": { "type": "string" },
+    "input_checksum": { "type": "string" },
+    "output_checksum": { "type": "string" },
+    "target_schema_version": { "type": "string" },
+    "total_rows": { "type": "integer" },
+    "clean_rows": { "type": "integer" },
+    "quarantined_rows": { "type": "integer" },
+    "operations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "duration_ms": { "type": "integer" },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tests_passed": { "type": "integer" },
+    "tests_failed": { "type": "integer" },
+    "model_version": { "type": "string" },
+    "prompt_version": { "type": "string" },
+    "created_at": { "type": "string" }
+  },
+  "required": ["run_id", "snapshot_id", "input_checksum", "output_checksum", "total_rows", "clean_rows", "quarantined_rows"]
+}

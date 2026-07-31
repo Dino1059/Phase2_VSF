@@ -1,14 +1,18 @@
 version: "3.8"
 
 services:
-  backend:
+  datatrust-os:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: datatrust-os
     ports:
       - "8000:8000"
-    env_file:
-      - .env
+    environment:
+      - APP_NAME=DataTrust OS
+      - APP_ENV=production
+      - APP_PORT=8000
+      - LOG_LEVEL=INFO
     volumes:
       - ./data:/app/data
     restart: unless-stopped

@@ -1,0 +1,320 @@
+{
+  "communities": {
+    "0": [
+      "scripts_log_antigravity",
+      "scripts_log_antigravity_build_entry",
+      "scripts_log_antigravity_conv_cwds",
+      "scripts_log_antigravity_conv_matches_repo",
+      "scripts_log_antigravity_extract_user_prompt",
+      "scripts_log_antigravity_get_brain_dirs",
+      "scripts_log_antigravity_get_logged_entry_ids",
+      "scripts_log_antigravity_git",
+      "scripts_log_antigravity_iter_user_inputs",
+      "scripts_log_antigravity_legacy_log",
+      "scripts_log_antigravity_main",
+      "scripts_log_antigravity_normalize",
+      "scripts_log_antigravity_py_path",
+      "scripts_log_antigravity_rationale_104",
+      "scripts_log_antigravity_rationale_111",
+      "scripts_log_antigravity_rationale_124",
+      "scripts_log_antigravity_rationale_150",
+      "scripts_log_antigravity_rationale_168",
+      "scripts_log_antigravity_rationale_208",
+      "scripts_log_antigravity_rationale_91",
+      "scripts_log_antigravity_unquote_arg"
+    ],
+    "1": [
+      "src_agents_graph",
+      "src_agents_graph_build_graph",
+      "src_agents_graph_rationale_8",
+      "src_agents_graph_should_continue",
+      "src_agents_nodes_example_node",
+      "src_agents_nodes_example_node_analyze_node",
+      "src_agents_nodes_example_node_rationale_16",
+      "src_agents_nodes_example_node_rationale_23",
+      "src_agents_nodes_example_node_rationale_5",
+      "src_agents_nodes_example_node_rationale_8",
+      "src_agents_nodes_example_node_respond_node",
+      "src_agents_state",
+      "src_agents_state_agentstate",
+      "src_agents_state_rationale_7",
+      "stategraph",
+      "typeddict"
+    ],
+    "2": [
+      "datetime",
+      "scripts_log_hook",
+      "scripts_log_hook_detect_tool",
+      "scripts_log_hook_git",
+      "scripts_log_hook_main",
+      "scripts_log_hook_normalize",
+      "scripts_log_hook_rationale_24",
+      "scripts_log_hook_rationale_54",
+      "scripts_log_manual",
+      "scripts_log_manual_git",
+      "scripts_log_manual_interactive_mode",
+      "scripts_log_manual_main",
+      "scripts_log_manual_rationale_41"
+    ],
+    "3": [
+      "basesettings",
+      "chatopenai",
+      "fastapi",
+      "src_config",
+      "src_config_get_settings",
+      "src_config_settings",
+      "src_main",
+      "src_main_health",
+      "src_main_lifespan",
+      "src_main_py_get",
+      "src_services_llm",
+      "src_services_llm_get_llm"
+    ],
+    "4": [
+      "ast",
+      "src_agents_tools_example_tool",
+      "src_agents_tools_example_tool_calculate",
+      "src_agents_tools_example_tool_eval_node",
+      "src_agents_tools_example_tool_rationale_22",
+      "src_agents_tools_example_tool_rationale_30",
+      "src_agents_tools_example_tool_rationale_36",
+      "src_agents_tools_example_tool_rationale_55",
+      "src_agents_tools_example_tool_search_knowledge",
+      "tool"
+    ],
+    "5": [
+      "basemodel",
+      "post",
+      "src_api_routes",
+      "src_api_routes_agent_status",
+      "src_api_routes_chat",
+      "src_api_routes_py_get",
+      "src_api_routes_rationale_24",
+      "src_models_schemas",
+      "src_models_schemas_chatrequest",
+      "src_models_schemas_chatresponse"
+    ],
+    "6": [
+      "scripts_submit_log",
+      "scripts_submit_log_archive",
+      "scripts_submit_log_main",
+      "scripts_submit_log_py_path",
+      "scripts_submit_log_rationale_51",
+      "scripts_submit_log_rationale_62",
+      "scripts_submit_log_restore_pending"
+    ],
+    "7": [
+      "fixture",
+      "tests_conftest",
+      "tests_conftest_client",
+      "tests_conftest_mock_llm",
+      "tests_conftest_rationale_12",
+      "tests_conftest_rationale_20"
+    ],
+    "8": [
+      "tests_test_api_test_routes",
+      "tests_test_api_test_routes_py_asyncio",
+      "tests_test_api_test_routes_test_agent_status",
+      "tests_test_api_test_routes_test_chat_empty_message",
+      "tests_test_api_test_routes_test_health"
+    ],
+    "9": [
+      "tests_test_agents_test_graph",
+      "tests_test_agents_test_graph_py_asyncio",
+      "tests_test_agents_test_graph_test_agent_basic_flow",
+      "tests_test_agents_test_graph_test_agent_state_structure"
+    ],
+    "10": [
+      "scripts_pyrun",
+      "scripts_pyrun_sh__entry"
+    ],
+    "11": [
+      "scripts_setup",
+      "scripts_setup_sh__entry"
+    ],
+    "12": [
+      "scripts_setup_hooks_sh__entry",
+      "scripts_setup_hooks_sh_scripts_setup_hooks"
+    ],
+    "13": [
+      "scripts_setup_hooks_ps1_scripts_setup_hooks"
+    ],
+    "14": [
+      "src_agents_init"
+    ],
+    "15": [
+      "src_agents_nodes_init"
+    ],
+    "16": [
+      "src_agents_tools_init"
+    ],
+    "17": [
+      "src_api_init"
+    ],
+    "18": [
+      "src_init"
+    ],
+    "19": [
+      "src_models_init"
+    ],
+    "20": [
+      "src_services_init"
+    ],
+    "21": [
+      "tests_init"
+    ],
+    "22": [
+      "tests_test_agents_init"
+    ],
+    "23": [
+      "tests_test_api_init"
+    ]
+  },
+  "cohesion": {
+    "0": 0.18095238095238095,
+    "1": 0.21666666666666667,
+    "2": 0.21794871794871795,
+    "3": 0.25757575757575757,
+    "4": 0.26666666666666666,
+    "5": 0.3333333333333333,
+    "6": 0.42857142857142855,
+    "7": 0.4,
+    "8": 0.6,
+    "9": 0.6666666666666666,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0
+  },
+  "gods": [
+    {
+      "id": "scripts_log_antigravity_main",
+      "label": "main()",
+      "degree": 9
+    },
+    {
+      "id": "scripts_log_antigravity_iter_user_inputs",
+      "label": "iter_user_inputs()",
+      "degree": 8
+    },
+    {
+      "id": "src_agents_state_agentstate",
+      "label": "AgentState",
+      "degree": 8
+    },
+    {
+      "id": "scripts_log_antigravity_conv_cwds",
+      "label": "_conv_cwds()",
+      "degree": 6
+    },
+    {
+      "id": "src_config_get_settings",
+      "label": "get_settings()",
+      "degree": 6
+    },
+    {
+      "id": "src_agents_graph_build_graph",
+      "label": "build_graph()",
+      "degree": 5
+    },
+    {
+      "id": "src_agents_nodes_example_node_analyze_node",
+      "label": "analyze_node()",
+      "degree": 5
+    },
+    {
+      "id": "src_agents_nodes_example_node_respond_node",
+      "label": "respond_node()",
+      "degree": 5
+    },
+    {
+      "id": "src_api_routes_chat",
+      "label": "chat()",
+      "degree": 5
+    },
+    {
+      "id": "scripts_log_antigravity_get_brain_dirs",
+      "label": "get_brain_dirs()",
+      "degree": 4
+    }
+  ],
+  "surprises": [
+    {
+      "source": "build_graph()",
+      "target": "analyze_node()",
+      "source_files": [
+        "src/agents/graph.py",
+        "src/agents/nodes/example_node.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "build_graph()",
+      "target": "respond_node()",
+      "source_files": [
+        "src/agents/graph.py",
+        "src/agents/nodes/example_node.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "should_continue()",
+      "target": "AgentState",
+      "source_files": [
+        "src/agents/graph.py",
+        "src/agents/state.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "cross-file semantic connection"
+    },
+    {
+      "source": "analyze_node()",
+      "target": "AgentState",
+      "source_files": [
+        "src/agents/nodes/example_node.py",
+        "src/agents/state.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "cross-file semantic connection"
+    },
+    {
+      "source": "respond_node()",
+      "target": "AgentState",
+      "source_files": [
+        "src/agents/nodes/example_node.py",
+        "src/agents/state.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "cross-file semantic connection"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `iter_user_inputs()` connect `log_antigravity.py` to `datetime`?",
+      "why": "High betweenness centrality (0.020) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `_pyrun.sh script`, `setup.sh script`, `setup_hooks.sh script` to the rest of the system?",
+      "why": "3 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ]
+}

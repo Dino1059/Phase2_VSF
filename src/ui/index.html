@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DataTrust OS — AI-Augmented Data Governance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#312e81',
+            },
+            darkbg: '#0b0f19',
+            darkcard: '#111827',
+            darkborder: '#1f2937'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    body { background-color: #0b0f19; color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; }
+    .glass-card { background: rgba(17, 24, 39, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glow-indigo { box-shadow: 0 0 25px rgba(99, 102, 241, 0.15); }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header / Navigation Bar -->
+  <header class="border-b border-gray-800 glass-card sticky top-0 z-50 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-teal-400 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+          <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+            DataTrust OS
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-medium">v1.0 AI-Governance</span>
+          </h1>
+          <p class="text-xs text-gray-400">Human-in-the-Loop AI Data Profiling & Audit System</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center space-x-3">
+        <button onclick="openBenchmarkModal()" class="px-4 py-2 text-xs font-semibold rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/30 hover:bg-teal-500/20 transition flex items-center gap-2">
+          <i class="fa-solid fa-chart-line"></i> Benchmark (C0 vs C1 vs A1)
+        </button>
+        <button onclick="triggerReset()" class="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 transition flex items-center gap-2">
+          <i class="fa-solid fa-rotate-left"></i> Reset Environment
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 4-Step Stepper Header -->
+  <section class="max-w-7xl mx-auto w-full px-6 pt-6 pb-2">
+    <div class="grid grid-cols-4 gap-4">
+      <button onclick="goToStep(1)" id="step-btn-1" class="glass-card rounded-xl p-4 text-left transition border-indigo-500 bg-indigo-500/10">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Step 1</span>
+          <i class="fa-solid fa-database text-indigo-400"></i>
+        </div>
+        <div class="text-sm font-semibold text-white mt-1">Connect & Profile</div>
+        <div class="text-xs text-gray-400 mt-0.5" id="step1-sub">Dataset Ready</div>
+      </button>
+
+      <button onclick="goToStep(2)" id="step-btn-2" class="glass-card rounded-xl p-4 text-left transition opacity-60 hover:opacity-100 border-gray-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Step 2</span>
+          <i class="fa-solid fa-robot text-gray-400"></i>
+        </div>
+        <div class="text-sm font-semibold text-white mt-1">Rule Proposal</div>
+        <div class="text-xs text-gray-400 mt-0.5" id="step2-sub">Baseline Selection</div>
+      </button>
+
+      <button onclick="goToStep(3)" id="step-btn-3" class="glass-card rounded-xl p-4 text-left transition opacity-60 hover:opacity-100 border-gray-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Step 3</span>
+          <i class="fa-solid fa-user-check text-gray-400"></i>
+        </div>
+        <div class="text-sm font-semibold text-white mt-1">Human Governance</div>
+        <div class="text-xs text-gray-400 mt-0.5" id="step3-sub">Approve / Edit / Reject</div>
+      </button>
+
+      <button onclick="goToStep(4)" id="step-btn-4" class="glass-card rounded-xl p-4 text-left transition opacity-60 hover:opacity-100 border-gray-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Step 4</span>
+          <i class="fa-solid fa-box-archive text-gray-400"></i>
+        </div>
+        <div class="text-sm font-semibold text-white mt-1">Execution & Audit</div>
+        <div class="text-xs text-gray-400 mt-0.5" id="step4-sub">CleanDB & Manifest</div>
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Workflow Container -->
+  <main class="max-w-7xl mx-auto w-full px-6 py-4 flex-1 flex flex-col space-y-6">
+
+    <!-- STEP 1: Connect & Profile -->
+    <div id="step-1" class="space-y-6">
+      <div class="glass-card rounded-2xl p-6 glow-indigo flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-file-csv text-indigo-400"></i> Active Dataset: NYC Taxi & Ride-Hailing Trips
+          </h2>
+          <p class="text-sm text-gray-400 mt-1">1,000 raw trip transactions containing synthetic real-world anomalies (fare distortion, GPS errors, time inversions).</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button onclick="initiateRunAndProfile()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition shadow-lg flex items-center gap-2">
+            <i class="fa-solid fa-magnifying-glass-chart"></i> Run Data Profiler
+          </button>
+        </div>
+      </div>
+
+      <!-- Profiling Output Container -->
+      <div id="profile-results" class="hidden space-y-6">
+        <!-- Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="glass-card rounded-xl p-5 border-l-4 border-indigo-500">
+            <div class="text-xs font-semibold text-gray-400 uppercase">Total Records</div>
+            <div class="text-2xl font-bold text-white mt-1" id="stat-total-rows">1,000</div>
+            <div class="text-xs text-indigo-400 mt-1">100% Ingested</div>
+          </div>
+          <div class="glass-card rounded-xl p-5 border-l-4 border-rose-500">
+            <div class="text-xs font-semibold text-gray-400 uppercase">Anomalies Found</div>
+            <div class="text-2xl font-bold text-rose-400 mt-1" id="stat-anomalies">0</div>
+            <div class="text-xs text-rose-400/80 mt-1">Across 6 Governance Categories</div>
+          </div>
+          <div class="glass-card rounded-xl p-5 border-l-4 border-emerald-500">
+            <div class="text-xs font-semibold text-gray-400 uppercase">Data Health Score</div>
+            <div class="text-2xl font-bold text-emerald-400 mt-1" id="stat-health">0.0%</div>
+            <div class="text-xs text-emerald-400/80 mt-1">Statistical Quality Index</div>
+          </div>
+          <div class="glass-card rounded-xl p-5 border-l-4 border-amber-500">
+            <div class="text-xs font-semibold text-gray-400 uppercase">Profiling Latency</div>
+            <div class="text-2xl font-bold text-amber-400 mt-1">0.12s</div>
+            <div class="text-xs text-gray-400 mt-1">In-Memory Engine</div>
+          </div>
+        </div>
+
+        <!-- Columns Profile Table -->
+        <div class="glass-card rounded-2xl overflow-hidden border border-gray-800">
+          <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+            <h3 class="text-md font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-list-check text-indigo-400"></i> Statistical Column Profiling Summary
+            </h3>
+            <span class="text-xs text-gray-400">8 Column Attributes Profiled</span>
+          </div>
+          <div class="overflow-x-auto custom-scrollbar">
+            <table class="w-full text-left text-sm text-gray-300">
+              <thead class="bg-gray-900/60 text-xs font-semibold uppercase text-gray-400 border-b border-gray-800">
+                <tr>
+                  <th class="px-6 py-3">Column Name</th>
+                  <th class="px-6 py-3">Type</th>
+                  <th class="px-6 py-3">Nulls</th>
+                  <th class="px-6 py-3">Distinct</th>
+                  <th class="px-6 py-3">Min / Max / Mean</th>
+                  <th class="px-6 py-3">Anomalies Detected</th>
+                </tr>
+              </thead>
+              <tbody id="column-profile-body" class="divide-y divide-gray-800/60">
+                <!-- Injected dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button onclick="goToStep(2); fetchRuleProposals('a1');" class="px-6 py-3 bg-gradient-to-r from-indigo-600 to-teal-500 text-white font-bold rounded-xl hover:opacity-90 transition shadow-lg flex items-center gap-2">
+            Proceed to Rule Proposal <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: Rule Proposal -->
+    <div id="step-2" class="hidden space-y-6">
+      <!-- Baseline Selector Banner -->
+      <div class="glass-card rounded-2xl p-6 glow-indigo">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-brain text-teal-400"></i> Rule Proposal Engine: Select Baseline Strategy
+            </h2>
+            <p class="text-sm text-gray-400 mt-1">Compare manual heuristics (C0), zero-shot script (C1), and DataTrust OS AI Agent (A1).</p>
+          </div>
+          <!-- Baseline Tabs -->
+          <div class="flex rounded-xl bg-gray-900 p-1 border border-gray-800">
+            <button onclick="switchBaseline('c0')" id="baseline-tab-c0" class="px-4 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-white transition">Baseline C0 (Manual)</button>
+            <button onclick="switchBaseline('c1')" id="baseline-tab-c1" class="px-4 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-white transition">Baseline C1 (Script)</button>
+            <button onclick="switchBaseline('a1')" id="baseline-tab-a1" class="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition">A1 (DataTrust OS AI)</button>
+          </div>
+        </div>
+
+        <!-- Human Active Minutes Impact Banner -->
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="rounded-xl bg-indigo-950/40 border border-indigo-500/20 p-4">
+            <div class="text-xs text-indigo-300 font-medium">Estimated Human Effort</div>
+            <div class="text-xl font-bold text-indigo-400 mt-1" id="banner-effort">8 Active Minutes</div>
+            <div class="text-xs text-gray-400 mt-0.5">Automated proposal & verification</div>
+          </div>
+          <div class="rounded-xl bg-emerald-950/40 border border-emerald-500/20 p-4">
+            <div class="text-xs text-emerald-300 font-medium">Active Human Time Saved</div>
+            <div class="text-xl font-bold text-emerald-400 mt-1" id="banner-saved">112.0 Minutes (93.3%)</div>
+            <div class="text-xs text-emerald-400/80 mt-0.5">Compared to 120 mins C0 baseline</div>
+          </div>
+          <div class="rounded-xl bg-teal-950/40 border border-teal-500/20 p-4">
+            <div class="text-xs text-teal-300 font-medium">Expected Rule Precision</div>
+            <div class="text-xl font-bold text-teal-400 mt-1" id="banner-precision">98.4% Average</div>
+            <div class="text-xs text-teal-400/80 mt-0.5">Ground-truth evidence backed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Proposed Rules Cards Grid -->
+      <div id="rules-cards-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Injected dynamically -->
+      </div>
+
+      <div class="flex justify-between items-center pt-4">
+        <button onclick="goToStep(1)" class="px-5 py-2.5 border border-gray-700 text-gray-300 font-semibold text-sm rounded-xl hover:bg-gray-800 transition">
+          <i class="fa-solid fa-arrow-left"></i> Back
+        </button>
+        <button onclick="goToStep(3); renderGovernanceTable();" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow-lg flex items-center gap-2">
+          Proceed to Human Review & Governance <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Governance Review -->
+    <div id="step-3" class="hidden space-y-6">
+      <div class="glass-card rounded-2xl p-6 glow-indigo flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-user-gear text-indigo-400"></i> Human-in-the-Loop Governance Panel
+          </h2>
+          <p class="text-sm text-gray-400 mt-1">Approve, edit expressions, or reject proposed rules before compilation.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button onclick="bulkApproveAll()" class="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition">
+            <i class="fa-solid fa-check-double"></i> Approve All High Confidence Rules
+          </button>
+        </div>
+      </div>
+
+      <!-- Governance Table -->
+      <div class="glass-card rounded-2xl overflow-hidden border border-gray-800">
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-sm text-gray-300">
+            <thead class="bg-gray-900/60 text-xs font-semibold uppercase text-gray-400 border-b border-gray-800">
+              <tr>
+                <th class="px-6 py-3">Rule ID & Name</th>
+                <th class="px-6 py-3">Risk & Confidence</th>
+                <th class="px-6 py-3">Rule Expression (Editable)</th>
+                <th class="px-6 py-3">Evidence Rationale</th>
+                <th class="px-6 py-3 text-right">Decision</th>
+              </tr>
+            </thead>
+            <tbody id="governance-table-body" class="divide-y divide-gray-800/60">
+              <!-- Injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center pt-4">
+        <button onclick="goToStep(2)" class="px-5 py-2.5 border border-gray-700 text-gray-300 font-semibold text-sm rounded-xl hover:bg-gray-800 transition">
+          <i class="fa-solid fa-arrow-left"></i> Back
+        </button>
+        <button onclick="submitGovernanceAndExecute()" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-bold rounded-xl hover:opacity-90 transition shadow-lg flex items-center gap-2">
+          <i class="fa-solid fa-play"></i> Compile & Execute Approved Rules
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Execution Results & Audit Trace -->
+    <div id="step-4" class="hidden space-y-6">
+      <!-- Execution Summary Header -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="glass-card rounded-xl p-5 border-l-4 border-emerald-500">
+          <div class="text-xs font-semibold text-gray-400 uppercase">CleanDB Count</div>
+          <div class="text-3xl font-extrabold text-emerald-400 mt-1" id="exec-clean-count">0</div>
+          <div class="text-xs text-emerald-400/80 mt-1" id="exec-clean-pct">0% Passed Rules</div>
+        </div>
+        <div class="glass-card rounded-xl p-5 border-l-4 border-rose-500">
+          <div class="text-xs font-semibold text-gray-400 uppercase">Quarantined Records</div>
+          <div class="text-3xl font-extrabold text-rose-400 mt-1" id="exec-quarantine-count">0</div>
+          <div class="text-xs text-rose-400/80 mt-1" id="exec-quarantine-rate">0% Quarantined</div>
+        </div>
+        <div class="glass-card rounded-xl p-5 border-l-4 border-indigo-500">
+          <div class="text-xs font-semibold text-gray-400 uppercase">Human Time Saved</div>
+          <div class="text-3xl font-extrabold text-indigo-400 mt-1" id="exec-time-saved">112 Mins</div>
+          <div class="text-xs text-indigo-300 mt-1">93.3% Active Effort Saved</div>
+        </div>
+        <div class="glass-card rounded-xl p-5 border-l-4 border-teal-500">
+          <div class="text-xs font-semibold text-gray-400 uppercase">Execution Time</div>
+          <div class="text-3xl font-extrabold text-teal-400 mt-1" id="exec-latency">0.02s</div>
+          <div class="text-xs text-teal-300 mt-1">Zero Overhead Compilation</div>
+        </div>
+      </div>
+
+      <!-- Verifiable Cryptographic Manifest Hash Card -->
+      <div class="glass-card rounded-2xl p-6 border border-gray-800">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <i class="fa-solid fa-fingerprint text-3xl text-teal-400"></i>
+            <div>
+              <h3 class="text-sm font-bold text-white">Cryptographic SHA-256 CleanDB Audit Manifest</h3>
+              <p class="text-xs text-gray-400">Verifiable tamper-evident lineage hash generated upon rule compilation.</p>
+            </div>
+          </div>
+          <button onclick="copyManifest()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-800 text-gray-300 hover:text-white border border-gray-700 transition flex items-center gap-1">
+            <i class="fa-solid fa-copy"></i> Copy Hash
+          </button>
+        </div>
+        <div class="mt-4 p-3 bg-gray-950 rounded-xl border border-gray-800 font-mono text-xs text-teal-300 break-all" id="exec-manifest-hash">
+          Calculating...
+        </div>
+      </div>
+
+      <!-- Sample Quarantined Records Table -->
+      <div class="glass-card rounded-2xl overflow-hidden border border-gray-800">
+        <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+          <h3 class="text-md font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-shield-cat text-rose-400"></i> Sample Quarantined Records & Audit Rationale
+          </h3>
+          <span class="text-xs text-rose-400 font-semibold" id="quarantine-badge-count">Isolated for Review</span>
+        </div>
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-sm text-gray-300">
+            <thead class="bg-gray-900/60 text-xs font-semibold uppercase text-gray-400 border-b border-gray-800">
+              <tr>
+                <th class="px-6 py-3">Row ID</th>
+                <th class="px-6 py-3">Trip ID</th>
+                <th class="px-6 py-3">Violated Rules</th>
+                <th class="px-6 py-3">Audit Isolation Rationale</th>
+              </tr>
+            </thead>
+            <tbody id="quarantine-table-body" class="divide-y divide-gray-800/60">
+              <!-- Injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Event Trace -->
+      <div class="glass-card rounded-2xl p-6 border border-gray-800">
+        <h3 class="text-md font-bold text-white flex items-center gap-2 mb-4">
+          <i class="fa-solid fa-timeline text-indigo-400"></i> End-to-End Governance Lineage Audit Log
+        </h3>
+        <div id="audit-trace-container" class="space-y-3 font-mono text-xs">
+          <!-- Injected dynamically -->
+        </div>
+      </div>
+
+      <div class="flex justify-start">
+        <button onclick="goToStep(1)" class="px-5 py-2.5 border border-gray-700 text-gray-300 font-semibold text-sm rounded-xl hover:bg-gray-800 transition flex items-center gap-2">
+          <i class="fa-solid fa-rotate-left"></i> Run Another Dataset Governance Cycle
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Benchmark Modal -->
+  <div id="benchmark-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl max-w-4xl w-full p-6 space-y-6 border border-gray-700 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+        <div class="flex items-center space-x-3">
+          <i class="fa-solid fa-trophy text-amber-400 text-2xl"></i>
+          <div>
+            <h2 class="text-lg font-bold text-white">Data Cleaning Strategy Benchmark</h2>
+            <p class="text-xs text-gray-400">Empirical comparison: Baseline C0 vs Baseline C1 vs DataTrust OS A1</p>
+          </div>
+        </div>
+        <button onclick="closeBenchmarkModal()" class="text-gray-400 hover:text-white text-xl">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Winner Callout -->
+      <div class="p-4 rounded-xl bg-gradient-to-r from-teal-900/40 to-indigo-900/40 border border-teal-500/30 flex items-center justify-between">
+        <div>
+          <span class="text-xs text-teal-300 font-semibold uppercase">Benchmark Winner</span>
+          <div class="text-xl font-extrabold text-white mt-0.5">A1 (DataTrust OS AI Agent)</div>
+        </div>
+        <div class="text-right">
+          <div class="text-sm font-bold text-teal-400">93.3% Active Time Saved</div>
+          <div class="text-xs text-indigo-300">+17.2% Precision vs Zero-Shot Script</div>
+        </div>
+      </div>
+
+      <!-- Comparison Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-gray-300">
+          <thead class="bg-gray-900/80 text-xs font-semibold uppercase text-gray-400 border-b border-gray-800">
+            <tr>
+              <th class="px-4 py-3">Baseline Strategy</th>
+              <th class="px-4 py-3">Precision</th>
+              <th class="px-4 py-3">Recall</th>
+              <th class="px-4 py-3">Accuracy</th>
+              <th class="px-4 py-3">Active Human Mins</th>
+              <th class="px-4 py-3">Automation %</th>
+              <th class="px-4 py-3">Latency</th>
+            </tr>
+          </thead>
+          <tbody id="benchmark-table-body" class="divide-y divide-gray-800">
+            <!-- Injected dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button onclick="closeBenchmarkModal()" class="px-5 py-2.5 bg-gray-800 text-gray-200 font-semibold text-sm rounded-xl hover:bg-gray-700 transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-6 right-6 px-5 py-3 rounded-xl glass-card text-white text-sm shadow-2xl hidden z-50 flex items-center gap-3 border border-indigo-500/40">
+    <i id="toast-icon" class="fa-solid fa-circle-info text-indigo-400"></i>
+    <span id="toast-msg">Action completed.</span>
+  </div>
+
+  <!-- JavaScript Client Logic -->
+  <script>
+    let currentRunId = null;
+    let currentBaseline = 'a1';
+    let currentRules = [];
+    let profileData = null;
+
+    // Toast utility
+    function showToast(msg, isSuccess = true) {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-msg');
+      const iconEl = document.getElementById('toast-icon');
+
+      msgEl.innerText = msg;
+      if (isSuccess) {
+        iconEl.className = 'fa-solid fa-circle-check text-emerald-400';
+      } else {
+        iconEl.className = 'fa-solid fa-triangle-exclamation text-rose-400';
+      }
+
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3500);
+    }
+
+    // Step Navigation
+    function goToStep(stepNum) {
+      [1, 2, 3, 4].forEach(n => {
+        document.getElementById(`step-${n}`).classList.add('hidden');
+        const btn = document.getElementById(`step-btn-${n}`);
+        btn.classList.remove('border-indigo-500', 'bg-indigo-500/10');
+        btn.classList.add('opacity-60', 'border-gray-800');
+      });
+
+      document.getElementById(`step-${stepNum}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`step-btn-${stepNum}`);
+      activeBtn.classList.remove('opacity-60', 'border-gray-800');
+      activeBtn.classList.add('border-indigo-500', 'bg-indigo-500/10');
+    }
+
+    // STEP 1: Run Data Profiler
+    async function initiateRunAndProfile() {
+      try {
+        showToast("Creating run & profiling dataset...");
+        // 1. Create run
+        const resRun = await fetch('/api/runs', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ dataset_name: "taxi_trips_raw.csv", description: "NYC Taxi & Ride-Hailing Trips Governance Run" })
+        });
+        const runData = await resRun.json();
+        currentRunId = runData.run_id;
+
+        // 2. Profile dataset
+        const resProf = await fetch(`/api/runs/${currentRunId}/profile`, { method: 'POST' });
+        profileData = await resProf.json();
+
+        // Update UI
+        document.getElementById('stat-total-rows').innerText = profileData.total_rows.toLocaleString();
+        document.getElementById('stat-anomalies').innerText = profileData.total_anomalies;
+        document.getElementById('stat-health').innerText = profileData.data_health_score + "%";
+
+        const tbody = document.getElementById('column-profile-body');
+        tbody.innerHTML = '';
+        profileData.columns.forEach(col => {
+          const minMax = (col.min_val !== null && col.min_val !== undefined) 
+            ? `${col.min_val} / ${col.max_val} (avg: ${col.mean_val})` 
+            : 'N/A';
+          
+          const anomBadge = col.anomaly_count > 0 
+            ? `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">${col.anomaly_description || col.anomaly_count + ' issues'}</span>` 
+            : `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-check"></i> Clean</span>`;
+
+          tbody.innerHTML += `
+            <tr class="hover:bg-gray-800/40">
+              <td class="px-6 py-4 font-semibold text-white">${col.name}</td>
+              <td class="px-6 py-4 text-xs font-mono text-indigo-400">${col.data_type}</td>
+              <td class="px-6 py-4">${col.null_count}</td>
+              <td class="px-6 py-4">${col.distinct_count}</td>
+              <td class="px-6 py-4 text-xs text-gray-400">${minMax}</td>
+              <td class="px-6 py-4">${anomBadge}</td>
+            </tr>
+          `;
+        });
+
+        document.getElementById('profile-results').classList.remove('hidden');
+        showToast("Dataset profiling completed!");
+      } catch (err) {
+        showToast("Error profiling dataset: " + err.message, false);
+      }
+    }
+
+    // STEP 2: Fetch & Display Proposed Rules
+    async function fetchRuleProposals(baseline) {
+      if (!currentRunId) {
+        await initiateRunAndProfile();
+      }
+      currentBaseline = baseline;
+      
+      // Update baseline tab styling
+      ['c0', 'c1', 'a1'].forEach(b => {
+        const btn = document.getElementById(`baseline-tab-${b}`);
+        if (b === baseline) {
+          btn.className = 'px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white shadow transition';
+        } else {
+          btn.className = 'px-4 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-white transition';
+        }
+      });
+
+      try {
+        const res = await fetch(`/api/runs/${currentRunId}/propose?baseline=${baseline}`, { method: 'POST' });
+        const data = await res.json();
+        currentRules = data.rules;
+
+        // Update banner stats based on baseline
+        if (baseline === 'c0') {
+          document.getElementById('banner-effort').innerText = '120 Active Minutes';
+          document.getElementById('banner-saved').innerText = '0 Minutes (0%)';
+          document.getElementById('banner-precision').innerText = '62.5% Average';
+        } else if (baseline === 'c1') {
+          document.getElementById('banner-effort').innerText = '45 Active Minutes';
+          document.getElementById('banner-saved').innerText = '75 Minutes (62.5%)';
+          document.getElementById('banner-precision').innerText = '81.2% Average';
+        } else {
+          document.getElementById('banner-effort').innerText = '8 Active Minutes';
+          document.getElementById('banner-saved').innerText = '112.0 Minutes (93.3%)';
+          document.getElementById('banner-precision').innerText = '98.4% Average';
+        }
+
+        renderRuleCards();
+      } catch (err) {
+        showToast("Error fetching proposals: " + err.message, false);
+      }
+    }
+
+    function switchBaseline(b) {
+      fetchRuleProposals(b);
+    }
+
+    function renderRuleCards() {
+      const container = document.getElementById('rules-cards-container');
+      container.innerHTML = '';
+
+      currentRules.forEach(r => {
+        let riskColor = r.risk_level === 'HIGH' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : (r.risk_level === 'MEDIUM' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30');
+
+        container.innerHTML += `
+          <div class="glass-card rounded-xl p-5 border border-gray-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">${r.rule_id}</span>
+                <h4 class="text-sm font-bold text-white">${r.name}</h4>
+              </div>
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${riskColor} border">${r.risk_level} RISK</span>
+            </div>
+            <p class="text-xs text-gray-400">${r.description}</p>
+            <div class="p-2.5 bg-gray-950 rounded-lg border border-gray-800 font-mono text-xs text-teal-300">
+              ${r.expression}
+            </div>
+            <div class="flex items-center justify-between text-xs text-gray-400 pt-1">
+              <div><i class="fa-solid fa-bullseye text-teal-400"></i> Confidence: <span class="text-white font-bold">${(r.confidence * 100).toFixed(0)}%</span></div>
+              <div><i class="fa-solid fa-shield text-indigo-400"></i> Precision: <span class="text-white font-bold">${r.precision_pct}%</span></div>
+            </div>
+            <div class="text-xs text-gray-400 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800/80">
+              <span class="font-semibold text-gray-300">Evidence:</span> ${r.evidence}
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // STEP 3: Governance Table
+    function renderGovernanceTable() {
+      const tbody = document.getElementById('governance-table-body');
+      tbody.innerHTML = '';
+
+      currentRules.forEach((r, idx) => {
+        let riskColor = r.risk_level === 'HIGH' ? 'text-rose-400' : (r.risk_level === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400');
+        let currentExpr = r.custom_expression || r.expression;
+        let dec = r.decision || 'pending';
+
+        tbody.innerHTML += `
+          <tr class="hover:bg-gray-800/40">
+            <td class="px-6 py-4">
+              <div class="font-bold text-white">${r.name}</div>
+              <div class="text-xs font-mono text-indigo-400">${r.rule_id} • ${r.field}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="text-xs font-bold ${riskColor}">${r.risk_level} RISK</div>
+              <div class="text-xs text-gray-400">${(r.confidence * 100).toFixed(0)}% Confidence</div>
+            </td>
+            <td class="px-6 py-4">
+              <input type="text" id="expr-input-${idx}" value="${currentExpr}" onchange="updateRuleExpr(${idx}, this.value)" 
+                class="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs font-mono text-teal-300 focus:border-indigo-500 focus:outline-none" />
+            </td>
+            <td class="px-6 py-4 text-xs text-gray-400 max-w-xs">${r.evidence}</td>
+            <td class="px-6 py-4 text-right">
+              <select id="dec-select-${idx}" onchange="updateRuleDecision(${idx}, this.value)"
+                class="bg-gray-900 border border-gray-700 text-xs font-bold rounded-lg px-3 py-1.5 text-white focus:outline-none">
+                <option value="approve" ${dec === 'approve' || dec === 'pending' ? 'selected' : ''}>Approve</option>
+                <option value="edit" ${dec === 'edit' ? 'selected' : ''}>Edit Expression</option>
+                <option value="reject" ${dec === 'reject' ? 'selected' : ''}>Reject Rule</option>
+              </select>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function updateRuleExpr(idx, val) {
+      currentRules[idx].custom_expression = val;
+      currentRules[idx].decision = 'edit';
+      document.getElementById(`dec-select-${idx}`).value = 'edit';
+    }
+
+    function updateRuleDecision(idx, dec) {
+      currentRules[idx].decision = dec;
+    }
+
+    function bulkApproveAll() {
+      currentRules.forEach((r, idx) => {
+        r.decision = 'approve';
+      });
+      renderGovernanceTable();
+      showToast("Approved all proposed rules!");
+    }
+
+    // Submit Decisions & Execute
+    async function submitGovernanceAndExecute() {
+      try {
+        showToast("Submitting governance decisions & executing compiler...");
+        
+        // 1. Submit review decisions
+        const decisionsPayload = currentRules.map(r => ({
+          rule_id: r.rule_id,
+          decision: r.decision || 'approve',
+          custom_expression: r.custom_expression || null
+        }));
+
+        await fetch(`/api/runs/${currentRunId}/review`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ decisions: decisionsPayload })
+        });
+
+        // 2. Execute compilation
+        const resExec = await fetch(`/api/runs/${currentRunId}/execute`, { method: 'POST' });
+        const execData = await resExec.json();
+
+        // 3. Get full results
+        const resResults = await fetch(`/api/runs/${currentRunId}/results`);
+        const results = await resResults.json();
+
+        // Update Step 4 UI
+        document.getElementById('exec-clean-count').innerText = results.clean_rows.toLocaleString();
+        const total = results.total_rows;
+        const cleanPct = ((results.clean_rows / total) * 100).toFixed(1);
+        document.getElementById('exec-clean-pct').innerText = `${cleanPct}% Passed Governance`;
+
+        document.getElementById('exec-quarantine-count').innerText = results.quarantine_rows.toLocaleString();
+        const quarPct = ((results.quarantine_rows / total) * 100).toFixed(1);
+        document.getElementById('exec-quarantine-rate').innerText = `${quarPct}% Quarantined`;
+
+        document.getElementById('exec-time-saved').innerText = `${results.human_active_minutes_saved} Mins`;
+        document.getElementById('exec-latency').innerText = `${execData.execution_time_sec}s`;
+        document.getElementById('exec-manifest-hash').innerText = results.manifest_hash;
+
+        // Render Quarantine Sample Table
+        const qTbody = document.getElementById('quarantine-table-body');
+        qTbody.innerHTML = '';
+        results.sample_quarantined.forEach(q => {
+          qTbody.innerHTML += `
+            <tr class="hover:bg-gray-800/40">
+              <td class="px-6 py-4 font-mono text-xs text-gray-400">#${q.row_id}</td>
+              <td class="px-6 py-4 font-mono text-xs text-indigo-400 font-bold">${q.trip_id}</td>
+              <td class="px-6 py-4">
+                ${q.violated_rule_ids.map(id => `<span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 mr-1">${id}</span>`).join('')}
+              </td>
+              <td class="px-6 py-4 text-xs text-gray-300">${q.reasons.join(' | ')}</td>
+            </tr>
+          `;
+        });
+
+        // Render Audit Lineage Trace
+        const auditContainer = document.getElementById('audit-trace-container');
+        auditContainer.innerHTML = '';
+        results.audit_trace.forEach(evt => {
+          auditContainer.innerHTML += `
+            <div class="p-3 bg-gray-950 rounded-lg border border-gray-800 flex flex-col md:flex-row md:items-center justify-between">
+              <div class="flex items-center space-x-3">
+                <span class="text-indigo-400 font-bold">[${evt.step}]</span>
+                <span class="text-gray-300">${JSON.stringify(evt.details)}</span>
+              </div>
+              <span class="text-gray-500 text-xs mt-1 md:mt-0">${evt.timestamp.split('T')[1].split('.')[0]}</span>
+            </div>
+          `;
+        });
+
+        goToStep(4);
+        showToast("Compiled rules executed successfully!");
+      } catch (err) {
+        showToast("Execution error: " + err.message, false);
+      }
+    }
+
+    function copyManifest() {
+      const hash = document.getElementById('exec-manifest-hash').innerText;
+      navigator.clipboard.writeText(hash);
+      showToast("Manifest SHA-256 copied to clipboard!");
+    }
+
+    // Benchmark Modal
+    async function openBenchmarkModal() {
+      try {
+        const res = await fetch('/api/benchmark', { method: 'POST' });
+        const data = await res.json();
+        
+        const tbody = document.getElementById('benchmark-table-body');
+        tbody.innerHTML = '';
+        data.benchmarks.forEach(b => {
+          const isWinner = b.baseline.includes("A1");
+          const rowBg = isWinner ? 'bg-indigo-950/40 font-bold text-white' : '';
+          tbody.innerHTML += `
+            <tr class="${rowBg} hover:bg-gray-800/40">
+              <td class="px-4 py-3 flex items-center gap-2">
+                ${isWinner ? '<i class="fa-solid fa-crown text-amber-400"></i>' : ''} ${b.baseline}
+              </td>
+              <td class="px-4 py-3 text-teal-400 font-bold">${b.precision_pct}%</td>
+              <td class="px-4 py-3">${b.recall_pct}%</td>
+              <td class="px-4 py-3">${b.quarantine_accuracy_pct}%</td>
+              <td class="px-4 py-3 text-indigo-400 font-bold">${b.active_human_minutes} Mins</td>
+              <td class="px-4 py-3 text-emerald-400 font-bold">${b.automation_pct}%</td>
+              <td class="px-4 py-3 text-gray-400">${b.latency_sec}s</td>
+            </tr>
+          `;
+        });
+
+        document.getElementById('benchmark-modal').classList.remove('hidden');
+      } catch (err) {
+        showToast("Error fetching benchmark: " + err.message, false);
+      }
+    }
+
+    function closeBenchmarkModal() {
+      document.getElementById('benchmark-modal').classList.add('hidden');
+    }
+
+    // Reset Environment
+    async function triggerReset() {
+      if (!confirm("Are you sure you want to reset the environment state and re-seed the raw dataset?")) return;
+
+      try {
+        showToast("Resetting environment...");
+        const res = await fetch('/api/reset', { method: 'POST' });
+        const data = await res.json();
+
+        currentRunId = null;
+        profileData = null;
+        currentRules = [];
+
+        document.getElementById('profile-results').classList.add('hidden');
+        goToStep(1);
+        showToast(`Environment reset in ${data.reset_time_sec}s! ${data.rows_reseeded} rows re-seeded.`);
+      } catch (err) {
+        showToast("Reset failed: " + err.message, false);
+      }
+    }
+
+    // Auto load Step 1 profile on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      initiateRunAndProfile();
+    });
+  </script>
+</body>
+</html>

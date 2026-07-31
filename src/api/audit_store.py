@@ -1,0 +1,29 @@
+import time
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
+
+
+class AuditRecord(BaseModel):
+    event_id: str
+    event_type: str  # "profile", "rule_proposal", "hitl_review", "execution", "reset"
+    timestamp: float = Field(default_factory=time.time)
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditStore:
+    def __init__(self):
+        self.records: List[AuditRecord] = []
+
+    def record_event(self, event_type: str, details: Dict[str, Any]) -> AuditRecord:
+        event_id = f"evt_{len(self.records) + 1:04d}"
+        rec = AuditRecord(event_id=event_id, event_type=event_type, details=details)
+        self.records.append(rec)
+        return rec
+
+    def get_records(self, event_type: Optional[str] = None) -> List[AuditRecord]:
+        if event_type:
+            return [r for r in self.records if r.event_type == event_type]
+        return self.records
+
+    def clear(self):
+        self.records.clear()

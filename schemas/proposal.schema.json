@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Proposal",
+  "type": "object",
+  "properties": {
+    "proposal_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "transform": { "type": ["string", "null"] },
+          "confidence": { "type": "number" }
+        },
+        "required": ["source", "target"]
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "rulespec.schema.json"
+      }
+    },
+    "transforms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_field": { "type": "string" },
+          "target_field": { "type": "string" },
+          "operation": { "type": "string" },
+          "params": { "type": "object" }
+        },
+        "required": ["source_field", "target_field", "operation"]
+      }
+    },
+    "requires_approval": { "type": "boolean" },
+    "abstentions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["field", "reason"]
+      }
+    }
+  },
+  "required": ["proposal_id", "run_id", "rules"]
+}
