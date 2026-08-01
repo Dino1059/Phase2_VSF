@@ -1,0 +1,21 @@
+{
+  "title": "Khảo sát Dữ liệu",
+  "columns": "Số cột",
+  "rows": "Số dòng",
+  "nullRate": "Tỷ lệ Null",
+  "uniqueRate": "Tỷ lệ Duy nhất",
+  "dataType": "Kiểu dữ liệu",
+  "min": "Nhỏ nhất",
+  "max": "Lớn nhất",
+  "mean": "Trung bình",
+  "median": "Trung vị",
+  "stddev": "Độ lệch chuẩn",
+  "topValues": "Giá trị phổ biến",
+  "distribution": "Phân phối",
+  "health": "Điểm Sức khỏe",
+  "healthy": "Tốt",
+  "warning": "Cảnh báo",
+  "critical": "Nghiêm trọng",
+  "scanComplete": "Quét hoàn tất: {{rows}} dòng, {{columns}} cột đã phân tích",
+  "issues": "Tìm thấy {{count}} vấn đề"
+}

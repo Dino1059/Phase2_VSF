@@ -1,0 +1,10 @@
+{
+  "placeholder": "Type a command... (e.g., \"Profile vietnam_trips dataset\")",
+  "send": "Send",
+  "typing": "is thinking...",
+  "handoff": "Handing off to",
+  "sessionStart": "New session started",
+  "welcome": "Welcome to DataTrust OS. What would you like me to do?",
+  "commandHint": "Try: \"Profile this dataset\", \"Propose quality rules\", \"Run anomaly detection\"",
+  "noMessages": "No messages yet. Start by typing a command."
+}

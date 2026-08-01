@@ -1,0 +1,10 @@
+{
+  "placeholder": "Nhập lệnh... (ví dụ: \"Khảo sát bộ dữ liệu vietnam_trips\")",
+  "send": "Gửi",
+  "typing": "đang suy nghĩ...",
+  "handoff": "Chuyển giao cho",
+  "sessionStart": "Phiên mới bắt đầu",
+  "welcome": "Chào mừng đến DataTrust OS. Bạn muốn tôi làm gì?",
+  "commandHint": "Thử: \"Khảo sát bộ dữ liệu này\", \"Đề xuất luật chất lượng\", \"Chạy phát hiện bất thường\"",
+  "noMessages": "Chưa có tin nhắn. Hãy bắt đầu bằng cách nhập lệnh."
+}

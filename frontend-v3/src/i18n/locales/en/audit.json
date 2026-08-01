@@ -1,0 +1,18 @@
+{
+  "title": "Audit Trail",
+  "executionLog": "Execution Log",
+  "timestamp": "Timestamp",
+  "action": "Action",
+  "agent": "Agent",
+  "status": "Status",
+  "details": "Details",
+  "manifestHash": "Manifest Hash",
+  "rowsProcessed": "Rows Processed",
+  "rowsCleaned": "Rows Cleaned",
+  "rowsQuarantined": "Rows Quarantined",
+  "executionTime": "Execution Time",
+  "executionComplete": "Execution complete: {{cleaned}} clean, {{quarantined}} quarantined",
+  "rollback": "Rollback",
+  "rollbackConfirm": "Are you sure you want to rollback this execution?",
+  "noAuditEntries": "No audit entries yet"
+}

@@ -1,0 +1,21 @@
+{
+  "title": "Data Profiler",
+  "columns": "Columns",
+  "rows": "Rows",
+  "nullRate": "Null Rate",
+  "uniqueRate": "Unique Rate",
+  "dataType": "Data Type",
+  "min": "Min",
+  "max": "Max",
+  "mean": "Mean",
+  "median": "Median",
+  "stddev": "Std Dev",
+  "topValues": "Top Values",
+  "distribution": "Distribution",
+  "health": "Health Score",
+  "healthy": "Healthy",
+  "warning": "Warning",
+  "critical": "Critical",
+  "scanComplete": "Scan complete: {{rows}} rows, {{columns}} columns analyzed",
+  "issues": "{{count}} issues found"
+}
