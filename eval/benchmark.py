@@ -165,3 +165,126 @@ class BenchmarkHarness:
         }
 
         return summary
+
+    def run_real_benchmark(self, dataset_key: str = "nyc_fhvhv", 
+                           sample_size: int = 50_000) -> Dict[str, Any]:
+        """Run benchmark on real downloaded data with injected errors."""
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from src.services.dataset_engine import load_dataset
+        from eval.injector import ErrorInjector
+        
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        injector = ErrorInjector(seed=42)
+        datasets = injector.generate_datasets(df)
+        return self.run_benchmark(datasets)
+
+    def run_vietnam_benchmark(self) -> Dict[str, Any]:
+        """Run benchmark using pre-built Vietnam fault manifest as ground truth."""
+        import pandas as pd
+        import json
+        import os
+        
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        dirty_path = os.path.join(data_dir, "synthetic", "vietnam_trips_dirty.parquet")
+        manifest_path = os.path.join(data_dir, "synthetic", "fault_manifest.json")
+        clean_path = os.path.join(data_dir, "synthetic", "vietnam_trips.parquet")
+        
+        dirty_df = pd.read_parquet(dirty_path)
+        clean_df = pd.read_parquet(clean_path)
+        
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        
+        # Build ground truth from fault manifest
+        all_fault_indices = set()
+        fault_summary = {}
+        for fault in manifest:
+            fault_type = fault["fault_type"]
+            indices = fault.get("row_indices", [])
+            all_fault_indices.update(indices)
+            fault_summary[fault_type] = {
+                "count": len(indices),
+                "column": fault.get("column", "multiple"),
+                "description": fault.get("description", "")
+            }
+        
+        # Run profiling and rule generation on dirty data
+        from src.services.dataset_engine import profile_rows, generate_rules_for_baseline, execute_compiled_rules
+        
+        rows = dirty_df.to_dict('records')
+        profile_data = profile_rows(rows)
+        
+        results = {}
+        for variant in ["C0", "C1", "A1"]:
+            rules, gen_time = generate_rules_for_baseline(variant, profile_data)
+            exec_result = execute_compiled_rules(rows, rules)
+            
+            quarantine_indices = set(exec_result.get("quarantine_indices", []))
+            
+            # Calculate metrics against ground truth
+            true_positives = len(quarantine_indices & all_fault_indices)
+            false_positives = len(quarantine_indices - all_fault_indices)
+            false_negatives = len(all_fault_indices - quarantine_indices)
+            
+            precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+            recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+            
+            results[variant] = {
+                "rules_generated": len(rules),
+                "generation_time": round(gen_time, 3),
+                "quarantine_count": len(quarantine_indices),
+                "true_positives": true_positives,
+                "false_positives": false_positives,
+                "false_negatives": false_negatives,
+                "precision": round(precision, 4),
+                "recall": round(recall, 4),
+                "f1_score": round(f1, 4)
+            }
+        
+        # Agentic Gate: A1 must beat C1
+        a1_f1 = results["A1"]["f1_score"]
+        c1_f1 = results["C1"]["f1_score"]
+        gate_passed = a1_f1 >= c1_f1
+        
+        return {
+            "total_rows": len(dirty_df),
+            "total_known_faults": len(all_fault_indices),
+            "fault_summary": fault_summary,
+            "variant_results": results,
+            "agentic_gate": {
+                "passed": gate_passed,
+                "a1_f1": a1_f1,
+                "c1_f1": c1_f1,
+                "improvement": round(a1_f1 - c1_f1, 4)
+            }
+        }
+
+
+if __name__ == "__main__":
+    import sys, os, json
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    harness = BenchmarkHarness()
+    
+    print("=" * 60)
+    print("Running Vietnam Benchmark (50K rows, 9 fault types)")
+    print("=" * 60)
+    
+    results = harness.run_vietnam_benchmark()
+    
+    print(f"\nTotal rows: {results['total_rows']}")
+    print(f"Known faults: {results['total_known_faults']}")
+    print(f"\nFault types:")
+    for ft, info in results['fault_summary'].items():
+        print(f"  {ft}: {info['count']} errors in '{info['column']}'")
+    
+    print(f"\nVariant Results:")
+    for variant, metrics in results['variant_results'].items():
+        print(f"  {variant}: P={metrics['precision']:.4f} R={metrics['recall']:.4f} F1={metrics['f1_score']:.4f} | Rules: {metrics['rules_generated']} | Quarantined: {metrics['quarantine_count']}")
+    
+    gate = results['agentic_gate']
+    status = '✅ PASSED' if gate['passed'] else '❌ FAILED'
+    print(f"\nAgentic Gate: {status} (A1 F1={gate['a1_f1']:.4f} vs C1 F1={gate['c1_f1']:.4f}, Δ={gate['improvement']:+.4f})")
+

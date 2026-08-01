@@ -91,8 +91,12 @@ class ErrorInjector:
 
         # 3. Invalid format errors
         if "invalid_format" in families:
-            date_cols = [c for c in df_dirty.columns if "date" in c.lower() or "time" in c.lower()]
+            date_cols = [c for c in df_dirty.columns if "datetime" in c.lower() or "date" in c.lower()]
+            if not date_cols:
+                date_cols = [c for c in df_dirty.columns if "time" in c.lower()]
             col = date_cols[0] if date_cols else df_dirty.columns[0]
+            if df_dirty[col].dtype != object:
+                df_dirty[col] = df_dirty[col].astype(object)
             sampled_indices = random.sample(range(n_rows), min(per_family_count, n_rows))
             for idx in sampled_indices:
                 df_dirty.at[idx, col] = "99/99/9999_INVALID"

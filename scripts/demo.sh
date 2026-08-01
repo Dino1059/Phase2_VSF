@@ -1,72 +1,68 @@
 #!/usr/bin/env bash
 set -e
+cd "$(dirname "$0")/.." || exit 1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+echo '=== DataTrust OS Demo — Real Data Pipeline ==='
+echo ''
 
-cd "$PROJECT_ROOT"
-
-if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
-    PYTHON_CMD="$PROJECT_ROOT/.venv/bin/python"
-else
-    PYTHON_CMD="python3"
-fi
-
-echo "=========================================================="
-echo "🚀 [DataTrust OS] End-to-End Automated System Demonstration"
-echo "=========================================================="
-
-$PYTHON_CMD - << 'EOF'
-import sys
-import json
+# Start server in background
+echo '1. Starting server...'
+.venv/bin/python -c "
+import sys, os
+sys.path.insert(0, '.')
 from fastapi.testclient import TestClient
 from src.main import app
 
-with TestClient(app) as client:
-    print("\n--- 1. Testing Health Endpoint ---")
-    resp = client.get("/health")
-    assert resp.status_code == 200, resp.text
-    print(f"✅ Health Status: {resp.json()}")
+client = TestClient(app)
 
-    sample_data = [
-        {"trip_id": 1, "driver_pay": 10.0, "trip_miles": 5.0, "PULocationID": 10, "DOLocationID": 15},
-        {"trip_id": 2, "driver_pay": None, "trip_miles": 10.0, "PULocationID": 20, "DOLocationID": 25},
-        {"trip_id": 2, "driver_pay": 15.0, "trip_miles": 10.0, "PULocationID": 20, "DOLocationID": 25},
-        {"trip_id": 4, "driver_pay": -5.0, "trip_miles": 999.0, "PULocationID": 30, "DOLocationID": 35},
-        {"trip_id": 5, "driver_pay": 100.0, "trip_miles": 0.0, "PULocationID": 40, "DOLocationID": 40},
-    ]
+# Step 1: Health check
+print('\n--- Health Check ---')
+r = client.get('/health')
+print(f'Status: {r.status_code}')
+assert r.status_code == 200
 
-    print("\n--- 2. Profiling Dataset ---")
-    resp = client.post("/api/profile", json={"data": sample_data})
-    assert resp.status_code == 200, resp.text
-    prof = resp.json()
-    print(f"✅ Row Count: {prof['row_count']} | Column Count: {prof['column_count']} | Duplicates: {prof['duplicate_count']}")
+# Step 2: List datasets
+print('\n--- Available Datasets ---')
+r = client.get('/api/v1/datasets')
+for ds in r.json()['datasets']:
+    status = '✅' if ds['exists'] else '❌'
+    print(f'  {status} {ds[\"key\"]:25s} {ds[\"size_mb\"]:>8.1f} MB')
 
-    print("\n--- 3. Running Rule Proposal (Baseline A1 - DataTrust OS AI) ---")
-    resp = client.post("/api/rules/propose", json={"data": sample_data, "variant": "A1"})
-    assert resp.status_code == 200, resp.text
-    prop = resp.json()
-    print(f"✅ Variant: {prop['variant']} | Proposed Rules Count: {len(prop['rules'])}")
-    for r in prop['rules']:
-        print(f"  • [{r['rule_id']}] {r['rule_type']} on {r['target_column']} -> {r['action']}")
+# Step 3: Profile Vietnam dirty dataset (small, fast)
+print('\n--- Profiling Vietnam Trips (Dirty) ---')
+r = client.post('/api/v1/datasets/vietnam_trips_dirty/profile?sample_size=50000')
+data = r.json()
+print(f'  Rows profiled: {data[\"sample_size\"]}')
+profile = data['profile']
+print(f'  Columns: {profile[\"column_count\"]}')
+print(f'  Null rate: {profile.get(\"overall_null_rate\", \"N/A\")}')
 
-    print("\n--- 4. Executing Approved Rule Transformations ---")
-    exec_payload = {"data": sample_data, "rules": prop['rules']}
-    resp = client.post("/api/transform/execute", json=exec_payload)
-    assert resp.status_code == 200, resp.text
-    exec_res = resp.json()
-    print(f"✅ Initial Rows: {exec_res['initial_rows']} | Clean Rows: {exec_res['clean_rows']} | Quarantine Rows: {exec_res['quarantine_rows']}")
-    print(f"✅ Execution Time: {exec_res['execution_time_sec']}s")
+# Step 4: Propose rules (A1 agent)
+print('\n--- Proposing Rules (A1 Agent) ---')
+r = client.post('/api/v1/datasets/vietnam_trips_dirty/propose?variant=A1&sample_size=50000')
+data = r.json()
+print(f'  Rules generated: {data[\"rules_count\"]}')
+print(f'  Generation time: {data[\"generation_time_seconds\"]}s')
+for rule in data['rules'][:5]:
+    print(f'    • {rule.get(\"description\", rule.get(\"rule_type\", \"rule\"))}')
+if data['rules_count'] > 5:
+    print(f'    ... and {data[\"rules_count\"] - 5} more')
 
-    print("\n--- 5. Resetting Environment (<60s SLA) ---")
-    resp = client.post("/api/reset")
-    assert resp.status_code == 200, resp.text
-    reset_res = resp.json()
-    print(f"✅ Reset Status: {reset_res['status']} in {reset_res['reset_time_sec']}s")
+# Step 5: Execute rules -> clean/quarantine
+print('\n--- Executing Rules ---')
+r = client.post('/api/v1/datasets/vietnam_trips_dirty/execute?sample_size=10000')
+data = r.json()
+print(f'  Input rows:      {data[\"input_rows\"]}')
+print(f'  Clean rows:      {data[\"clean_rows\"]}')
+print(f'  Quarantine rows: {data[\"quarantine_rows\"]}')
+print(f'  Rules applied:   {data[\"rules_applied\"]}')
 
-print("\n=========================================================="
-      "\n🎉 DataTrust OS Automated Demo Completed Cleanly & Successfully!"
-      "\n==========================================================")
-EOF
+# Step 6: Profile NYC FHVHV (large dataset, sampled)
+print('\n--- Profiling NYC FHVHV (100K sample) ---')
+r = client.post('/api/v1/datasets/nyc_fhvhv/profile?sample_size=100000')
+data = r.json()
+print(f'  Rows profiled: {data[\"sample_size\"]}')
+print(f'  Columns: {data[\"profile\"][\"column_count\"]}')
 
-
+print('\n=== Demo Complete! ✅ ===')
+"

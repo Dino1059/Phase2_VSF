@@ -331,3 +331,156 @@ async def dispatch_webhook_endpoint(request: WebhookDispatchRequest):
         "alert_id": target_alert.alert_id,
         "webhook_url": request.webhook_url or target_alert.webhook_url,
     }
+
+
+# === Dataset Registry Endpoints ===
+
+
+def _sanitize_nans(val: Any) -> Any:
+    import math
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    if isinstance(val, dict):
+        return {k: _sanitize_nans(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_sanitize_nans(v) for v in val]
+    return val
+
+
+@router.get("/datasets")
+async def list_datasets():
+    """List all registered datasets."""
+    try:
+        import os
+        from src.config import get_settings
+
+        settings = get_settings()
+        result = []
+        for key, path in settings.dataset_registry.items():
+            full_path = settings.get_dataset_path(key)
+            exists = os.path.exists(full_path)
+            size_mb = os.path.getsize(full_path) / 1024**2 if exists else 0
+            result.append({"key": key, "path": path, "exists": exists, "size_mb": round(size_mb, 1)})
+        return {"datasets": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/datasets/{dataset_key}/profile")
+async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
+    """Profile a registered dataset with server-side file loading."""
+    try:
+        from src.services.dataset_engine import load_dataset
+        from src.tools.profiler import Profiler
+
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        profiler = Profiler()
+        result = profiler.profile(df, file_path=dataset_key)
+        profile_data = result.model_dump() if hasattr(result, "model_dump") else result.model_dump()
+        return {
+            "dataset": dataset_key,
+            "sample_size": len(df),
+            "profile": _sanitize_nans(profile_data),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/datasets/{dataset_key}/propose")
+async def propose_rules_for_dataset(
+    dataset_key: str,
+    variant: str = "A1",
+    sample_size: int = 100_000,
+):
+    """Propose data quality rules for a registered dataset."""
+    try:
+        from src.services.dataset_engine import (
+            generate_rules_for_baseline,
+            load_dataset,
+            profile_rows,
+        )
+
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        profile_data = profile_rows(df.to_dict("records"))
+        rules, duration = generate_rules_for_baseline(variant, profile_data)
+        return {
+            "dataset": dataset_key,
+            "variant": variant,
+            "rules_count": len(rules),
+            "rules": _sanitize_nans(rules),
+            "generation_time_seconds": round(duration, 3),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/datasets/{dataset_key}/execute")
+async def execute_rules_on_dataset(
+    dataset_key: str,
+    sample_size: Optional[int] = None,
+):
+    """Execute proposed rules on a dataset, returning clean/quarantine split."""
+    try:
+        from src.services.dataset_engine import (
+            execute_compiled_rules,
+            generate_rules_for_baseline,
+            load_dataset,
+            profile_rows,
+        )
+
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        rows = df.to_dict("records")
+        profile_data = profile_rows(rows)
+        rules, _ = generate_rules_for_baseline("A1", profile_data)
+        result = execute_compiled_rules(rows, rules)
+        clean_result = _sanitize_nans(result)
+        return {
+            "dataset": dataset_key,
+            "input_rows": len(rows),
+            "clean_rows": clean_result.get("clean_count", 0),
+            "quarantine_rows": clean_result.get("quarantine_count", 0),
+            "rules_applied": len(rules),
+            "execution_result": clean_result,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/datasets/{dataset_key}/benchmark")
+async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
+    """Run C0 vs C1 vs A1 benchmark on a dataset."""
+    try:
+        from src.services.dataset_engine import load_dataset
+
+        try:
+            from eval.benchmark import BenchmarkHarness
+            from eval.injector import ErrorInjector
+        except ImportError as ie:
+            raise HTTPException(status_code=500, detail=f"Benchmark import failed: {str(ie)}")
+
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        injector = ErrorInjector(seed=42)
+        datasets = injector.generate_datasets(df)
+        harness = BenchmarkHarness()
+        results = harness.run_benchmark(datasets)
+        return {
+            "dataset": dataset_key,
+            "sample_size": len(df),
+            "results": _sanitize_nans(results),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+

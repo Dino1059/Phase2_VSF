@@ -31,6 +31,31 @@ class Settings(BaseSettings):
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
 
+    # Dataset registry
+    raw_data_dir: str = "./data/raw"
+    default_dataset: str = "nyc_fhvhv"
+    dataset_registry: dict = {
+        "nyc_fhvhv": "data/raw/nyc_fhvhv_2024_01.parquet",
+        "grab_sea_demand": "data/raw/grab_sea_demand/GrabAIChallenge2019Dataset/Traffic Management/training.csv",
+        "weather_hcmc": "data/weather/hcmc_weather_2024.parquet",
+        "vietnam_trips": "data/synthetic/vietnam_trips.parquet",
+        "vietnam_trips_dirty": "data/synthetic/vietnam_trips_dirty.parquet",
+    }
+    fault_manifest_path: str = "data/synthetic/fault_manifest.json"
+    profile_sample_size: int = 100_000
+
+    def get_dataset_path(self, key: str) -> str:
+        import os
+
+        path = self.dataset_registry.get(key)
+        if not path:
+            raise ValueError(
+                f"Unknown dataset: {key}. Available: {list(self.dataset_registry.keys())}"
+            )
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, path)
+
+
 
 @lru_cache
 def get_settings() -> Settings:

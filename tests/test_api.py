@@ -116,3 +116,60 @@ def test_audit_store_class():
 
     store.clear()
     assert len(store.get_records()) == 0
+
+
+def test_list_datasets_endpoint():
+    response = client.get("/api/v1/datasets")
+    assert response.status_code == 200
+    data = response.json()
+    assert "datasets" in data
+    assert len(data["datasets"]) > 0
+
+
+def test_profile_dataset_endpoint():
+    response = client.post("/api/v1/datasets/nyc_fhvhv/profile?sample_size=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataset"] == "nyc_fhvhv"
+    assert "profile" in data
+
+
+def test_propose_rules_for_dataset_endpoint():
+    response = client.post("/api/v1/datasets/nyc_fhvhv/propose?variant=A1&sample_size=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataset"] == "nyc_fhvhv"
+    assert data["variant"] == "A1"
+    assert "rules" in data
+
+
+def test_execute_rules_on_dataset_endpoint():
+    response = client.post("/api/v1/datasets/nyc_fhvhv/execute?sample_size=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataset"] == "nyc_fhvhv"
+    assert "clean_rows" in data
+    assert "quarantine_rows" in data
+
+
+def test_benchmark_dataset_endpoint():
+    response = client.post("/api/v1/datasets/nyc_fhvhv/benchmark?sample_size=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataset"] == "nyc_fhvhv"
+    assert "results" in data
+
+
+def test_dataset_not_found_endpoints():
+    endpoints = [
+        "/api/v1/datasets/invalid_dataset_key/profile",
+        "/api/v1/datasets/invalid_dataset_key/propose",
+        "/api/v1/datasets/invalid_dataset_key/execute",
+        "/api/v1/datasets/invalid_dataset_key/benchmark",
+    ]
+    for ep in endpoints:
+        resp = client.post(ep)
+        assert resp.status_code == 404
+        assert "Unknown dataset: invalid_dataset_key" in resp.json()["detail"]
+
+

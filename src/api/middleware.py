@@ -5,9 +5,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class UserRole(str, Enum):
-    ADMIN = "admin"
-    STEWARD = "steward"
-    VIEWER = "viewer"
+    ADMIN = "Admin"
+    STEWARD = "Steward"
+    VIEWER = "Viewer"
 
 
 ROLE_PERMISSIONS: dict[UserRole, Set[str]] = {
@@ -50,7 +50,7 @@ class RoleMiddleware(BaseHTTPMiddleware):
         self.default_role = default_role
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        role_header = request.headers.get("X-User-Role", self.default_role.value).lower()
+        role_header = (request.headers.get("X-User-Role", self.default_role.value) or "Admin").strip().capitalize()
         
         try:
             user_role = UserRole(role_header)

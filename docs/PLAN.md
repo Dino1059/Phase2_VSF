@@ -142,6 +142,16 @@ We already have [fhvhv_tripdata_2026-05.parquet](file:///home/shayneeo/Downloads
 
 Must include: source, license, columns, types, row count, known quality issues, checksum, sampling strategy.
 
+### 4.3 Integrated Benchmark Datasets (5 Layers, ~24M rows, ~530MB)
+
+| Layer | Dataset | Source | Rows | Size | Status | Description |
+|---|---|---|---|---|---|---|
+| **L1** | NYC FHVHV | NYC TLC Jan 2024 | 19,663,930 | 451 MB | ✅ | High-volume ride-hailing baseline (Uber/Lyft) |
+| **L2** | Grab SEA | Kaggle (AI for SEA 2019) | 4,206,321 | ~61 MB | ✅ | Regional Southeast Asia demand & geohash spatial mobility |
+| **L3** | Weather Context | Open-Meteo API (HCMC 2024) | 8,784 | 0.1 MB | ✅ | Hourly weather parameters for cross-domain context |
+| **L4** | Synthetic Vietnam | Generator (seed=42) | 50,000 | 8.3 MB | ✅ | Clean Vietnam ride-hailing with VND, rush-hour distribution |
+| **L5** | Fault Manifest | Fault Injector (seed=42) | 50,000 | 8.4 MB | ✅ | Ground-truth dataset with 9 injected fault types (14,450 errors) |
+
 ---
 
 ## 5. Architecture Summary

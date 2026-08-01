@@ -673,6 +673,18 @@ Reset must:
 | Precision | 80% | Below |
 | Cost (tokens/$) | 2× C1 | Above |
 
+### 10.4 Integrated Benchmark Datasets
+
+The evaluation suite incorporates 5 real/synthetic dataset layers (~24M rows, ~530MB):
+
+| Layer | Source | Rows | Size | Description |
+|---|---|---|---|---|
+| **L1: NYC FHVHV** | NYC TLC Jan 2024 | 19,663,930 | 451 MB | High-volume ride-hailing baseline (Uber/Lyft) |
+| **L2: Grab SEA** | Kaggle (AI for SEA 2019) | 4,206,321 | ~61 MB | SEA demand & geohash spatial mobility |
+| **L3: Weather** | Open-Meteo API | 8,784 | 0.1 MB | HCMC hourly weather context for cross-domain rules |
+| **L4: Synthetic VN** | Generated (seed=42) | 50,000 | 8.3 MB | Clean Vietnam ride-hailing trips (VND fares, rush-hour distribution) |
+| **L5: Fault Manifest** | Fault Injector | 50,000 | 8.4 MB | Ground truth benchmark dataset with 9 injected fault types (14,450 errors) |
+
 ---
 
 ## 11. MVP vs. Stretch
