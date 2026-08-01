@@ -16,6 +16,7 @@ interface ChatState {
   setConnected: (connected: boolean) => void;
   addProposals: (proposals: RuleProposal[]) => void;
   updateProposalStatus: (id: string, status: 'approved' | 'rejected') => void;
+  setMessages: (messages: ChatMessage[]) => void;
   clearMessages: () => void;
 }
 
@@ -57,6 +58,8 @@ export const useChatStore = create<ChatState>((set) => ({
         p.id === id ? { ...p, status } : p
       ),
     })),
+
+  setMessages: (messages) => set({ messages }),
 
   clearMessages: () => set({ messages: [], pendingProposals: [] }),
 }));

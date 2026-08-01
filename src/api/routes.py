@@ -3,6 +3,7 @@ import time
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 import pandas as pd
+from pydantic import BaseModel
 
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
@@ -1033,6 +1034,26 @@ async def send_chat_message(request: ChatRequest):
 async def get_chat_history(session_id: str = "default"):
     """Retrieve persisted chat messages."""
     return {"messages": conversation_store.get_messages(session_id=session_id)}
+
+
+@router.get("/chat/sessions")
+async def get_chat_sessions():
+    """Retrieve all chat sessions."""
+    return {"sessions": conversation_store.list_sessions()}
+
+
+class ClearChatRequest(BaseModel):
+    session_id: Optional[str] = None
+
+
+@router.post("/chat/clear")
+async def clear_chat(req: ClearChatRequest):
+    """Clear chat messages for a specific session or all sessions."""
+    if req.session_id:
+        conversation_store.clear_messages(session_id=req.session_id)
+    else:
+        conversation_store.clear_all()
+    return {"status": "cleared", "session_id": req.session_id}
 
 
 

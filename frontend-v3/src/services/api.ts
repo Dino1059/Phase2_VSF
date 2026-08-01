@@ -15,3 +15,19 @@ export async function fetchChatHistory(sessionId: string = 'default') {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export async function fetchChatSessions() {
+  const res = await fetch(`${API_BASE}/chat/sessions`);
+  if (!res.ok) return { sessions: [] };
+  return res.json();
+}
+
+export async function clearChatDatabase(sessionId?: string) {
+  const res = await fetch(`${API_BASE}/chat/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

@@ -102,4 +102,30 @@ class ConversationStore:
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             conn.commit()
 
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_updated,
+                       (SELECT content FROM messages m2 WHERE m2.session_id = messages.session_id ORDER BY timestamp ASC LIMIT 1) as first_msg
+                FROM messages
+                GROUP BY session_id
+                ORDER BY last_updated DESC
+            """)
+            rows = cursor.fetchall()
+
+        result = []
+        for r in rows:
+            result.append({
+                "session_id": r["session_id"],
+                "msg_count": r["msg_count"],
+                "last_updated": r["last_updated"],
+                "title": r["first_msg"][:40] if r["first_msg"] else "Chat Session",
+            })
+        return result
+
+    def clear_all(self):
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM messages")
+            conn.commit()
+
 conversation_store = ConversationStore()

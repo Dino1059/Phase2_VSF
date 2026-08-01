@@ -1,16 +1,20 @@
 import { TopBar } from './TopBar';
+import { Sidebar } from './Sidebar';
 import { ChatPanel } from '../chat/ChatPanel';
 import { WorkspacePanel } from '../workspace/WorkspacePanel';
 import { AgentStatusBar } from './AgentStatusBar';
 import { useAppStore } from '../../stores/appStore';
 
 export function AppShell() {
-  const { workspacePanelVisible } = useAppStore();
+  const { workspacePanelVisible, sidebarCollapsed } = useAppStore();
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       <TopBar />
       <div className="flex flex-1 overflow-hidden">
+        {/* Left Sidebar */}
+        {!sidebarCollapsed && <Sidebar />}
+
         {/* Chat Panel */}
         <div
           className={`flex flex-col border-r border-border transition-all duration-300 ${

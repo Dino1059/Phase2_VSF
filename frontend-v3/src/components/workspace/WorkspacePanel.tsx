@@ -5,6 +5,7 @@ import type { WorkspaceView } from '../../types';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { RuleWorkspace } from './RuleWorkspace';
 import { AuditWorkspace } from './AuditWorkspace';
+import { AnomalyWorkspace } from './AnomalyWorkspace';
 
 const VIEW_ICONS: Record<WorkspaceView, React.ComponentType<{ className?: string }>> = {
   empty: LayoutDashboard,
@@ -48,7 +49,7 @@ export function WorkspacePanel() {
         ) : activeWorkspace === 'rules' ? (
           <RuleWorkspace />
         ) : activeWorkspace === 'anomaly' ? (
-          <AnomalyPlaceholder />
+          <AnomalyWorkspace />
         ) : activeWorkspace === 'audit' ? (
           <AuditWorkspace />
         ) : (
@@ -73,18 +74,7 @@ function EmptyWorkspace() {
   );
 }
 
-function AnomalyPlaceholder() {
-  const { t } = useTranslation('agents');
-  return (
-    <div className="p-6">
-      <div className="border border-border rounded-lg p-8 text-center text-text-muted">
-        <AlertTriangle className="w-10 h-10 mx-auto mb-3 opacity-30" />
-        <p className="text-sm">{t('anomalyDetector')}</p>
-        <p className="text-xs mt-1 opacity-60">Anomaly timeline will appear here</p>
-      </div>
-    </div>
-  );
-}
+
 
 function DiffPlaceholder() {
   return (

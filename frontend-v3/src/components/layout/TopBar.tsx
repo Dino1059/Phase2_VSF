@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useChatStore } from '../../stores/chatStore';
 import { AGENTS } from '../../types';
@@ -9,7 +9,7 @@ const ROLE_OPTIONS: UserRole[] = ['admin', 'steward', 'viewer'];
 
 export function TopBar() {
   const { t, i18n } = useTranslation();
-  const { role, setRole, workspacePanelVisible, setWorkspacePanelVisible } = useAppStore();
+  const { role, setRole, workspacePanelVisible, setWorkspacePanelVisible, sidebarCollapsed, toggleSidebar } = useAppStore();
   const { agentStatuses } = useChatStore();
 
   const toggleLang = () => {
@@ -20,8 +20,16 @@ export function TopBar() {
 
   return (
     <header className="flex items-center justify-between px-4 h-12 bg-surface border-b border-border shrink-0">
-      {/* Left: Logo + Agent dots */}
+      {/* Left: Sidebar toggle + Logo + Agent dots */}
       <div className="flex items-center gap-3">
+        <button
+          onClick={toggleSidebar}
+          className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-md transition-colors"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+        </button>
+
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-agent-orchestrator" />
           <span className="font-semibold text-sm text-text-primary tracking-tight">
