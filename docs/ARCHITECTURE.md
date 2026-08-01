@@ -42,25 +42,36 @@
 
 ```mermaid
 flowchart LR
-    U["👤 Data Analyst / Steward"]
-    S[("📦 Single Relational Source<br/>(Parquet / CSV / PostgreSQL)")]
+    U["👤 Data Analyst / Steward / Admin"]
+    S[("📦 Multi-Source Input<br/>(CSV / Parquet / JSON / JSONL)")]
+    STUB[("📄 Unstructured Stubs<br/>(PDF / Log / Image)")]
     
-    U --> UI["🖥️ Guided Review UI"]
-    S --> IN["🔌 Source Connector"]
+    U --> UI["🖥️ Vite + React + AntD UI"]
+    S --> DS["🔌 DataSource Abstraction"]
+    STUB --> DS
     
-    UI --> API["⚡ Application API<br/>(FastAPI)"]
-    IN --> PROF["📊 Profiler"]
+    UI --> RBAC["🔒 RoleMiddleware (RBAC)<br/>Admin / Steward / Viewer"]
+    RBAC --> API["⚡ FastAPI Application"]
+    DS --> PROF["📊 Profiler"]
     
-    API --> ORCH["🎯 Bounded Workflow<br/>Orchestrator"]
+    API --> ORCH["🎯 BoundedReActEngine<br/>Top-Level Orchestrator"]
     PROF --> ORCH
     
-    ORCH --> LLM["🤖 Structured LLM<br/>Service"]
-    ORCH --> TOOLS["🔧 Deterministic<br/>Tool Layer"]
+    subgraph SubAgents["🤖 Specialized Sub-Agent System"]
+        PA["ProfilerAgent"]
+        RA["RuleProposerAgent"]
+        AA["AnomalyDetectorAgent"]
+        DA["DiagnosisAgent"]
+    end
     
-    LLM --> ORCH
-    TOOLS --> ORCH
+    ORCH --> SubAgents
+    SubAgents --> LLM["🤖 Structured LLM Service<br/>(Gemini / OpenAI / Mock)"]
+    SubAgents --> TOOLS["🔧 Deterministic Tool Layer"]
     
-    ORCH --> HITL["✅ Human Review<br/>Queue"]
+    ORCH --> SCHED["⏱️ APScheduler Service<br/>(Interval / Cron Triggers)"]
+    ORCH --> ALERT["🔔 AlertService & Webhooks<br/>(Slack / Discord / HTTP)"]
+    
+    ORCH --> HITL["✅ Human Review Queue"]
     HITL --> U
     U --> HITL
     
@@ -68,18 +79,15 @@ flowchart LR
     EXEC --> CLEAN[("✨ CleanDB")]
     EXEC --> QUAR[("🔒 Quarantine")]
     
-    ORCH --> AUDIT[("📋 Audit /<br/>Run Metadata")]
+    ORCH --> AUDIT[("📋 Audit Store /<br/>Run Manifest")]
     EXEC --> AUDIT
     HITL --> AUDIT
 ```
 
-**Actors:**
-- **Data Analyst / Steward:** Reviews proposals, approves/edits/rejects transformations, inspects results
-- **Source System:** The relational data being onboarded (read-only access)
-
-**External dependencies:**
-- LLM provider (Gemini / GPT-4o / Claude) — via adapter
-- No other external services required for MVP
+**Actors & Roles:**
+- **Admin:** Full system control, reset capabilities, schedule deletion, alert management.
+- **Steward:** Reviews rule proposals, approves/edits/rejects transformations, configures schedules.
+- **Viewer:** Read-only access to dashboards, clean datasets, audit traces, and anomaly reports.
 
 ---
 
@@ -87,62 +95,85 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph Presentation["🖥️ Presentation Layer"]
-        UI["Workflow UI<br/>(React / Streamlit)"]
-        REVIEW["Approve / Edit / Reject<br/>Screen"]
-        TRACE["Evidence / Trace<br/>Inspector"]
+    subgraph Presentation["🖥️ Presentation Layer (Vite + React + Ant Design)"]
+        UI["Dashboard & Profiler View"]
+        REVIEW["HITL Rule Governance<br/>(Approve / Edit / Reject)"]
+        SCHED_UI["Schedule Manager<br/>(Cron / Interval)"]
+        ANOM_UI["Anomaly Timeline &<br/>RCA Inspector"]
+        AUDIT_UI["Audit Trace &<br/>Manifest Viewer"]
     end
 
     subgraph Application["⚡ Application Layer"]
-        API["FastAPI Server"]
-        SM["Bounded State Machine<br/>(Python transitions)"]
-        POLICY["Approval Policy<br/>Engine"]
+        API["FastAPI REST API"]
+        RBAC["RoleMiddleware<br/>(X-User-Role)"]
+        SM["RunStateMachine<br/>(State Transitions)"]
+        SCHED["SchedulerService<br/>(APScheduler)"]
+        ALERT["AlertService & Webhooks"]
     end
 
-    subgraph Intelligence["🤖 Intelligence Layer"]
-        CTX["Context Builder<br/>(profile → LLM prompt)"]
-        LLM["Structured LLM Adapter<br/>(provider-agnostic)"]
-        REPAIR["Bounded Repair<br/>(max 3 retries)"]
+    subgraph Intelligence["🤖 Intelligence & Sub-Agent Layer"]
+        ORCH["BoundedReActEngine"]
+        subgraph SubAgents["Specialized Bounded Sub-Agents"]
+            PA["ProfilerAgent"]
+            RA["RuleProposerAgent"]
+            AA["AnomalyDetectorAgent"]
+            DA["DiagnosisAgent"]
+        end
+        CTX["ContextBuilder"]
+        LLM["LLMService Adapter"]
+        REPAIR["Bounded Repair Loop<br/>(max 3 retries)"]
     end
 
     subgraph DeterministicTools["🔧 Deterministic Tool Layer"]
-        PROF["Profiler<br/>(schema + aggregates)"]
-        VALID["Validator<br/>(schema + type + range)"]
-        COMP["Compiler<br/>(RuleSpec → executable plan)"]
-        TEST["Test Runner<br/>(fixed-seed)"]
-        TRANS["Transform Library<br/>(whitelist-only)"]
+        DS["DataSource Abstraction<br/>(CSV/Parquet/JSON/Stubs)"]
+        PROF["Profiler Tool"]
+        VALID["Validator Tool"]
+        COMP["Compiler Tool"]
+        ANOM["Anomaly Detector Suite<br/>(ZScore / IQR / IsoForest)"]
+        TEST["TestRunner Tool"]
+        TRANS["Transform Library"]
     end
 
     subgraph DataPlane["💾 Data Plane"]
-        RAW[("Immutable Raw<br/>Snapshot")]
-        META[("Profiles /<br/>Contracts")]
-        CLEAN[("CleanDB")]
-        QUAR[("Quarantine")]
-        AUDIT[("Manifest /<br/>Audit Log")]
+        RAW[("Immutable Raw Snapshot")]
+        CLEAN[("CleanDB Output")]
+        QUAR[("Quarantine Table")]
+        AUDIT[("AuditStore / Manifest")]
     end
 
-    UI --> API
-    REVIEW --> API
+    UI --> RBAC
+    REVIEW --> RBAC
+    SCHED_UI --> RBAC
+    ANOM_UI --> RBAC
+    AUDIT_UI --> RBAC
+    RBAC --> API
+    
     API --> SM
-    SM --> POLICY
-    SM --> CTX
+    API --> SCHED
+    API --> ALERT
+    
+    SM --> ORCH
+    ORCH --> SubAgents
+    SubAgents --> CTX
     CTX --> LLM
     LLM --> REPAIR
-    REPAIR --> SM
-    SM --> PROF
-    SM --> VALID
-    SM --> COMP
-    SM --> TEST
-    SM --> TRANS
-    RAW --> PROF
-    PROF --> META
+    REPAIR --> SubAgents
+    
+    SubAgents --> DS
+    SubAgents --> PROF
+    SubAgents --> VALID
+    SubAgents --> COMP
+    SubAgents --> ANOM
+    SubAgents --> TEST
+    SubAgents --> TRANS
+    
+    DS --> RAW
     TRANS --> CLEAN
     TRANS --> QUAR
     SM --> AUDIT
-    REVIEW --> AUDIT
-    TEST --> AUDIT
-    TRANS --> AUDIT
+    ALERT --> AUDIT
 ```
+
 
 ---
 
