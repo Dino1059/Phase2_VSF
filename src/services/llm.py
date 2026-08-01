@@ -255,6 +255,35 @@ class LLMService:
         # Fallback to mock for unknown provider or errors
         return self.mock_llm.generate_structured(prompt, response_model, system_prompt)
 
+    def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Generates natural language text response."""
+        if self.provider == "openai" and self.openai_api_key:
+            try:
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=self.model_name,
+                    api_key=self.openai_api_key,
+                    temperature=0.7,
+                )
+                messages = []
+                if system_prompt:
+                    messages.append(("system", system_prompt))
+                messages.append(("user", prompt))
+                res = llm.invoke(messages)
+                return str(res.content)
+            except Exception as e:
+                logger.warning(f"OpenAI call failed ({e}); falling back to default assistant message.")
+
+        return (
+            f"I evaluated your query: '{prompt}'. DataTrust OS is an AI-augmented data governance system.\n\n"
+            "Here are the active tools & sub-agents ready to run:\n"
+            "• **🔍 ProfilerAgent**: `Profile vietnam_trips_dirty`\n"
+            "• **🛡️ RuleProposerAgent**: `Propose quality rules`\n"
+            "• **⚠️ AnomalyDetectorAgent**: `Detect anomalies`\n"
+            "• **🩺 DiagnosisAgent**: `Diagnose root cause for vietnam_trips_dirty`\n"
+            "• **📊 DatasetRegistry**: `List datasets`"
+        )
+
 
 def get_llm():
     """Legacy helper returning ChatOpenAI or fallback LLM instance."""

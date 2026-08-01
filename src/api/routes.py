@@ -988,30 +988,27 @@ async def send_chat_message(request: ChatRequest):
 
     else:
         agent_id = "orchestrator"
-        decision = llm_service.generate_structured(
+        response_text = llm_service.generate_text(
             prompt=request.message,
-            response_model=DecisionObject,
-            system_prompt="You are DataTrust OS Orchestrator Agent."
+            system_prompt="You are DataTrust OS Orchestrator Agent. Provide concise, helpful answers in markdown."
         )
 
-        obs_content = f"Observation: Evaluated command '{request.message}' using LLMService orchestrator. Prepared action plan: {decision.next_action}."
+        obs_content = f"Observation: Evaluated query '{request.message}' using Orchestrator LLM reasoning engine."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": obs_content,
-            "metadata": {"decision": decision.model_dump()}
         })
         await ws_manager.broadcast({
             "type": "chat.message",
             "data": obs_msg
         })
 
-        conclusion_content = f"DataTrust Agent received: '{request.message}'. Issue: {decision.issue}. Recommended action: {decision.next_action}."
+        conclusion_content = response_text
         agent_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": conclusion_content,
-            "metadata": {"decision": decision.model_dump()}
         })
         await ws_manager.broadcast({
             "type": "chat.message",
@@ -1026,9 +1023,9 @@ async def send_chat_message(request: ChatRequest):
 
         return ChatResponse(
             response=agent_msg["content"],
-            analysis="ReAct Loop Completed: Thought -> Action (LLM Orchestration) -> Observation -> Conclusion",
+            analysis="ReAct Loop Completed: Thought -> Action (LLM Reasoning) -> Observation -> Conclusion",
             state="READY",
-            agent_execution={"agent": agent_id, "decision": decision.model_dump()}
+            agent_execution={"agent": agent_id, "llm_reasoning": True}
         )
 
 
