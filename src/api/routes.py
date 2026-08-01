@@ -1,12 +1,14 @@
 import time
-from typing import Any, Dict, List
-from fastapi import APIRouter, HTTPException
+from typing import Any, Dict, List, Optional
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 import pandas as pd
 
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.api.audit_store import AuditStore
 from src.api.state_machine import StateMachine, WorkflowState
 from src.models.schemas import (
+    AlertCreateRequest,
+    AnomalyDetectRequest,
     ChatRequest,
     ChatResponse,
     ExecuteTransformRequest,
@@ -17,13 +19,48 @@ from src.models.schemas import (
     ProposeRulesResponse,
     ResetResponse,
     RuleSchema,
+    ScheduleCreate,
+    ScheduleResponse,
+    WebhookDispatchRequest,
 )
+from src.services.alerting import alert_service
+from src.services.scheduler import scheduler_service
+from src.tools.anomaly import AnomalyDetector
 from src.tools.compiler import Compiler
 from src.tools.executor import Executor
 from src.tools.profiler import Profiler
 from src.tools.validator import RuleSpec
 
-router = APIRouter()
+
+async def check_user_role(request: Request, x_user_role: Optional[str] = Header(None, alias="X-User-Role")):
+    """Middleware dependency for X-User-Role role-based access control."""
+    role = (x_user_role or "Admin").strip().capitalize()
+    valid_roles = {"Admin", "Steward", "Viewer"}
+    if role not in valid_roles:
+        role = "Admin"
+
+    request.state.user_role = role
+    method = request.method.upper()
+    path = request.url.path
+
+    if role == "Viewer":
+        if method not in ("GET", "HEAD", "OPTIONS"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role 'Viewer' has read-only access. '{method}' operation is forbidden.",
+            )
+
+    if role == "Steward":
+        if method == "DELETE" or path.rstrip("/").endswith("/reset"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role 'Steward' does not have permission for administrative operation.",
+            )
+
+    return role
+
+
+router = APIRouter(dependencies=[Depends(check_user_role)])
 
 # Global in-memory state for API demo
 state_machine = StateMachine()
@@ -59,7 +96,11 @@ async def profile_endpoint(request: ProfileRequest) -> ProfileResponse:
 @router.post("/rules/propose", response_model=ProposeRulesResponse)
 async def propose_rules_endpoint(request: ProposeRulesRequest) -> ProposeRulesResponse:
     try:
-        df = pd.DataFrame(request.data) if request.data else pd.DataFrame([{"hvfhs_license_num": "HV0003", "driver_pay": 15.0}])
+        df = (
+            pd.DataFrame(request.data)
+            if request.data
+            else pd.DataFrame([{"hvfhs_license_num": "HV0003", "driver_pay": 15.0}])
+        )
         variant = request.variant.upper()
 
         if variant == "C0":
@@ -177,4 +218,116 @@ async def agent_status():
         "agent": "DataTrust OS Agent v1.0",
         "state": state_machine.current_state.value,
         "audit_events_count": len(audit_store.get_records()),
+    }
+
+
+# --- Scheduler API Routes ---
+@router.post("/schedules", response_model=ScheduleResponse)
+async def create_schedule_endpoint(request: ScheduleCreate) -> ScheduleResponse:
+    try:
+        sched = scheduler_service.add_schedule(
+            name=request.name,
+            dataset_name=request.dataset_name,
+            schedule_type=request.schedule_type,
+            interval_seconds=request.interval_seconds,
+            cron_expression=request.cron_expression,
+            action=request.action,
+        )
+        return ScheduleResponse(**sched)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedules", response_model=List[ScheduleResponse])
+async def get_schedules_endpoint() -> List[ScheduleResponse]:
+    schedules = scheduler_service.get_schedules()
+    return [ScheduleResponse(**s) for s in schedules]
+
+
+@router.delete("/schedules/{id}")
+async def delete_schedule_endpoint(id: str):
+    success = scheduler_service.delete_schedule(id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Schedule '{id}' not found.")
+    return {"status": "success", "message": f"Schedule '{id}' deleted successfully."}
+
+
+# --- Anomaly Detector API Routes ---
+@router.post("/anomalies/detect")
+async def detect_anomalies_endpoint(request: AnomalyDetectRequest):
+    try:
+        detector = AnomalyDetector()
+        result = detector.detect_all(
+            current_profile=request.current_profile,
+            historical_profiles=request.historical_profiles,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Alerting & Notification API Routes ---
+@router.get("/alerts")
+async def get_alerts_endpoint(severity: Optional[str] = None, status: Optional[str] = None):
+    alerts = alert_service.get_alerts(severity=severity, status=status)
+    return [a.model_dump() for a in alerts]
+
+
+@router.post("/alerts")
+async def create_alert_endpoint(request: AlertCreateRequest):
+    try:
+        alert = alert_service.create_alert(
+            title=request.title,
+            message=request.message,
+            severity=request.severity,
+            source=request.source,
+            webhook_url=request.webhook_url,
+            root_cause=request.root_cause,
+            metadata=request.metadata,
+        )
+        return alert.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/alerts/{id}/acknowledge")
+async def acknowledge_alert_endpoint(id: str):
+    alert = alert_service.acknowledge_alert(id)
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert '{id}' not found.")
+    return alert.model_dump()
+
+
+@router.post("/alerts/{id}/resolve")
+async def resolve_alert_endpoint(id: str):
+    alert = alert_service.resolve_alert(id)
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert '{id}' not found.")
+    return alert.model_dump()
+
+
+@router.post("/alerts/dispatch-webhook")
+async def dispatch_webhook_endpoint(request: WebhookDispatchRequest):
+    if request.alert_id:
+        target_alert = alert_service.get_alert(request.alert_id)
+        if not target_alert:
+            raise HTTPException(status_code=404, detail=f"Alert '{request.alert_id}' not found.")
+    else:
+        alerts = alert_service.get_alerts()
+        if not alerts:
+            target_alert = alert_service.create_alert(
+                title="Webhook Dispatch Verification",
+                message="Test payload dispatch for alert webhook service.",
+                severity="LOW",
+                webhook_url=request.webhook_url,
+                auto_dispatch=False,
+            )
+        else:
+            target_alert = alerts[0]
+
+    success = alert_service.dispatch_webhook(target_alert, webhook_url=request.webhook_url)
+    return {
+        "status": "success" if success else "failed",
+        "alert_id": target_alert.alert_id,
+        "webhook_url": request.webhook_url or target_alert.webhook_url,
     }

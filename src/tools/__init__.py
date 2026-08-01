@@ -1,6 +1,14 @@
-from src.models.schemas import ProfileReport
+from src.models.schemas import ProfileReport, ProfileResult
 from src.tools.compiler import Compiler, ExecutableInstruction, ExecutableTransformPlan
 from src.tools.connector import SourceConnector
+from src.tools.datasource import (
+    DataSource,
+    ImageSource,
+    LogSource,
+    PDFSource,
+    StructuredSource,
+    UnstructuredSource,
+)
 from src.tools.datatrust_tools import (
     TOOL_WHITELIST,
     abstain_tool,
@@ -27,8 +35,15 @@ __all__ = [
     "submit_review_tool",
     "abstain_tool",
     "SourceConnector",
+    "DataSource",
+    "StructuredSource",
+    "UnstructuredSource",
+    "PDFSource",
+    "LogSource",
+    "ImageSource",
     "Profiler",
     "ProfileReport",
+    "ProfileResult",
     "Validator",
     "RuleSpec",
     "ValidationResult",

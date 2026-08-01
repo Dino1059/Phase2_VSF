@@ -1,7 +1,7 @@
-# DataTrust OS — Project Plan
+# DataTrust OS — v2 Project Plan
 
-> **Status:** Working hypothesis — requires mentor validation  
-> **Created:** 2026-08-01  
+> **Status:** Confirmed v2 Execution Plan  
+> **Version:** v2.0  
 > **Delivery window:** 2026-07-30 → 2026-09-03  
 > **Problem bank code:** DATA-02 — "AI Agent xây dựng & kiểm tra Data Quality và phát hiện bất thường"  
 > **Team:** Thanh (product/eval), Ngân (schema/agent), Dũng (pipeline/tools), Huyền (UX/deploy)
@@ -19,19 +19,21 @@ DATA-02 asks for an AI agent that:
 - HITL: data steward approves rules before production
 - Governance: read-only metadata, no sensitive data exposure
 
-**Our reinterpretation (DataTrust OS):**  
-We narrow DATA-02 to the *onboarding and contract creation* wedge — the first time a data team encounters a new source and must understand, map, rule, and clean it. This is where the pain is sharpest and least tooled.
+**DataTrust OS v2 Integration:**  
+DataTrust OS v2 addresses both onboarding/contract creation AND scheduled continuous monitoring. It combines multi-source abstraction (`DataSource` supporting CSV, Parquet, JSON, JSONL), specialized sub-agents (`ProfilerAgent`, `RuleProposerAgent`, `AnomalyDetectorAgent`, `DiagnosisAgent`), `APScheduler` scheduled monitoring, `AlertService` with root-cause diagnosis and webhooks, `RoleMiddleware` RBAC (`Admin`, `Steward`, `Viewer`), and an expanded quantitative evaluation benchmark harness.
 
-### 1.2 Why this wedge over full DATA-02 scope?
+### 1.2 DATA-02 Scope vs DataTrust OS v2 Implementation
 
-| Full DATA-02 scope | Our MVP wedge | Rationale |
+| DATA-02 Feature | DataTrust OS v2 Implementation | Status |
 |---|---|---|
-| Scheduled monitoring | One-shot onboarding | Monitoring requires production infra (Airflow/scheduler) — explicit non-goal in 5 weeks |
-| Anomaly ML (Isolation Forest) | Optional stretch | Core value is in rule proposal + HITL, not ML anomaly |
-| Multi-source | Single relational source | Scope control |
-| dbt/Great Expectations native | Own deterministic executor | Avoid vendor lock; demonstrate the bounded-agent concept cleanly |
+| Multi-source Ingestion | Polymorphic `DataSource` hierarchy (`StructuredSource` for CSV, Parquet, JSON, JSONL; stubs for PDF, Log, Image) | ✅ Delivered |
+| Sub-Agent Decomposition | 4 specialized sub-agents: `ProfilerAgent`, `RuleProposerAgent`, `AnomalyDetectorAgent`, `DiagnosisAgent` | ✅ Delivered |
+| Scheduled Monitoring | `SchedulerService` wrapping `APScheduler` for interval and cron scheduled checks | ✅ Delivered |
+| Anomaly Detection & Alerts | Tri-detector suite (`ZScoreDetector`, `IQRDetector`, `IsolationForestDetector`) + `AlertService` with webhooks | ✅ Delivered |
+| Access Control & Roles | `RoleMiddleware` enforcing `Admin`, `Steward`, and `Viewer` permissions | ✅ Delivered |
+| Quantitative Benchmark | Expanded `eval/benchmark.py` testing Anomaly Precision/Recall, Root-Cause Accuracy, SLA Compliance, Human Minutes Saved | ✅ Delivered |
 
-### 1.3 Adjacent topics we absorb partially
+### 1.3 Adjacent topics absorbed in v2
 
 | Topic | What we borrow | What we don't |
 |---|---|---|

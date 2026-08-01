@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from src.api.routes import router
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
+from src.services.scheduler import scheduler_service
 
 UI_DIR = os.path.join(os.path.dirname(__file__), "ui")
 INDEX_HTML = os.path.join(UI_DIR, "index.html")
@@ -20,7 +21,9 @@ async def lifespan(app: FastAPI):
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
     # Pre-seed dataset if not exists
     seed_dataset()
+    scheduler_service.start()
     yield
+    scheduler_service.shutdown()
     print("Shutting down DataTrust OS...")
 
 
@@ -69,3 +72,6 @@ async def serve_ui():
 
 if os.path.exists(UI_DIR):
     app.mount("/static", StaticFiles(directory=UI_DIR), name="static")
+    assets_dir = os.path.join(UI_DIR, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")

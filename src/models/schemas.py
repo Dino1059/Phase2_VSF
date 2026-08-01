@@ -82,6 +82,9 @@ class RawSnapshot(BaseModel):
     row_count: int
     schema_info: List[Dict[str, Any]] = Field(default_factory=list)
     file_path: str = ""
+    file_format: Optional[str] = None
+    source_type: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class QualityFlag(BaseModel):
@@ -142,6 +145,10 @@ class ColumnProfile(BaseModel):
 
 class Profile(BaseModel):
     snapshot_id: str = "snap_001"
+    source_type: str = "structured"
+    file_format: str = "csv"
+    checksum_sha256: str = ""
+    file_path: str = ""
     columns: List[ColumnProfile] = Field(default_factory=list)
     row_count: int = 0
     column_count: int = 0
@@ -149,10 +156,18 @@ class Profile(BaseModel):
     cross_field_correlations: Any = Field(default_factory=list)
     candidate_keys: List[str] = Field(default_factory=list)
     quality_flags: List[QualityFlag] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         if self.column_count == 0 and self.columns:
             self.column_count = len(self.columns)
+
+
+class ProfileResult(Profile):
+    """
+    ProfileResult wraps multi-format profiling metadata for structured and unstructured sources.
+    """
+    pass
 
 
 class ProfileReport(BaseModel):
@@ -495,3 +510,83 @@ class TestSuiteResult(BaseModel):
     passed: int = 0
     failed: int = 0
     results: List[TestResult] = Field(default_factory=list)
+
+
+# --- Anomaly & Diagnosis Schemas ---
+class AnomalyItem(BaseModel):
+    column: str = Field(default="", description="Column where anomaly was detected")
+    anomaly_type: str = Field(default="outlier", description="Type of anomaly (e.g. null_spike, range_shift, duplicate_spike)")
+    description: str = Field(default="", description="Detailed description of the anomaly")
+    severity: str = Field(default="medium", description="Severity level (low, medium, high, critical)")
+    metric_shift: Dict[str, Any] = Field(default_factory=dict, description="Observed baseline vs current metric shift")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score")
+
+
+class AnomalyReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: f"anom_{uuid.uuid4().hex[:8]}")
+    dataset_name: str = Field(default="dataset", description="Name of dataset analyzed")
+    detected_anomalies: List[AnomalyItem] = Field(default_factory=list, description="List of detected anomalies")
+    anomaly_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Aggregate anomaly score")
+    summary: str = Field(default="", description="High-level summary of anomaly findings")
+    status: str = Field(default="ANOMALY_DETECTED", description="Status of anomaly detection run")
+
+
+class DiagnosisReport(BaseModel):
+    diagnosis_id: str = Field(default_factory=lambda: f"diag_{uuid.uuid4().hex[:8]}")
+    run_id: str = Field(default="run_001", description="Associated run ID")
+    root_cause: str = Field(..., description="Root cause explanation")
+    category: str = Field(default="data_corruption", description="Category of failure or anomaly")
+    affected_columns: List[str] = Field(default_factory=list, description="Columns impacted by root cause")
+    evidence: List[str] = Field(default_factory=list, description="Supporting evidence for diagnosis")
+    impact_level: str = Field(default="high", description="Impact level (low, medium, high, critical)")
+    recommended_remediation: str = Field(default="", description="Actionable fix or remediation step")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score of diagnosis")
+
+
+# --- Scheduler, Alert, & Anomaly API DTO Schemas ---
+class ScheduleCreate(BaseModel):
+    name: str = Field(..., description="Schedule name")
+    dataset_name: str = Field(default="raw_taxi_trips.csv", description="Target dataset name")
+    schedule_type: str = Field(default="interval", description="Schedule type: 'interval' or 'cron'")
+    interval_seconds: Optional[int] = Field(default=3600, description="Interval in seconds")
+    cron_expression: Optional[str] = Field(default=None, description="Cron string (e.g. '*/5 * * * *')")
+    action: str = Field(default="profile", description="Action to run: 'profile', 'quality_check', 'full'")
+
+
+class ScheduleResponse(BaseModel):
+    schedule_id: str
+    id: str
+    name: str
+    dataset_name: str
+    schedule_type: str
+    interval_seconds: Optional[int] = None
+    cron_expression: Optional[str] = None
+    action: str
+    status: str
+    created_at: str
+    last_run: Optional[str] = None
+    next_run: Optional[str] = None
+    run_count: int = 0
+
+
+class AlertCreateRequest(BaseModel):
+    title: str
+    message: str
+    severity: str = "MEDIUM"
+    source: str = "DataTrust OS"
+    webhook_url: Optional[str] = None
+    root_cause: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WebhookDispatchRequest(BaseModel):
+    webhook_url: Optional[str] = None
+    alert_id: Optional[str] = None
+
+
+class AnomalyDetectRequest(BaseModel):
+    current_profile: Dict[str, Any]
+    historical_profiles: List[Dict[str, Any]] = Field(default_factory=list)
+    detector: str = "all"
+
+

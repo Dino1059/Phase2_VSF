@@ -1,21 +1,51 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 
-from src.models.schemas import ColumnProfile, Profile, ProfileReport, QualityFlag, RuleSeverity
+from src.models.schemas import ColumnProfile, Profile, ProfileReport, ProfileResult, QualityFlag, RuleSeverity
+from src.tools.datasource import DataSource
 
 
 class Profiler:
     """
-    Profiler computes deterministic statistical profiles and metadata for a DataFrame.
+    Profiler computes deterministic statistical profiles and metadata for a DataFrame or DataSource.
     """
 
     def __init__(self, snapshot_id: str = "snap_001"):
         self.snapshot_id = snapshot_id
 
-    def profile(self, data: pd.DataFrame, snapshot_id: Optional[str] = None) -> Profile:
+    def profile_source(self, source: DataSource, snapshot_id: Optional[str] = None) -> ProfileResult:
+        """Profiles a DataSource directly, incorporating source metadata."""
+        meta = source.get_metadata()
+        try:
+            df = source.load_data()
+            if not isinstance(df, pd.DataFrame):
+                df = pd.DataFrame()
+        except NotImplementedError:
+            df = pd.DataFrame()
+
+        return self.profile(
+            data=df,
+            snapshot_id=snapshot_id,
+            source_type=meta.get("source_type", "structured"),
+            file_format=meta.get("file_format", "csv"),
+            checksum_sha256=meta.get("checksum_sha256", ""),
+            file_path=meta.get("file_path", ""),
+            metadata=meta,
+        )
+
+    def profile(
+        self,
+        data: pd.DataFrame,
+        snapshot_id: Optional[str] = None,
+        source_type: str = "structured",
+        file_format: str = "csv",
+        checksum_sha256: str = "",
+        file_path: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ProfileResult:
         snap_id = snapshot_id or self.snapshot_id or "snap_001"
-        row_count = len(data)
+        row_count = len(data) if not data.empty else 0
         duplicate_count = int(data.duplicated().sum()) if not data.empty else 0
 
         column_profiles: List[ColumnProfile] = []
@@ -106,12 +136,17 @@ class Profiler:
                 )
             )
 
-        return Profile(
+        return ProfileResult(
             snapshot_id=snap_id,
+            source_type=source_type,
+            file_format=file_format,
+            checksum_sha256=checksum_sha256,
+            file_path=file_path,
             columns=column_profiles,
             row_count=row_count,
             duplicate_count=duplicate_count,
             cross_field_correlations=[],
             candidate_keys=candidate_keys,
             quality_flags=quality_flags,
+            metadata=metadata or {},
         )

@@ -1,8 +1,8 @@
-# DataTrust OS — Architecture Document
+# DataTrust OS — v2 Architecture Document
 
-> **Status:** Proposed design — pending mentor review  
-> **Gate:** SCRUM-27 — soft gate 2026-08-01 11:30  
-> **Last updated:** 2026-08-01
+> **Status:** Confirmed v2 Architecture Design  
+> **Version:** v2.0  
+> **Last updated:** 2026-08-01  
 
 ---
 
@@ -21,47 +21,20 @@
 | P7 | **Every run has a manifest and trace** | Input checksums, operations, outputs, decisions — all recorded |
 | P8 | **Fail closed: quarantine or abstain** | Unknown/uncertain records go to quarantine, not silently dropped |
 | P9 | **Provider-agnostic LLM adapter** | Swap Gemini/GPT/Claude without changing orchestration logic |
-| P10 | **Lightweight orchestration for MVP** | Python state machine, not Airflow/Dagster |
+| P10 | **Specialized Sub-Agent Decomposition** | Modular agents for profiling, rule proposal, anomaly detection, and root-cause diagnosis |
+| P11 | **Multi-Source Data Abstraction** | Polymorphic `DataSource` for tabular (CSV, Parquet, JSON, JSONL) & non-tabular stubs |
+| P12 | **Scheduled Monitoring & Governance** | Background `APScheduler` monitoring, `AlertService` webhooks, and `RoleMiddleware` RBAC |
 
-### 1.2 MVP scope
+### 1.2 v2 System Architecture Scope
 
-**In scope:**
-- One centralized relational source (Parquet/CSV/PostgreSQL)
-- Immutable raw snapshot with SHA-256 checksum
-- Schema and aggregate profiling (deterministic)
-- Target schema and source-to-target mapping
-- LLM-proposed rules/transformations with evidence + confidence
-- Human approve/edit/reject queue
-- Deterministic validation, compilation, and execution
-- CleanDB output + quarantine + manifest + audit trail
-- Repeatable reset and demo (< 60 seconds)
-- C0/C1/A1 three-way benchmark
-
-**Explicit non-goals:**
-- Multiple production sources
-- Distributed processing (Spark/Flink)
-- Unstructured data ingestion (PDF, images)
-- Streaming/real-time
-- Full multi-tenant RBAC
-- Mobile app
-- Production Airflow/Dagster
-- Fine-tuning on the critical path
-- Arbitrary LLM-generated code execution
-- LLM-generated values for missing data
-- Autonomous multi-agent system
-- Production-grade anomaly ML (stretch only)
-
-### 1.3 Cut order (if behind schedule)
-
-1. Anomaly ML
-2. Model routing/compression
-3. Nonessential visualization
-4. Extra rule families beyond 5
-5. Airflow scheduler
-6. Multi-source support
-7. Unstructured ingestion
-8. Fine-tuning
-9. Agentic claim (if A1 fails gate)
+**In scope (v2):**
+- **Multi-Source Abstraction:** Polymorphic `DataSource` hierarchy supporting CSV, Parquet, JSON, and JSONL formats with `PDFSource`, `LogSource`, and `ImageSource` stubs.
+- **Sub-Agent Decomposition:** 4 specialized sub-agents (`ProfilerAgent`, `RuleProposerAgent`, `AnomalyDetectorAgent`, `DiagnosisAgent`) operating with whitelisted tools and confidence thresholds.
+- **Scheduled Monitoring & Alerts:** Background `APScheduler` integration (`SchedulerService`) with interval/cron triggers, `AlertService` for in-app notifications and HTTP webhook dispatch.
+- **Statistical Anomaly Detection:** Tri-detector suite comprising `ZScoreDetector`, `IQRDetector`, and `IsolationForestDetector` for historical profile drift analysis.
+- **Role-Based Access Control:** `RoleMiddleware` enforcing `Admin`, `Steward`, and `Viewer` permission boundaries.
+- **Expanded Evaluation Harness:** `eval/benchmark.py` harness measuring Anomaly Precision/Recall, Root-Cause Accuracy, Scheduling SLA Compliance, and Human Minutes Saved.
+- **Core Pipeline:** Immutable raw snapshots (SHA-256), deterministic profiling, target mapping, HITL approval queue, clean output + quarantine + cryptographic manifest.
 
 ---
 

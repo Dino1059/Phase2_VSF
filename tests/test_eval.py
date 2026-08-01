@@ -69,6 +69,14 @@ def test_benchmark_harness(sample_clean_df):
     assert "recall_gain_pp" in gate_res
     assert "time_reduction_pct" in gate_res
 
+    # Check expanded evaluation metrics on A1 medium dataset
+    a1_metrics = summary["dataset_evaluations"]["medium"]["A1"]
+    assert a1_metrics.anomaly_precision > 0.80
+    assert a1_metrics.anomaly_recall > 0.80
+    assert a1_metrics.root_cause_accuracy > 0.80
+    assert a1_metrics.scheduling_sla_compliance > 0.90
+    assert a1_metrics.human_minutes_saved > 0.0
+
 
 def test_evaluate_agentic_gate_passing():
     c1_metrics = BenchmarkMetrics(
@@ -80,6 +88,11 @@ def test_evaluate_agentic_gate_passing():
         cost_usd=0.001,
         idempotency_score=0.95,
         abstention_quality=0.80,
+        anomaly_precision=0.82,
+        anomaly_recall=0.75,
+        root_cause_accuracy=0.78,
+        scheduling_sla_compliance=0.88,
+        human_minutes_saved=75.0,
     )
     a1_metrics = BenchmarkMetrics(
         variant="A1",
@@ -90,6 +103,11 @@ def test_evaluate_agentic_gate_passing():
         cost_usd=0.0012,  # 1.2x cost <= 2.0x
         idempotency_score=0.99,
         abstention_quality=0.95,
+        anomaly_precision=0.94,
+        anomaly_recall=0.91,
+        root_cause_accuracy=0.95,
+        scheduling_sla_compliance=0.99,
+        human_minutes_saved=112.0,
     )
 
     gate_res = evaluate_agentic_gate(c1_metrics, a1_metrics)
@@ -98,6 +116,11 @@ def test_evaluate_agentic_gate_passing():
     assert gate_res.time_reduction_pct == 30.0
     assert gate_res.precision_guardrail_met
     assert gate_res.cost_guardrail_met
+    assert a1_metrics.anomaly_precision == 0.94
+    assert a1_metrics.anomaly_recall == 0.91
+    assert a1_metrics.root_cause_accuracy == 0.95
+    assert a1_metrics.scheduling_sla_compliance == 0.99
+    assert a1_metrics.human_minutes_saved == 112.0
 
 
 def test_evaluate_agentic_gate_failing_guardrail():
@@ -125,3 +148,4 @@ def test_evaluate_agentic_gate_failing_guardrail():
     gate_res = evaluate_agentic_gate(c1_metrics, a1_metrics)
     assert not gate_res.passed
     assert not gate_res.precision_guardrail_met
+

@@ -5,7 +5,15 @@ from typing import Any, Dict, Optional, Type, TypeVar
 from pydantic import BaseModel
 
 from src.config import get_settings
-from src.models.schemas import DecisionObject, QualityRule, RuleProposal, ValidationResult
+from src.models.schemas import (
+    AnomalyItem,
+    AnomalyReport,
+    DecisionObject,
+    DiagnosisReport,
+    QualityRule,
+    RuleProposal,
+    ValidationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +141,46 @@ class OfflineMockLLM:
                 confidence=0.9,
             )  # type: ignore
 
-        # Default fallback creation for any Pydantic model
+        elif response_model == AnomalyReport:
+            anomalies = [
+                AnomalyItem(
+                    column="email",
+                    anomaly_type="null_spike",
+                    description="Null percentage spiked to 15% from 0% baseline",
+                    severity="high",
+                    metric_shift={"baseline_null_pct": 0.0, "current_null_pct": 15.0},
+                    confidence=0.9,
+                ),
+                AnomalyItem(
+                    column="age",
+                    anomaly_type="range_shift",
+                    description="Out-of-bound age values observed (max value 150)",
+                    severity="medium",
+                    metric_shift={"baseline_max": 85, "current_max": 150},
+                    confidence=0.85,
+                ),
+            ]
+            return AnomalyReport(
+                report_id="mock_anom_001",
+                dataset_name="dataset",
+                detected_anomalies=anomalies,
+                anomaly_score=0.75,
+                summary="Detected 2 significant profile shift anomalies in email and age columns.",
+                status="ANOMALY_DETECTED",
+            )  # type: ignore
+
+        elif response_model == DiagnosisReport:
+            return DiagnosisReport(
+                diagnosis_id="mock_diag_001",
+                run_id="run_001",
+                root_cause="Upstream system migration injected unvalidated NULL records into email field and negative values in age.",
+                category="upstream_schema_change",
+                affected_columns=["email", "age"],
+                evidence=["Null percentage increased from 0% to 15%", "Range min dropped below threshold 0"],
+                impact_level="high",
+                recommended_remediation="Enforce mandatory NOT NULL constraint on email in ingestion connector and quarantine invalid age rows.",
+                confidence=0.88,
+            )  # type: ignore
         try:
             return response_model.model_construct()
         except Exception:
