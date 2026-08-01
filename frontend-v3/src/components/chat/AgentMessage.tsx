@@ -5,11 +5,33 @@ import { AGENTS } from '../../types';
 import type { ChatMessage, RuleProposal } from '../../types';
 import { Brain, Terminal, ShieldCheck } from 'lucide-react';
 
+const AGENT_ALIASES: Record<string, keyof typeof AGENTS> = {
+  'rule_proposer': 'ruleProposer',
+  'rule-proposer': 'ruleProposer',
+  'ruleproposer': 'ruleProposer',
+  'anomaly': 'anomalyDetector',
+  'anomaly_detector': 'anomalyDetector',
+  'anomalydetector': 'anomalyDetector',
+  'diagnostics': 'diagnosis',
+  'diagnosis_agent': 'diagnosis',
+};
+
+function safeFormatTime(timestamp?: string) {
+  try {
+    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(timestamp);
+    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+}
+
 export function AgentMessage({ message }: { message: ChatMessage }) {
   const { t } = useTranslation();
-  const agentId = message.agentId || 'orchestrator';
-  const agent = AGENTS[agentId];
-  const time = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const rawAgentId = message.agentId || 'orchestrator';
+  const agentId = (AGENT_ALIASES[rawAgentId] || (AGENTS[rawAgentId as keyof typeof AGENTS] ? rawAgentId : 'orchestrator')) as keyof typeof AGENTS;
+  const agent = AGENTS[agentId] || AGENTS.orchestrator;
+  const time = safeFormatTime(message.timestamp);
 
   const content = message.content || '';
   const isThought = content.startsWith('Thought:');

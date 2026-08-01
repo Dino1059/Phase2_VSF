@@ -1,7 +1,17 @@
 import type { ChatMessage } from '../../types';
 
+function safeFormatTime(timestamp?: string) {
+  try {
+    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(timestamp);
+    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+}
+
 export function UserMessage({ message }: { message: ChatMessage }) {
-  const time = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = safeFormatTime(message.timestamp);
 
   return (
     <div className="flex justify-end">

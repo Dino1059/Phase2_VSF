@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, X, Pencil, ShieldCheck, AlertTriangle, Info } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
@@ -13,8 +12,8 @@ const SEVERITY_CONFIG = {
 export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
   const { t } = useTranslation('rules');
   const updateProposalStatus = useChatStore((s) => s.updateProposalStatus);
-  const [_showRejectInput, _setShowRejectInput] = useState(false);
-  const severity = SEVERITY_CONFIG[proposal.severity];
+  const sevKey = (proposal.severity || 'warning').toLowerCase();
+  const severity = SEVERITY_CONFIG[sevKey as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.warning;
   const SeverityIcon = severity.icon;
 
   if (proposal.status !== 'pending') {

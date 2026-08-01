@@ -214,7 +214,7 @@ def test_v3_static_and_ui_endpoints():
 
     # Test /v3/assets endpoint dynamically
     import os
-    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src", "static_v3", "assets")
+    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "dist", "assets")
     if os.path.exists(assets_dir):
         js_files = [f for f in os.listdir(assets_dir) if f.endswith(".js")]
         if js_files:
