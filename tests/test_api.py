@@ -102,6 +102,27 @@ def test_state_machine():
     sm.transition_to(WorkflowState.RULES_PROPOSED)
     assert sm.current_state == WorkflowState.RULES_PROPOSED
 
+    sm.transition_to(WorkflowState.COMPILED)
+    assert sm.current_state == WorkflowState.COMPILED
+
+    sm.transition_to(WorkflowState.TESTED)
+    assert sm.current_state == WorkflowState.TESTED
+
+    sm.transition_to(WorkflowState.HITL_REVIEWED)
+    assert sm.current_state == WorkflowState.HITL_REVIEWED
+
+    sm.transition_to(WorkflowState.EXECUTED)
+    assert sm.current_state == WorkflowState.EXECUTED
+
+    sm.transition_to(WorkflowState.COMPLETED)
+    assert sm.current_state == WorkflowState.COMPLETED
+
+    sm.transition_to(WorkflowState.INIT)
+    assert sm.current_state == WorkflowState.INIT
+
+    sm.transition_to(WorkflowState.FAILED)
+    assert sm.current_state == WorkflowState.FAILED
+
     sm.reset()
     assert sm.current_state == WorkflowState.INIT
 

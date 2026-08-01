@@ -164,9 +164,12 @@ async def execute_transform_endpoint(request: ExecuteTransformRequest) -> Execut
         plan = compiler.compile(rules_spec)
         clean_df, q_df, manifest = executor.execute(df, plan)
 
-        if state_machine.current_state in (WorkflowState.RULES_PROPOSED, WorkflowState.HITL_REVIEWED):
-            state_machine.transition_to(WorkflowState.EXECUTED)
-            state_machine.transition_to(WorkflowState.COMPLETED)
+        if state_machine.current_state in (WorkflowState.RULES_PROPOSED, WorkflowState.COMPILED, WorkflowState.TESTED, WorkflowState.HITL_REVIEWED):
+            if state_machine.current_state in (WorkflowState.RULES_PROPOSED, WorkflowState.COMPILED):
+                state_machine.transition_to(WorkflowState.HITL_REVIEWED)
+            if state_machine.current_state in (WorkflowState.TESTED, WorkflowState.HITL_REVIEWED):
+                state_machine.transition_to(WorkflowState.EXECUTED)
+                state_machine.transition_to(WorkflowState.COMPLETED)
 
         audit_store.record_event(
             "execution",

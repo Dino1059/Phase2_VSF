@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -7,9 +7,37 @@ class WorkflowState(str, Enum):
     INIT = "INIT"
     PROFILED = "PROFILED"
     RULES_PROPOSED = "RULES_PROPOSED"
+    COMPILED = "COMPILED"
+    TESTED = "TESTED"
     HITL_REVIEWED = "HITL_REVIEWED"
     EXECUTED = "EXECUTED"
     COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+TRANSITIONS: Dict[WorkflowState, List[WorkflowState]] = {
+    WorkflowState.INIT: [WorkflowState.PROFILED, WorkflowState.FAILED],
+    WorkflowState.PROFILED: [WorkflowState.RULES_PROPOSED, WorkflowState.FAILED],
+    WorkflowState.RULES_PROPOSED: [
+        WorkflowState.COMPILED,
+        WorkflowState.HITL_REVIEWED,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.COMPILED: [
+        WorkflowState.TESTED,
+        WorkflowState.HITL_REVIEWED,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.TESTED: [
+        WorkflowState.HITL_REVIEWED,
+        WorkflowState.EXECUTED,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.HITL_REVIEWED: [WorkflowState.EXECUTED, WorkflowState.FAILED],
+    WorkflowState.EXECUTED: [WorkflowState.COMPLETED, WorkflowState.FAILED],
+    WorkflowState.COMPLETED: [WorkflowState.INIT],
+    WorkflowState.FAILED: [WorkflowState.INIT],
+}
 
 
 class StateMachine(BaseModel):
@@ -21,17 +49,7 @@ class StateMachine(BaseModel):
     metadata: Dict[str, str] = Field(default_factory=dict)
 
     def transition_to(self, new_state: WorkflowState) -> WorkflowState:
-        # Valid state transition graph
-        valid_transitions = {
-            WorkflowState.INIT: [WorkflowState.PROFILED],
-            WorkflowState.PROFILED: [WorkflowState.RULES_PROPOSED],
-            WorkflowState.RULES_PROPOSED: [WorkflowState.HITL_REVIEWED, WorkflowState.EXECUTED],
-            WorkflowState.HITL_REVIEWED: [WorkflowState.EXECUTED],
-            WorkflowState.EXECUTED: [WorkflowState.COMPLETED],
-            WorkflowState.COMPLETED: [WorkflowState.INIT],
-        }
-
-        allowed = valid_transitions.get(self.current_state, [])
+        allowed = TRANSITIONS.get(self.current_state, [])
         if new_state not in allowed:
             raise ValueError(f"Invalid state transition from {self.current_state} to {new_state}")
 
@@ -45,3 +63,4 @@ class StateMachine(BaseModel):
         self.proposed_rules_count = 0
         self.approved_rules_count = 0
         self.metadata.clear()
+

@@ -37,7 +37,11 @@ def test_error_injector_families_and_rates(sample_clean_df):
 
     for label in labels:
         assert isinstance(label.row_idx, int)
-        assert label.error_type in ["null", "duplicate", "invalid_format", "outlier_range", "schema_drift", "cross_field"]
+        assert label.error_type in [
+            "null", "duplicate", "invalid_format", "outlier_range", "schema_drift", "cross_field",
+            "type_error", "range_error", "referential_error", "temporal_error", "geographic_error",
+            "financial_error", "business_error", "privacy_error", "distribution_shift"
+        ]
         assert label.severity in ["low", "medium", "high"]
 
 
@@ -148,4 +152,58 @@ def test_evaluate_agentic_gate_failing_guardrail():
     gate_res = evaluate_agentic_gate(c1_metrics, a1_metrics)
     assert not gate_res.passed
     assert not gate_res.precision_guardrail_met
+
+
+def test_error_injector_all_nine_fault_families():
+    df_ride_hailing = pd.DataFrame({
+        "final_fare": [100.0, 150.0, 200.0, 250.0, 300.0] * 10,
+        "surge_multiplier": [1.0, 1.2, 1.5, 1.0, 2.0] * 10,
+        "driver_token": ["DRV_1", "DRV_2", "DRV_3", "DRV_4", "DRV_5"] * 10,
+        "pickup_at": ["2026-05-01 08:05:00"] * 50,
+        "requested_at": ["2026-05-01 08:00:00"] * 50,
+        "pickup_latitude": [10.7769] * 50,
+        "pickup_longitude": [106.7009] * 50,
+        "service_city": ["Ho Chi Minh City"] * 50,
+        "booking_status": ["completed"] * 50,
+        "dropoff_at": ["2026-05-01 08:25:00"] * 50,
+        "cancellation_reason": ["None"] * 50,
+        "vehicle_type": ["car_4seat"] * 50,
+    })
+
+    nine_families = [
+        "type_error",
+        "range_error",
+        "referential_error",
+        "temporal_error",
+        "geographic_error",
+        "financial_error",
+        "business_error",
+        "privacy_error",
+        "distribution_shift",
+    ]
+
+    injector = ErrorInjector(seed=42)
+    dirty_df, labels = injector.inject_errors(df_ride_hailing, error_rate=0.20, error_families=nine_families)
+
+    assert len(dirty_df) >= len(df_ride_hailing)
+    assert len(labels) > 0
+
+    found_families = set(lbl.error_type for lbl in labels)
+    for family in nine_families:
+        assert family in found_families, f"Missing fault family injection for {family}"
+
+
+def test_error_injector_generic_dataframe():
+    generic_df = pd.DataFrame({
+        "col_num": [10, 20, 30, 40, 50] * 10,
+        "col_str": ["a", "b", "c", "d", "e"] * 10,
+        "col_date": ["2026-01-01 10:00:00"] * 50,
+    })
+
+    injector = ErrorInjector(seed=42)
+    dirty_df, labels = injector.inject_errors(generic_df, error_rate=0.20)
+
+    assert len(dirty_df) >= len(generic_df)
+    assert len(labels) > 0
+
 
