@@ -8,6 +8,7 @@ interface ChatState {
   activeWorkspace: WorkspaceView;
   workspaceData: unknown;
   pendingProposals: RuleProposal[];
+  sessionId: string;
 
   // Actions
   addMessage: (message: ChatMessage) => void;
@@ -18,6 +19,9 @@ interface ChatState {
   updateProposalStatus: (id: string, status: 'approved' | 'rejected') => void;
   setMessages: (messages: ChatMessage[]) => void;
   clearMessages: () => void;
+  setSessionId: (id: string) => void;
+  appendStreamChunk: (id: string, delta: string) => void;
+  appendStreamThought: (id: string, delta: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -33,9 +37,64 @@ export const useChatStore = create<ChatState>((set) => ({
   activeWorkspace: 'empty',
   workspaceData: null,
   pendingProposals: [],
+  sessionId: 'default',
+
+  setSessionId: (sessionId) => set({ sessionId }),
 
   addMessage: (message) =>
-    set((state) => ({ messages: [...state.messages, message] })),
+    set((state) => {
+      if (state.messages.some((m) => m.id === message.id)) return state;
+      return { messages: [...state.messages, message] };
+    }),
+
+  appendStreamChunk: (id, delta) =>
+    set((state) => {
+      const existingIndex = state.messages.findIndex((m) => m.id === id);
+      if (existingIndex >= 0) {
+        const updated = [...state.messages];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          content: updated[existingIndex].content + delta,
+        };
+        return { messages: updated };
+      } else {
+        const newMsg: ChatMessage = {
+          id,
+          type: 'agent',
+          agentId: 'orchestrator',
+          content: delta,
+          timestamp: new Date().toISOString(),
+        };
+        return { messages: [...state.messages, newMsg] };
+      }
+    }),
+
+  appendStreamThought: (id, delta) =>
+    set((state) => {
+      const existingIndex = state.messages.findIndex((m) => m.id === id);
+      if (existingIndex >= 0) {
+        const updated = [...state.messages];
+        const prevReasoning = (updated[existingIndex].metadata as any)?.reasoning || '';
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          metadata: {
+            ...(updated[existingIndex].metadata || {}),
+            reasoning: prevReasoning + delta,
+          },
+        };
+        return { messages: updated };
+      } else {
+        const newMsg: ChatMessage = {
+          id,
+          type: 'agent',
+          agentId: 'orchestrator',
+          content: '',
+          metadata: { reasoning: delta },
+          timestamp: new Date().toISOString(),
+        };
+        return { messages: [...state.messages, newMsg] };
+      }
+    }),
 
   setAgentStatus: (agentId, status) =>
     set((state) => ({

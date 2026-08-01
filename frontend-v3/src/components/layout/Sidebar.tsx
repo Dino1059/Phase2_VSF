@@ -11,9 +11,8 @@ interface SessionItem {
 }
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
-  const { setMessages, clearMessages, setWorkspace } = useChatStore();
+  const { messages, setMessages, clearMessages, setWorkspace, setSessionId, sessionId: activeSessionId } = useChatStore();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [activeSession, setActiveSession] = useState<string>('default');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -23,6 +22,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     setUploading(true);
     try {
       await uploadDatasetFile(file);
+      await loadSessions();
     } catch (err) {
       console.error('File upload failed:', err);
     } finally {
@@ -42,18 +42,18 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
   useEffect(() => {
     loadSessions();
-  }, []);
+  }, [messages.length]);
 
   const handleNewChat = () => {
     const newSessionId = `session_${Date.now()}`;
-    setActiveSession(newSessionId);
+    setSessionId(newSessionId);
     clearMessages();
     setWorkspace('empty');
     if (onClose) onClose();
   };
 
   const handleSelectSession = async (sessionId: string) => {
-    setActiveSession(sessionId);
+    setSessionId(sessionId);
     try {
       const data = await fetchChatHistory(sessionId);
       if (data.messages) {
@@ -127,7 +127,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               key={s.session_id}
               onClick={() => handleSelectSession(s.session_id)}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
-                activeSession === s.session_id
+                activeSessionId === s.session_id
                   ? 'bg-agent-orchestrator/15 text-agent-orchestrator font-medium border border-agent-orchestrator/30'
                   : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
               }`}

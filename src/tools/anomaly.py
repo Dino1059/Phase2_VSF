@@ -344,6 +344,13 @@ class IsolationForestDetector:
             )
 
 
+def compute_composite_anomaly_score(z_score: float, isolation_forest_score: float, w1: float = 0.5, w2: float = 0.5) -> float:
+    """Computes Dual-Engine Composite Anomaly Score S_composite = w1 * Sigmoid(Z_robust) + w2 * S_isolation_forest"""
+    sigmoid_z = 1.0 / (1.0 + math.exp(-max(-10.0, min(10.0, z_score - 3.0))))
+    composite = w1 * sigmoid_z + w2 * isolation_forest_score
+    return round(max(0.0, min(1.0, composite)), 3)
+
+
 class AnomalyDetector:
     """Unified Anomaly Detector running ZScore, IQR, and optional IsolationForest detectors."""
 
@@ -364,11 +371,17 @@ class AnomalyDetector:
         is_any_anomaly = z_res.is_anomaly or iqr_res.is_anomaly or ml_res.is_anomaly
         max_score = max(z_res.anomaly_score, iqr_res.anomaly_score, ml_res.anomaly_score)
 
+        composite_score = compute_composite_anomaly_score(
+            z_score=z_res.anomaly_score,
+            isolation_forest_score=ml_res.anomaly_score
+        )
+
         all_anomalies = z_res.anomalies_detected + iqr_res.anomalies_detected + ml_res.anomalies_detected
 
         return {
             "is_anomaly": is_any_anomaly,
             "aggregate_anomaly_score": round(max_score, 3),
+            "composite_anomaly_score": composite_score,
             "detectors": {
                 "z_score": z_res.model_dump(),
                 "iqr": iqr_res.model_dump(),
@@ -377,7 +390,7 @@ class AnomalyDetector:
             "all_anomalies": [a.model_dump() for a in all_anomalies],
             "historical_runs_count": len(h_profiles),
             "summary": (
-                f"Anomaly Detection Complete. Flagged = {is_any_anomaly} (Score: {max_score:.2f}). "
+                f"Anomaly Detection Complete. Flagged = {is_any_anomaly} (Composite Score: {composite_score:.2f}). "
                 f"Total anomalies: {len(all_anomalies)}."
             ),
         }

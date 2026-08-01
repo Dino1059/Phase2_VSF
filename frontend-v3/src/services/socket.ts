@@ -59,6 +59,18 @@ class AgentSocket {
         }
         break;
 
+      case 'chat.stream_chunk':
+        if (event.id && event.delta) {
+          store.appendStreamChunk(event.id, event.delta);
+        }
+        break;
+
+      case 'chat.stream_thought':
+        if (event.id && event.delta) {
+          store.appendStreamThought(event.id, event.delta);
+        }
+        break;
+
       case 'agent.proposal':
         if (Array.isArray(event.proposals || event.data)) {
           const props = (event.proposals || event.data) as RuleProposal[];

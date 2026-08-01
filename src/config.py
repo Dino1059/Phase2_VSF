@@ -42,6 +42,15 @@ class Settings(BaseSettings):
         "weather_hcmc": "data/weather/hcmc_weather_2024.parquet",
         "vietnam_trips": "data/synthetic/vietnam_trips.parquet",
         "vietnam_trips_dirty": "data/synthetic/vietnam_trips_dirty.parquet",
+        "vietnam_ecommerce_test": "data/vietnam_ecommerce_test.csv",
+        "vinfast_ev_telemetry_dirty": "data/vingroup/vinfast_ev_telemetry_dirty.csv",
+        "vgreen_charging_stations_dirty": "data/vingroup/vgreen_charging_stations_dirty.csv",
+        "xanh_sm_trips_dirty": "data/vingroup/xanh_sm_trips_dirty.csv",
+        "xanh_sm_customer_feedback_dirty": "data/vingroup/xanh_sm_customer_feedback_dirty.csv",
+        "real_vinfast_ev_telemetry": "data/vingroup_real/real_vinfast_ev_telemetry.csv",
+        "real_vgreen_charging_stations": "data/vingroup_real/real_vgreen_charging_stations.csv",
+        "real_xanh_sm_trips": "data/vingroup_real/real_xanh_sm_trips.csv",
+        "real_xanh_sm_customer_feedback": "data/vingroup_real/real_xanh_sm_customer_feedback.csv",
     }
     fault_manifest_path: str = "data/synthetic/fault_manifest.json"
     profile_sample_size: int = 100_000

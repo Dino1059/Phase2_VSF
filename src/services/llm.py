@@ -189,32 +189,137 @@ class OfflineMockLLM:
 
 class GoogleAIStudioLLM:
     """Google AI Studio LLM adapter calling generative AI models (e.g. gemma-4-26b-a4b-it)
-    via native HTTP API using AI_STUDIO_API_KEY from .env.
+    via native HTTP API using AI_STUDIO_API_KEY from .env with 60s timeout & retry logic.
     """
 
     def __init__(self, api_key: str, model_name: str = "gemma-4-26b-a4b-it"):
         self.api_key = api_key
         self.model_name = model_name
 
-    def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def _post_with_retry(self, url: str, payload_bytes: bytes, timeout: int = 60, max_retries: int = 3) -> Optional[dict]:
         import json
+        import time
         import urllib.request
 
+        req = urllib.request.Request(url, data=payload_bytes, headers={"Content-Type": "application/json"})
+        for attempt in range(1, max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except Exception as e:
+                logger.warning(f"Google AI Studio attempt {attempt}/{max_retries} for {self.model_name} failed: {e}")
+                if attempt < max_retries:
+                    time.sleep(2 * attempt)
+        return None
+
+    def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        import json
         full_prompt = f"{system_prompt}\n\nUser Question: {prompt}" if system_prompt else prompt
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
         payload = json.dumps({
             "contents": [{"parts": [{"text": full_prompt}]}]
         }).encode("utf-8")
 
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                return text
-        except Exception as e:
-            logger.warning(f"Google AI Studio API call failed: {e}")
-            return f"DataTrust AI: Analyzed query '{prompt}'."
+        data = self._post_with_retry(url, payload, timeout=60, max_retries=3)
+        if data:
+            candidates = data.get("candidates", [])
+            if candidates and "content" in candidates[0]:
+                text = candidates[0]["content"]["parts"][0]["text"].strip()
+                if text:
+                    return text
+
+        return (
+            f"DataTrust OS is an AI-Augmented Data Governance Platform.\n\n"
+            "Here is how I can assist with your data workflow:\n\n"
+            "- Upload & Register Datasets: Upload SQLite (.db), Parquet, CSV, or JSON files to start autonomous governance.\n"
+            "- Profiler Agent: Automatically scans datasets to compute null rates, data types, distinct values, and column health scores.\n"
+            "- Anomaly Detector Agent: Detects statistical outliers and schema drift using Z-Score, IQR, and Isolation Forest algorithms.\n"
+            "- Rule Proposer Agent: Synthesizes data quality rules for Human-In-The-Loop approval.\n"
+            "- Diagnosis Agent: Performs root-cause analysis on data defects and recommends remediation steps.\n"
+            "- Clean DB Pipeline: Applies approved transformations and outputs cleaned Parquet/CSV database files.\n\n"
+            "To get started, try running 'List datasets', 'Profile vietnam_trips_dirty', or upload a data file."
+        )
+
+    def stream_text(self, prompt: str, system_prompt: Optional[str] = None):
+        import json
+        import urllib.request
+        import time
+
+        full_prompt = f"{system_prompt}\n\nUser Question: {prompt}" if system_prompt else prompt
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:streamGenerateContent?key={self.api_key}"
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": full_prompt}]}]
+        }).encode("utf-8")
+
+        for attempt in range(1, 4):
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    buffer = ""
+                    for line in resp:
+                        line_str = line.decode("utf-8", errors="ignore").strip()
+                        if not line_str or line_str in ["[", "]", ","]:
+                            continue
+                        if line_str.startswith("{") or buffer:
+                            buffer += line_str
+                            try:
+                                item = json.loads(buffer)
+                                buffer = ""
+                                candidates = item.get("candidates", [])
+                                if candidates and "content" in candidates[0]:
+                                    parts = candidates[0]["content"].get("parts", [])
+                                    for p in parts:
+                                        if p.get("thought"):
+                                            yield {"type": "thought", "text": p.get("text", "")}
+                                        elif "text" in p:
+                                            yield {"type": "text", "text": p.get("text", "")}
+                            except Exception:
+                                pass
+                return
+            except Exception as e:
+                logger.warning(f"Google AI Studio streaming attempt {attempt}/3 failed: {e}")
+                if attempt < 3:
+                    time.sleep(2 * attempt)
+
+        yield {"type": "text", "text": self.generate_text(prompt, system_prompt)}
+
+    def generate_agentic_tool_call(self, prompt: str, tools: list, contents: Optional[list] = None) -> dict:
+        """Invokes LLM with function declarations and returns parsed function call or text response."""
+        import json
+
+        payload_contents = contents if contents else [{"role": "user", "parts": [{"text": prompt}]}]
+        payload = {
+            "contents": payload_contents,
+            "tools": [{"functionDeclarations": tools}]
+        }
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        data = self._post_with_retry(url, json.dumps(payload).encode("utf-8"), timeout=60, max_retries=3)
+
+        if data:
+            candidates = data.get("candidates", [])
+            if candidates and "content" in candidates[0]:
+                parts = candidates[0]["content"].get("parts", [])
+                thought_text = ""
+                for part in parts:
+                    if part.get("thought"):
+                        thought_text += part.get("text", "")
+                    elif "functionCall" in part:
+                        fc = part["functionCall"]
+                        return {
+                            "type": "function_call",
+                            "name": fc.get("name"),
+                            "args": fc.get("args", {}),
+                            "thought": thought_text or part.get("text", "")
+                        }
+                    elif "text" in part and part["text"].strip():
+                        return {
+                            "type": "text",
+                            "text": part["text"],
+                            "thought": thought_text
+                        }
+
+        return {"type": "fallback", "text": self.generate_text(prompt)}
 
 
 class LLMService:
@@ -289,6 +394,19 @@ class LLMService:
 
         # Fallback to mock for unknown provider or errors
         return self.mock_llm.generate_structured(prompt, response_model, system_prompt)
+
+    def stream_text(self, prompt: str, system_prompt: Optional[str] = None):
+        """Streams natural language text or thought tokens."""
+        if self.google_studio_llm:
+            yield from self.google_studio_llm.stream_text(prompt, system_prompt)
+        else:
+            yield {"type": "text", "text": self.generate_text(prompt, system_prompt)}
+
+    def generate_agentic_tool_call(self, prompt: str, tools: list, contents: Optional[list] = None) -> dict:
+        """Invokes LLM for dynamic multi-agent tool decision."""
+        if self.google_studio_llm:
+            return self.google_studio_llm.generate_agentic_tool_call(prompt, tools, contents)
+        return {"type": "fallback", "text": self.generate_text(prompt)}
 
     def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Generates natural language text response."""

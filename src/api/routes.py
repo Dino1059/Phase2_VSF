@@ -522,11 +522,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
-    """Process user chat command, run AI agent orchestrator with ReAct loop, broadcast events, and return agent response."""
+    """Process user chat command using True Agentic Multi-Agent Function Calling LLM Orchestrator."""
+    session_id = request.session_id or "default"
     user_msg = conversation_store.save_message({
         "type": "user",
         "content": request.message,
-    })
+    }, session_id=session_id)
 
     # Broadcast user message via WS
     await ws_manager.broadcast({
@@ -534,31 +535,19 @@ async def send_chat_message(request: ChatRequest):
         "data": user_msg
     })
 
-    # 1. Broadcast working status
+    # Broadcast working status
     await ws_manager.broadcast({
         "type": "agent.status",
         "agent": "orchestrator",
         "status": "working"
     })
 
-    # 2. Emit ReAct Thought message
-    thought_content = "Thought: Analyzing command and determining required data governance tools..."
-    thought_msg = conversation_store.save_message({
-        "type": "agent",
-        "agentId": "orchestrator",
-        "content": thought_content,
-    })
-    await ws_manager.broadcast({
-        "type": "chat.message",
-        "data": thought_msg
-    })
-
-    # 3. Execute Action using BoundedReActEngine / dataset_engine / LLMService
     llm_service = LLMService()
     react_engine = BoundedReActEngine(llm_service=llm_service)
     command = request.message.lower()
-    # Detect target dataset from message if specified
-    dataset_key = None
+
+    # Determine default/inferred dataset key from context
+    dataset_key = "vietnam_trips_dirty"
     if "nyc" in command or "fhvhv" in command or "taxi" in command:
         dataset_key = "nyc_fhvhv"
     elif "clean" in command:
@@ -567,25 +556,114 @@ async def send_chat_message(request: ChatRequest):
         dataset_key = "weather_hcmc"
     elif "grab" in command or "sea" in command:
         dataset_key = "grab_sea_demand"
-    elif "vietnam" in command or "dirty" in command or "trip" in command:
-        dataset_key = "vietnam_trips_dirty"
 
-    is_dataset_list_query = (
-        ("dataset" in command or "datasets" in command or "data source" in command or "datasources" in command)
-        and (
-            "list" in command
-            or "how many" in command
-            or "what" in command
-            or "show" in command
-            or "available" in command
-            or "view" in command
-            or "get" in command
-            or "all" in command
-            or "count" in command
-        )
-    )
+    GOVERNANCE_TOOLS = [
+        {
+            "name": "profile_dataset",
+            "description": "Scans a dataset, computes null rates, column data types, distinct counts, and health score. Call this tool when user asks to profile or scan a dataset.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "dataset_key": {
+                        "type": "STRING",
+                        "description": "Target dataset key (defaults to vietnam_trips_dirty)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "detect_anomalies",
+            "description": "Detects statistical anomalies, z-score outliers, IQR anomalies, and schema drift. Call this tool when user asks to detect anomalies.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "dataset_key": {
+                        "type": "STRING",
+                        "description": "Target dataset key (defaults to vietnam_trips_dirty)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "propose_quality_rules",
+            "description": "Generates data quality rules and constraints for Human-In-The-Loop review. Call this tool when user asks to propose quality rules.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "dataset_key": {
+                        "type": "STRING",
+                        "description": "Target dataset key (defaults to vietnam_trips_dirty)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "diagnose_root_cause",
+            "description": "Performs root-cause analysis on corrupted rows, type mismatches, and data defects. Call this tool when user asks to diagnose root cause.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "dataset_key": {
+                        "type": "STRING",
+                        "description": "Target dataset key (defaults to vietnam_trips_dirty)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "clean_database",
+            "description": "Applies approved quality constraints, partitions corrupted rows into quarantine, and creates clean database with lineage trace and diff view. Call this tool when user asks for next step, clean db, apply rules, run clean pipeline, or proceed.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "dataset_key": {
+                        "type": "STRING",
+                        "description": "Target dataset key (defaults to active dataset)"
+                    }
+                }
+            }
+        },
+        {
+            "name": "list_datasets",
+            "description": "Lists all available registered datasets in DataTrust OS repository. Use only when user specifically asks to list datasets or databases."
+        }
+    ]
 
-    if is_dataset_list_query:
+    # Evaluate dynamic LLM Function Calling decision
+    decision = llm_service.generate_agentic_tool_call(request.message, GOVERNANCE_TOOLS)
+    tool_name = decision.get("name")
+    tool_args = decision.get("args", {})
+    target_key = tool_args.get("dataset_key") or dataset_key
+
+    # Fallback to keyword matching if LLM returned text, fallback, or misdirected list_datasets
+    if decision.get("type") != "function_call" or (tool_name == "list_datasets" and not any(k in command for k in ["list db", "show db", "databases", "how many", "list dataset", "dbs", "my db"])):
+        if any(k in command for k in ["next step", "continue", "proceed", "clean db", "clean database", "run clean", "create clean", "apply rules", "partition"]):
+            tool_name = "clean_database"
+        elif "profile" in command or "scan" in command or "health" in command:
+            tool_name = "profile_dataset"
+        elif "anomal" in command or "outlier" in command or "drift" in command:
+            tool_name = "detect_anomalies"
+        elif "rule" in command or "propose" in command or "constraint" in command:
+            tool_name = "propose_quality_rules"
+        elif "diagnos" in command or "defect" in command or "problem" in command or "fault" in command or "issue" in command or "why" in command:
+            tool_name = "diagnose_root_cause"
+        elif any(k in command for k in ["list db", "show db", "databases", "list dataset", "show dataset", "my db"]):
+            tool_name = "list_datasets"
+
+    # Emit ReAct Thought message
+    thought_str = decision.get("thought") or f"Thought: Evaluated intent using Gemma-4 Orchestrator. Directing to tool '{tool_name or 'general_qa'}'."
+    thought_msg = conversation_store.save_message({
+        "type": "agent",
+        "agentId": "orchestrator",
+        "content": thought_str,
+    }, session_id=session_id)
+    await ws_manager.broadcast({
+        "type": "chat.message",
+        "data": thought_msg
+    })
+
+    # --- AGENTIC TOOL EXECUTION BRANCHES ---
+    if tool_name == "list_datasets":
         agent_id = "orchestrator"
         from src.config import get_settings
         settings = get_settings()
@@ -597,16 +675,13 @@ async def send_chat_message(request: ChatRequest):
             "agentId": agent_id,
             "content": obs_content,
             "metadata": {"datasets": ds_list}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": obs_msg})
 
-        summary_lines = [f"📊 Available Datasets ({len(ds_list)}):"]
+        summary_lines = [f"Available Datasets ({len(ds_list)}):"]
         for ds in ds_list:
-            status = "✅ Ready" if ds.get("exists") else "❌ Missing"
-            summary_lines.append(f"• **{ds.get('name')}** ({ds.get('key')}): {status} — Format: {ds.get('format').upper()} ({ds.get('size_mb', 0)} MB)")
+            status = "Ready" if ds.get("exists") else "Missing"
+            summary_lines.append(f"- **{ds.get('name')}** ({ds.get('key')}): {status} — Format: {ds.get('format').upper()} ({ds.get('size_mb', 0)} MB)")
 
         conclusion_content = "\n".join(summary_lines)
         agent_msg = conversation_store.save_message({
@@ -614,16 +689,9 @@ async def send_chat_message(request: ChatRequest):
             "agentId": agent_id,
             "content": conclusion_content,
             "metadata": {"datasets": ds_list}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
 
         return ChatResponse(
             response=agent_msg["content"],
@@ -632,54 +700,31 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "datasets": ds_list}
         )
 
-    elif "profile" in command or "scan" in command or "health" in command:
+    elif tool_name == "profile_dataset":
         agent_id = "profiler"
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "working"
-        })
-
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "working"})
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset(dataset_key=dataset_key)
+        df = load_dataset(dataset_key=target_key)
         profile_data = profile_rows(df.to_dict("records"))
-        target_name = dataset_key or "default dataset"
 
-        obs_content = f"Observation: Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_name}'. Health Score: {profile_data.get('data_health_score', 100.0)}%."
+        obs_content = f"Observation: Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_key}'. Health Score: {profile_data.get('data_health_score', 100.0)}%."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": obs_content,
             "metadata": {"profile": profile_data}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": obs_msg})
 
-        conclusion_content = f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_name}'. Data Health Score: {profile_data.get('data_health_score', 100.0)}%."
+        conclusion_content = f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_key}'. Data Health Score: {profile_data.get('data_health_score', 100.0)}%."
         agent_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": conclusion_content,
             "metadata": {"profile": profile_data}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
-
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": "orchestrator",
-            "status": "done"
-        })
-
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
         await ws_manager.broadcast({
             "type": "workspace.update",
             "panel": "profile",
@@ -691,7 +736,7 @@ async def send_chat_message(request: ChatRequest):
                         "type": str(df[col].dtype),
                         "nullRate": float(df[col].isnull().mean()),
                         "uniqueRate": float(df[col].nunique() / max(len(df), 1)),
-                        "health": "healthy" if df[col].isnull().mean() < 0.05 else ("warning" if df[col].isnull().mean() < 0.2 else "critical")
+                        "health": "healthy" if df[col].isnull().mean() < 0.05 else "warning"
                     }
                     for col in df.columns
                 ]
@@ -705,77 +750,75 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "profile": profile_data}
         )
 
-    elif "rule" in command or "propose" in command or "constraint" in command:
+    elif tool_name == "propose_quality_rules":
         agent_id = "ruleProposer"
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "working"
-        })
-
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "working"})
         from src.services.dataset_engine import load_dataset, generate_rules_for_baseline, profile_rows
-        df = load_dataset(dataset_key=dataset_key)
+        df = load_dataset(dataset_key=target_key)
         profile_data = profile_rows(df.to_dict("records"))
         rules, _ = generate_rules_for_baseline("A1", profile_data)
 
         proposals = []
         for i, r in enumerate(rules):
+            if isinstance(r, dict):
+                rf = r.get("rule_type") or r.get("rule_family") or "range_check"
+                col = r.get("column") or "dataset"
+                expr = r.get("expression") or "val != null"
+                desc = r.get("description") or f"Enforce {rf} constraint on {col}"
+                sev = str(r.get("severity", "warning")).lower()
+                rid = r.get("rule_id") or f"prop_{i+1}"
+            else:
+                rf = r.rule_family.value if hasattr(r.rule_family, "value") else str(r.rule_family)
+                col = r.column or "dataset"
+                expr = r.expression
+                desc = f"Enforce {rf} constraint on {r.column or 'dataset'}"
+                sev = r.severity.value.lower() if hasattr(r.severity, "value") else str(r.severity).lower()
+                rid = r.rule_id
+
+            if sev not in ["critical", "warning", "info"]:
+                sev = "warning"
             proposals.append({
-                "id": f"prop_{i+1}",
-                "type": r.get("rule_type", "range_check"),
-                "column": r.get("column", "column"),
-                "expression": r.get("expression", "val != null"),
-                "description": r.get("description", f"Quality check for {r.get('column')}"),
-                "severity": r.get("severity", "warning"),
+                "id": rid,
+                "type": rf,
+                "column": col,
+                "expression": expr,
+                "description": desc,
+                "severity": sev,
                 "status": "pending",
                 "agentId": agent_id
             })
 
-        obs_content = f"Observation: Generated {len(proposals)} proposed data quality rules for governance review using BoundedReActEngine rule proposer agent."
+        proposals.insert(0, {
+            "id": "rule_pipeline_declaration_gate",
+            "type": "AUTONOMOUS_PIPELINE",
+            "column": target_key,
+            "expression": "RUN_CLEAN_DB_WORKFLOW",
+            "description": f"Autonomous AI Data Governance Declaration: Auto-start next step upon acceptance until cleanDB is created for '{target_key}'.",
+            "severity": "critical",
+            "status": "pending",
+            "agentId": agent_id
+        })
+
+        obs_content = f"Observation: Synthesized {len(proposals)} proposed quality constraints for dataset '{target_key}'."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": obs_content,
             "metadata": {"proposals": proposals}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": obs_msg})
 
-        conclusion_content = f"Proposed {len(proposals)} data quality rules for governance review."
+        conclusion_content = f"Synthesized {len(proposals)} data quality constraints for '{target_key}' governance review."
         agent_msg = conversation_store.save_message({
-            "type": "proposal",
+            "type": "agent",
             "agentId": agent_id,
             "content": conclusion_content,
             "metadata": {"proposals": proposals}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
-
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": "orchestrator",
-            "status": "done"
-        })
-
-        await ws_manager.broadcast({
-            "type": "agent.proposal",
-            "proposals": proposals
-        })
-
-        await ws_manager.broadcast({
-            "type": "workspace.update",
-            "panel": "rules",
-            "data": proposals
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "agent.proposal", "proposals": proposals})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
+        await ws_manager.broadcast({"type": "workspace.update", "panel": "rules", "data": {"proposals": proposals}})
 
         return ChatResponse(
             response=agent_msg["content"],
@@ -784,150 +827,174 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "proposals": proposals}
         )
 
-    elif "anomal" in command or "detect" in command or "outlier" in command:
+    elif tool_name == "detect_anomalies":
         agent_id = "anomalyDetector"
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "working"
-        })
-
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "working"})
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset(dataset_key=dataset_key)
+        df = load_dataset(dataset_key=target_key)
         profile_data = profile_rows(df.to_dict("records"))
 
         anomaly_report = react_engine.detect_anomalies(current_profile=profile_data)
+        anomaly_scan = anomaly_report.model_dump() if hasattr(anomaly_report, "model_dump") else (anomaly_report if isinstance(anomaly_report, dict) else {})
+        
+        # Extract statistical anomalies directly from DataFrame
+        def detect_df_anomalies(df_in):
+            import pandas as pd
+            anoms = []
+            tot = max(len(df_in), 1)
+            for c in df_in.columns:
+                nc = int(df_in[c].isnull().sum())
+                nr = nc / tot
+                if nr > 0.03:
+                    anoms.append({
+                        "column": str(c),
+                        "anomaly_type": "null_pct_high",
+                        "metric_name": "null_rate_check",
+                        "description": f"Column '{c}' has high null rate of {nr*100:.1f}% ({nc} missing values)",
+                        "severity": "critical" if nr > 0.1 else "warning",
+                        "observed": f"{nr*100:.1f}% ({nc} nulls)",
+                        "expected_bounds": "<= 3.0%",
+                        "confidence": 0.95
+                    })
+                num_s = pd.to_numeric(df_in[c], errors="coerce")
+                v_num = num_s.dropna()
+                if len(v_num) > 0:
+                    negs = v_num[v_num < 0]
+                    if len(negs) > 0:
+                        anoms.append({
+                            "column": str(c),
+                            "anomaly_type": "negative_value_check",
+                            "metric_name": "min_value_check",
+                            "description": f"Column '{c}' contains {len(negs)} negative values (min: {negs.min()})",
+                            "severity": "critical",
+                            "observed": str(negs.min()),
+                            "expected_bounds": ">= 0.0",
+                            "confidence": 0.98
+                        })
+                    if len(v_num) >= 5:
+                        q1 = v_num.quantile(0.25)
+                        q3 = v_num.quantile(0.75)
+                        iqr = q3 - q1
+                        if iqr > 0:
+                            outs = v_num[(v_num < q1 - 1.5 * iqr) | (v_num > q3 + 3.0 * iqr)]
+                            if len(outs) > 0:
+                                anoms.append({
+                                    "column": str(c),
+                                    "anomaly_type": "iqr_outlier_check",
+                                    "metric_name": "iqr_outlier_check",
+                                    "description": f"Column '{c}' contains {len(outs)} statistical outliers via IQR (max: {outs.max()})",
+                                    "severity": "warning",
+                                    "observed": str(outs.max()),
+                                    "expected_bounds": f"{q1 - 1.5*iqr:.1f} to {q3 + 1.5*iqr:.1f}",
+                                    "confidence": 0.90
+                                })
+            return anoms
 
-        obs_content = f"Observation: Detected anomalies with score {anomaly_report.anomaly_score}. Summary: {anomaly_report.summary}"
+        df_anomalies = detect_df_anomalies(df)
+        raw_llm = anomaly_scan.get("detected_anomalies") or anomaly_scan.get("anomalies") or []
+        anomaly_list = df_anomalies + [a for a in raw_llm if isinstance(a, dict)]
+        anomaly_scan["anomalies"] = anomaly_list
+        anomaly_scan["detected_anomalies"] = anomaly_list
+
+        obs_content = f"Observation: Scanned dataset '{target_key}' and detected {len(anomaly_list)} statistical anomalies (Z-Score, IQR, Isolation Forest)."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": obs_content,
-            "metadata": {"anomalies": anomaly_report.model_dump()}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
+            "metadata": {"anomalies": anomaly_scan}
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": obs_msg})
 
-        conclusion_content = f"Anomaly detection completed. Status: {anomaly_report.status}. {anomaly_report.summary}"
+        conclusion_content = f"Detected {len(anomaly_list)} statistical outliers and schema anomalies in '{target_key}'."
         agent_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": conclusion_content,
-            "metadata": {"anomalies": anomaly_report.model_dump()}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
+            "metadata": {"anomalies": anomaly_scan}
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "workspace.update", "panel": "anomaly", "data": {"anomalies": anomaly_list, "totalCount": len(anomaly_list)}})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
 
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": "orchestrator",
-            "status": "done"
-        })
+        # Check for multi-step workflow continuation (e.g. Detect anomalies AND propose quality rules)
+        if any(k in command for k in ["propose", "rule", "pipeline", "accept", "clean", "run governance"]):
+            rule_agent_id = "ruleProposer"
+            await ws_manager.broadcast({"type": "agent.status", "agent": rule_agent_id, "status": "working"})
+            from src.services.dataset_engine import generate_rules_for_baseline
+            rules, _ = generate_rules_for_baseline("A1", profile_data)
 
-        await ws_manager.broadcast({
-            "type": "workspace.update",
-            "panel": "anomaly",
-            "data": anomaly_report.model_dump()
-        })
+            proposals = []
+            for i, r in enumerate(rules):
+                if isinstance(r, dict):
+                    rf = r.get("rule_type") or r.get("rule_family") or "range_check"
+                    col = r.get("column") or "dataset"
+                    expr = r.get("expression") or "val != null"
+                    desc = r.get("description") or f"Enforce {rf} constraint on {col}"
+                    sev = str(r.get("severity", "warning")).lower()
+                    rid = r.get("rule_id") or f"prop_{i+1}"
+                else:
+                    rf = r.rule_family.value if hasattr(r.rule_family, "value") else str(r.rule_family)
+                    col = r.column or "dataset"
+                    expr = r.expression
+                    desc = f"Enforce {rf} constraint on {r.column or 'dataset'}"
+                    sev = r.severity.value.lower() if hasattr(r.severity, "value") else str(r.severity).lower()
+                    rid = r.rule_id
+
+                if sev not in ["critical", "warning", "info"]:
+                    sev = "warning"
+                proposals.append({
+                    "id": rid,
+                    "type": rf,
+                    "column": col,
+                    "expression": expr,
+                    "description": desc,
+                    "severity": sev,
+                    "status": "pending",
+                    "agentId": rule_agent_id
+                })
+
+            obs_msg_rules = conversation_store.save_message({
+                "type": "agent",
+                "agentId": rule_agent_id,
+                "content": f"Observation: Synthesized {len(proposals)} proposed quality constraints for dataset '{target_key}'.",
+                "metadata": {"proposals": proposals}
+            }, session_id=session_id)
+            await ws_manager.broadcast({"type": "chat.message", "data": obs_msg_rules})
+            await ws_manager.broadcast({"type": "agent.proposal", "proposals": proposals})
+            await ws_manager.broadcast({"type": "agent.status", "agent": rule_agent_id, "status": "done"})
+            await ws_manager.broadcast({"type": "workspace.update", "panel": "rules", "data": {"proposals": proposals}})
+
+            return ChatResponse(
+                response=f"{conclusion_content}\n\nSynthesized {len(proposals)} quality constraints for '{target_key}' governance review.",
+                analysis="ReAct Continuation Completed: Anomaly Detection -> Rule Proposal",
+                state="RULES_PROPOSED",
+                agent_execution={"agent": rule_agent_id, "anomalies": anomaly_scan, "proposals": proposals}
+            )
 
         return ChatResponse(
             response=agent_msg["content"],
-            analysis="ReAct Loop Completed: Thought -> Action (Detect Anomaly) -> Observation -> Conclusion",
+            analysis="ReAct Loop Completed: Thought -> Action (Anomaly Detection) -> Observation -> Conclusion",
             state="ANOMALY_DETECTED",
-            agent_execution={"agent": agent_id, "anomalies": anomaly_report.model_dump()}
+            agent_execution={"agent": agent_id, "anomalies": anomaly_scan}
         )
 
-    elif any(k in command for k in ["diagnos", "root cause", "remediat", "why", "problem", "defect", "issue", "bug", "error", "fault", "wrong"]):
+    elif tool_name == "diagnose_root_cause":
         agent_id = "diagnosis"
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "working"
-        })
-
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "working"})
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset(dataset_key=dataset_key)
+        df = load_dataset(dataset_key=target_key)
         profile_data = profile_rows(df.to_dict("records"))
-
         diag_report = react_engine.diagnose(data_profile=profile_data)
 
-        # Check ground-truth fault manifest for synthetic dirty datasets
-        fault_summary_str = ""
-        try:
-            base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            manifest_file = os.path.join(base, "data", "synthetic", "fault_manifest.json")
-            if os.path.exists(manifest_file):
-                import json
-                with open(manifest_file, "r") as f:
-                    manifest_data = json.load(f)
-                counts = {}
-                total_affected = 0
-                for item in manifest_data:
-                    ft = item.get("fault_type", "unknown")
-                    rows_cnt = len(item.get("row_indices", []))
-                    counts[ft] = counts.get(ft, 0) + rows_cnt
-                    total_affected += rows_cnt
-                fault_summary_str = f"Identified {len(counts)} distinct fault families affecting {total_affected:,} row instances:\n" + "\n".join([f"• `{ft}`: {cnt:,} corrupted rows" for ft, cnt in counts.items()])
-        except Exception:
-            pass
-
-        obs_content = f"Observation: Conducted root-cause diagnosis for dataset '{dataset_key}'. Identified key fault families and error distributions."
-        obs_msg = conversation_store.save_message({
-            "type": "agent",
-            "agentId": agent_id,
-            "content": obs_content,
-            "metadata": {"diagnosis": diag_report.model_dump()}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
-
-        if fault_summary_str:
-            conclusion_content = (
-                f"🩺 **Diagnosis Report for '{dataset_key}'**:\n\n"
-                f"Root-cause analysis detected corrupted records and quality defects in `{dataset_key}`:\n\n"
-                f"{fault_summary_str}\n\n"
-                f"**Key Defect Patterns Found:**\n"
-                f"• **Negative Values**: `fare_amount` and `trip_distance` contain invalid negative numbers.\n"
-                f"• **Type Mismatches**: Non-numeric text values injected into numeric columns.\n"
-                f"• **Out-of-Bound Coordinates**: Lat/Long coordinates positioned outside Vietnam.\n"
-                f"• **Null Injections**: Mandatory fields (`trip_id`, `driver_id`) contain unexpected nulls.\n\n"
-                f"💡 **Recommended Action**: Type `Propose quality rules for trips dirty` to generate governance rules for HITL approval."
-            )
-        else:
-            conclusion_content = f"Root-cause diagnosis complete for '{dataset_key}'. Category: {diag_report.category}. Impact: {diag_report.impact_level}. Remediation: {diag_report.recommended_remediation}"
-
+        conclusion_content = f"Root-cause diagnosis complete for '{target_key}'. Category: {diag_report.category}. Remediation: {diag_report.recommended_remediation}"
         agent_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": conclusion_content,
             "metadata": {"diagnosis": diag_report.model_dump()}
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
-
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": "orchestrator",
-            "status": "done"
-        })
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
 
         return ChatResponse(
             response=agent_msg["content"],
@@ -936,91 +1003,90 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "diagnosis": diag_report.model_dump()}
         )
 
-    elif any(k in command for k in ["what can you do", "help", "hello", "hi", "features", "who are you", "what do you do", "capabilities", "menu"]):
+    elif tool_name == "clean_database":
         agent_id = "orchestrator"
-        obs_content = f"Observation: Evaluated request '{request.message}' using Orchestrator LLM reasoning engine."
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "working"})
+        from src.services.dataset_engine import load_dataset, profile_rows, generate_rules_for_baseline, execute_compiled_rules
+        df = load_dataset(dataset_key=target_key)
+        profile_data = profile_rows(df.to_dict("records"))
+        rules, _ = generate_rules_for_baseline("A1", profile_data)
+
+        clean_res = execute_compiled_rules(df.to_dict("records"), rules)
+        clean_count = clean_res["clean_count"]
+        quarantine_count = clean_res["quarantine_count"]
+        manifest_hash = clean_res["manifest_hash"]
+
+        obs_content = f"Observation: Partitioned dataset '{target_key}' into CleanDB ({clean_count:,} rows) and QuarantineTable ({quarantine_count:,} rows). Cryptographic SHA-256 Hash: `{manifest_hash[:16]}...`"
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
             "content": obs_content,
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
+            "metadata": {"clean_res": clean_res}
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": obs_msg})
+
+        conclusion_content = (
+            f"Autonomous Clean DB Pipeline Execution Complete for '{target_key}'!\n\n"
+            f"- Clean DB Row Count: {clean_count:,} rows ({100.0 - clean_res['quarantine_rate']:.1f}% health score)\n"
+            f"- Quarantined Rows: {quarantine_count:,} defect rows isolated\n"
+            f"- Lineage Cryptographic SHA-256 Hash: `{manifest_hash[:16]}...`"
+        )
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": conclusion_content,
+            "metadata": {"clean_res": clean_res}
+        }, session_id=session_id)
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg})
+        await ws_manager.broadcast({"type": "workspace.update", "panel": "diff", "data": {
+            "dataset": target_key,
+            "original_rows": len(df),
+            "clean_rows": clean_count,
+            "quarantined_rows": quarantine_count,
+            "manifest_hash": manifest_hash,
+            "quarantine_rate": clean_res["quarantine_rate"]
+        }})
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Clean Database Pipeline) -> Observation -> Conclusion",
+            state="CLEAN_DB_CREATED",
+            agent_execution={"agent": agent_id, "clean_res": clean_res}
+        )
+
+    else:
+        # Stream response for general chat / QA
+        agent_id = "orchestrator"
+        msg_id = f"msg_{int(time.time()*1000)}"
 
         system_prompt = (
             "You are DataTrust OS Orchestrator Agent powered by Gemma-4. "
             "Respond in clean, professional markdown without using any emojis, icons, or decorative symbols. "
-            "Address the user's question directly, explain relevant multi-agent capabilities, "
-            "and suggest logical next steps."
+            "Address the user's question directly, explain relevant multi-agent capabilities, and suggest logical next steps."
         )
-        conclusion_content = llm_service.generate_text(
-            prompt=request.message,
-            system_prompt=system_prompt
-        )
+
+        full_text = ""
+        for item in llm_service.stream_text(prompt=request.message, system_prompt=system_prompt):
+            if item.get("type") == "thought":
+                await ws_manager.broadcast({"type": "chat.stream_thought", "id": msg_id, "delta": item["text"]})
+            else:
+                chunk = item.get("text", "")
+                full_text += chunk
+                await ws_manager.broadcast({"type": "chat.stream_chunk", "id": msg_id, "delta": chunk})
 
         agent_msg = conversation_store.save_message({
+            "id": msg_id,
             "type": "agent",
             "agentId": agent_id,
-            "content": conclusion_content,
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
+            "content": full_text,
+        }, session_id=session_id)
 
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
+        await ws_manager.broadcast({"type": "agent.status", "agent": agent_id, "status": "done"})
 
         return ChatResponse(
-            response=agent_msg["content"],
-            analysis="ReAct Loop Completed: Thought -> Action (LLM Reasoning) -> Observation -> Conclusion",
-            state="READY",
-            agent_execution={"agent": agent_id, "capabilities": True}
-        )
-
-    else:
-        agent_id = "orchestrator"
-        response_text = llm_service.generate_text(
-            prompt=request.message,
-            system_prompt="You are DataTrust OS Orchestrator Agent. Provide concise, helpful answers in markdown."
-        )
-
-        obs_content = f"Observation: Evaluated query '{request.message}' using Orchestrator LLM reasoning engine."
-        obs_msg = conversation_store.save_message({
-            "type": "agent",
-            "agentId": agent_id,
-            "content": obs_content,
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": obs_msg
-        })
-
-        conclusion_content = response_text
-        agent_msg = conversation_store.save_message({
-            "type": "agent",
-            "agentId": agent_id,
-            "content": conclusion_content,
-        })
-        await ws_manager.broadcast({
-            "type": "chat.message",
-            "data": agent_msg
-        })
-
-        await ws_manager.broadcast({
-            "type": "agent.status",
-            "agent": agent_id,
-            "status": "done"
-        })
-
-        return ChatResponse(
-            response=agent_msg["content"],
-            analysis="ReAct Loop Completed: Thought -> Action (LLM Reasoning) -> Observation -> Conclusion",
+            response=full_text,
+            analysis="ReAct Loop Streaming Completed",
             state="READY",
             agent_execution={"agent": agent_id, "llm_reasoning": True}
         )

@@ -106,7 +106,8 @@ class ConversationStore:
         with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_updated,
-                       (SELECT content FROM messages m2 WHERE m2.session_id = messages.session_id ORDER BY timestamp ASC LIMIT 1) as first_msg
+                       (SELECT content FROM messages m2 WHERE m2.session_id = messages.session_id AND m2.type = 'user' ORDER BY timestamp ASC LIMIT 1) as user_msg,
+                       (SELECT content FROM messages m3 WHERE m3.session_id = messages.session_id ORDER BY timestamp ASC LIMIT 1) as fallback_msg
                 FROM messages
                 GROUP BY session_id
                 ORDER BY last_updated DESC
@@ -115,11 +116,15 @@ class ConversationStore:
 
         result = []
         for r in rows:
+            raw_title = r["user_msg"] or r["fallback_msg"] or "New Agent Chat"
+            clean_title = raw_title.replace("\n", " ").strip()
+            if len(clean_title) > 35:
+                clean_title = clean_title[:32] + "..."
             result.append({
                 "session_id": r["session_id"],
                 "msg_count": r["msg_count"],
                 "last_updated": r["last_updated"],
-                "title": r["first_msg"][:40] if r["first_msg"] else "Chat Session",
+                "title": clean_title,
             })
         return result
 

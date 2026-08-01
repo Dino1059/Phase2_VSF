@@ -2,11 +2,13 @@ import { useState, useRef, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send } from 'lucide-react';
 import { sendChatMessage } from '../../services/api';
+import { useChatStore } from '../../stores/chatStore';
 
 export function ChatInput() {
   const { t } = useTranslation('chat');
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionId = useChatStore((s) => s.sessionId);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -16,7 +18,7 @@ export function ChatInput() {
     inputRef.current?.focus();
 
     try {
-      await sendChatMessage(trimmed);
+      await sendChatMessage(trimmed, sessionId);
     } catch (e) {
       console.error('Failed to send message:', e);
     }

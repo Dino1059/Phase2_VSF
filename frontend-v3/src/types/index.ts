@@ -78,6 +78,8 @@ export interface AgentEvent {
   panel?: WorkspaceView | string;
   proposals?: RuleProposal[];
   data?: unknown;
+  id?: string;
+  delta?: string;
   timestamp?: string;
 }
 

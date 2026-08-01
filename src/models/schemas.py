@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # --- Legacy Chat & Basic API Schemas ---
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000, description="User message")
+    session_id: str = Field(default="default", description="Chat session ID")
 
 
 class ChatResponse(BaseModel):

@@ -11,7 +11,7 @@ import { fetchChatHistory } from '../../services/api';
 
 export function ChatPanel() {
   const { t } = useTranslation('chat');
-  const { messages, agentStatuses, addMessage } = useChatStore();
+  const { messages, agentStatuses, setMessages, sessionId } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAnyAgentWorking = Object.values(agentStatuses).some(
@@ -23,14 +23,14 @@ export function ChatPanel() {
 
   useEffect(() => {
     agentSocket.connect();
-    fetchChatHistory()
+    fetchChatHistory(sessionId)
       .then((res) => {
-        if (res.messages && Array.isArray(res.messages) && messages.length === 0) {
-          res.messages.forEach((msg: any) => addMessage(msg));
+        if (res.messages && Array.isArray(res.messages)) {
+          setMessages(res.messages);
         }
       })
       .catch((err) => console.warn('Failed to load chat history:', err));
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
