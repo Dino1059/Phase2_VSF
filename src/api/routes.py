@@ -556,8 +556,67 @@ async def send_chat_message(request: ChatRequest):
     llm_service = LLMService()
     react_engine = BoundedReActEngine(llm_service=llm_service)
     command = request.message.lower()
+    # Detect target dataset from message if specified
+    dataset_key = None
+    if "nyc" in command or "fhvhv" in command or "taxi" in command:
+        dataset_key = "nyc_fhvhv"
+    elif "clean" in command:
+        dataset_key = "vietnam_trips"
+    elif "weather" in command:
+        dataset_key = "weather_hcmc"
+    elif "grab" in command or "sea" in command:
+        dataset_key = "grab_sea_demand"
+    elif "vietnam" in command or "dirty" in command or "trip" in command:
+        dataset_key = "vietnam_trips_dirty"
 
-    if "profile" in command or "scan" in command:
+    if "list" in command and ("dataset" in command or "data" in command or "file" in command):
+        agent_id = "orchestrator"
+        from src.config import get_settings
+        settings = get_settings()
+        ds_list = settings.list_available_datasets()
+
+        obs_content = f"Observation: Found {len(ds_list)} registered datasets in DataTrust OS repository."
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"datasets": ds_list}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        summary_lines = [f"📊 Available Datasets ({len(ds_list)}):"]
+        for ds in ds_list:
+            status = "✅ Ready" if ds.get("exists") else "❌ Missing"
+            summary_lines.append(f"• **{ds.get('name')}** ({ds.get('key')}): {status} — Format: {ds.get('format').upper()} ({ds.get('size_mb', 0)} MB)")
+
+        conclusion_content = "\n".join(summary_lines)
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": conclusion_content,
+            "metadata": {"datasets": ds_list}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
+        })
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "done"
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (List Datasets) -> Observation -> Conclusion",
+            state="READY",
+            agent_execution={"agent": agent_id, "datasets": ds_list}
+        )
+
+    elif "profile" in command or "scan" in command or "health" in command:
         agent_id = "profiler"
         await ws_manager.broadcast({
             "type": "agent.status",
@@ -566,10 +625,11 @@ async def send_chat_message(request: ChatRequest):
         })
 
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset()
+        df = load_dataset(dataset_key=dataset_key)
         profile_data = profile_rows(df.to_dict("records"))
+        target_name = dataset_key or "default dataset"
 
-        obs_content = f"Observation: Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile with data health score {profile_data.get('data_health_score', 100.0)}%."
+        obs_content = f"Observation: Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_name}'. Health Score: {profile_data.get('data_health_score', 100.0)}%."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
@@ -581,7 +641,7 @@ async def send_chat_message(request: ChatRequest):
             "data": obs_msg
         })
 
-        conclusion_content = f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile."
+        conclusion_content = f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns for '{target_name}'. Data Health Score: {profile_data.get('data_health_score', 100.0)}%."
         agent_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
@@ -629,7 +689,7 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "profile": profile_data}
         )
 
-    elif "rule" in command or "propose" in command:
+    elif "rule" in command or "propose" in command or "constraint" in command:
         agent_id = "ruleProposer"
         await ws_manager.broadcast({
             "type": "agent.status",
@@ -638,7 +698,7 @@ async def send_chat_message(request: ChatRequest):
         })
 
         from src.services.dataset_engine import load_dataset, generate_rules_for_baseline, profile_rows
-        df = load_dataset()
+        df = load_dataset(dataset_key=dataset_key)
         profile_data = profile_rows(df.to_dict("records"))
         rules, _ = generate_rules_for_baseline("A1", profile_data)
 
@@ -655,7 +715,7 @@ async def send_chat_message(request: ChatRequest):
                 "agentId": agent_id
             })
 
-        obs_content = f"Observation: Generated {len(proposals)} proposed data quality rules for dataset governance review using BoundedReActEngine rule proposer agent."
+        obs_content = f"Observation: Generated {len(proposals)} proposed data quality rules for governance review using BoundedReActEngine rule proposer agent."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
@@ -717,7 +777,7 @@ async def send_chat_message(request: ChatRequest):
         })
 
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset()
+        df = load_dataset(dataset_key=dataset_key)
         profile_data = profile_rows(df.to_dict("records"))
 
         anomaly_report = react_engine.detect_anomalies(current_profile=profile_data)
@@ -770,7 +830,7 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "anomalies": anomaly_report.model_dump()}
         )
 
-    elif "diagnos" in command or "root cause" in command or "remediat" in command:
+    elif "diagnos" in command or "root cause" in command or "remediat" in command or "why" in command:
         agent_id = "diagnosis"
         await ws_manager.broadcast({
             "type": "agent.status",
@@ -779,7 +839,7 @@ async def send_chat_message(request: ChatRequest):
         })
 
         from src.services.dataset_engine import load_dataset, profile_rows
-        df = load_dataset()
+        df = load_dataset(dataset_key=dataset_key)
         profile_data = profile_rows(df.to_dict("records"))
 
         diag_report = react_engine.diagnose(data_profile=profile_data)

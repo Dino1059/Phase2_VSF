@@ -4,6 +4,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { TypingIndicator } from './TypingIndicator';
+import { BatchApprovalBar } from '../hitl/BatchApprovalBar';
 import { MessageSquare } from 'lucide-react';
 import { agentSocket } from '../../services/socket';
 import { fetchChatHistory } from '../../services/api';
@@ -36,7 +37,10 @@ export function ChatPanel() {
   }, [messages.length]);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 overflow-hidden relative">
+      {/* Sticky Batch Approval Bar for HITL */}
+      <BatchApprovalBar />
+
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 ? (
