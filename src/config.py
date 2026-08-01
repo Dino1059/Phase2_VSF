@@ -55,6 +55,25 @@ class Settings(BaseSettings):
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(base, path)
 
+    def list_available_datasets(self) -> list:
+        import os
+        result = []
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for key, rel_path in self.dataset_registry.items():
+            full_path = os.path.join(base, rel_path)
+            exists = os.path.exists(full_path)
+            size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2) if exists else 0
+            fmt = rel_path.split(".")[-1]
+            result.append({
+                "key": key,
+                "name": key.replace("_", " ").title(),
+                "path": rel_path,
+                "format": fmt,
+                "exists": exists,
+                "size_mb": size_mb,
+            })
+        return result
+
 
 
 @lru_cache

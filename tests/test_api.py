@@ -262,5 +262,14 @@ def test_chat_send_react_loop_diagnose():
     assert data["state"] == "DIAGNOSED"
 
 
+def test_chat_send_list_datasets():
+    response = client.post("/api/v1/chat/send", json={"message": "List datasets"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert "Available Datasets" in data["response"]
+    assert data["state"] == "READY"
+
+
 
 
