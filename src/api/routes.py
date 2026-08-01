@@ -569,7 +569,22 @@ async def send_chat_message(request: ChatRequest):
     elif "vietnam" in command or "dirty" in command or "trip" in command:
         dataset_key = "vietnam_trips_dirty"
 
-    if "list" in command and ("dataset" in command or "data" in command or "file" in command):
+    is_dataset_list_query = (
+        ("dataset" in command or "datasets" in command or "data source" in command or "datasources" in command)
+        and (
+            "list" in command
+            or "how many" in command
+            or "what" in command
+            or "show" in command
+            or "available" in command
+            or "view" in command
+            or "get" in command
+            or "all" in command
+            or "count" in command
+        )
+    )
+
+    if is_dataset_list_query:
         agent_id = "orchestrator"
         from src.config import get_settings
         settings = get_settings()
