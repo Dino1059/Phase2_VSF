@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layout,
   Select,
@@ -13,6 +13,7 @@ import {
   Popconfirm,
   message,
   Tabs,
+  Alert as AntAlert,
 } from 'antd';
 import {
   BellOutlined,
@@ -21,7 +22,6 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
   InfoCircleOutlined,
-  CheckCircleOutlined,
   AuditOutlined,
 } from '@ant-design/icons';
 import { useRole } from '../context/RoleContext';
@@ -31,36 +31,6 @@ import { UserRole, NotificationAlert } from '../types';
 const { Header: AntHeader } = Layout;
 const { Text, Title } = Typography;
 
-const initialAlerts: NotificationAlert[] = [
-  {
-    id: 'alt_001',
-    timestamp: new Date(Date.now() - 300000).toLocaleTimeString(),
-    title: 'High Null Rate Detected',
-    message: 'Column "driver_pay" null rate spiked to 12.4% in batch NYC_TLC_TRIP_082026',
-    severity: 'Critical',
-    read: false,
-    category: 'Data Quality',
-  },
-  {
-    id: 'alt_002',
-    timestamp: new Date(Date.now() - 1200000).toLocaleTimeString(),
-    title: 'Upstream Schema Drift Alert',
-    message: 'New unrecognized column "vendor_fee_v2" detected in raw ingestion topic',
-    severity: 'Warning',
-    read: false,
-    category: 'Schema Drift',
-  },
-  {
-    id: 'alt_003',
-    timestamp: new Date(Date.now() - 3600000).toLocaleTimeString(),
-    title: 'Governance Rule Auto-Approved',
-    message: 'Rule RULE_PAY_BOUNDS_001 passed high confidence threshold (>95%)',
-    severity: 'Info',
-    read: false,
-    category: 'Governance',
-  },
-];
-
 interface HeaderProps {
   onResetComplete?: () => void;
 }
@@ -68,9 +38,41 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
   const { userRole, setUserRole, canResetSystem } = useRole();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [alerts, setAlerts] = useState<NotificationAlert[]>(initialAlerts);
+  const [alerts, setAlerts] = useState<NotificationAlert[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('all');
   const [resetting, setResetting] = useState(false);
+
+  const fetchAlerts = useCallback(async (showLoadingState = false) => {
+    if (showLoadingState) setLoading(true);
+    try {
+      const data = await apiService.getAlerts();
+      const alertList: NotificationAlert[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.alerts)
+        ? data.alerts
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+      setAlerts(alertList);
+      setError(null);
+    } catch (err: any) {
+      console.error('Failed to fetch alerts:', err);
+      setError('Failed to load notifications from server');
+    } finally {
+      if (showLoadingState) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAlerts(true);
+    const intervalId = setInterval(() => {
+      fetchAlerts(false);
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchAlerts]);
 
   const handleRoleChange = (newRole: UserRole) => {
     setUserRole(newRole);
@@ -80,13 +82,29 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
 
   const unreadCount = alerts.filter((a) => !a.read).length;
 
-  const markAllRead = () => {
-    setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
-    message.info('All notifications marked as read');
+  const markAllRead = async () => {
+    const unreadAlerts = alerts.filter((a) => !a.read);
+    if (unreadAlerts.length === 0) return;
+    try {
+      await Promise.all(unreadAlerts.map((a) => apiService.acknowledgeAlert(a.id)));
+      setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
+      message.info('All notifications marked as read');
+    } catch (err) {
+      console.error('Failed to acknowledge all alerts:', err);
+      message.error('Failed to mark all notifications as read');
+    }
   };
 
-  const markSingleRead = (id: string) => {
-    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: true } : a)));
+  const markSingleRead = async (id: string) => {
+    const alert = alerts.find((a) => a.id === id);
+    if (!alert || alert.read) return;
+    try {
+      await apiService.acknowledgeAlert(id);
+      setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: true } : a)));
+    } catch (err) {
+      console.error('Failed to acknowledge alert:', err);
+      message.error('Failed to mark notification as read');
+    }
   };
 
   const handleReset = async () => {
@@ -250,6 +268,16 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
         onClose={() => setDrawerOpen(false)}
         open={drawerOpen}
       >
+        {error && (
+          <AntAlert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            onClose={() => setError(null)}
+            style={{ marginBottom: 12 }}
+          />
+        )}
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -260,6 +288,7 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
           ]}
         />
         <List
+          loading={loading}
           itemLayout="vertical"
           dataSource={filteredAlerts}
           renderItem={(item) => (
