@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Plus, MessageSquare, Trash2, Shield, RefreshCw } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Plus, MessageSquare, Trash2, Shield, RefreshCw, Upload, Loader2 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
-import { fetchChatSessions, fetchChatHistory, clearChatDatabase } from '../../services/api';
+import { fetchChatSessions, fetchChatHistory, clearChatDatabase, uploadDatasetFile } from '../../services/api';
 
 interface SessionItem {
   session_id: string;
@@ -14,6 +14,22 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { setMessages, clearMessages, setWorkspace } = useChatStore();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSession, setActiveSession] = useState<string>('default');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadDatasetFile(file);
+    } catch (err) {
+      console.error('File upload failed:', err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const loadSessions = async () => {
     try {
@@ -66,13 +82,29 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   return (
     <aside className="flex flex-col h-full w-64 bg-surface border-r border-border shrink-0 select-none">
       {/* Top action button */}
-      <div className="p-3 border-b border-border">
+      <div className="p-3 border-b border-border space-y-2">
         <button
           onClick={handleNewChat}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-agent-orchestrator hover:bg-agent-orchestrator/80 rounded-lg transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" />
           <span>New Agent Chat</span>
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".parquet,.csv,.json,.jsonl,.sqlite,.db"
+          className="hidden"
+          onChange={handleFileUpload}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium text-text-primary bg-background border border-border hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50"
+        >
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 text-agent-orchestrator" />}
+          <span>Upload DB / Dataset</span>
         </button>
       </div>
 

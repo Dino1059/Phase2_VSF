@@ -22,6 +22,8 @@ class Settings(BaseSettings):
 
     # LLM
     openai_api_key: str = ""
+    ai_studio_api_key: str = Field(default="", validation_alias="AI_STUDIO_API_KEY")
+    ai_model: str = Field(default="gemma-4-26b-a4b-it", validation_alias="AI_MODEL")
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
@@ -54,6 +56,9 @@ class Settings(BaseSettings):
             )
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(base, path)
+
+    def register_dataset(self, key: str, rel_path: str):
+        self.dataset_registry[key] = rel_path
 
     def list_available_datasets(self) -> list:
         import os

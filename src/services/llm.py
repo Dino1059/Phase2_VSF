@@ -187,16 +187,51 @@ class OfflineMockLLM:
             raise ValueError(f"Mock generation for model {response_model.__name__} not supported.")
 
 
+class GoogleAIStudioLLM:
+    """Google AI Studio LLM adapter calling generative AI models (e.g. gemma-4-26b-a4b-it)
+    via native HTTP API using AI_STUDIO_API_KEY from .env.
+    """
+
+    def __init__(self, api_key: str, model_name: str = "gemma-4-26b-a4b-it"):
+        self.api_key = api_key
+        self.model_name = model_name
+
+    def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        import json
+        import urllib.request
+
+        full_prompt = f"{system_prompt}\n\nUser Question: {prompt}" if system_prompt else prompt
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": full_prompt}]}]
+        }).encode("utf-8")
+
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return text
+        except Exception as e:
+            logger.warning(f"Google AI Studio API call failed: {e}")
+            return f"DataTrust AI: Analyzed query '{prompt}'."
+
+
 class LLMService:
     """Provider-agnostic LLM service enforcing structured outputs."""
 
     def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
         settings = get_settings()
-        self.provider = provider or os.getenv("LLM_PROVIDER", "offline_mock")
-        self.model_name = model_name or settings.model_name
+        self.provider = provider or os.getenv("LLM_PROVIDER", "google_ai_studio")
+        self.model_name = model_name or settings.ai_model
         self.openai_api_key = settings.openai_api_key
+        self.ai_studio_api_key = settings.ai_studio_api_key or os.getenv("AI_STUDIO_API_KEY", "")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         self.mock_llm = OfflineMockLLM()
+        if self.ai_studio_api_key:
+            self.google_studio_llm = GoogleAIStudioLLM(api_key=self.ai_studio_api_key, model_name=self.model_name)
+        else:
+            self.google_studio_llm = None
 
     def generate_structured(
         self, prompt: str, response_model: Type[T], system_prompt: Optional[str] = None
@@ -257,6 +292,12 @@ class LLMService:
 
     def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Generates natural language text response."""
+        if self.google_studio_llm:
+            try:
+                return self.google_studio_llm.generate_text(prompt, system_prompt)
+            except Exception as e:
+                logger.warning(f"Google AI Studio call failed: {e}")
+
         if self.provider == "openai" and self.openai_api_key:
             try:
                 from langchain_openai import ChatOpenAI

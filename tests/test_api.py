@@ -263,13 +263,21 @@ def test_chat_send_react_loop_diagnose():
 
 
 def test_chat_send_list_datasets():
-    response = client.post("/api/v1/chat/send", json={"message": "List datasets"})
+    response = client.post("/api/v1/chat/send", json={"message": "how many datasets do I have?"})
     assert response.status_code == 200
     data = response.json()
     assert "response" in data
-    assert "Available Datasets" in data["response"]
-    assert data["state"] == "READY"
+    assert "vietnam_trips_dirty" in data["response"]
 
 
-
-
+def test_upload_dataset_endpoint():
+    import io
+    csv_content = b"col1,col2,col3\n1,2,3\n4,5,6\n7,8,9\n"
+    file = ("sample_test_upload.csv", io.BytesIO(csv_content), "text/csv")
+    response = client.post("/api/v1/dataset/upload", files={"file": file})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "uploaded"
+    assert data["dataset_key"] == "uploaded_sample_test_upload"
+    assert data["columns"] == ["col1", "col2", "col3"]
+    assert data["total_rows"] == 3

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { Check, X, Pencil, ShieldCheck, AlertTriangle, Info } from 'lucide-react';
+import { Check, X, Pencil, ShieldCheck, AlertTriangle, Info, Play } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { sendChatMessage } from '../../services/api';
 import type { RuleProposal } from '../../types';
 
 const SEVERITY_CONFIG = {
@@ -15,6 +16,24 @@ export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
   const sevKey = (proposal.severity || 'warning').toLowerCase();
   const severity = SEVERITY_CONFIG[sevKey as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.warning;
   const SeverityIcon = severity.icon;
+
+  const isPipelineGate = proposal.type === 'AUTONOMOUS_PIPELINE';
+
+  const handleApprove = async () => {
+    updateProposalStatus(proposal.id, 'approved');
+    if (isPipelineGate) {
+      const match = proposal.expression.match(/AUTONOMOUS_GOVERNANCE\((.*?)\)/);
+      const datasetKey = match ? match[1] : '';
+      const cmd = datasetKey
+        ? `Detect anomalies and propose quality rules for ${datasetKey}`
+        : 'Propose quality rules for uploaded dataset';
+      try {
+        await sendChatMessage(cmd);
+      } catch (e) {
+        console.error('Failed to start pipeline:', e);
+      }
+    }
+  };
 
   if (proposal.status !== 'pending') {
     return (
@@ -55,11 +74,11 @@ export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
       {/* Actions */}
       <div className="flex items-center gap-2 px-3 py-2 border-t border-border bg-background">
         <button
-          onClick={() => updateProposalStatus(proposal.id, 'approved')}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-status-success hover:bg-status-success/80 rounded-md transition-colors"
+          onClick={handleApprove}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-status-success hover:bg-status-success/80 rounded-md transition-colors"
         >
-          <Check className="w-3.5 h-3.5" />
-          {t('approve')}
+          {isPipelineGate ? <Play className="w-3.5 h-3.5 fill-current" /> : <Check className="w-3.5 h-3.5" />}
+          {isPipelineGate ? 'Accept & Run Governance Pipeline' : t('approve')}
         </button>
         <button
           onClick={() => updateProposalStatus(proposal.id, 'rejected')}
@@ -68,10 +87,12 @@ export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
           <X className="w-3.5 h-3.5" />
           {t('reject')}
         </button>
-        <button className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover rounded-md transition-colors ml-auto">
-          <Pencil className="w-3.5 h-3.5" />
-          {t('edit')}
-        </button>
+        {!isPipelineGate && (
+          <button className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover rounded-md transition-colors ml-auto">
+            <Pencil className="w-3.5 h-3.5" />
+            {t('edit')}
+          </button>
+        )}
       </div>
     </div>
   );

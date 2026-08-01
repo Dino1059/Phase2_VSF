@@ -1,7 +1,9 @@
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen, Upload, Loader2 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useChatStore } from '../../stores/chatStore';
+import { uploadDatasetFile } from '../../services/api';
 import { AGENTS } from '../../types';
 import type { AgentId, UserRole } from '../../types';
 
@@ -11,11 +13,27 @@ export function TopBar() {
   const { t, i18n } = useTranslation();
   const { role, setRole, workspacePanelVisible, setWorkspacePanelVisible, sidebarCollapsed, toggleSidebar } = useAppStore();
   const { agentStatuses } = useChatStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   const toggleLang = () => {
     const newLang = i18n.language === 'en' ? 'vi' : 'en';
     i18n.changeLanguage(newLang);
     localStorage.setItem('datatrust-lang', newLang);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadDatasetFile(file);
+    } catch (err) {
+      console.error('File upload failed:', err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -68,6 +86,25 @@ export function TopBar() {
 
       {/* Right: Controls */}
       <div className="flex items-center gap-2">
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".parquet,.csv,.json,.jsonl,.sqlite,.db"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {/* Upload Dataset Button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-agent-orchestrator hover:bg-agent-orchestrator/80 rounded-md transition-colors disabled:opacity-50"
+        >
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          <span className="max-sm:hidden">Upload DB</span>
+        </button>
+
         {/* Language toggle */}
         <button
           onClick={toggleLang}

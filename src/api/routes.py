@@ -1,7 +1,7 @@
 import json
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect, File, UploadFile
 import pandas as pd
 from pydantic import BaseModel
 
@@ -1054,6 +1054,106 @@ async def clear_chat(req: ClearChatRequest):
     else:
         conversation_store.clear_all()
     return {"status": "cleared", "session_id": req.session_id}
+
+
+@router.post("/dataset/upload")
+async def upload_dataset(file: UploadFile = File(...)):
+    """Upload a database or data file (.parquet, .csv, .json, .jsonl, .sqlite, .db)
+    and initiate autonomous AI governance declaration pipeline.
+    """
+    import os
+    import shutil
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    upload_dir = os.path.join(base_dir, "data", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_path = os.path.join(upload_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    file_size_mb = round(os.path.getsize(file_path) / (1024 * 1024), 2)
+    clean_name = os.path.splitext(file.filename)[0].replace("-", "_").replace(" ", "_").lower()
+    dataset_key = f"uploaded_{clean_name}"
+    rel_path = os.path.relpath(file_path, base_dir)
+
+    from src.config import get_settings
+    settings = get_settings()
+    settings.register_dataset(dataset_key, rel_path)
+
+    # Load and profile uploaded dataset
+    from src.tools.datasource import StructuredSource
+    src = StructuredSource(file_path)
+    df = src.load_data(sample_size=50_000)
+
+    # Broadcast websocket notification & declaration card
+    await ws_manager.broadcast({
+        "type": "agent.status",
+        "agent": "orchestrator",
+        "status": "working"
+    })
+
+    declaration_content = (
+        f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
+        f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
+        f"⚖️ **Declaration & Permission Gate**:\n"
+        f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
+        f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+    )
+
+    msg = conversation_store.save_message({
+        "type": "proposal",
+        "agentId": "orchestrator",
+        "content": declaration_content,
+        "metadata": {
+            "dataset_key": dataset_key,
+            "filename": file.filename,
+            "columns": list(df.columns),
+            "total_rows": len(df),
+            "proposals": [{
+                "id": f"prop_upload_{dataset_key}",
+                "type": "AUTONOMOUS_PIPELINE",
+                "column": "dataset_pipeline",
+                "expression": f"AUTONOMOUS_GOVERNANCE({dataset_key})",
+                "description": f"Execute automated DataTrust OS cleaning pipeline for '{dataset_key}'",
+                "severity": "info",
+                "status": "pending",
+                "agentId": "orchestrator"
+            }]
+        }
+    })
+
+    await ws_manager.broadcast({
+        "type": "chat.message",
+        "data": msg
+    })
+
+    await ws_manager.broadcast({
+        "type": "workspace.update",
+        "panel": "profile",
+        "data": {
+            "totalRows": len(df),
+            "columns": [
+                {
+                    "name": col,
+                    "type": str(df[col].dtype),
+                    "nullRate": float(df[col].isnull().mean()),
+                    "uniqueRate": float(df[col].nunique() / max(len(df), 1)),
+                    "health": "healthy" if df[col].isnull().mean() < 0.05 else "warning"
+                }
+                for col in df.columns
+            ]
+        }
+    })
+
+    return {
+        "status": "uploaded",
+        "dataset_key": dataset_key,
+        "filename": file.filename,
+        "size_mb": file_size_mb,
+        "columns": list(df.columns),
+        "total_rows": len(df)
+    }
 
 
 
