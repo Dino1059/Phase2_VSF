@@ -938,7 +938,7 @@ async def send_chat_message(request: ChatRequest):
 
     elif any(k in command for k in ["what can you do", "help", "hello", "hi", "features", "who are you", "what do you do", "capabilities", "menu"]):
         agent_id = "orchestrator"
-        obs_content = "Observation: Evaluated capability request using Orchestrator Agent. Presenting DataTrust OS multi-agent ecosystem overview."
+        obs_content = f"Observation: Evaluated request '{request.message}' using Orchestrator LLM reasoning engine."
         obs_msg = conversation_store.save_message({
             "type": "agent",
             "agentId": agent_id,
@@ -949,19 +949,15 @@ async def send_chat_message(request: ChatRequest):
             "data": obs_msg
         })
 
-        conclusion_content = (
-            "🤖 **Welcome to DataTrust OS — AI-Augmented Data Governance System!**\n\n"
-            "I orchestrate 4 specialized AI sub-agents to autonomously govern your data quality:\n\n"
-            "• **🔍 Profiler Agent**: Scans datasets, computes null rates, column types, distinct values, and health scores.\n"
-            "• **🛡️ Rule Proposer Agent**: Generates data quality constraints for Human-In-The-Loop governance review.\n"
-            "• **⚠️ Anomaly Detector Agent**: Detects statistical outliers and schema drift (Z-Score, IQR, Isolation Forest).\n"
-            "• **🩺 Diagnosis Agent**: Conducts root-cause analysis on data defects and provides remediation steps.\n\n"
-            "💡 **Commands you can try right now:**\n"
-            "• `List datasets` — View registered datasets\n"
-            "• `Profile the Vietnam trips dataset` — Analyze data quality\n"
-            "• `Propose quality rules` — Generate governance rules\n"
-            "• `Detect anomalies` — Find statistical outliers\n"
-            "• `Diagnose root cause` — Investigate negative fares or missing values"
+        system_prompt = (
+            "You are DataTrust OS Orchestrator Agent powered by Gemma-4. "
+            "Respond in clean, professional markdown without using any emojis, icons, or decorative symbols. "
+            "Address the user's question directly, explain relevant multi-agent capabilities, "
+            "and suggest logical next steps."
+        )
+        conclusion_content = llm_service.generate_text(
+            prompt=request.message,
+            system_prompt=system_prompt
         )
 
         agent_msg = conversation_store.save_message({
@@ -982,7 +978,7 @@ async def send_chat_message(request: ChatRequest):
 
         return ChatResponse(
             response=agent_msg["content"],
-            analysis="ReAct Loop Completed: Thought -> Action (Capability Overview) -> Observation -> Conclusion",
+            analysis="ReAct Loop Completed: Thought -> Action (LLM Reasoning) -> Observation -> Conclusion",
             state="READY",
             agent_execution={"agent": agent_id, "capabilities": True}
         )

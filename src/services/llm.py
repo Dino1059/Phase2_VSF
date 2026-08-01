@@ -318,11 +318,11 @@ class LLMService:
         return (
             f"I evaluated your query: '{prompt}'. DataTrust OS is an AI-augmented data governance system.\n\n"
             "Here are the active tools & sub-agents ready to run:\n"
-            "• **🔍 ProfilerAgent**: `Profile vietnam_trips_dirty`\n"
-            "• **🛡️ RuleProposerAgent**: `Propose quality rules`\n"
-            "• **⚠️ AnomalyDetectorAgent**: `Detect anomalies`\n"
-            "• **🩺 DiagnosisAgent**: `Diagnose root cause for vietnam_trips_dirty`\n"
-            "• **📊 DatasetRegistry**: `List datasets`"
+            "- **ProfilerAgent**: Profile datasets and analyze schema quality\n"
+            "- **RuleProposerAgent**: Propose data quality rules for review\n"
+            "- **AnomalyDetectorAgent**: Detect statistical outliers and schema drift\n"
+            "- **DiagnosisAgent**: Diagnose root causes for data defects\n"
+            "- **DatasetRegistry**: List and upload datasets"
         )
 
 
