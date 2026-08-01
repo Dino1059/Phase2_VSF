@@ -194,3 +194,68 @@ def test_dataset_not_found_endpoints():
         assert "Unknown dataset: invalid_dataset_key" in resp.json()["detail"]
 
 
+def test_v3_static_and_ui_endpoints():
+    # Test /v3 root and client-side subroute
+    resp_v3 = client.get("/v3")
+    assert resp_v3.status_code == 200
+    assert "DataTrust OS v3" in resp_v3.text
+
+    resp_v3_sub = client.get("/v3/dashboard")
+    assert resp_v3_sub.status_code == 200
+    assert "DataTrust OS v3" in resp_v3_sub.text
+
+    # Test /vite.svg endpoint
+    resp_vite = client.get("/vite.svg")
+    assert resp_vite.status_code == 200
+
+    # Test /favicon.ico endpoint
+    resp_fav = client.get("/favicon.ico")
+    assert resp_fav.status_code == 200
+
+    # Test /v3/assets endpoint (index-B0qbFXbb.js exists in dist/assets)
+    resp_asset = client.get("/v3/assets/index-B0qbFXbb.js")
+    assert resp_asset.status_code == 200
+
+
+def test_websocket_endpoint_clean_connection():
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "ping"})
+        data = websocket.receive_json()
+        assert data == {"type": "pong"}
+
+
+def test_chat_send_react_loop_profile():
+    response = client.post("/api/v1/chat/send", json={"message": "Profile the dataset"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert data["state"] == "PROFILED"
+    assert "ReAct Loop Completed" in data["analysis"]
+
+
+def test_chat_send_react_loop_propose_rules():
+    response = client.post("/api/v1/chat/send", json={"message": "Propose data quality rules"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert data["state"] == "RULES_PROPOSED"
+
+
+def test_chat_send_react_loop_anomaly():
+    response = client.post("/api/v1/chat/send", json={"message": "Detect anomalies in dataset"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert data["state"] == "ANOMALY_DETECTED"
+
+
+def test_chat_send_react_loop_diagnose():
+    response = client.post("/api/v1/chat/send", json={"message": "Diagnose root cause"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data
+    assert data["state"] == "DIAGNOSED"
+
+
+
+

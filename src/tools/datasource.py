@@ -65,36 +65,74 @@ class StructuredSource(DataSource):
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def load_data(self) -> pd.DataFrame:
+    def load_data(self, sample_size: Optional[int] = None) -> pd.DataFrame:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Source file not found: {self.file_path}")
 
         fmt = self.file_format
         if fmt == "csv":
-            return pd.read_csv(self.file_path)
+            return pd.read_csv(self.file_path, nrows=sample_size) if sample_size else pd.read_csv(self.file_path)
         elif fmt == "parquet":
+            if sample_size:
+                try:
+                    import pyarrow.parquet as pq
+                    import pyarrow as pa
+                    pf = pq.ParquetFile(self.file_path)
+                    rg_tables = []
+                    curr_rows = 0
+                    for i in range(pf.num_row_groups):
+                        rg = pf.read_row_group(i)
+                        rg_tables.append(rg)
+                        curr_rows += rg.num_rows
+                        if curr_rows >= sample_size:
+                            break
+                    if rg_tables:
+                        table = pa.concat_tables(rg_tables)
+                        df = table.to_pandas()
+                        if len(df) > sample_size:
+                            df = df.head(sample_size)
+                        return df
+                except Exception:
+                    pass
             return pd.read_parquet(self.file_path)
         elif fmt == "json":
             try:
-                return pd.read_json(self.file_path)
+                df = pd.read_json(self.file_path)
+                if sample_size and len(df) > sample_size:
+                    df = df.head(sample_size)
+                return df
             except Exception:
-                return pd.read_json(self.file_path, lines=True)
+                return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
         elif fmt == "jsonl":
-            return pd.read_json(self.file_path, lines=True)
+            return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
         else:
             try:
-                return pd.read_csv(self.file_path)
+                return pd.read_csv(self.file_path, nrows=sample_size) if sample_size else pd.read_csv(self.file_path)
             except Exception as e:
                 raise ValueError(f"Unsupported structured format '{fmt}' for file {self.file_path}: {e}")
 
     def get_metadata(self) -> Dict[str, Any]:
         checksum = self.get_checksum()
-        df = self.load_data()
         file_size = self.file_path.stat().st_size if self.file_path.exists() else 0
+
+        # Fast metadata extraction without loading full file into memory
+        row_count = 0
+        if self.file_format == "parquet" and self.file_path.exists():
+            try:
+                import pyarrow.parquet as pq
+                meta = pq.read_metadata(self.file_path)
+                row_count = meta.num_rows
+            except Exception:
+                row_count = 0
+
+        # Load small sample for schema info
+        df_sample = self.load_data(sample_size=100)
+        if row_count == 0:
+            row_count = len(df_sample)
 
         schema_info: List[Dict[str, Any]] = [
             {"column": str(col), "dtype": str(dtype)}
-            for col, dtype in zip(df.columns, df.dtypes)
+            for col, dtype in zip(df_sample.columns, df_sample.dtypes)
         ]
 
         return {
@@ -103,8 +141,8 @@ class StructuredSource(DataSource):
             "file_format": self.file_format,
             "source_type": "structured",
             "file_size": file_size,
-            "row_count": len(df),
-            "column_count": len(df.columns),
+            "row_count": row_count,
+            "column_count": len(df_sample.columns),
             "schema_info": schema_info,
         }
 

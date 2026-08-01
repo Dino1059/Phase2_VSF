@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import router
+from src.api.routes import router, ws_router
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
 from src.services.scheduler import scheduler_service
@@ -46,7 +46,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include router under /api and /api/v1 for compatibility
+# Include WebSocket router and API routers
+app.include_router(ws_router)
 app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
 
@@ -56,11 +57,85 @@ async def health():
     return {"status": "ok", "app": "DataTrust OS", "env": settings.app_env, "version": "v3.0"}
 
 
-# v3 UI Endpoint
+# Static asset handlers for /vite.svg and /favicon.ico
+@app.get("/vite.svg")
+async def serve_vite_svg():
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "vite.svg"),
+        os.path.join(UI_DIR_V3, "vite.svg"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "src", "assets", "vite.svg"),
+        os.path.join(UI_DIR_V2, "vite.svg"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return FileResponse(candidate, media_type="image/svg+xml")
+    return HTMLResponse(status_code=404, content="vite.svg not found")
+
+
+@app.get("/favicon.ico")
+async def serve_favicon_ico():
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.ico"),
+        os.path.join(UI_DIR_V3, "favicon.ico"),
+        os.path.join(UI_DIR_V2, "favicon.ico"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.svg"),
+        os.path.join(UI_DIR_V3, "favicon.svg"),
+        os.path.join(UI_DIR_V2, "favicon.svg"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            media_type = "image/x-icon" if candidate.endswith(".ico") else "image/svg+xml"
+            return FileResponse(candidate, media_type=media_type)
+    return HTMLResponse(status_code=404, content="favicon not found")
+
+
+@app.get("/favicon.svg")
+async def serve_favicon_svg():
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.svg"),
+        os.path.join(UI_DIR_V3, "favicon.svg"),
+        os.path.join(UI_DIR_V2, "favicon.svg"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return FileResponse(candidate, media_type="image/svg+xml")
+    return HTMLResponse(status_code=404, content="favicon.svg not found")
+
+
+# Mount static assets
+if os.path.exists(UI_DIR_V2):
+    app.mount("/static", StaticFiles(directory=UI_DIR_V2), name="static")
+    assets_dir = os.path.join(UI_DIR_V2, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+# Mount /v3/assets to frontend-v3/dist/assets (or fallback)
+v3_assets_dir = os.path.join(UI_DIR_V3, "assets")
+if not os.path.exists(v3_assets_dir):
+    v3_src_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "src", "assets")
+    v2_assets_dir = os.path.join(UI_DIR_V2, "assets")
+    if os.path.exists(v3_src_assets):
+        v3_assets_dir = v3_src_assets
+    elif os.path.exists(v2_assets_dir):
+        v3_assets_dir = v2_assets_dir
+
+if os.path.exists(v3_assets_dir):
+    app.mount("/v3/assets", StaticFiles(directory=v3_assets_dir), name="v3_assets")
+
+if os.path.exists(UI_DIR_V3):
+    app.mount("/v3/static", StaticFiles(directory=UI_DIR_V3), name="v3_static")
+
+
+# v3 UI Endpoint (handles /v3, /v3/, and SPA client-side routes under /v3/*)
 @app.get("/v3", response_class=HTMLResponse)
-async def serve_v3():
+@app.get("/v3/", response_class=HTMLResponse)
+@app.get("/v3/{full_path:path}", response_class=HTMLResponse)
+async def serve_v3(full_path: str = ""):
     if os.path.exists(INDEX_HTML_V3):
         return FileResponse(INDEX_HTML_V3)
+    frontend_v3_src_index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "index.html")
+    if os.path.exists(frontend_v3_src_index):
+        return FileResponse(frontend_v3_src_index)
     return HTMLResponse("<html><body><h1>DataTrust OS v3</h1><p>v3 build pending. Run <code>pnpm run build</code> in frontend-v3.</p></body></html>")
 
 
@@ -79,17 +154,3 @@ async def serve_ui():
     if os.path.exists(target_path):
         return FileResponse(target_path)
     return HTMLResponse("<html><body><h1>DataTrust OS Web UI</h1><p>UI loading...</p></body></html>")
-
-
-# Mount static assets
-if os.path.exists(UI_DIR_V2):
-    app.mount("/static", StaticFiles(directory=UI_DIR_V2), name="static")
-    assets_dir = os.path.join(UI_DIR_V2, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-if os.path.exists(UI_DIR_V3):
-    app.mount("/v3/static", StaticFiles(directory=UI_DIR_V3), name="v3_static")
-    v3_assets = os.path.join(UI_DIR_V3, "assets")
-    if os.path.exists(v3_assets):
-        app.mount("/v3/assets", StaticFiles(directory=v3_assets), name="v3_assets")

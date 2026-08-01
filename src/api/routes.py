@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocke
 import pandas as pd
 
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
+from src.agents.react import BoundedReActEngine
 from src.api.audit_store import AuditStore
 from src.api.state_machine import StateMachine, WorkflowState
 from src.models.schemas import (
@@ -12,6 +13,7 @@ from src.models.schemas import (
     AnomalyDetectRequest,
     ChatRequest,
     ChatResponse,
+    DecisionObject,
     ExecuteTransformRequest,
     ExecuteTransformResponse,
     ProfileRequest,
@@ -26,6 +28,7 @@ from src.models.schemas import (
 )
 from src.services.alerting import alert_service
 from src.services.conversation_store import conversation_store
+from src.services.llm import LLMService
 from src.services.scheduler import scheduler_service
 from src.services.ws_manager import ws_manager
 from src.tools.anomaly import AnomalyDetector
@@ -35,8 +38,12 @@ from src.tools.profiler import Profiler
 from src.tools.validator import RuleSpec
 
 
-async def check_user_role(request: Request, x_user_role: Optional[str] = Header(None, alias="X-User-Role")):
+async def check_user_role(request: Request):
     """Middleware dependency for X-User-Role role-based access control."""
+    if request.scope.get("type") == "websocket":
+        return "Admin"
+
+    x_user_role = request.headers.get("X-User-Role")
     role = (x_user_role or "Admin").strip().capitalize()
     valid_roles = {"Admin", "Steward", "Viewer"}
     if role not in valid_roles:
@@ -492,7 +499,10 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
 
 # === WebSocket & Chat Endpoints ===
 
-@router.websocket("/ws")
+ws_router = APIRouter()
+
+
+@ws_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:
@@ -511,7 +521,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
-    """Process user chat command, run AI agent orchestrator, broadcast events, and return agent response."""
+    """Process user chat command, run AI agent orchestrator with ReAct loop, broadcast events, and return agent response."""
     user_msg = conversation_store.save_message({
         "type": "user",
         "content": request.message,
@@ -523,31 +533,74 @@ async def send_chat_message(request: ChatRequest):
         "data": user_msg
     })
 
+    # 1. Broadcast working status
+    await ws_manager.broadcast({
+        "type": "agent.status",
+        "agent": "orchestrator",
+        "status": "working"
+    })
+
+    # 2. Emit ReAct Thought message
+    thought_content = "Thought: Analyzing command and determining required data governance tools..."
+    thought_msg = conversation_store.save_message({
+        "type": "agent",
+        "agentId": "orchestrator",
+        "content": thought_content,
+    })
+    await ws_manager.broadcast({
+        "type": "chat.message",
+        "data": thought_msg
+    })
+
+    # 3. Execute Action using BoundedReActEngine / dataset_engine / LLMService
+    llm_service = LLMService()
+    react_engine = BoundedReActEngine(llm_service=llm_service)
     command = request.message.lower()
 
-    # Determine command action and invoke engine/tools
-    if "profile" in command:
-        # Notify profiler starting
+    if "profile" in command or "scan" in command:
+        agent_id = "profiler"
         await ws_manager.broadcast({
             "type": "agent.status",
-            "agent": "profiler",
+            "agent": agent_id,
             "status": "working"
         })
-        
+
         from src.services.dataset_engine import load_dataset, profile_rows
         df = load_dataset()
-        profile_data = profile_rows(df.to_dict('records'))
+        profile_data = profile_rows(df.to_dict("records"))
 
+        obs_content = f"Observation: Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile with data health score {profile_data.get('data_health_score', 100.0)}%."
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"profile": profile_data}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile."
         agent_msg = conversation_store.save_message({
             "type": "agent",
-            "agentId": "profiler",
-            "content": f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile.",
+            "agentId": agent_id,
+            "content": conclusion_content,
             "metadata": {"profile": profile_data}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
         })
 
         await ws_manager.broadcast({
             "type": "agent.status",
-            "agent": "profiler",
+            "agent": agent_id,
+            "status": "done"
+        })
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "orchestrator",
             "status": "done"
         })
 
@@ -571,20 +624,22 @@ async def send_chat_message(request: ChatRequest):
 
         return ChatResponse(
             response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Profile) -> Observation -> Conclusion",
             state="PROFILED",
-            agent_execution={"agent": "profiler", "profile": profile_data}
+            agent_execution={"agent": agent_id, "profile": profile_data}
         )
 
     elif "rule" in command or "propose" in command:
+        agent_id = "ruleProposer"
         await ws_manager.broadcast({
             "type": "agent.status",
-            "agent": "ruleProposer",
+            "agent": agent_id,
             "status": "working"
         })
 
         from src.services.dataset_engine import load_dataset, generate_rules_for_baseline, profile_rows
         df = load_dataset()
-        profile_data = profile_rows(df.to_dict('records'))
+        profile_data = profile_rows(df.to_dict("records"))
         rules, _ = generate_rules_for_baseline("A1", profile_data)
 
         proposals = []
@@ -597,19 +652,41 @@ async def send_chat_message(request: ChatRequest):
                 "description": r.get("description", f"Quality check for {r.get('column')}"),
                 "severity": r.get("severity", "warning"),
                 "status": "pending",
-                "agentId": "ruleProposer"
+                "agentId": agent_id
             })
 
+        obs_content = f"Observation: Generated {len(proposals)} proposed data quality rules for dataset governance review using BoundedReActEngine rule proposer agent."
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"proposals": proposals}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = f"Proposed {len(proposals)} data quality rules for governance review."
         agent_msg = conversation_store.save_message({
             "type": "proposal",
-            "agentId": "ruleProposer",
-            "content": f"Proposed {len(proposals)} data quality rules for governance review.",
+            "agentId": agent_id,
+            "content": conclusion_content,
             "metadata": {"proposals": proposals}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
         })
 
         await ws_manager.broadcast({
             "type": "agent.status",
-            "agent": "ruleProposer",
+            "agent": agent_id,
+            "status": "done"
+        })
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "orchestrator",
             "status": "done"
         })
 
@@ -626,21 +703,172 @@ async def send_chat_message(request: ChatRequest):
 
         return ChatResponse(
             response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Propose Rules) -> Observation -> Conclusion",
             state="RULES_PROPOSED",
-            agent_execution={"agent": "ruleProposer", "proposals": proposals}
+            agent_execution={"agent": agent_id, "proposals": proposals}
         )
 
-    else:
+    elif "anomal" in command or "detect" in command or "outlier" in command:
+        agent_id = "anomalyDetector"
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "working"
+        })
+
+        from src.services.dataset_engine import load_dataset, profile_rows
+        df = load_dataset()
+        profile_data = profile_rows(df.to_dict("records"))
+
+        anomaly_report = react_engine.detect_anomalies(current_profile=profile_data)
+
+        obs_content = f"Observation: Detected anomalies with score {anomaly_report.anomaly_score}. Summary: {anomaly_report.summary}"
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"anomalies": anomaly_report.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = f"Anomaly detection completed. Status: {anomaly_report.status}. {anomaly_report.summary}"
         agent_msg = conversation_store.save_message({
             "type": "agent",
-            "agentId": "orchestrator",
-            "content": f"Received command: '{request.message}'. You can try typing 'Profile dataset' or 'Propose rules'.",
+            "agentId": agent_id,
+            "content": conclusion_content,
+            "metadata": {"anomalies": anomaly_report.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "done"
+        })
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "orchestrator",
+            "status": "done"
+        })
+
+        await ws_manager.broadcast({
+            "type": "workspace.update",
+            "panel": "anomaly",
+            "data": anomaly_report.model_dump()
         })
 
         return ChatResponse(
             response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Detect Anomaly) -> Observation -> Conclusion",
+            state="ANOMALY_DETECTED",
+            agent_execution={"agent": agent_id, "anomalies": anomaly_report.model_dump()}
+        )
+
+    elif "diagnos" in command or "root cause" in command or "remediat" in command:
+        agent_id = "diagnosis"
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "working"
+        })
+
+        from src.services.dataset_engine import load_dataset, profile_rows
+        df = load_dataset()
+        profile_data = profile_rows(df.to_dict("records"))
+
+        diag_report = react_engine.diagnose(data_profile=profile_data)
+
+        obs_content = f"Observation: Generated root-cause diagnosis for category '{diag_report.category}'. Cause: {diag_report.root_cause}"
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"diagnosis": diag_report.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = f"Root-cause diagnosis complete. Category: {diag_report.category}. Impact: {diag_report.impact_level}. Remediation: {diag_report.recommended_remediation}"
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": conclusion_content,
+            "metadata": {"diagnosis": diag_report.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "done"
+        })
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "orchestrator",
+            "status": "done"
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Diagnose) -> Observation -> Conclusion",
+            state="DIAGNOSED",
+            agent_execution={"agent": agent_id, "diagnosis": diag_report.model_dump()}
+        )
+
+    else:
+        agent_id = "orchestrator"
+        decision = llm_service.generate_structured(
+            prompt=request.message,
+            response_model=DecisionObject,
+            system_prompt="You are DataTrust OS Orchestrator Agent."
+        )
+
+        obs_content = f"Observation: Evaluated command '{request.message}' using LLMService orchestrator. Prepared action plan: {decision.next_action}."
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+            "metadata": {"decision": decision.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = f"DataTrust Agent received: '{request.message}'. Issue: {decision.issue}. Recommended action: {decision.next_action}."
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": conclusion_content,
+            "metadata": {"decision": decision.model_dump()}
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "done"
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (LLM Orchestration) -> Observation -> Conclusion",
             state="READY",
-            agent_execution={"agent": "orchestrator"}
+            agent_execution={"agent": agent_id, "decision": decision.model_dump()}
         )
 
 

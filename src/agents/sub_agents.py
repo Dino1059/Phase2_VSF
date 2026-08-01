@@ -393,7 +393,8 @@ class AnomalyDetectorAgent(BoundedSubAgent):
             f"Table: {curr_dict.get('table_name', 'dataset')}, Total Rows: {curr_dict.get('total_rows', 0)}\n"
         )
         cols = curr_dict.get("columns", {})
-        for col_name, c_info in cols.items():
+        col_items = cols.items() if isinstance(cols, dict) else [(c.get("name", f"col_{i}") if isinstance(c, dict) else getattr(c, "name", f"col_{i}"), c) for i, c in enumerate(cols)]
+        for col_name, c_info in col_items:
             if isinstance(c_info, dict):
                 null_pct = c_info.get("null_percentage") or c_info.get("null_pct") or 0.0
                 min_v = c_info.get("min_val") if c_info.get("min_val") is not None else c_info.get("min")
@@ -415,7 +416,8 @@ class AnomalyDetectorAgent(BoundedSubAgent):
                 f"Table: {base_dict.get('table_name', 'dataset')}, Total Rows: {base_dict.get('total_rows', 0)}\n"
             )
             base_cols = base_dict.get("columns", {})
-            for col_name, c_info in base_cols.items():
+            b_col_items = base_cols.items() if isinstance(base_cols, dict) else [(c.get("name", f"col_{i}") if isinstance(c, dict) else getattr(c, "name", f"col_{i}"), c) for i, c in enumerate(base_cols)]
+            for col_name, c_info in b_col_items:
                 if isinstance(c_info, dict):
                     null_pct = c_info.get("null_percentage") or c_info.get("null_pct") or 0.0
                 else:

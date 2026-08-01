@@ -170,8 +170,8 @@ def load_dataset_rows(file_path: str = CSV_PATH) -> List[Dict[str, Any]]:
 
 
 def load_dataset(dataset_key: str = None, file_path: str = None,
-                 sample_size: int = None) -> pd.DataFrame:
-    """Load dataset by registry key or direct path. Auto-detects format."""
+                 sample_size: int = 50_000) -> pd.DataFrame:
+    """Load dataset by registry key or direct path with chunked sample size to prevent memory leaks."""
     from src.config import get_settings
     from src.tools.datasource import StructuredSource
     
@@ -183,7 +183,7 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
         file_path = settings.get_dataset_path(settings.default_dataset)
     
     source = StructuredSource(file_path)
-    df = source.load_data()
+    df = source.load_data(sample_size=sample_size)
     
     if sample_size and len(df) > sample_size:
         df = df.sample(n=sample_size, random_state=42)
