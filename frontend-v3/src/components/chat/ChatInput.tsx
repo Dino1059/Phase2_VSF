@@ -1,29 +1,25 @@
 import { useState, useRef, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send } from 'lucide-react';
-import { useChatStore } from '../../stores/chatStore';
+import { sendChatMessage } from '../../services/api';
 
 export function ChatInput() {
   const { t } = useTranslation('chat');
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const addMessage = useChatStore((s) => s.addMessage);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-
-    addMessage({
-      id: crypto.randomUUID(),
-      type: 'user',
-      content: trimmed,
-      timestamp: new Date().toISOString(),
-    });
 
     setInput('');
     inputRef.current?.focus();
 
-    // TODO: Send via WebSocket
+    try {
+      await sendChatMessage(trimmed);
+    } catch (e) {
+      console.error('Failed to send message:', e);
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

@@ -65,6 +65,7 @@ export interface WorkspaceState {
 export type AgentEventType =
   | 'agent.status'
   | 'agent.message'
+  | 'chat.message'
   | 'agent.proposal'
   | 'agent.handoff'
   | 'workspace.update'
@@ -72,10 +73,12 @@ export type AgentEventType =
   | 'execution.complete';
 
 export interface AgentEvent {
-  type: AgentEventType;
+  type: AgentEventType | string;
   agent?: AgentId;
-  data: unknown;
-  timestamp: string;
+  panel?: WorkspaceView | string;
+  proposals?: RuleProposal[];
+  data?: unknown;
+  timestamp?: string;
 }
 
 export type UserRole = 'admin' | 'steward' | 'viewer';

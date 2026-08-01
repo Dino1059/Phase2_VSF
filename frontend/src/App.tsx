@@ -7,7 +7,7 @@ import {
   WarningOutlined,
   LockOutlined,
 } from '@ant-design/icons';
-import { RoleProvider } from './context/RoleContext';
+import { RoleProvider, useLanguage } from './context/RoleContext';
 import { Header } from './components/Header';
 import { DatasetProfiler } from './components/DatasetProfiler';
 import { RuleGovernance } from './components/RuleGovernance';
@@ -19,6 +19,7 @@ import { ProfileReport, ExecuteTransformResponse } from './types';
 const { Content, Footer } = Layout;
 
 export const AppContent: React.FC = () => {
+  const { t } = useLanguage();
   const [activeTabKey, setActiveTabKey] = useState<string>('tab1');
   const [profileReport, setProfileReport] = useState<ProfileReport | null>(null);
   const [rawData, setRawData] = useState<Record<string, any>[]>([]);
@@ -40,7 +41,7 @@ export const AppContent: React.FC = () => {
       key: 'tab1',
       label: (
         <span>
-          <TableOutlined /> Tab 1: Dataset Profiler & Schema
+          <TableOutlined /> {t('tab1')}
         </span>
       ),
       children: <DatasetProfiler onProfileComplete={handleProfileComplete} />,
@@ -49,7 +50,7 @@ export const AppContent: React.FC = () => {
       key: 'tab2',
       label: (
         <span>
-          <SafetyCertificateOutlined /> Tab 2: Rule Governance Review
+          <SafetyCertificateOutlined /> {t('tab2')}
         </span>
       ),
       children: (
@@ -60,7 +61,7 @@ export const AppContent: React.FC = () => {
       key: 'tab3',
       label: (
         <span>
-          <ClockCircleOutlined /> Tab 3: Schedule Manager
+          <ClockCircleOutlined /> {t('tab3')}
         </span>
       ),
       children: <ScheduleManager />,
@@ -69,7 +70,7 @@ export const AppContent: React.FC = () => {
       key: 'tab4',
       label: (
         <span>
-          <WarningOutlined /> Tab 4: Anomaly Timeline & RCA
+          <WarningOutlined /> {t('tab4')}
         </span>
       ),
       children: <AnomalyDiagnosis />,
@@ -78,7 +79,7 @@ export const AppContent: React.FC = () => {
       key: 'tab5',
       label: (
         <span>
-          <LockOutlined /> Tab 5: Execution Results & Audit Trace
+          <LockOutlined /> {t('tab5')}
         </span>
       ),
       children: <AuditTrace executionResult={executionResult} rawData={rawData} />,

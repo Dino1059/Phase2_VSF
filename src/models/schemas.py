@@ -12,6 +12,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str = Field(..., description="Agent response")
     analysis: str = Field(default="", description="Internal analysis")
+    state: Optional[str] = Field(default=None, description="Workflow state")
+    agent_execution: Optional[Dict[str, Any]] = Field(default=None, description="Agent execution details")
 
 
 # --- Enums ---

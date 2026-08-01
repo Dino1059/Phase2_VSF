@@ -23,8 +23,9 @@ import {
   WarningOutlined,
   InfoCircleOutlined,
   AuditOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
-import { useRole } from '../context/RoleContext';
+import { useRole, useLanguage, Language } from '../context/RoleContext';
 import { setCurrentApiRole, apiService } from '../services/api';
 import { UserRole, NotificationAlert } from '../types';
 
@@ -37,6 +38,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
   const { userRole, setUserRole, canResetSystem } = useRole();
+  const { language, setLanguage, t } = useLanguage();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [alerts, setAlerts] = useState<NotificationAlert[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,13 +50,22 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
     if (showLoadingState) setLoading(true);
     try {
       const data = await apiService.getAlerts();
-      const alertList: NotificationAlert[] = Array.isArray(data)
+      const rawList: any[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.alerts)
         ? data.alerts
         : Array.isArray(data?.data)
         ? data.data
         : [];
+      const alertList: NotificationAlert[] = rawList.map((item: any) => ({
+        id: item.alert_id || item.id || `alert_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: item.timestamp ? new Date(item.timestamp).toLocaleString() : new Date().toLocaleString(),
+        title: item.title || 'Notification',
+        message: item.message || '',
+        severity: item.severity || 'MEDIUM',
+        read: item.read || item.status === 'ACKNOWLEDGED' || item.status === 'RESOLVED',
+        category: item.category || item.source || 'Governance',
+      }));
       setAlerts(alertList);
       setError(null);
     } catch (err: any) {
@@ -77,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
   const handleRoleChange = (newRole: UserRole) => {
     setUserRole(newRole);
     setCurrentApiRole(newRole);
-    message.success(`Switched role to ${newRole} (API requests will include X-User-Role: ${newRole})`);
+    message.success(`${t('switchedRole')} ${newRole}`);
   };
 
   const unreadCount = alerts.filter((a) => !a.read).length;
@@ -88,7 +99,7 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
     try {
       await Promise.all(unreadAlerts.map((a) => apiService.acknowledgeAlert(a.id)));
       setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
-      message.info('All notifications marked as read');
+      message.info(t('allNotificationsRead'));
     } catch (err) {
       console.error('Failed to acknowledge all alerts:', err);
       message.error('Failed to mark all notifications as read');
@@ -113,27 +124,28 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
       const res = await apiService.resetSystem();
       message.success(`System reset: ${res.message}`);
       if (onResetComplete) onResetComplete();
-    } catch (e) {
-      message.error('Failed to reset system');
+    } catch (err: any) {
+      console.error('Failed to reset system:', err);
+      message.error(err.message || 'Failed to reset system');
     } finally {
       setResetting(false);
     }
   };
 
-  const filteredAlerts = alerts.filter((a) => {
-    if (activeTab === 'unread') return !a.read;
-    if (activeTab === 'critical') return a.severity === 'Critical';
+  const filteredAlerts = alerts.filter((item) => {
+    if (activeTab === 'unread') return !item.read;
+    if (activeTab === 'critical') return item.severity === 'Critical';
     return true;
   });
 
-  const getSeverityTag = (sev: NotificationAlert['severity']) => {
-    switch (sev) {
+  const getSeverityTag = (severity: string) => {
+    switch (severity) {
       case 'Critical':
-        return <Tag color="error" icon={<WarningOutlined />}>Critical</Tag>;
+        return <Tag color="error">CRITICAL</Tag>;
       case 'Warning':
-        return <Tag color="warning" icon={<WarningOutlined />}>Warning</Tag>;
-      case 'Info':
-        return <Tag color="processing" icon={<InfoCircleOutlined />}>Info</Tag>;
+        return <Tag color="warning">WARNING</Tag>;
+      default:
+        return <Tag color="processing">INFO</Tag>;
     }
   };
 
@@ -160,21 +172,36 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
             DataTrust OS <Tag color="blue" style={{ marginLeft: 8 }}>v2.0</Tag>
           </Title>
           <Text style={{ color: '#8c8c8c', fontSize: 11, display: 'block' }}>
-            Autonomous Data Quality, Governance & Active Healing Engine
+            {t('appSubtitle')}
           </Text>
         </div>
       </Space>
 
-      {/* Right Controls: Role Switcher, Alert Bell, Reset */}
-      <Space size="large" align="center">
+      {/* Right Controls: Language Switcher, Role Switcher, Alert Bell, Reset */}
+      <Space size="middle" align="center">
+        {/* Language Switcher */}
+        <Space size="small">
+          <GlobalOutlined style={{ color: '#aaa' }} />
+          <Select
+            value={language}
+            onChange={(lang: Language) => setLanguage(lang)}
+            style={{ width: 110 }}
+            dropdownStyle={{ borderRadius: 6 }}
+            options={[
+              { value: 'vi', label: '🇻🇳 Tiếng Việt' },
+              { value: 'en', label: '🇺🇸 English' },
+            ]}
+          />
+        </Space>
+
         {/* Role Switcher */}
         <Space size="small">
           <UserOutlined style={{ color: '#aaa' }} />
-          <Text style={{ color: '#ccc', fontSize: 13 }}>Active Role:</Text>
+          <Text style={{ color: '#ccc', fontSize: 13 }}>{t('activeRole')}</Text>
           <Select
             value={userRole}
             onChange={handleRoleChange}
-            style={{ width: 130 }}
+            style={{ width: 120 }}
             dropdownStyle={{ borderRadius: 6 }}
             options={[
               {
@@ -207,12 +234,12 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
             ]}
           />
           {userRole === 'Viewer' && (
-            <Tag color="gold" style={{ marginLeft: 4 }}>Read Only</Tag>
+            <Tag color="gold" style={{ marginLeft: 4 }}>{t('readOnly')}</Tag>
           )}
         </Space>
 
         {/* Notification Bell */}
-        <Tooltip title="Alert Center & Incident Feed">
+        <Tooltip title={t('incidentAlertCenter')}>
           <Badge count={unreadCount} overflowCount={99}>
             <Button
               type="text"
@@ -226,14 +253,14 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
         {/* System Reset Button */}
         {canResetSystem && (
           <Popconfirm
-            title="Reset DataTrust System State?"
-            description="This will clear in-memory execution logs and reset the state machine."
+            title={t('resetSystemTitle')}
+            description={t('resetSystemDesc')}
             onConfirm={handleReset}
-            okText="Yes, Reset"
-            cancelText="Cancel"
+            okText={t('yesReset')}
+            cancelText={t('cancel')}
             okButtonProps={{ danger: true, loading: resetting }}
           >
-            <Tooltip title="Reset State Machine & Audit Store">
+            <Tooltip title={t('resetSystemTitle')}>
               <Button
                 type="primary"
                 danger
@@ -241,7 +268,7 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
                 icon={<ReloadOutlined spin={resetting} />}
                 size="small"
               >
-                Reset System
+                {t('resetSystemBtn')}
               </Button>
             </Tooltip>
           </Popconfirm>
@@ -254,11 +281,11 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <Space align="center">
               <BellOutlined style={{ color: '#1890ff' }} />
-              <span>Incident & Governance Alert Center</span>
+              <span>{t('incidentAlertCenter')}</span>
             </Space>
             {unreadCount > 0 && (
               <Button size="small" type="link" onClick={markAllRead}>
-                Mark all read
+                {t('markAllRead')}
               </Button>
             )}
           </div>
@@ -282,9 +309,9 @@ export const Header: React.FC<HeaderProps> = ({ onResetComplete }) => {
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[
-            { key: 'all', label: `All (${alerts.length})` },
-            { key: 'unread', label: `Unread (${unreadCount})` },
-            { key: 'critical', label: 'Critical Only' },
+            { key: 'all', label: `${t('all')} (${alerts.length})` },
+            { key: 'unread', label: `${t('unread')} (${unreadCount})` },
+            { key: 'critical', label: t('criticalOnly') },
           ]}
         />
         <List

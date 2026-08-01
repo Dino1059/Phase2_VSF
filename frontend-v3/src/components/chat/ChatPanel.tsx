@@ -5,10 +5,12 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { TypingIndicator } from './TypingIndicator';
 import { MessageSquare } from 'lucide-react';
+import { agentSocket } from '../../services/socket';
+import { fetchChatHistory } from '../../services/api';
 
 export function ChatPanel() {
   const { t } = useTranslation('chat');
-  const { messages, agentStatuses } = useChatStore();
+  const { messages, agentStatuses, addMessage } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAnyAgentWorking = Object.values(agentStatuses).some(
@@ -17,6 +19,17 @@ export function ChatPanel() {
   const workingAgent = Object.entries(agentStatuses).find(
     ([_, s]) => s === 'active' || s === 'working'
   )?.[0];
+
+  useEffect(() => {
+    agentSocket.connect();
+    fetchChatHistory()
+      .then((res) => {
+        if (res.messages && Array.isArray(res.messages) && messages.length === 0) {
+          res.messages.forEach((msg: any) => addMessage(msg));
+        }
+      })
+      .catch((err) => console.warn('Failed to load chat history:', err));
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });

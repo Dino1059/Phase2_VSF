@@ -1,6 +1,7 @@
+import json
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 import pandas as pd
 
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
@@ -24,7 +25,9 @@ from src.models.schemas import (
     WebhookDispatchRequest,
 )
 from src.services.alerting import alert_service
+from src.services.conversation_store import conversation_store
 from src.services.scheduler import scheduler_service
+from src.services.ws_manager import ws_manager
 from src.tools.anomaly import AnomalyDetector
 from src.tools.compiler import Compiler
 from src.tools.executor import Executor
@@ -482,5 +485,166 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# === WebSocket & Chat Endpoints ===
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Echo or process incoming socket commands if needed
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+@router.post("/chat/send")
+async def send_chat_message(request: ChatRequest):
+    """Process user chat command, run AI agent orchestrator, broadcast events, and return agent response."""
+    user_msg = conversation_store.save_message({
+        "type": "user",
+        "content": request.message,
+    })
+
+    # Broadcast user message via WS
+    await ws_manager.broadcast({
+        "type": "chat.message",
+        "data": user_msg
+    })
+
+    command = request.message.lower()
+
+    # Determine command action and invoke engine/tools
+    if "profile" in command:
+        # Notify profiler starting
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "profiler",
+            "status": "working"
+        })
+        
+        from src.services.dataset_engine import load_dataset, profile_rows
+        df = load_dataset()
+        profile_data = profile_rows(df.to_dict('records'))
+
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": "profiler",
+            "content": f"Scanned {len(df)} rows and analyzed {len(df.columns)} columns. Generated dataset profile.",
+            "metadata": {"profile": profile_data}
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "profiler",
+            "status": "done"
+        })
+
+        await ws_manager.broadcast({
+            "type": "workspace.update",
+            "panel": "profile",
+            "data": {
+                "totalRows": len(df),
+                "columns": [
+                    {
+                        "name": col,
+                        "type": str(df[col].dtype),
+                        "nullRate": float(df[col].isnull().mean()),
+                        "uniqueRate": float(df[col].nunique() / max(len(df), 1)),
+                        "health": "healthy" if df[col].isnull().mean() < 0.05 else ("warning" if df[col].isnull().mean() < 0.2 else "critical")
+                    }
+                    for col in df.columns
+                ]
+            }
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            state="PROFILED",
+            agent_execution={"agent": "profiler", "profile": profile_data}
+        )
+
+    elif "rule" in command or "propose" in command:
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "ruleProposer",
+            "status": "working"
+        })
+
+        from src.services.dataset_engine import load_dataset, generate_rules_for_baseline, profile_rows
+        df = load_dataset()
+        profile_data = profile_rows(df.to_dict('records'))
+        rules, _ = generate_rules_for_baseline("A1", profile_data)
+
+        proposals = []
+        for i, r in enumerate(rules):
+            proposals.append({
+                "id": f"prop_{i+1}",
+                "type": r.get("rule_type", "range_check"),
+                "column": r.get("column", "column"),
+                "expression": r.get("expression", "val != null"),
+                "description": r.get("description", f"Quality check for {r.get('column')}"),
+                "severity": r.get("severity", "warning"),
+                "status": "pending",
+                "agentId": "ruleProposer"
+            })
+
+        agent_msg = conversation_store.save_message({
+            "type": "proposal",
+            "agentId": "ruleProposer",
+            "content": f"Proposed {len(proposals)} data quality rules for governance review.",
+            "metadata": {"proposals": proposals}
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": "ruleProposer",
+            "status": "done"
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.proposal",
+            "proposals": proposals
+        })
+
+        await ws_manager.broadcast({
+            "type": "workspace.update",
+            "panel": "rules",
+            "data": proposals
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            state="RULES_PROPOSED",
+            agent_execution={"agent": "ruleProposer", "proposals": proposals}
+        )
+
+    else:
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": "orchestrator",
+            "content": f"Received command: '{request.message}'. You can try typing 'Profile dataset' or 'Propose rules'.",
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            state="READY",
+            agent_execution={"agent": "orchestrator"}
+        )
+
+
+@router.get("/chat/history")
+async def get_chat_history(session_id: str = "default"):
+    """Retrieve persisted chat messages."""
+    return {"messages": conversation_store.get_messages(session_id=session_id)}
+
 
 
