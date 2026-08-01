@@ -886,6 +886,57 @@ async def send_chat_message(request: ChatRequest):
             agent_execution={"agent": agent_id, "diagnosis": diag_report.model_dump()}
         )
 
+    elif any(k in command for k in ["what can you do", "help", "hello", "hi", "features", "who are you", "what do you do", "capabilities", "menu"]):
+        agent_id = "orchestrator"
+        obs_content = "Observation: Evaluated capability request using Orchestrator Agent. Presenting DataTrust OS multi-agent ecosystem overview."
+        obs_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": obs_content,
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": obs_msg
+        })
+
+        conclusion_content = (
+            "🤖 **Welcome to DataTrust OS — AI-Augmented Data Governance System!**\n\n"
+            "I orchestrate 4 specialized AI sub-agents to autonomously govern your data quality:\n\n"
+            "• **🔍 Profiler Agent**: Scans datasets, computes null rates, column types, distinct values, and health scores.\n"
+            "• **🛡️ Rule Proposer Agent**: Generates data quality constraints for Human-In-The-Loop governance review.\n"
+            "• **⚠️ Anomaly Detector Agent**: Detects statistical outliers and schema drift (Z-Score, IQR, Isolation Forest).\n"
+            "• **🩺 Diagnosis Agent**: Conducts root-cause analysis on data defects and provides remediation steps.\n\n"
+            "💡 **Commands you can try right now:**\n"
+            "• `List datasets` — View registered datasets\n"
+            "• `Profile the Vietnam trips dataset` — Analyze data quality\n"
+            "• `Propose quality rules` — Generate governance rules\n"
+            "• `Detect anomalies` — Find statistical outliers\n"
+            "• `Diagnose root cause` — Investigate negative fares or missing values"
+        )
+
+        agent_msg = conversation_store.save_message({
+            "type": "agent",
+            "agentId": agent_id,
+            "content": conclusion_content,
+        })
+        await ws_manager.broadcast({
+            "type": "chat.message",
+            "data": agent_msg
+        })
+
+        await ws_manager.broadcast({
+            "type": "agent.status",
+            "agent": agent_id,
+            "status": "done"
+        })
+
+        return ChatResponse(
+            response=agent_msg["content"],
+            analysis="ReAct Loop Completed: Thought -> Action (Capability Overview) -> Observation -> Conclusion",
+            state="READY",
+            agent_execution={"agent": agent_id, "capabilities": True}
+        )
+
     else:
         agent_id = "orchestrator"
         decision = llm_service.generate_structured(
