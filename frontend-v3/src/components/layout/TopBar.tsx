@@ -37,6 +37,7 @@ export function TopBar() {
           {(Object.keys(AGENTS) as AgentId[]).map((id) => {
             const agent = AGENTS[id];
             const status = agentStatuses[id];
+            const statusStr = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Idle';
             return (
               <div
                 key={id}
@@ -50,7 +51,7 @@ export function TopBar() {
                     : 'opacity-30'
                 }`}
                 style={{ backgroundColor: agent.color }}
-                title={`${t(agent.nameKey)}: ${t(`agents:status${status.charAt(0).toUpperCase() + status.slice(1)}`)}`}
+                title={`${t(agent.nameKey)}: ${statusStr}`}
               />
             );
           })}
