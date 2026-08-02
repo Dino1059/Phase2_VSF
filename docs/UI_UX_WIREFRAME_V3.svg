@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 860" width="1280" height="860" style="background:#ffffff; font-family:sans-serif;">
+<rect x="0" y="0" width="1280" height="860" fill="#ffffff" stroke="#1e1e1e" stroke-width="2" rx="4" />
+<rect x="0" y="0" width="1280" height="60" fill="#a5d8ff" stroke="#1971c2" stroke-width="2" rx="4" />
+<rect x="0" y="60" width="260" height="800" fill="#e9ecef" stroke="#868e96" stroke-width="2" rx="4" />
+<rect x="260" y="60" width="520" height="800" fill="#ffffff" stroke="#1e1e1e" stroke-width="2" rx="4" />
+<rect x="780" y="60" width="500" height="800" fill="#99e9f2" stroke="#0c8599" stroke-width="2" rx="4" />
+<text x="20" y="35" font-size="18" fill="#1e1e1e" font-weight="bold">🤖 DataTrust OS v3.0 — VinGroup Enterprise AI Governance</text>
+<rect x="580" y="12" width="310" height="36" fill="#ffffff" stroke="#1971c2" stroke-width="1" rx="4" />
+<text x="592" y="30.0" font-size="13" fill="#1971c2" font-weight="500">📦 real_vinfast_ev_telemetry</text>
+<rect x="900" y="12" width="160" height="36" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="912" y="30.0" font-size="13" fill="#868e96" font-weight="500">🔍 Ctrl + K Search</text>
+<rect x="1070" y="12" width="100" height="36" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="1082" y="30.0" font-size="13" fill="#2f9e44" font-weight="500">📤 Upload DB</text>
+<text x="1185" y="35" font-size="14" fill="#9c36b5" font-weight="bold">👤 Steward</text>
+<rect x="15" y="75" width="230" height="40" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="27" y="95.0" font-size="13" fill="#2f9e44" font-weight="500">+ New Chat Session</text>
+<text x="15" y="140" font-size="14" fill="#868e96" font-weight="bold">ACTIVE SESSIONS</text>
+<rect x="15" y="155" width="230" height="45" fill="#a5d8ff" stroke="#1971c2" stroke-width="1" rx="4" />
+<text x="27" y="177.5" font-size="13" fill="#1971c2" font-weight="500">💬 VinFast EV Telemetry Scan</text>
+<rect x="15" y="210" width="230" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="27" y="232.5" font-size="13" fill="#868e96" font-weight="500">💬 V-GREEN Charger Overheat</text>
+<rect x="15" y="265" width="230" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="27" y="287.5" font-size="13" fill="#868e96" font-weight="500">💬 Xanh SM Trips Ledger Audit</text>
+<rect x="15" y="320" width="230" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="27" y="342.5" font-size="13" fill="#868e96" font-weight="500">💬 Customer Feedback NLP</text>
+<text x="15" y="400" font-size="14" fill="#868e96" font-weight="bold">DATASET REPOSITORY</text>
+<rect x="15" y="415" width="230" height="40" fill="#ffffff" stroke="#0c8599" stroke-width="1" rx="4" />
+<text x="27" y="435.0" font-size="13" fill="#0c8599" font-weight="500">📦 real_vinfast_ev_telemetry</text>
+<rect x="270" y="70" width="500" height="45" fill="#ffd8a8" stroke="#e8590c" stroke-width="1" rx="4" />
+<text x="282" y="92.5" font-size="13" fill="#e8590c" font-weight="500">⚖️ Pending Governance Review (3 rules)  |  [✓ Approve All]  [✗ Reject]</text>
+<rect x="280" y="125" width="480" height="45" fill="#a5d8ff" stroke="#1971c2" stroke-width="1" rx="4" />
+<text x="292" y="147.5" font-size="13" fill="#1971c2" font-weight="500">👤 User: Detect anomalies &amp; propose quality rules for VinFast EV Telemetry</text>
+<rect x="280" y="180" width="480" height="65" fill="#eebefa" stroke="#9c36b5" stroke-width="1" rx="4" />
+<text x="292" y="202.5" font-size="13" fill="#9c36b5" font-weight="500">🤖 Orchestrator Agent (Gemma-4-26b):</text>
+<text x="292" y="222.5" font-size="13" fill="#9c36b5" font-weight="500">Executing Tri-Detector Suite (Z-Score + IQR + Isolation Forest ML)</text>
+<rect x="280" y="255" width="480" height="75" fill="#ffc9c9" stroke="#e03131" stroke-width="1" rx="4" />
+<text x="292" y="282.5" font-size="13" fill="#e03131" font-weight="500">⚠️ Anomaly Detector Agent:</text>
+<text x="292" y="302.5" font-size="13" fill="#e03131" font-weight="500">Flagged 28 anomalies (GSM Basement Blackout, Negative SOC -12.5%, Overvoltage 9999V)</text>
+<rect x="280" y="340" width="480" height="150" fill="#ffffff" stroke="#2f9e44" stroke-width="2" rx="4" />
+<text x="292" y="385.0" font-size="13" fill="#2f9e44" font-weight="500">🛡️ Rule Proposer Agent Proposal #1:</text>
+<text x="292" y="405.0" font-size="13" fill="#2f9e44" font-weight="500">Column: battery_soc  |  Type: range_check  |  Severity: CRITICAL</text>
+<text x="292" y="425.0" font-size="13" fill="#2f9e44" font-weight="500">Expression: battery_soc &gt;= 0.0 AND battery_soc &lt;= 100.0</text>
+<text x="292" y="445.0" font-size="13" fill="#2f9e44" font-weight="500">Description: Enforce valid non-negative battery state of charge</text>
+<rect x="295" y="440" width="95" height="35" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="307" y="457.5" font-size="13" fill="#2f9e44" font-weight="500">✓ Approve</text>
+<rect x="400" y="440" width="85" height="35" fill="#ffc9c9" stroke="#e03131" stroke-width="1" rx="4" />
+<text x="412" y="457.5" font-size="13" fill="#e03131" font-weight="500">✗ Reject</text>
+<rect x="495" y="440" width="75" height="35" fill="#e9ecef" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="507" y="457.5" font-size="13" fill="#868e96" font-weight="500">✏️ Edit</text>
+<rect x="580" y="440" width="165" height="35" fill="#a5d8ff" stroke="#1971c2" stroke-width="1" rx="4" />
+<text x="592" y="457.5" font-size="13" fill="#1971c2" font-weight="500">▶ Run Clean DB Pipeline</text>
+<rect x="270" y="795" width="500" height="55" fill="#ffffff" stroke="#1e1e1e" stroke-width="1" rx="4" />
+<text x="282" y="822.5" font-size="13" fill="#1e1e1e" font-weight="500">💬 Type command or ask AI steward...                                          [📎 Upload]</text>
+<rect x="790" y="70" width="480" height="40" fill="#ffffff" stroke="#0c8599" stroke-width="1" rx="4" />
+<text x="802" y="90.0" font-size="13" fill="#0c8599" font-weight="500">[📊 Profile]  [🛡️ Rules]  [⚠️ Anomaly &amp; RCA]  [📋 Audit]  [🔀 Diff]</text>
+<rect x="975" y="105" width="115" height="4" fill="#0c8599" stroke="#1e1e1e" stroke-width="1" rx="4" />
+<rect x="800" y="125" width="460" height="75" fill="#ffd8a8" stroke="#e8590c" stroke-width="1" rx="4" />
+<text x="812" y="152.5" font-size="13" fill="#e8590c" font-weight="500">🔥 Dual Composite Anomaly Score: S_composite = 0.89</text>
+<text x="812" y="172.5" font-size="13" fill="#e8590c" font-weight="500">(Robust MAD Z-Score: 6.50  |  Isolation Forest Score: 0.92)</text>
+<rect x="800" y="210" width="460" height="165" fill="#ffffff" stroke="#1e1e1e" stroke-width="1" rx="4" />
+<text x="812" y="252.5" font-size="13" fill="#1e1e1e" font-weight="500">📌 Detected Defects &amp; Anomalies Breakdown:</text>
+<text x="812" y="272.5" font-size="13" fill="#1e1e1e" font-weight="500">1. GSM Underground Blackout | Null GPS &amp; Timestamp  | 25 rows</text>
+<text x="812" y="292.5" font-size="13" fill="#1e1e1e" font-weight="500">2. Negative Battery SOC     | battery_soc = -12.5%  | 15 rows</text>
+<text x="812" y="312.5" font-size="13" fill="#1e1e1e" font-weight="500">3. CAN-Bus Overvoltage Spikes| battery_voltage=9999V| 8 rows</text>
+<text x="812" y="332.5" font-size="13" fill="#1e1e1e" font-weight="500">4. Motor RPM Mismatch       | Speed=0 &amp; RPM=14500  | 12 rows</text>
+<rect x="800" y="385" width="460" height="155" fill="#eebefa" stroke="#9c36b5" stroke-width="1" rx="4" />
+<text x="812" y="432.5" font-size="13" fill="#9c36b5" font-weight="500">🩺 Diagnosis Agent RCA (dbt Lineage Graph):</text>
+<text x="812" y="452.5" font-size="13" fill="#9c36b5" font-weight="500">Root Cause: VinFast VF8 entered Vincom Underground Basement.</text>
+<text x="812" y="472.5" font-size="13" fill="#9c36b5" font-weight="500">GPS connection dropped &amp; CAN-bus voltage telemetry spiked.</text>
+<text x="812" y="492.5" font-size="13" fill="#9c36b5" font-weight="500">Remediation: Apply linear interpolation &amp; quarantine corrupt rows.</text>
+<rect x="800" y="550" width="460" height="125" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="812" y="582.5" font-size="13" fill="#2f9e44" font-weight="500">✨ Clean DB Execution Summary:</text>
+<text x="812" y="602.5" font-size="13" fill="#2f9e44" font-weight="500">Clean Records: 940 / 1000 rows (94.0%)</text>
+<text x="812" y="622.5" font-size="13" fill="#2f9e44" font-weight="500">Quarantine Table: 60 rows (6.0%)</text>
+<text x="812" y="642.5" font-size="13" fill="#2f9e44" font-weight="500">SHA-256 Lineage Hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4</text>
+</svg>
