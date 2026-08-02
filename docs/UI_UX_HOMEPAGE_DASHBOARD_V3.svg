@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 950" width="1600" height="950" style="background:#ffffff; font-family:sans-serif;">
+<rect x="0" y="0" width="1600" height="950" fill="#ffffff" stroke="#1e1e1e" stroke-width="2" rx="4" />
+<rect x="0" y="0" width="1600" height="70" fill="#a5d8ff" stroke="#1971c2" stroke-width="2" rx="4" />
+<rect x="0" y="70" width="280" height="880" fill="#e9ecef" stroke="#868e96" stroke-width="2" rx="4" />
+<rect x="280" y="70" width="1320" height="880" fill="#f8f9fa" stroke="#0c8599" stroke-width="2" rx="4" />
+<text x="20" y="24" font-size="18" fill="#1e1e1e" font-weight="bold">🤖 DataTrust OS v3.0 — Executive Governance Homepage &amp; Dashboard</text>
+<rect x="1010" y="16" width="170" height="38" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="1024" y="40" font-size="13" fill="#868e96" font-weight="500">🔍 Ctrl + K Search</text>
+<rect x="1190" y="16" width="130" height="38" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="1204" y="40" font-size="13" fill="#2f9e44" font-weight="500">📤 Upload DB</text>
+<rect x="1330" y="16" width="240" height="38" fill="#eebefa" stroke="#9c36b5" stroke-width="1" rx="4" />
+<text x="1344" y="40" font-size="13" fill="#9c36b5" font-weight="500">👤 Steward (Admin Governance)</text>
+<rect x="15" y="85" width="250" height="45" fill="#a5d8ff" stroke="#1971c2" stroke-width="2" rx="4" />
+<text x="29" y="109" font-size="13" fill="#1971c2" font-weight="500">🏠 Executive Homepage / Dashboard</text>
+<rect x="15" y="140" width="250" height="45" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="29" y="164" font-size="13" fill="#2f9e44" font-weight="500">+ New Agent Chat Session</text>
+<text x="15" y="200" font-size="14" fill="#868e96" font-weight="bold">GOVERNANCE AGENT THREADS</text>
+<rect x="15" y="225" width="250" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="29" y="249" font-size="13" fill="#868e96" font-weight="500">💬 VinFast EV Telemetry Scan</text>
+<rect x="15" y="280" width="250" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="29" y="304" font-size="13" fill="#868e96" font-weight="500">💬 V-GREEN Charger Overheat</text>
+<rect x="15" y="335" width="250" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="29" y="359" font-size="13" fill="#868e96" font-weight="500">💬 Xanh SM Trips Ledger Audit</text>
+<rect x="15" y="390" width="250" height="45" fill="#ffffff" stroke="#868e96" stroke-width="1" rx="4" />
+<text x="29" y="414" font-size="13" fill="#868e96" font-weight="500">💬 Customer Feedback NLP</text>
+<text x="15" y="455" font-size="14" fill="#868e96" font-weight="bold">ENTERPRISE DATASETS</text>
+<rect x="15" y="480" width="250" height="45" fill="#ffffff" stroke="#0c8599" stroke-width="1" rx="4" />
+<text x="29" y="504" font-size="13" fill="#0c8599" font-weight="500">📦 8 Datasets Active (VinGroup)</text>
+<rect x="300" y="85" width="300" height="80" fill="#ffffff" stroke="#1971c2" stroke-width="2" rx="4" />
+<text x="314" y="109" font-size="13" fill="#1971c2" font-weight="500">📊 Monitored Datasets:</text>
+<text x="314" y="129" font-size="13" fill="#1971c2" font-weight="500">8 Enterprise Sources (100% Active)</text>
+<rect x="620" y="85" width="310" height="80" fill="#ffffff" stroke="#2f9e44" stroke-width="2" rx="4" />
+<text x="634" y="109" font-size="13" fill="#2f9e44" font-weight="500">⚡ Total Records Processed:</text>
+<text x="634" y="129" font-size="13" fill="#2f9e44" font-weight="500">1,450,000 Rows (94.2% Clean DB)</text>
+<rect x="950" y="85" width="310" height="80" fill="#ffd8a8" stroke="#e8590c" stroke-width="2" rx="4" />
+<text x="964" y="109" font-size="13" fill="#e8590c" font-weight="500">⚖️ Pending HITL Tasks:</text>
+<text x="964" y="129" font-size="13" fill="#e8590c" font-weight="500">3 Rules Requiring Steward Review</text>
+<rect x="1280" y="85" width="300" height="80" fill="#ffffff" stroke="#9c36b5" stroke-width="2" rx="4" />
+<text x="1294" y="109" font-size="13" fill="#9c36b5" font-weight="500">🔥 Composite Anomaly Index:</text>
+<text x="1294" y="129" font-size="13" fill="#9c36b5" font-weight="500">S_composite = 0.89 (HEALTHY)</text>
+<rect x="300" y="180" width="630" height="275" fill="#ffffff" stroke="#2f9e44" stroke-width="2" rx="4" />
+<text x="314" y="204" font-size="13" fill="#2f9e44" font-weight="500">🛡️ Agent Auto-Suggested Rules &amp; Pending Approval Tasks (HITL Queue):</text>
+<text x="314" y="224" font-size="13" fill="#2f9e44" font-weight="500"></text>
+<text x="314" y="244" font-size="13" fill="#2f9e44" font-weight="500">1. [CRITICAL] battery_soc &gt;= 0.0 AND battery_soc &lt;= 100.0  (Column: battery_soc)</text>
+<text x="314" y="264" font-size="13" fill="#2f9e44" font-weight="500">   Description: Enforce non-negative state of charge on EV telemetry.</text>
+<text x="314" y="284" font-size="13" fill="#2f9e44" font-weight="500">   Actions: [✓ Approve]   [✗ Reject]   [✏️ Edit]</text>
+<text x="314" y="304" font-size="13" fill="#2f9e44" font-weight="500"></text>
+<text x="314" y="324" font-size="13" fill="#2f9e44" font-weight="500">2. [WARNING] duration_minutes &gt; 0.0 AND duration_minutes &lt; 720 (Column: duration)</text>
+<text x="314" y="344" font-size="13" fill="#2f9e44" font-weight="500">   Description: Flag abnormal charging duration exceeding 12 hours.</text>
+<text x="314" y="364" font-size="13" fill="#2f9e44" font-weight="500">   Actions: [✓ Approve]   [✗ Reject]   [✏️ Edit]</text>
+<text x="314" y="384" font-size="13" fill="#2f9e44" font-weight="500"></text>
+<text x="314" y="404" font-size="13" fill="#2f9e44" font-weight="500">3. [INFO] total_fare &gt;= fare_amount (Column: total_fare)</text>
+<text x="314" y="424" font-size="13" fill="#2f9e44" font-weight="500">   Description: Cross-check discount calculation integrity on Xanh SM trips.</text>
+<text x="314" y="444" font-size="13" fill="#2f9e44" font-weight="500">   Actions: [✓ Approve]   [✗ Reject]   [✏️ Edit]</text>
+<rect x="315" y="415" width="260" height="32" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" rx="4" />
+<text x="329" y="439" font-size="13" fill="#2f9e44" font-weight="500">✓ Approve All Pending Rules (3)</text>
+<rect x="590" y="415" width="220" height="32" fill="#a5d8ff" stroke="#1971c2" stroke-width="1" rx="4" />
+<text x="604" y="439" font-size="13" fill="#1971c2" font-weight="500">⚙️ Open Full Rule Engine</text>
+<rect x="950" y="180" width="630" height="275" fill="#ffffff" stroke="#0c8599" stroke-width="2" rx="4" />
+<text x="964" y="204" font-size="13" fill="#0c8599" font-weight="500">🔄 Automated Data Flow &amp; Pipeline Ingestion Status:</text>
+<text x="964" y="224" font-size="13" fill="#0c8599" font-weight="500"></text>
+<text x="964" y="244" font-size="13" fill="#0c8599" font-weight="500">1. ST-EVCDP V-GREEN Charging Feed (Real-Time Pipeline)</text>
+<text x="964" y="264" font-size="13" fill="#0c8599" font-weight="500">   Status: [ACTIVE] Ingested 500,000 rows | Thermal fault auto-detected @ Station #VGREEN-042.</text>
+<text x="964" y="284" font-size="13" fill="#0c8599" font-weight="500"></text>
+<text x="964" y="304" font-size="13" fill="#0c8599" font-weight="500">2. Telemetry JAC IEV40 EV Feed (IoT Telemetry Pipeline)</text>
+<text x="964" y="324" font-size="13" fill="#0c8599" font-weight="500">   Status: [ACTIVE] Ingested 450,000 rows | GSM Basement blackout auto-flagged.</text>
+<text x="964" y="344" font-size="13" fill="#0c8599" font-weight="500"></text>
+<text x="964" y="364" font-size="13" fill="#0c8599" font-weight="500">3. UIT-VSFC Vietnamese Feedback NLP Feed (Aspect Extraction Pipeline)</text>
+<text x="964" y="384" font-size="13" fill="#0c8599" font-weight="500">   Status: [ACTIVE] Ingested 250,000 rows | Teen-code normalized ('ko sac dc' -&gt; 'không sạc được').</text>
+<text x="964" y="404" font-size="13" fill="#0c8599" font-weight="500"></text>
+<text x="964" y="424" font-size="13" fill="#0c8599" font-weight="500">4. Ride Hailing Transactions Feed (Trip Audit Pipeline)</text>
+<text x="964" y="444" font-size="13" fill="#0c8599" font-weight="500">   Status: [ACTIVE] Ingested 250,000 rows | Clean DB &amp; Quarantine tables partitioned.</text>
+<rect x="300" y="470" width="630" height="260" fill="#ffffff" stroke="#e03131" stroke-width="2" rx="4" />
+<text x="314" y="494" font-size="13" fill="#e03131" font-weight="500">📈 Error Trends &amp; Anomaly Distribution (Last 24 Hours):</text>
+<text x="314" y="514" font-size="13" fill="#e03131" font-weight="500"></text>
+<text x="314" y="534" font-size="13" fill="#e03131" font-weight="500">[Time Series Trend Visualizer]</text>
+<text x="314" y="554" font-size="13" fill="#e03131" font-weight="500">• 00:00 - 06:00 ─── Normal Baseline (12 anomalies/hr)</text>
+<text x="314" y="574" font-size="13" fill="#e03131" font-weight="500">• 06:00 - 12:00 ─────── GSM Basement Blackout Spike (145 anomalies/hr @ Vincom Landmark 81)</text>
+<text x="314" y="594" font-size="13" fill="#e03131" font-weight="500">• 12:00 - 18:00 ───── Charger Overheat Spike (88 anomalies/hr @ 85.5°C Thermal Fault)</text>
+<text x="314" y="614" font-size="13" fill="#e03131" font-weight="500">• 18:00 - 24:00 ──── CAN-Bus Overvoltage Telemetry Spike (32 anomalies/hr @ 9999V)</text>
+<text x="314" y="634" font-size="13" fill="#e03131" font-weight="500"></text>
+<text x="314" y="654" font-size="13" fill="#e03131" font-weight="500">Severity Breakdown: 🔴 Critical: 18%  |  🟡 Warning: 62%  |  🔵 Info: 20%</text>
+<rect x="950" y="470" width="630" height="260" fill="#ffffff" stroke="#9c36b5" stroke-width="2" rx="4" />
+<text x="964" y="494" font-size="13" fill="#9c36b5" font-weight="500">🩺 Multi-Agent Anomaly Detector &amp; Diagnosis Status (dbt Lineage Graph):</text>
+<text x="964" y="514" font-size="13" fill="#9c36b5" font-weight="500"></text>
+<text x="964" y="534" font-size="13" fill="#9c36b5" font-weight="500">Detector Engine: Dual Composite Score (Robust MAD Z-Score + Isolation Forest ML)</text>
+<text x="964" y="554" font-size="13" fill="#9c36b5" font-weight="500"></text>
+<text x="964" y="574" font-size="13" fill="#9c36b5" font-weight="500">Top Diagnosed Root Causes:</text>
+<text x="964" y="594" font-size="13" fill="#9c36b5" font-weight="500">1. GSM Cellular Signal Drop in Underground Basements (45% of total faults)</text>
+<text x="964" y="614" font-size="13" fill="#9c36b5" font-weight="500">   Root Cause: Vehicles entering underground parking areas lose GPS/cellular connectivity.</text>
+<text x="964" y="634" font-size="13" fill="#9c36b5" font-weight="500">2. V-GREEN Fast Charger Thermal Throttling @ 85.5°C (30% of total faults)</text>
+<text x="964" y="654" font-size="13" fill="#9c36b5" font-weight="500">   Root Cause: Ambient temperature combined with high-current charging triggers safety cutoff.</text>
+<text x="964" y="674" font-size="13" fill="#9c36b5" font-weight="500">3. Teen-code NLP Ambiguity in Customer App Reviews (25% of total faults)</text>
+<text x="964" y="694" font-size="13" fill="#9c36b5" font-weight="500">   Root Cause: Colloquial Vietnamese slang requires custom entity normalizer dictionary.</text>
+<rect x="300" y="745" width="1280" height="190" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2" rx="4" />
+<text x="314" y="769" font-size="13" fill="#2f9e44" font-weight="500">✨ Clean DB Execution &amp; Governance Audit Ledger Manifest:</text>
+<text x="314" y="789" font-size="13" fill="#2f9e44" font-weight="500"></text>
+<text x="314" y="809" font-size="13" fill="#2f9e44" font-weight="500">• Clean Records Output: 1,365,900 / 1,450,000 rows (94.2% Passed Quality Checks)</text>
+<text x="314" y="829" font-size="13" fill="#2f9e44" font-weight="500">• Quarantine Table: 84,100 corrupt rows isolated (5.8% Quarantined for Repair)</text>
+<text x="314" y="849" font-size="13" fill="#2f9e44" font-weight="500">• Cryptographic Lineage SHA-256: e3b0c44298fc1c149afbf4c8996fb92427ae41e462d71dce99026daef3200a</text>
+<text x="314" y="869" font-size="13" fill="#2f9e44" font-weight="500">• Steward Governance Audit: 142 Rules Approved | 12 Rules Rejected | 100% Policy Compliant</text>
+</svg>
