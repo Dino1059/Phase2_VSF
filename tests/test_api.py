@@ -1,5 +1,11 @@
+import os
 from fastapi.testclient import TestClient
 import pytest
+
+_SKIP_LLM = pytest.mark.skipif(
+    not os.environ.get("GOOGLE_AI_API_KEY"),
+    reason="Requires live LLM (GOOGLE_AI_API_KEY not set)"
+)
 
 from src.api.audit_store import AuditStore
 from src.api.state_machine import StateMachine, WorkflowState
@@ -37,6 +43,7 @@ def test_profile_endpoint():
     assert data["column_count"] == 3
 
 
+@_SKIP_LLM
 def test_propose_rules_endpoint():
     payload = {
         "data": [
@@ -173,6 +180,7 @@ def test_execute_rules_on_dataset_endpoint():
     assert "quarantine_rows" in data
 
 
+@_SKIP_LLM
 def test_benchmark_dataset_endpoint():
     response = client.post("/api/v1/datasets/nyc_fhvhv/benchmark?sample_size=10")
     assert response.status_code == 200
@@ -254,6 +262,7 @@ def test_chat_send_react_loop_anomaly():
     assert data["state"] == "ANOMALY_DETECTED"
 
 
+@_SKIP_LLM
 def test_chat_send_react_loop_diagnose():
     response = client.post("/api/v1/chat/send", json={"message": "Diagnose root cause"})
     assert response.status_code == 200
@@ -262,6 +271,7 @@ def test_chat_send_react_loop_diagnose():
     assert data["state"] == "DIAGNOSED"
 
 
+@_SKIP_LLM
 def test_chat_send_list_datasets():
     response = client.post("/api/v1/chat/send", json={"message": "how many datasets do I have?"})
     assert response.status_code == 200

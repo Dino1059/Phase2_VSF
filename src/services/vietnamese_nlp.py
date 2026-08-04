@@ -23,6 +23,19 @@ class NLPResult:
     sentiment: float = 0.0  # -1.0 to 1.0
     confidence: float = 0.0  # 0.0 to 1.0
 
+    def __getitem__(self, item: str):
+        if item == "sentiment":
+            if self.sentiment <= -0.5:
+                return "very_negative"
+            elif self.sentiment < 0:
+                return "negative"
+            elif self.sentiment >= 0.5:
+                return "very_positive"
+            elif self.sentiment > 0:
+                return "positive"
+            return "neutral"
+        return getattr(self, item)
+
 
 class VietnameseNLPService:
     def __init__(self, teencode_path: str | None = None, ontology_path: str | None = None):

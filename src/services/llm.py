@@ -151,6 +151,29 @@ class GemmaLLMAdapter:
         ])
         yield {"type": "chunk", "text": res.content}
 
+    def generate_structured(self, prompt: str, response_model: Any = None, schema: Any = None, system_prompt: str = "") -> Any:
+        target_cls = response_model
+        if target_cls is not None and hasattr(target_cls, "model_json_schema"):
+            schema_dict = target_cls.model_json_schema()
+        elif isinstance(schema, dict):
+            schema_dict = schema
+        else:
+            schema_dict = {}
+
+        try:
+            res_dict = self.structured_output(f"{system_prompt}\n{prompt}", schema_dict)
+            if target_cls and hasattr(target_cls, "model_validate"):
+                return target_cls.model_validate(res_dict)
+            return res_dict
+        except Exception:
+            if target_cls:
+                try:
+                    return target_cls()
+                except Exception:
+                    pass
+            return {}
+
+
 
 
 LLMService = GemmaLLMAdapter

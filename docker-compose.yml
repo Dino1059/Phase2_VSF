@@ -1,23 +1,29 @@
-version: "3.8"
+version: '3.8'
 
 services:
-  datatrust-os:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: datatrust-os
     ports:
       - "8000:8000"
-    environment:
-      - APP_NAME=DataTrust OS
-      - APP_ENV=production
-      - APP_PORT=8000
-      - LOG_LEVEL=INFO
     volumes:
       - ./data:/app/data
+    environment:
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

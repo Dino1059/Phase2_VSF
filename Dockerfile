@@ -1,34 +1,24 @@
-# ---- Stage 1: Build ----
-FROM python:3.11-slim AS builder
+FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# ---- Stage 2: Production ----
-FROM python:3.11-slim
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
 
-WORKDIR /app
+# Install dependencies
+RUN uv sync --frozen --no-dev
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Copy source code
+COPY src/ ./src/
+COPY eval/ ./eval/
+COPY data/ ./data/ 2>/dev/null || true
+COPY scripts/ ./scripts/ 2>/dev/null || true
 
-# Security: run as non-root user
-RUN useradd -m appuser
-
-# Copy application code
-COPY . .
-
-# Create data directory with correct ownership
-RUN mkdir -p /app/data && chown -R appuser:appuser /app
-
-USER appuser
-
+# Expose port
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

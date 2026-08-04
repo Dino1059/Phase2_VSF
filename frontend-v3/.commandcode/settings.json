@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(command:*)",
+      "Shell(rtk:*)",
+      "mcp__headroom__headroom_stats"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

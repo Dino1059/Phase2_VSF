@@ -1,3 +1,41 @@
+# DataTrust OS v4.0
+
+> Enterprise Cross-Domain Root-Cause Diagnosis & Data Quality Governance Platform for the VinGroup EV Ecosystem
+
+## Quick Start
+
+```bash
+# Clone and setup
+git clone <repo-url> && cd P-086
+git checkout v4
+uv sync
+
+# Initialize database
+uv run python -c "from src.db.connection import get_db; db = get_db(); db.init_schema(); print('Ready')"
+
+# Run backend
+uv run uvicorn src.main:app --reload --port 8000
+
+# Run frontend (separate terminal)
+cd frontend-v3 && pnpm install && pnpm dev
+```
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## Evaluation
+
+See [docs/EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md)
+
+## Tests
+
+```bash
+uv run pytest tests/ -v  # 200+ tests
+```
+
+---
+
 # 🤖 DataTrust OS v3 — Enterprise VinGroup Ecosystem Data Governance Platform (DATA-02)
 
 **DataTrust OS** is an AI-augmented Multi-Agent Data Governance, Quality Control, Rule Synthesis, and Anomaly Detection platform built for the **VinGroup Enterprise Ecosystem** (VinFast EVs, Xanh SM Ride-Hailing, V-GREEN Charging Infrastructure, and Vietnamese Customer Feedback NLP).

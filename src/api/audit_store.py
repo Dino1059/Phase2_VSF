@@ -24,6 +24,15 @@ class AuditStore:
         merged_details = {"run_id": run_id, **(details or {})}
         return self.record_event(event_type=event_type, details=merged_details)
 
+    def log_decision(self, run_id: str, decision: Any, actor: str) -> AuditRecord:
+        details = {
+            "run_id": run_id,
+            "actor": actor,
+            "decision": decision.model_dump() if hasattr(decision, "model_dump") else str(decision)
+        }
+        return self.record_event(event_type="AGENT_DECISION", details=details)
+
+
 
     def get_records(self, event_type: Optional[str] = None) -> List[AuditRecord]:
         if event_type:
