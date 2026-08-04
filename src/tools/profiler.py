@@ -4,6 +4,8 @@ import pandas as pd
 
 from src.models.schemas import ColumnProfile, Profile, ProfileReport, ProfileResult, QualityFlag, RuleSeverity
 from src.tools.datasource import DataSource
+from src.tools.base import BaseTool
+from src.db.connection import get_db
 
 
 class Profiler:
@@ -150,3 +152,74 @@ class Profiler:
             quality_flags=quality_flags,
             metadata=metadata or {},
         )
+
+
+class DataProfilerTool(BaseTool):
+    name = "data_profiler"
+    description = "Profile a DuckDB table to compute column-level statistics: data types, null rates, cardinality, min/max, mean, and standard deviation."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "table_name": {"type": "string", "description": "DuckDB table to profile"},
+            "sample_size": {"type": "integer", "description": "Number of rows to sample", "default": 10000}
+        },
+        "required": ["table_name"]
+    }
+
+    ALLOWED_TABLES = {"vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback", "raw_snapshots", "quality_rules", "quarantine", "audit_log", "agent_traces", "profile_results"}
+
+    def execute(self, input_data: dict) -> dict:
+        table = input_data["table_name"]
+        if table not in self.ALLOWED_TABLES:
+            return {"error": f"Table '{table}' not allowed", "table_name": table, "row_count": 0, "columns": []}
+
+        db = get_db()
+        
+        # Get row count
+        count_result = db.execute(f"SELECT COUNT(*) FROM {table}")
+        row_count = count_result[0][0] if count_result else 0
+        
+        if row_count == 0:
+            return {"table_name": table, "row_count": 0, "columns": []}
+
+        # Get column info
+        col_info = db.execute(f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table}' AND table_schema = 'main' ORDER BY ordinal_position")
+        
+        columns = []
+        for col_name, dtype in col_info:
+            stats = {"name": col_name, "dtype": dtype}
+            
+            # Null count
+            null_result = db.execute(f'SELECT COUNT(*) FROM {table} WHERE "{col_name}" IS NULL')
+            null_count = null_result[0][0] if null_result else 0
+            stats["null_count"] = null_count
+            stats["null_pct"] = round(null_count / max(row_count, 1) * 100, 2)
+            
+            # Unique count
+            uniq_result = db.execute(f'SELECT COUNT(DISTINCT "{col_name}") FROM {table}')
+            stats["unique_count"] = uniq_result[0][0] if uniq_result else 0
+            
+            # Numeric stats
+            if dtype in ('FLOAT', 'DOUBLE', 'INTEGER', 'BIGINT', 'DECIMAL', 'REAL'):
+                try:
+                    num_stats = db.execute(f'SELECT MIN("{col_name}"), MAX("{col_name}"), AVG("{col_name}"), STDDEV("{col_name}") FROM {table}')
+                    if num_stats and num_stats[0]:
+                        stats["min_val"] = num_stats[0][0]
+                        stats["max_val"] = num_stats[0][1]
+                        stats["mean_val"] = round(float(num_stats[0][2]), 4) if num_stats[0][2] is not None else None
+                        stats["std_val"] = round(float(num_stats[0][3]), 4) if num_stats[0][3] is not None else None
+                except Exception:
+                    pass
+            else:
+                # For string columns, get min/max length
+                try:
+                    len_stats = db.execute(f'SELECT MIN(LENGTH("{col_name}")), MAX(LENGTH("{col_name}")) FROM {table} WHERE "{col_name}" IS NOT NULL')
+                    if len_stats and len_stats[0]:
+                        stats["min_len"] = len_stats[0][0]
+                        stats["max_len"] = len_stats[0][1]
+                except Exception:
+                    pass
+            
+            columns.append(stats)
+
+        return {"table_name": table, "row_count": row_count, "columns": columns}
