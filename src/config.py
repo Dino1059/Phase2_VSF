@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./data/app.db"
+    duckdb_path: str = "data/datatrust_v4.duckdb"
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
@@ -65,6 +66,11 @@ class Settings(BaseSettings):
             )
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(base, path)
+
+    def get_duckdb_path(self) -> str:
+        import os
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, self.duckdb_path)
 
     def register_dataset(self, key: str, rel_path: str):
         self.dataset_registry[key] = rel_path

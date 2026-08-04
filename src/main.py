@@ -9,6 +9,7 @@ from src.api.routes import router, ws_router
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
 from src.services.scheduler import scheduler_service
+from src.db.connection import get_db
 
 UI_DIR_V2 = os.path.join(os.path.dirname(__file__), "ui")
 UI_DIR_V3 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "dist")
@@ -24,9 +25,14 @@ async def lifespan(app: FastAPI):
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
     # Pre-seed dataset if not exists
     seed_dataset()
+    # Initialize DuckDB schema
+    db = get_db()
+    db.init_schema()
+    print(f"DuckDB initialized at {db.db_path}")
     scheduler_service.start()
     yield
     scheduler_service.shutdown()
+    get_db().close()
     print("Shutting down DataTrust OS...")
 
 
