@@ -1,126 +1,192 @@
+from __future__ import annotations
+import json
+import os
 import re
-from typing import Dict, Any, List
+from dataclasses import dataclass, field
 
-# Teen code / Slang dictionary for Vietnamese customer feedback
-TEEN_CODE_MAP = {
-    "ko": "không",
-    "k": "không",
-    "khong": "không",
-    "dc": "được",
-    "duk": "được",
-    "hok": "không",
-    "tram sac": "trạm sạc",
-    "v-green": "V-GREEN",
-    "vincom": "Vincom",
-    "app lag": "ứng dụng có độ trễ",
-    "vl": "rất nhiều",
-    "vll": "rất nhiều",
-    "full": "đầy",
-    "goc": "ngắt",
-    "em": "êm",
-    "sach se": "sạch sẽ",
-    "nhiet tinh": "nhiệt tình",
-    "dat xe": "đặt xe",
-}
 
-def normalize_vietnamese_text(text: str) -> str:
-    """Normalizes Vietnamese teen code, abbreviations, and missing accents."""
-    words = text.split()
-    normalized_words = []
-    for w in words:
-        w_lower = w.lower().strip(".,!?")
-        if w_lower in TEEN_CODE_MAP:
-            normalized_words.append(TEEN_CODE_MAP[w_lower])
-        else:
-            normalized_words.append(w)
-    return " ".join(normalized_words)
+@dataclass
+class Aspect:
+    component: str  # 'charger', 'battery', 'vehicle', 'app', 'driver', 'service'
+    location: str | None = None
+    symptom: str = ''
+    severity: str = 'medium'  # 'critical', 'high', 'medium', 'low'
 
-def extract_aspect_entities(text: str) -> Dict[str, Any]:
-    """Extracts Location, Component, Error Type, and Sentiment Level from text."""
-    normalized = normalize_vietnamese_text(text)
-    lower_norm = text.lower() + " " + normalized.lower()
-    
-    # Location Extraction
-    location = "Toàn quốc"
-    if "vincom" in lower_norm or "ba trieu" in lower_norm:
-        location = "Vincom Bà Triệu"
-    elif "royal" in lower_norm:
-        location = "Royal City"
-    elif "landmark" in lower_norm:
-        location = "Landmark 81"
-    elif "ocean" in lower_norm:
-        location = "Ocean Park"
-    elif "nguyen trai" in lower_norm:
-        location = "Nguyễn Trãi"
-    elif "quan 7" in lower_norm:
-        location = "Quận 7"
-    elif "da nang" in lower_norm:
-        location = "Đà Nẵng"
-    elif "hcm" in lower_norm or "tphcm" in lower_norm:
-        location = "TPHCM"
-    elif "ha noi" in lower_norm:
-        location = "Hà Nội"
 
-    # Component Extraction
-    component = "Dịch vụ chung"
-    if "tram sac" in lower_norm or "v-green" in lower_norm:
-        component = "Trạm sạc V-GREEN"
-    elif "pin" in lower_norm or "soc" in lower_norm:
-        component = "Pin xe VinFast"
-    elif "tai xe" in lower_norm or "lai xe" in lower_norm:
-        component = "Dịch vụ tài xế"
-    elif "app" in lower_norm or "ung dung" in lower_norm:
-        component = "Ứng dụng di động"
-    elif "vf5" in lower_norm:
-        component = "Xe VinFast VF5"
-    elif "vf8" in lower_norm:
-        component = "Xe VinFast VF8"
-    elif "cuoc" in lower_norm or "gia" in lower_norm:
-        component = "Giá cước"
+@dataclass
+class NLPResult:
+    original_text: str
+    normalized_text: str
+    language: str  # 'vi', 'en', 'mixed'
+    teencode_found: list[str] = field(default_factory=list)
+    aspects: list[Aspect] = field(default_factory=list)
+    sentiment: float = 0.0  # -1.0 to 1.0
+    confidence: float = 0.0  # 0.0 to 1.0
 
-    # Error classification
-    error_type = "Bình thường / Khen ngợi"
-    severity = "INFO"
-    
-    if any(k in lower_norm for k in ["lỗi", "không sạc", "ko sac", "hỏng", "ngắt", "báo lỗi pin", "quá nhiệt"]):
-        error_type = "Lỗi thiết bị / Phần cứng trạm sạc"
-        severity = "CRITICAL"
-    elif any(k in lower_norm for k in ["lag", "không đặt được", "ko dat dc", "hiển thị linh tinh", "chậm"]):
-        error_type = "Lỗi ứng dụng di động / Phần mềm"
-        severity = "WARNING"
-    elif any(k in lower_norm for k in ["đầy chỗ", "hết chỗ", "full", "lâu"]):
-        error_type = "Lỗi tắc nghẽn hạ tầng"
-        severity = "WARNING"
 
-    return {
-        "raw_text": text,
-        "normalized_text": normalized,
-        "location": location,
-        "component": component,
-        "error_type": error_type,
-        "severity": severity
-    }
+class VietnameseNLPService:
+    def __init__(self, teencode_path: str | None = None, ontology_path: str | None = None):
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.teencode_path = teencode_path or os.path.join(base, 'src', 'data', 'teencode_dict.json')
+        self.ontology_path = ontology_path or os.path.join(base, 'src', 'data', 'ev_domain_ontology.json')
+        self._teencode: dict[str, str] = {}
+        self._ontology: dict = {}
+        self._load_data()
+        # Pre-compile regex for teen-code: sort by length descending for greedy matching
+        self._teencode_pattern = self._build_teencode_pattern()
+        # Sentiment lexicon (basic Vietnamese + English)
+        self._positive_words = {
+            'tốt', 'tuyệt', 'tuyệt vời', 'đẹp', 'nhanh', 'sạch', 'rẻ', 'tiện',
+            'hay', 'đỉnh', 'chất', 'phê', 'thích', 'ổn', 'ok', 'ngon', 'mát',
+            'recommend', 'perfect', 'good', 'nice', 'great', 'excellent', 'love',
+            'hài lòng', 'chuyên nghiệp', 'lịch sự', 'an toàn', 'khuyên dùng'
+        }
+        self._negative_words = {
+            'tệ', 'dở', 'chậm', 'nóng', 'lỗi', 'hỏng', 'chán', 'lag', 'crash',
+            'bug', 'scam', 'lừa', 'phí', 'nguy hiểm', 'cháy', 'nổ', 'liệt',
+            'không được', 'kém', 'tồi', 'đắt', 'mất', 'treo', 'giật', 'khó chịu',
+            'bực', 'thất vọng', 'tệ hại', 'kinh khủng'
+        }
 
-def cross_validate_with_telemetry(aspect_data: Dict[str, Any], vgreen_logs: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Cross-validates unstructured customer feedback with structured V-GREEN telemetry logs."""
-    loc = aspect_data.get("location")
-    matched_log = None
-    if vgreen_logs:
-        for log in vgreen_logs:
-            station_id = str(log.get("station_id", ""))
-            if loc and (loc.lower().replace(" ", "_") in station_id.lower() or "vincom" in station_id.lower()):
-                if log.get("status") in ("THERMAL_FAULT", "POWER_DROP") or float(log.get("station_temp_c", 0)) > 80:
-                    matched_log = log
+    def _load_data(self):
+        if os.path.exists(self.teencode_path):
+            with open(self.teencode_path, 'r', encoding='utf-8') as f:
+                self._teencode = json.load(f)
+        if os.path.exists(self.ontology_path):
+            with open(self.ontology_path, 'r', encoding='utf-8') as f:
+                self._ontology = json.load(f)
+
+    def _build_teencode_pattern(self) -> re.Pattern | None:
+        if not self._teencode:
+            return None
+        # Sort by length descending so longer matches are preferred
+        keys = sorted(self._teencode.keys(), key=len, reverse=True)
+        escaped = [re.escape(k) for k in keys]
+        pattern = r'(?:^|\b|(?<=\s))(' + '|'.join(escaped) + r')(?:$|\b|(?=\s))'
+        return re.compile(pattern, re.IGNORECASE)
+
+    def normalize(self, text: str) -> str:
+        """Normalize teen-code to standard Vietnamese."""
+        if not text or not self._teencode:
+            return text
+        result = text
+        found = []
+        # Apply longest-first replacement
+        for key in sorted(self._teencode.keys(), key=len, reverse=True):
+            pattern = re.compile(r'(?:^|(?<=\s))' + re.escape(key) + r'(?:$|(?=\s))', re.IGNORECASE)
+            if pattern.search(result):
+                found.append(key)
+                result = pattern.sub(self._teencode[key], result)
+        # Clean up extra whitespace
+        result = re.sub(r'\s+', ' ', result).strip()
+        return result
+
+    def detect_language(self, text: str) -> str:
+        """Detect language: 'vi', 'en', or 'mixed'."""
+        vietnamese_chars = set('àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ')
+        has_vi = any(c in vietnamese_chars for c in text.lower())
+        # Simple heuristic: if more than 50% ASCII words, likely mixed/en
+        words = text.split()
+        ascii_words = sum(1 for w in words if all(ord(c) < 128 for c in w))
+        if not has_vi and ascii_words == len(words):
+            return 'en'
+        elif has_vi and ascii_words / max(len(words), 1) > 0.5:
+            return 'mixed'
+        return 'vi'
+
+    def extract_aspects(self, text: str) -> list[Aspect]:
+        """Extract structured aspects from normalized text."""
+        aspects = []
+        text_lower = text.lower()
+        components = self._ontology.get('components', {})
+        severity_keywords = self._ontology.get('severity_keywords', {})
+        locations = self._ontology.get('locations', {})
+
+        # Detect components
+        detected_components = []
+        for comp_name, comp_data in components.items():
+            all_keywords = comp_data.get('keywords_vi', []) + comp_data.get('keywords_en', [])
+            for kw in all_keywords:
+                if kw.lower() in text_lower:
+                    detected_components.append(comp_name)
                     break
 
-    validated = dict(aspect_data)
-    if matched_log:
-        validated["telemetry_verified"] = True
-        validated["matched_station"] = matched_log.get("station_id")
-        validated["matched_charger"] = matched_log.get("charger_id")
-        validated["telemetry_evidence"] = f"Station temperature {matched_log.get('station_temp_c')}°C, status {matched_log.get('status')}"
-    else:
-        validated["telemetry_verified"] = False
-        validated["telemetry_evidence"] = "No matching telemetry fault in selected timeframe"
+        # Detect severity
+        detected_severity = 'medium'
+        for sev, keywords in severity_keywords.items():
+            for kw in keywords:
+                if kw.lower() in text_lower:
+                    detected_severity = sev
+                    break
+            if detected_severity != 'medium':
+                break
 
-    return validated
+        # Detect location
+        detected_location = None
+        for region, locs in locations.items():
+            for loc in locs:
+                if loc.lower() in text_lower:
+                    detected_location = loc
+                    break
+            if detected_location:
+                break
+
+        # Build aspects
+        if not detected_components:
+            detected_components = ['service']  # default if no component found
+
+        for comp in detected_components:
+            aspects.append(Aspect(
+                component=comp,
+                location=detected_location,
+                symptom=text[:100],  # first 100 chars as symptom summary
+                severity=detected_severity
+            ))
+
+        return aspects
+
+    def compute_sentiment(self, text: str) -> tuple[float, float]:
+        """Compute sentiment score and confidence.
+        Returns (sentiment: -1.0..1.0, confidence: 0.0..1.0)"""
+        text_lower = text.lower()
+        words = set(re.findall(r'\w+', text_lower))
+        # Also check multi-word expressions
+        pos_count = sum(1 for w in self._positive_words if w in text_lower)
+        neg_count = sum(1 for w in self._negative_words if w in text_lower)
+        total = pos_count + neg_count
+        if total == 0:
+            return 0.0, 0.3  # neutral, low confidence
+        sentiment = (pos_count - neg_count) / total
+        confidence = min(total / 5.0, 1.0)  # More words = higher confidence
+        return round(sentiment, 3), round(confidence, 3)
+
+    def find_teencode(self, text: str) -> list[str]:
+        """Find all teen-code tokens in text."""
+        found = []
+        text_lower = text.lower()
+        for key in sorted(self._teencode.keys(), key=len, reverse=True):
+            pattern = re.compile(r'(?:^|(?<=\s))' + re.escape(key) + r'(?:$|(?=\s))', re.IGNORECASE)
+            if pattern.search(text_lower):
+                found.append(key)
+        return found
+
+    def analyze(self, text: str) -> NLPResult:
+        """Full NLP analysis pipeline."""
+        teencode_found = self.find_teencode(text)
+        normalized = self.normalize(text)
+        language = self.detect_language(text)
+        aspects = self.extract_aspects(normalized)
+        sentiment, confidence = self.compute_sentiment(normalized)
+        return NLPResult(
+            original_text=text,
+            normalized_text=normalized,
+            language=language,
+            teencode_found=teencode_found,
+            aspects=aspects,
+            sentiment=sentiment,
+            confidence=confidence
+        )
+
+    def batch_analyze(self, texts: list[str]) -> list[NLPResult]:
+        """Batch analyze multiple texts."""
+        return [self.analyze(t) for t in texts]

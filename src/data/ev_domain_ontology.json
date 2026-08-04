@@ -1,0 +1,40 @@
+{
+  "components": {
+    "charger": {
+      "keywords_vi": ["trạm sạc", "sạc", "cổng sạc", "bộ sạc", "đầu sạc", "sạc nhanh", "sạc chậm", "trụ sạc"],
+      "keywords_en": ["charger", "charging station", "charging port", "supercharger"]
+    },
+    "battery": {
+      "keywords_vi": ["pin", "ắc quy", "cell", "dung lượng pin", "sốc pin", "chai pin", "pin yếu"],
+      "keywords_en": ["battery", "BMS", "SOC", "cell", "lithium"]
+    },
+    "vehicle": {
+      "keywords_vi": ["xe", "ô tô", "xe điện", "VinFast", "VF8", "VF9", "VFe34", "VF5", "VF6", "VF7"],
+      "keywords_en": ["car", "EV", "electric vehicle", "VinFast"]
+    },
+    "app": {
+      "keywords_vi": ["ứng dụng", "phần mềm", "Xanh SM", "đặt xe"],
+      "keywords_en": ["app", "application", "software", "Xanh SM"]
+    },
+    "driver": {
+      "keywords_vi": ["tài xế", "bác tài", "lái xe", "tài"],
+      "keywords_en": ["driver", "chauffeur"]
+    },
+    "service": {
+      "keywords_vi": ["dịch vụ", "bảo hành", "hỗ trợ", "chăm sóc khách hàng", "tổng đài", "nhân viên"],
+      "keywords_en": ["service", "support", "warranty", "customer care"]
+    }
+  },
+  "severity_keywords": {
+    "critical": ["cháy", "nổ", "chết máy", "không hoạt động", "nguy hiểm", "tai nạn", "chập điện"],
+    "high": ["nóng", "quá nhiệt", "hỏng", "lỗi", "không sạc được", "mất điện", "liệt"],
+    "medium": ["chậm", "lag", "đợi lâu", "không ổn định", "giật", "treo"],
+    "low": ["bình thường", "tạm ổn", "chấp nhận được", "okay"]
+  },
+  "locations": {
+    "hcmc": ["TP.HCM", "Sài Gòn", "Q1", "Q2", "Q3", "Q7", "Thủ Đức", "Bình Thạnh", "Phú Nhuận"],
+    "hanoi": ["Hà Nội", "Cầu Giấy", "Đống Đa", "Hai Bà Trưng", "Hoàn Kiếm", "Long Biên"],
+    "danang": ["Đà Nẵng", "Hải Châu", "Sơn Trà", "Ngũ Hành Sơn"],
+    "landmarks": ["Vincom", "Vinhomes", "Aeon", "Lotte", "BigC", "Co.opmart"]
+  }
+}
