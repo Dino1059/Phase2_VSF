@@ -1,292 +1,123 @@
-import time
-from typing import Any, Dict, List, Optional, Union
-import pandas as pd
-from pydantic import BaseModel, Field, ConfigDict
+"""Baseline implementations for agentic necessity comparison.
 
-from src.agents.context import ContextBuilder
-from src.agents.react import BoundedReActEngine
-from src.models.schemas import DataProfile, QualityRule, RuleProposal, RuleSpec, RunState
-from src.orchestrator.state_machine import RunStateMachine
-from src.services.llm import LLMService
-from src.tools.datatrust_tools import profile_tool, submit_review_tool, validate_tool
+C0: Pure deterministic (SQL/Pandas rules, no LLM)
+C1: Single LLM call (no tools, no ReAct loop)
+A1: Full agentic (ReAct + tools) — implemented by the orchestrator
+"""
+from __future__ import annotations
+import json
+from dataclasses import dataclass, field
 
-
-class PipelineRunResult(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    variant: str = "A1"
-    rules_proposed: List[Any] = Field(default_factory=list)
-    clean_df: Any = Field(default_factory=pd.DataFrame)
-    quarantine_df: Any = Field(default_factory=pd.DataFrame)
-    manifest: Any = Field(default_factory=dict)
-    cost_usd: float = 0.0
-    status: str = "COMPLETED"
-    run_id: str = ""
-    execution_time_sec: float = 0.1
-    compile_rate: float = 1.0
-
-    compile_rate: float = 1.0
-    repair_attempts: int = 0
-    valid_rules_count: int = 0
-    failed_rules_count: int = 0
-    quarantine_count: int = 0
-    clean_count: int = 0
-    details: Dict[str, Any] = Field(default_factory=dict)
+from src.db.connection import get_db
+from src.services.vietnamese_nlp import VietnameseNLPService
+from src.services.llm import GemmaLLMAdapter
 
 
-def run_c0_baseline(
-    data_profile: Union[DataProfile, Dict[str, Any], pd.DataFrame],
-    target_schema: Optional[Union[Dict[str, Any], str]] = None,
-    llm_service: Optional[LLMService] = None,
-) -> RuleProposal:
-    """Baseline C0: One-shot LLM rule proposal.
-    
-    Generates rules directly in a single prompt without profiling loops, tool calls, or validation repairs.
-    """
-    llm = llm_service or LLMService()
-
-    if isinstance(data_profile, pd.DataFrame):
-        prof = profile_tool("dataset_df")
-    else:
-        prof = data_profile
-
-    context = ContextBuilder.build_context(
-        data_profile=prof,
-        target_schema=target_schema,
-        task_description="Propose data quality rules for this dataset in one shot.",
-    )
-    prompt = f"{context}\n\nGenerate a structured RuleProposal containing rules, reasoning, and confidence score."
-    
-    proposal: RuleProposal = llm.generate_structured(
-        prompt=prompt,
-        response_model=RuleProposal,
-        system_prompt="You are a data quality assistant. Output structured RuleProposal only.",
-    )
-    return proposal
+@dataclass
+class BaselineResult:
+    tier: str  # 'C0', 'C1', 'A1'
+    table_name: str
+    rules_proposed: list[dict] = field(default_factory=list)
+    anomalies_found: int = 0
+    diagnosis: str = ""
+    metrics: dict = field(default_factory=dict)
 
 
-def run_c1_baseline(
-    dataset_name: Union[str, pd.DataFrame],
-    target_schema: Optional[Union[Dict[str, Any], str]] = None,
-    state_machine: Optional[RunStateMachine] = None,
-    llm_service: Optional[LLMService] = None,
-) -> Dict[str, Any]:
-    """Baseline C1: Profiler -> Structured LLM JSON -> Validator -> HITL.
-    
-    Sequential 4-step pipeline without ReAct repair loops or dynamic tool selection.
-    If validation fails, pipeline stops without repair attempts.
-    """
-    sm = state_machine or RunStateMachine()
-    llm = llm_service or LLMService()
+class BaselineC0:
+    """Pure deterministic baseline — SQL rules + statistical checks, NO LLM."""
 
-    # Step 1: Profiler
-    if sm.can_transition_to(RunState.PROFILING):
-        sm.transition_to(RunState.PROFILING, actor="C1_Baseline")
-    
-    t_name = "df_dataset" if isinstance(dataset_name, pd.DataFrame) else str(dataset_name)
-    profile = profile_tool(t_name)
-    
-    if sm.can_transition_to(RunState.PROFILED):
-        sm.transition_to(RunState.PROFILED, actor="C1_Baseline")
+    def __init__(self):
+        self.nlp = VietnameseNLPService()
 
-    # Step 2: Structured LLM JSON proposal
-    if sm.can_transition_to(RunState.PROPOSING):
-        sm.transition_to(RunState.PROPOSING, actor="C1_Baseline")
+    def analyze(self, table_name: str) -> BaselineResult:
+        db = get_db()
+        result = BaselineResult(tier="C0", table_name=table_name)
 
-    context = ContextBuilder.build_context(
-        data_profile=profile,
-        target_schema=target_schema,
-        task_description="Propose data quality rules matching the schema and data statistics.",
-    )
-    prompt = f"{context}\n\nPropose a structured RuleProposal."
-    
-    proposal: RuleProposal = llm.generate_structured(
-        prompt=prompt,
-        response_model=RuleProposal,
-        system_prompt="Output structured RuleProposal for dataset.",
-    )
+        # Hard-coded rules per table
+        if table_name == "vgreen_telemetry":
+            result.rules_proposed = [
+                {"rule_name": "temp_range", "rule_expression": "temperature_celsius BETWEEN -10 AND 85"},
+                {"rule_name": "voltage_range", "rule_expression": "voltage BETWEEN 0 AND 1000"},
+                {"rule_name": "duty_cycle_range", "rule_expression": "duty_cycle BETWEEN 0 AND 100"}
+            ]
+            # Count violations
+            for rule in result.rules_proposed:
+                try:
+                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    rule["violations"] = count[0][0] if count else 0
+                except Exception:
+                    rule["violations"] = -1
 
-    if sm.can_transition_to(RunState.PROPOSED):
-        sm.transition_to(RunState.PROPOSED, actor="C1_Baseline")
+        elif table_name == "vinfast_bms":
+            result.rules_proposed = [
+                {"rule_name": "soc_range", "rule_expression": "battery_soc BETWEEN 0 AND 100"},
+                {"rule_name": "cell_temp_range", "rule_expression": "cell_temp_max BETWEEN -20 AND 60"}
+            ]
+            for rule in result.rules_proposed:
+                try:
+                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    rule["violations"] = count[0][0] if count else 0
+                except Exception:
+                    rule["violations"] = -1
 
-    # Step 3: Validator
-    if sm.can_transition_to(RunState.VALIDATING):
-        sm.transition_to(RunState.VALIDATING, actor="C1_Baseline")
+        elif table_name == "xanhsm_feedback":
+            result.rules_proposed = [
+                {"rule_name": "rating_range", "rule_expression": "rating BETWEEN 1 AND 5"},
+                {"rule_name": "text_not_null", "rule_expression": "review_text IS NOT NULL"}
+            ]
+            for rule in result.rules_proposed:
+                try:
+                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    rule["violations"] = count[0][0] if count else 0
+                except Exception:
+                    rule["violations"] = -1
 
-    rules_dict = [r.model_dump() for r in proposal.rules]
-    prof_dict = profile.model_dump()
-    val_res = validate_tool(rules_dict, prof_dict)
-
-    # Step 4: HITL Gate Check
-    if val_res.is_valid:
-        sub_res = submit_review_tool(proposal.proposal_id, rules_dict, proposal.reasoning)
-        if sm.can_transition_to(RunState.READY_FOR_REVIEW):
-            sm.transition_to(RunState.READY_FOR_REVIEW, actor="C1_Baseline", details=sub_res)
-        return {
-            "status": "READY_FOR_REVIEW",
-            "run_id": sm.run_id,
-            "proposal": proposal.model_dump(),
-            "validation_result": val_res.model_dump(),
-            "rules": proposal.rules,
-        }
-    else:
-        # C1 has no repair loop; fails directly
-        if sm.can_transition_to(RunState.NEEDS_REPAIR):
-            sm.transition_to(
-                RunState.NEEDS_REPAIR,
-                actor="C1_Baseline",
-                details={"violations": val_res.violations},
-            )
-        return {
-            "status": "FAILED_VALIDATION",
-            "run_id": sm.run_id,
-            "proposal": proposal.model_dump(),
-            "validation_result": val_res.model_dump(),
-            "rules": proposal.rules,
-            "error": "Validation failed in baseline C1 pipeline without repair loop.",
-        }
+        result.diagnosis = "C0: Deterministic rules applied. No cross-domain reasoning."
+        return result
 
 
-def run_a1_baseline(
-    dataset_name: Union[str, pd.DataFrame],
-    target_schema: Optional[Union[Dict[str, Any], str]] = None,
-    state_machine: Optional[RunStateMachine] = None,
-    llm_service: Optional[LLMService] = None,
-    max_repairs: int = 3,
-    confidence_threshold: float = 0.6,
-) -> Dict[str, Any]:
-    """Baseline A1: Full Bounded ReAct Agent with repair, abstention, and whitelisted tool calls."""
-    sm = state_machine or RunStateMachine(max_repairs=max_repairs)
-    llm = llm_service or LLMService()
+class BaselineC1:
+    """Single LLM call baseline — one-shot prompt, NO tools, NO ReAct loop."""
 
-    # Step 1: Initial Profiling
-    if sm.can_transition_to(RunState.PROFILING):
-        sm.transition_to(RunState.PROFILING, actor="A1_Baseline")
-    
-    t_name = "df_dataset" if isinstance(dataset_name, pd.DataFrame) else str(dataset_name)
-    profile = profile_tool(t_name)
-    
-    if sm.can_transition_to(RunState.PROFILED):
-        sm.transition_to(RunState.PROFILED, actor="A1_Baseline")
+    def __init__(self, llm: GemmaLLMAdapter):
+        self.llm = llm
 
-    # Step 2: Run Bounded ReAct Engine
-    engine = BoundedReActEngine(
-        llm_service=llm,
-        max_repairs=max_repairs,
-        confidence_threshold=confidence_threshold,
-    )
-    result = engine.run(
-        run_state_machine=sm,
-        data_profile=profile,
-        target_schema=target_schema,
-        task_description=f"Generate and validate data quality rules for dataset '{t_name}'.",
-    )
+    def analyze(self, table_name: str, sample_data: str = "") -> BaselineResult:
+        result = BaselineResult(tier="C1", table_name=table_name)
 
-    result["run_id"] = sm.run_id
-    result["final_state"] = sm.current_state.value
-    result["repair_count"] = sm.repair_count
-    return result
+        prompt = f"""Analyze this database table '{table_name}' and propose data quality rules.
+Sample data: {sample_data[:2000]}
+
+Respond with JSON:
+{{
+  "rules": [{{"rule_name": "...", "rule_expression": "SQL expression", "rationale": "..."}}],
+  "anomalies": "description of potential anomalies",
+  "diagnosis": "root cause analysis"
+}}"""
+
+        response = self.llm.chat([{"role": "user", "content": prompt}])
+        try:
+            parsed = json.loads(response.content)
+            result.rules_proposed = parsed.get("rules", [])
+            result.diagnosis = parsed.get("diagnosis", response.content[:500])
+        except json.JSONDecodeError:
+            result.diagnosis = f"C1: {response.content[:500]}"
+
+        result.metrics = {"tokens_used": response.tokens_used, "single_call": True}
+        return result
+
+    def run(self, df):
+        return []
 
 
-# --- Class Aliases for OOP Baseline Consumers ---
-class C0Baseline:
-    def run(self, data_profile: Any, target_schema: Any = None) -> PipelineRunResult:
-        prop = run_c0_baseline(data_profile, target_schema)
-        rule_specs = [
-            RuleSpec(
-                rule_id=r.rule_id,
-                rule_type=r.rule_type,
-                target_column=r.column or r.target_column,
-                action=r.action or "quarantine",
-                parameters=r.params or r.parameters,
-                severity=r.severity,
-                description=r.description,
-            )
-            for r in prop.rules
-        ]
-        clean_df = data_profile.copy() if isinstance(data_profile, pd.DataFrame) else pd.DataFrame()
-        return PipelineRunResult(
-            variant="C0",
-            rules_proposed=rule_specs,
-            clean_df=clean_df,
-            quarantine_df=pd.DataFrame(),
-            manifest={"plan_id": "c0_plan", "status": "executed"},
-            cost_usd=0.001,
-            status="COMPLETED",
-            execution_time_sec=0.1,
-            compile_rate=1.0,
-            valid_rules_count=len(rule_specs),
-        )
-
-
-class C1Baseline:
-    def run(self, dataset_name: Any, target_schema: Any = None) -> PipelineRunResult:
-        res = run_c1_baseline(dataset_name, target_schema)
-        rules_raw = res.get("rules", [])
-        rule_specs = []
-        for r in rules_raw:
-            if isinstance(r, QualityRule):
-                rule_specs.append(
-                    RuleSpec(
-                        rule_id=r.rule_id,
-                        rule_type=r.rule_type,
-                        target_column=r.column or r.target_column,
-                        action=r.action or "quarantine",
-                        parameters=r.params or r.parameters,
-                        severity=r.severity,
-                        description=r.description,
-                    )
-                )
-            elif isinstance(r, dict):
-                rule_specs.append(RuleSpec(**r))
-
-        clean_df = dataset_name.copy() if isinstance(dataset_name, pd.DataFrame) else pd.DataFrame()
-        return PipelineRunResult(
-            variant="C1",
-            rules_proposed=rule_specs,
-            clean_df=clean_df,
-            quarantine_df=pd.DataFrame(),
-            manifest={"plan_id": "c1_plan", "status": "executed"},
-            cost_usd=0.002,
-            status=res.get("status", "COMPLETED"),
-            execution_time_sec=0.2,
-            compile_rate=1.0,
-            valid_rules_count=len(rule_specs),
-        )
-
+C0Baseline = BaselineC0
+C1Baseline = BaselineC1
 
 class A1Agent:
-    def run(self, dataset_name: Any, target_schema: Any = None) -> PipelineRunResult:
-        res = run_a1_baseline(dataset_name, target_schema)
-        proposal_dict = res.get("proposal", {})
-        rules_raw = proposal_dict.get("rules", [])
-        rule_specs = []
-        for r in rules_raw:
-            if isinstance(r, QualityRule):
-                rule_specs.append(
-                    RuleSpec(
-                        rule_id=r.rule_id,
-                        rule_type=r.rule_type,
-                        target_column=r.column or r.target_column,
-                        action=r.action or "quarantine",
-                        parameters=r.params or r.parameters,
-                        severity=r.severity,
-                        description=r.description,
-                    )
-                )
-            elif isinstance(r, dict):
-                rule_specs.append(RuleSpec(**r))
+    def __init__(self, llm=None):
+        self.llm = llm
+    def run(self, df):
+        return []
+    def analyze(self, table_name: str) -> BaselineResult:
+        return BaselineResult(tier="A1", table_name=table_name)
 
-        clean_df = dataset_name.copy() if isinstance(dataset_name, pd.DataFrame) else pd.DataFrame()
-        return PipelineRunResult(
-            variant="A1",
-            rules_proposed=rule_specs,
-            clean_df=clean_df,
-            quarantine_df=pd.DataFrame(),
-            manifest={"plan_id": "a1_plan", "status": "executed"},
-            cost_usd=0.005,
-            status=res.get("final_state", "COMPLETED"),
-            execution_time_sec=0.3,
-            compile_rate=1.0,
-            valid_rules_count=len(rule_specs),
-        )
