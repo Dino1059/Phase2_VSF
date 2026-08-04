@@ -1,0 +1,69 @@
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, HTTPException
+
+from src.db.connection import get_db
+from src.models.hitl import RuleProposalCard, ApproveRequest, RejectRequest, EditRequest
+from src.services.audit import AuditService
+
+hitl_router = APIRouter(prefix="/hitl", tags=["HITL"])
+
+
+@hitl_router.get("/queue")
+async def get_queue():
+    db = get_db()
+    rows = db.execute("SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at FROM quality_rules WHERE status = 'proposed' ORDER BY created_at DESC")
+    return {"proposals": [
+        {"rule_id": r[0], "rule_name": r[1], "rule_type": r[2], "rule_expression": r[3],
+         "confidence": r[4], "status": r[5], "proposed_by": r[6], "proposed_at": str(r[7]) if r[7] else None}
+        for r in rows
+    ]}
+
+
+@hitl_router.post("/approve/{rule_id}")
+async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
+    db = get_db()
+    rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
+    if not rules:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+    if rules[0][1] != "proposed":
+        raise HTTPException(status_code=400, detail=f"Rule {rule_id} is '{rules[0][1]}', not 'proposed'")
+
+    db.execute("UPDATE quality_rules SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
+               [req.approved_by, datetime.now().isoformat(), rule_id])
+
+    AuditService.log("APPROVE_RULE", req.approved_by, "quality_rules", rule_id,
+                     {"state_hash": AuditService.compute_state_hash(rule_id, "", "approved")})
+    return {"status": "approved", "rule_id": rule_id}
+
+
+@hitl_router.post("/reject/{rule_id}")
+async def reject_rule(rule_id: str, req: RejectRequest = RejectRequest()):
+    db = get_db()
+    rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
+    if not rules:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+
+    db.execute("UPDATE quality_rules SET status = 'rejected' WHERE id = ?", [rule_id])
+    AuditService.log("REJECT_RULE", req.rejected_by, "quality_rules", rule_id,
+                     {"reason": req.reason})
+    return {"status": "rejected", "rule_id": rule_id}
+
+
+@hitl_router.post("/edit/{rule_id}")
+async def edit_rule(rule_id: str, req: EditRequest):
+    db = get_db()
+    rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
+    if not rules:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+
+    db.execute("UPDATE quality_rules SET rule_expression = ?, status = 'edited' WHERE id = ?",
+               [req.rule_expression, rule_id])
+    AuditService.log("EDIT_RULE", req.edited_by, "quality_rules", rule_id,
+                     {"new_expression": req.rule_expression})
+    return {"status": "edited", "rule_id": rule_id}
+
+
+@hitl_router.get("/history")
+async def get_history():
+    return {"history": AuditService.get_history(limit=100)}

@@ -20,6 +20,11 @@ class AuditStore:
         self.records.append(rec)
         return rec
 
+    def log_event(self, run_id: str, event_type: str, details: Dict[str, Any]) -> AuditRecord:
+        merged_details = {"run_id": run_id, **(details or {})}
+        return self.record_event(event_type=event_type, details=merged_details)
+
+
     def get_records(self, event_type: Optional[str] = None) -> List[AuditRecord]:
         if event_type:
             return [r for r in self.records if r.event_type == event_type]
@@ -27,3 +32,7 @@ class AuditStore:
 
     def clear(self):
         self.records.clear()
+
+
+audit_store = AuditStore()
+

@@ -1,114 +1,36 @@
-from datetime import datetime, timezone
+import hashlib
 import json
-import os
-import threading
 import uuid
-from typing import Any, Dict, List, Optional
+from datetime import datetime
 
-from src.models.schemas import AuditRecord, DecisionObject
+from src.db.connection import get_db
+from src.api.audit_store import AuditStore, audit_store
 
 
-class AuditStore:
-    """Append-only audit store logger for state transitions, decisions, and execution events."""
+class AuditService:
+    """Enhanced audit trail with SHA-256 state hashing."""
 
-    def __init__(self, log_filepath: Optional[str] = None):
-        self._lock = threading.Lock()
-        self._records: List[AuditRecord] = []
-        self._log_filepath = log_filepath
-
-        if self._log_filepath:
-            os.makedirs(os.path.dirname(self._log_filepath), exist_ok=True)
-
-    def _append(self, record: AuditRecord) -> AuditRecord:
-        with self._lock:
-            self._records.append(record)
-            if self._log_filepath:
-                try:
-                    with open(self._log_filepath, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(record.model_dump()) + "\n")
-                except Exception:
-                    pass  # Non-blocking file append error
-        return record
-
-    def log_transition(
-        self,
-        run_id: str,
-        state_from: str,
-        state_to: str,
-        actor: str = "system",
-        details: Optional[Dict[str, Any]] = None,
-    ) -> AuditRecord:
-        record = AuditRecord(
-            audit_id=f"audit_{uuid.uuid4().hex[:10]}",
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            run_id=run_id,
-            state_from=state_from,
-            state_to=state_to,
-            event_type="STATE_TRANSITION",
-            actor=actor,
-            details=details or {},
+    @staticmethod
+    def log(action: str, actor: str, target_table: str = "", target_id: str = "", details: dict | None = None) -> str:
+        db = get_db()
+        audit_id = str(uuid.uuid4())[:8]
+        detail_str = json.dumps(details or {})[:500]
+        db.execute(
+            "INSERT INTO audit_log (id, action, actor, target_table, target_id, details) VALUES (?, ?, ?, ?, ?, ?)",
+            [audit_id, action, actor, target_table, target_id, detail_str]
         )
-        return self._append(record)
+        return audit_id
 
-    def log_decision(
-        self,
-        run_id: str,
-        decision: Any,
-        actor: str = "agent",
-    ) -> AuditRecord:
-        if isinstance(decision, DecisionObject):
-            dec_dict = decision.model_dump()
-            state_to = decision.next_action
-        elif isinstance(decision, dict):
-            dec_dict = decision
-            state_to = decision.get("next_action", "unknown")
-        else:
-            dec_dict = {"raw": str(decision)}
-            state_to = "unknown"
+    @staticmethod
+    def compute_state_hash(rule_id: str, expression: str, status: str) -> str:
+        payload = f"{rule_id}:{expression}:{status}"
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-        record = AuditRecord(
-            audit_id=f"audit_{uuid.uuid4().hex[:10]}",
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            run_id=run_id,
-            state_from="DECISION_MAKING",
-            state_to=state_to,
-            event_type="AGENT_DECISION",
-            actor=actor,
-            details=dec_dict,
-        )
-        return self._append(record)
-
-    def log_event(
-        self,
-        run_id: str,
-        event_type: str,
-        details: Optional[Dict[str, Any]] = None,
-        actor: str = "system",
-    ) -> AuditRecord:
-        record = AuditRecord(
-            audit_id=f"audit_{uuid.uuid4().hex[:10]}",
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            run_id=run_id,
-            state_from="",
-            state_to="",
-            event_type=event_type,
-            actor=actor,
-            details=details or {},
-        )
-        return self._append(record)
-
-    def get_run_history(self, run_id: str) -> List[AuditRecord]:
-        with self._lock:
-            return [r for r in self._records if r.run_id == run_id]
-
-    def get_all_events(self) -> List[AuditRecord]:
-        with self._lock:
-            return list(self._records)
-
-    def clear_in_memory(self) -> None:
-        with self._lock:
-            self._records.clear()
-
-
-# Global audit store instance
-audit_store = AuditStore()
+    @staticmethod
+    def get_history(limit: int = 50) -> list[dict]:
+        db = get_db()
+        rows = db.execute(f"SELECT id, action, actor, target_table, target_id, details, timestamp FROM audit_log ORDER BY timestamp DESC LIMIT {limit}")
+        return [
+            {"id": r[0], "action": r[1], "actor": r[2], "target_table": r[3], "target_id": r[4], "details": r[5], "timestamp": str(r[6]) if r[6] else None}
+            for r in rows
+        ]

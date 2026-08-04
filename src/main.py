@@ -6,6 +6,12 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router, ws_router
+from src.api.hitl import hitl_router
+from src.api.dashboard import dashboard_router
+from src.api.pipeline import pipeline_router
+from src.api.traces import traces_router
+from src.api.quarantine_api import quarantine_router
+from src.api.snapshots import snapshots_router
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
 from src.services.scheduler import scheduler_service
@@ -56,6 +62,12 @@ app.add_middleware(
 app.include_router(ws_router)
 app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
+app.include_router(pipeline_router, prefix="/api/v1")
+app.include_router(traces_router, prefix="/api/v1")
+app.include_router(quarantine_router, prefix="/api/v1")
+app.include_router(snapshots_router, prefix="/api/v1")
+app.include_router(hitl_router, prefix="/api/v1")
 
 
 @app.get("/health")

@@ -127,5 +127,33 @@ class GemmaLLMAdapter:
         return [types.Tool(function_declarations=declarations)]
 
 
+    def generate_agentic_tool_call(self, message: str, tools: list[dict] | None = None) -> dict:
+        """Determines tool calls via LLM or keyword fallback."""
+        msg_lower = message.lower()
+        if "list" in msg_lower and ("dataset" in msg_lower or "db" in msg_lower or "database" in msg_lower or "how many" in msg_lower or "databases" in msg_lower or "dbs" in msg_lower):
+            return {"type": "function_call", "name": "list_datasets", "args": {}}
+        if "profile" in msg_lower or "scan" in msg_lower or "health" in msg_lower:
+            return {"type": "function_call", "name": "profile_dataset", "args": {}}
+        if "rule" in msg_lower or "propose" in msg_lower:
+            return {"type": "function_call", "name": "propose_quality_rules", "args": {}}
+        if "anomal" in msg_lower or "outlier" in msg_lower or "drift" in msg_lower:
+            return {"type": "function_call", "name": "detect_anomalies", "args": {}}
+        if "diagnos" in msg_lower or "root cause" in msg_lower:
+            return {"type": "function_call", "name": "diagnose_issue", "args": {}}
+        if "clean" in msg_lower or "apply rules" in msg_lower or "proceed" in msg_lower:
+            return {"type": "function_call", "name": "clean_database", "args": {}}
+        return {"type": "text", "content": message}
+
+    def stream_text(self, prompt: str, system_prompt: str = ""):
+        res = self.chat([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ])
+        yield {"type": "chunk", "text": res.content}
+
+
+
 LLMService = GemmaLLMAdapter
+
+
 
