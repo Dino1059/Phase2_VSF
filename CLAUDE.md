@@ -138,3 +138,28 @@ When working on non-trivial codebases or multi-file refactors:
 Run master script anytime to update skills, rules, repos, and router indexes:
 `python3 /home/shayneeo/scripts/update-all-global-agentic.py`
 Guide: [UPDATE_GUIDE.md](file:///home/shayneeo/UPDATE_GUIDE.md)
+
+
+<!-- uv-python-instructions -->
+# 8. Python & Package Management (Mandatory `uv`)
+
+ALWAYS use `uv` for Python virtual environments and package operations. Standard `pip` or `python -m venv` is strictly prohibited.
+
+- **Create Virtual Environment**: `uv venv` or `uv venv .venv`
+- **Install Packages**: `uv pip install <package>` or `uv add <package>`
+- **Run Python Scripts / Tools**: `uv run python <script.py>` or `uv run <tool>`
+- **Sync Dependencies**: `uv pip install -r requirements.txt` or `uv sync`
+<!-- /uv-python-instructions -->
+
+
+<!-- pnpm-js-instructions -->
+# 9. Node.js & Package Management (Mandatory `pnpm`)
+
+ALWAYS use `pnpm` for Node.js package management and script execution. Standard `npm install` or `yarn` is strictly prohibited to prevent duplicate node_modules disk waste.
+
+- **Install Dependencies**: `pnpm install` or `pnpm add <package>` (Use `-D` for devDependencies)
+- **Global Package Install**: `pnpm add -g <package>`
+- **Run Scripts / Dev Servers**: `pnpm run <script>` or `pnpm dev`
+- **One-Off Package Runner**: `pnpm dlx <package>` or `npx <package>`
+- **Store Prune**: `pnpm store prune` (Run periodically to clean unreferenced global packages)
+<!-- /pnpm-js-instructions -->
