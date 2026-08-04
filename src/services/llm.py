@@ -2,6 +2,17 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from typing import Any
+
+
+class LLMUnavailableException(Exception):
+    """Raised when the LLM service or provider is unavailable or fails."""
+    pass
+
+
+class StructuredOutputInvalidException(Exception):
+    """Raised when structured JSON output from LLM fails validation or parsing."""
+    pass
 
 
 @dataclass
@@ -15,9 +26,9 @@ class LLMResponse:
 class GemmaLLMAdapter:
     """Adapter for Google AI Studio (Gemini/Gemma models)."""
 
-    def __init__(self, api_key: str | None = None, model: str = "gemma-4-27b-it"):
+    def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.environ.get("GOOGLE_AI_API_KEY", "")
-        self.model = model
+        self.model = model or os.environ.get("GOOGLE_AI_MODEL", "gemini-2.0-flash")
         self._client = None
 
     def _get_client(self):
@@ -25,10 +36,10 @@ class GemmaLLMAdapter:
             try:
                 from google import genai
                 self._client = genai.Client(api_key=self.api_key)
-            except ImportError:
-                raise RuntimeError("google-genai not installed. Run: uv add google-genai")
+            except ImportError as e:
+                raise LLMUnavailableException("google-genai not installed. Run: uv add google-genai") from e
             except Exception as e:
-                raise RuntimeError(f"Failed to init Gemini client: {e}")
+                raise LLMUnavailableException(f"Failed to init Gemini client: {e}") from e
         return self._client
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
@@ -93,8 +104,10 @@ class GemmaLLMAdapter:
                 finish_reason="tool_call" if tool_calls else "stop",
                 tokens_used=tokens
             )
+        except LLMUnavailableException:
+            raise
         except Exception as e:
-            return LLMResponse(content=f"[LLM_ERROR] {e}", finish_reason="error")
+            raise LLMUnavailableException(f"LLM call failed: {e}") from e
 
     def structured_output(self, prompt: str, schema: dict) -> dict:
         """Get structured JSON output from the model."""
@@ -103,15 +116,22 @@ class GemmaLLMAdapter:
             {"role": "user", "content": prompt}
         ]
         response = self.chat(messages)
+        if response.finish_reason == "error" or not response.content:
+            raise StructuredOutputInvalidException("LLM returned empty or error response for structured output")
+        
+        content = response.content.strip()
         try:
-            return json.loads(response.content)
+            return json.loads(content)
         except json.JSONDecodeError:
             # Try extracting JSON from markdown code block
             import re
-            match = re.search(r'```(?:json)?\s*(.+?)\s*```', response.content, re.DOTALL)
+            match = re.search(r'```(?:json)?\s*(.+?)\s*```', content, re.DOTALL)
             if match:
-                return json.loads(match.group(1))
-            return {"error": "Failed to parse JSON", "raw": response.content}
+                try:
+                    return json.loads(match.group(1).strip())
+                except json.JSONDecodeError as err:
+                    raise StructuredOutputInvalidException(f"Failed to parse repaired JSON block: {err}") from err
+            raise StructuredOutputInvalidException(f"Failed to parse JSON output from LLM: {content[:200]}")
 
     def _convert_tools(self, openai_tools: list[dict]) -> list:
         """Convert OpenAI-style tool specs to Gemini format."""
@@ -125,7 +145,6 @@ class GemmaLLMAdapter:
                 parameters=func.get("parameters", {})
             ))
         return [types.Tool(function_declarations=declarations)]
-
 
     def generate_agentic_tool_call(self, message: str, tools: list[dict] | None = None) -> dict:
         """Determines tool calls via LLM or keyword fallback."""
@@ -160,20 +179,15 @@ class GemmaLLMAdapter:
         else:
             schema_dict = {}
 
-        try:
-            res_dict = self.structured_output(f"{system_prompt}\n{prompt}", schema_dict)
-            if target_cls and hasattr(target_cls, "model_validate"):
+        full_prompt = f"{system_prompt}\n{prompt}".strip() if system_prompt else prompt
+        res_dict = self.structured_output(full_prompt, schema_dict)
+
+        if target_cls and hasattr(target_cls, "model_validate"):
+            try:
                 return target_cls.model_validate(res_dict)
-            return res_dict
-        except Exception:
-            if target_cls:
-                try:
-                    return target_cls()
-                except Exception:
-                    pass
-            return {}
-
-
+            except Exception as val_err:
+                raise StructuredOutputInvalidException(f"Pydantic validation failed for {target_cls.__name__}: {val_err}") from val_err
+        return res_dict
 
 
 LLMService = GemmaLLMAdapter

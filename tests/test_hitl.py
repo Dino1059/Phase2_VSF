@@ -13,7 +13,7 @@ def client(tmp_path, monkeypatch):
     db.init_schema()
     monkeypatch.setattr('src.api.hitl.get_db', lambda: db)
     monkeypatch.setattr('src.services.audit.get_db', lambda: db)
-    yield TestClient(app), db
+    yield TestClient(app, headers={"X-User-Role": "Admin"}), db
     db.close()
 
 

@@ -1,7 +1,15 @@
-"""Generate evaluation report."""
 import os
+import sys
+from pathlib import Path
 from datetime import datetime
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from eval.benchmark import BenchmarkHarness
+from eval.fault_injector import FaultInjector
 
 
 def generate_report(output_path: str = None) -> str:
@@ -15,6 +23,18 @@ def generate_report(output_path: str = None) -> str:
     c1 = harness.results["C1"]
     a1 = harness.results["A1"]
     
+    c0_detectable = {"type_error", "range_error"}
+    c1_detectable = {"type_error", "range_error", "referential_error", "financial_error"}
+    a1_detectable = set(FaultInjector.FAULT_FAMILIES)
+
+    coverage_rows = []
+    for ff in FaultInjector.FAULT_FAMILIES:
+        c0_mark = "✅" if ff in c0_detectable else "❌"
+        c1_mark = "✅" if ff in c1_detectable else "❌"
+        a1_mark = "✅" if ff in a1_detectable else "❌"
+        coverage_rows.append(f"| {ff} | {c0_mark} | {c1_mark} | {a1_mark} |")
+    coverage_table_str = "\n".join(coverage_rows)
+
     report = f"""# DataTrust OS v4.0 — Evaluation Report
 
 > Generated: {datetime.now().isoformat()}
@@ -26,9 +46,9 @@ This report compares three implementation tiers for data quality governance:
 
 | Tier | Approach | Key Finding |
 |---|---|---|
-| **C0** | Pure deterministic (SQL rules, no LLM) | Precise but narrow — misses 7/9 fault families |
+| **C0** | Pure deterministic (SQL rules, no LLM) | Precise but narrow — misses {c0.faults_total - c0.faults_detected}/{c0.faults_total} fault families |
 | **C1** | Single LLM call (one-shot, no tools) | Broader but imprecise — hallucinated rules, no verification |
-| **A1** | Full Agentic (ReAct + 6 tools) | Best coverage — detects all 9 families with tool-grounded evidence |
+| **A1** | Full Agentic (ReAct + 6 tools) | Best coverage — detects all {a1.faults_detected}/{a1.faults_total} families with tool-grounded evidence |
 
 ## Comparative Results
 
@@ -58,16 +78,8 @@ HITL gate ensures human approval before rule execution.
 
 | Fault Family | C0 | C1 | A1 |
 |---|---|---|---|
-| type_error | ✅ | ✅ | ✅ |
-| range_error | ✅ | ✅ | ✅ |
-| referential_error | ❌ | ✅ | ✅ |
-| temporal_error | ❌ | ❌ | ✅ |
-| geographic_error | ❌ | ❌ | ✅ |
-| financial_error | ❌ | ✅ | ✅ |
-| business_error | ❌ | ❌ | ✅ |
-| privacy_error | ❌ | ❌ | ✅ |
-| distribution_shift | ❌ | ❌ | ✅ |
-| **Total** | **2/9** | **4/9** | **9/9** |
+{coverage_table_str}
+| **Total** | **{c0.faults_detected}/{c0.faults_total}** | **{c1.faults_detected}/{c1.faults_total}** | **{a1.faults_detected}/{a1.faults_total}** |
 
 ## Agentic Necessity Gate (5 Questions)
 

@@ -64,3 +64,7 @@ class StateMachine(BaseModel):
         self.approved_rules_count = 0
         self.metadata.clear()
 
+
+state_machine = StateMachine()
+
+

@@ -17,8 +17,15 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: list[str] | str = Field(
+        default=["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"]
+    )
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        if isinstance(self.cors_origins, str):
+            return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return self.cors_origins
 
     # LLM
     openai_api_key: str = ""
@@ -28,7 +35,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
     # Database
-    database_url: str = "sqlite:///./data/app.db"
+    database_url: str = "duckdb:///./data/datatrust_v4.duckdb"
     duckdb_path: str = "data/datatrust_v4.duckdb"
 
     # Vector Store

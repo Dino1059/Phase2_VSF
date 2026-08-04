@@ -111,11 +111,13 @@ class DataTrustOrchestrator:
 
     def _log_orchestration(self, result: OrchestratorResult):
         try:
-            db = get_db()
-            db.execute(
-                "INSERT INTO audit_log (id, action, actor, target_table, details) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4())[:8], "ORCHESTRATION_RUN", "orchestrator",
-                 "", json.dumps({"stages": len(result.stages), "status": result.status})[:500]]
+            from src.services.audit import AuditService
+            AuditService.log(
+                action="ORCHESTRATION_RUN",
+                actor="orchestrator",
+                target_table="",
+                target_id="",
+                details={"stages": len(result.stages), "status": result.status}
             )
         except Exception:
             pass

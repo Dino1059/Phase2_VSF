@@ -3,8 +3,8 @@ import datetime
 import logging
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
-import httpx
 from pydantic import BaseModel, Field
+from src.services.security import validate_webhook_url
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +98,9 @@ class AlertService:
         return alert
 
     def dispatch_webhook(self, alert: Alert, webhook_url: Optional[str] = None) -> bool:
-        """Dispatch structured JSON payload to configured HTTP webhook endpoint."""
         target_url = webhook_url or alert.webhook_url or self.default_webhook_url
-        if not target_url:
-            logger.debug(f"No webhook URL provided for alert {alert.alert_id}. Skipping dispatch.")
+        if not target_url or not validate_webhook_url(target_url):
+            logger.warning(f"Invalid or unsafe webhook URL for alert {alert.alert_id}: {target_url}")
             return False
 
         payload = {

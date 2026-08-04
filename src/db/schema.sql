@@ -94,14 +94,19 @@ CREATE TABLE IF NOT EXISTS quality_rules (
 
 CREATE TABLE IF NOT EXISTS quarantine (
     id VARCHAR PRIMARY KEY,
+    snapshot_id VARCHAR,
     source_table VARCHAR,
     source_row_id INT,
     rule_id VARCHAR,
+    rule_version_id VARCHAR,
     reason VARCHAR,
     original_data JSON,
     quarantined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    lineage_hash VARCHAR
+    lineage_hash VARCHAR,
+    UNIQUE (snapshot_id, rule_version_id, source_row_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quarantine_idempotency ON quarantine (snapshot_id, rule_version_id, source_row_id);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id VARCHAR PRIMARY KEY,
@@ -110,7 +115,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     target_table VARCHAR,
     target_id VARCHAR,
     details JSON,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    previous_event_hash VARCHAR,
+    event_hash VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS agent_traces (
@@ -129,3 +136,56 @@ CREATE TABLE IF NOT EXISTS agent_traces (
     duration_ms INT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id VARCHAR PRIMARY KEY,
+    dataset_key VARCHAR,
+    cron_expression VARCHAR,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    next_run_at TIMESTAMP,
+    name VARCHAR,
+    schedule_type VARCHAR,
+    interval_seconds INT,
+    action VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+    id VARCHAR PRIMARY KEY,
+    schedule_id VARCHAR,
+    dataset_key VARCHAR,
+    status VARCHAR,
+    result_summary JSON,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id VARCHAR PRIMARY KEY,
+    session_id VARCHAR NOT NULL,
+    type VARCHAR NOT NULL,
+    agent_id VARCHAR,
+    content VARCHAR NOT NULL,
+    metadata_json VARCHAR,
+    timestamp VARCHAR NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS raw_taxi_trips (
+    row_id INTEGER PRIMARY KEY,
+    trip_id VARCHAR,
+    pickup_datetime TIMESTAMP,
+    dropoff_datetime TIMESTAMP,
+    passenger_count INT,
+    trip_distance FLOAT,
+    fare_amount FLOAT,
+    extra FLOAT,
+    mta_tax FLOAT,
+    tip_amount FLOAT,
+    tolls_amount FLOAT,
+    improvement_surcharge FLOAT,
+    total_amount FLOAT,
+    payment_type VARCHAR
+);
+

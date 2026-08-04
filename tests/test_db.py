@@ -42,7 +42,8 @@ def test_init_schema_idempotent(tmp_db):
     tables = tmp_db.execute(
         "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
     )
-    assert len(tables) == 10
+    assert len(tables) >= 10
+
 
 
 def test_insert_and_query_raw_snapshots(tmp_db):

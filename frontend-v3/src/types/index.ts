@@ -84,3 +84,11 @@ export interface AgentEvent {
 }
 
 export type UserRole = 'admin' | 'steward' | 'viewer';
+
+export interface DecisionRecord {
+  action: string;
+  evidence: string[];
+  confidence: number;
+  status: string;
+}
+

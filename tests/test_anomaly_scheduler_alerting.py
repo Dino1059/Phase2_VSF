@@ -5,7 +5,7 @@ from src.services.scheduler import scheduler_service
 from src.services.alerting import alert_service, AlertSeverity, RootCauseDiagnosis
 from src.tools.anomaly import ZScoreDetector, IQRDetector, IsolationForestDetector, AnomalyDetector
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-User-Role": "Admin"})
 
 
 # --- 1. Scheduler Tests ---

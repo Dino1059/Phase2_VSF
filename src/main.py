@@ -5,7 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import router, ws_router
+from src.api.routes import (
+    router,
+    ws_router,
+    auth_router,
+    datasets_router,
+    profiling_router,
+    rules_router,
+    approvals_router,
+    executions_router,
+    benchmarks_router,
+    schedules_router,
+)
 from src.api.hitl import hitl_router
 from src.api.dashboard import dashboard_router
 from src.api.pipeline import pipeline_router
@@ -49,19 +60,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from src.api.middleware import RoleMiddleware
+
 settings = get_settings()
+cors_origins = (
+    settings.allowed_cors_origins
+    if hasattr(settings, "allowed_cors_origins")
+    else settings.cors_origins
+)
+if isinstance(cors_origins, str):
+    cors_origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
+
+app.add_middleware(RoleMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include WebSocket router and API routers
+# Include WebSocket router and domain API routers
 app.include_router(ws_router)
 app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(datasets_router, prefix="/api/v1")
+app.include_router(profiling_router, prefix="/api/v1")
+app.include_router(rules_router, prefix="/api/v1")
+app.include_router(approvals_router, prefix="/api/v1")
+app.include_router(executions_router, prefix="/api/v1")
+app.include_router(benchmarks_router, prefix="/api/v1")
+app.include_router(schedules_router, prefix="/api/v1")
+
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")
 app.include_router(traces_router, prefix="/api/v1")

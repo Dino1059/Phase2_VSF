@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from src.db.connection import get_db
@@ -7,6 +8,18 @@ from src.models.hitl import RuleProposalCard, ApproveRequest, RejectRequest, Edi
 from src.services.audit import AuditService
 
 hitl_router = APIRouter(prefix="/hitl", tags=["HITL"])
+
+
+def check_rule_approved(rule_id: str):
+    """Verify rule exists in DuckDB quality_rules table and status is approved or edited."""
+    db = get_db()
+    rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
+    if not rules or rules[0][1] not in ("approved", "edited"):
+        raise HTTPException(
+            status_code=403,
+            detail="Rule execution denied: Rule is not approved by HITL"
+        )
+    return rules[0]
 
 
 @hitl_router.get("/queue")
@@ -62,6 +75,24 @@ async def edit_rule(rule_id: str, req: EditRequest):
     AuditService.log("EDIT_RULE", req.edited_by, "quality_rules", rule_id,
                      {"new_expression": req.rule_expression})
     return {"status": "edited", "rule_id": rule_id}
+
+
+@hitl_router.post("/execute/{rule_id}")
+async def execute_hitl_rule(rule_id: str):
+    check_rule_approved(rule_id)
+    return {"status": "executed", "rule_id": rule_id}
+
+
+@hitl_router.post("/execute")
+async def execute_hitl_rules(payload: Optional[dict] = None):
+    rule_id = payload.get("rule_id") if payload else None
+    if not rule_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Rule execution denied: Rule is not approved by HITL"
+        )
+    check_rule_approved(rule_id)
+    return {"status": "executed", "rule_id": rule_id}
 
 
 @hitl_router.get("/history")

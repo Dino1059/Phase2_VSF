@@ -289,3 +289,31 @@ def test_react_engine_parse_response_default_thought(mock_llm, tools):
     step = engine._parse_response(0, resp)
     assert step.action == "FINISH"
 
+
+# === Hardened LLM Adapter Tests ===
+
+def test_llm_adapter_model_env_var(monkeypatch):
+    from src.services.llm import GemmaLLMAdapter
+    monkeypatch.setenv("GOOGLE_AI_MODEL", "gemini-2.0-flash")
+    adapter = GemmaLLMAdapter(api_key="test-key")
+    assert adapter.model == "gemini-2.0-flash"
+
+
+def test_llm_adapter_chat_raises_llm_unavailable_exception():
+    import pytest
+    from src.services.llm import GemmaLLMAdapter, LLMUnavailableException
+    adapter = GemmaLLMAdapter(api_key="invalid-key")
+    with pytest.raises(LLMUnavailableException):
+        adapter.chat([{"role": "user", "content": "hi"}])
+
+
+def test_llm_adapter_structured_output_invalid_exception(monkeypatch):
+    import pytest
+    from unittest.mock import MagicMock
+    from src.services.llm import GemmaLLMAdapter, LLMResponse, StructuredOutputInvalidException
+    adapter = GemmaLLMAdapter(api_key="test-key")
+    monkeypatch.setattr(adapter, "chat", MagicMock(return_value=LLMResponse(content="invalid json response", finish_reason="stop")))
+    with pytest.raises(StructuredOutputInvalidException):
+        adapter.structured_output("test prompt", {"type": "object"})
+
+

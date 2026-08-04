@@ -5,13 +5,15 @@ import json
 import math
 import os
 import random
-import sqlite3
 import time
+import uuid
 from typing import List, Dict, Any, Tuple, Optional, Union
 import pandas as pd
+from src.db.connection import get_db
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
 CSV_PATH = os.path.join(DATA_DIR, "raw_taxi_trips.csv")
+
 DB_PATH = os.path.join(DATA_DIR, "datatrust.db")
 
 
@@ -102,45 +104,44 @@ def seed_dataset(file_path: str = CSV_PATH, db_path: str = DB_PATH, count: int =
         writer.writeheader()
         writer.writerows(records)
 
-    # Write to SQLite DB
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS raw_taxi_trips")
-    cur.execute("""
+    # Write to DuckDB
+    db = get_db()
+    conn = db.get_connection()
+    conn.execute("DROP TABLE IF EXISTS raw_taxi_trips")
+    conn.execute("""
         CREATE TABLE raw_taxi_trips (
-            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trip_id TEXT,
-            pickup_datetime TEXT,
-            dropoff_datetime TEXT,
-            passenger_count INTEGER,
-            trip_distance REAL,
-            fare_amount REAL,
-            extra REAL,
-            mta_tax REAL,
-            tip_amount REAL,
-            tolls_amount REAL,
-            improvement_surcharge REAL,
-            total_amount REAL,
-            payment_type TEXT
+            row_id INTEGER PRIMARY KEY,
+            trip_id VARCHAR,
+            pickup_datetime VARCHAR,
+            dropoff_datetime VARCHAR,
+            passenger_count INT,
+            trip_distance FLOAT,
+            fare_amount FLOAT,
+            extra FLOAT,
+            mta_tax FLOAT,
+            tip_amount FLOAT,
+            tolls_amount FLOAT,
+            improvement_surcharge FLOAT,
+            total_amount FLOAT,
+            payment_type VARCHAR
         )
     """)
-    for rec in records:
-        cur.execute("""
+    for idx, rec in enumerate(records, 1):
+        conn.execute("""
             INSERT INTO raw_taxi_trips (
-                trip_id, pickup_datetime, dropoff_datetime, passenger_count, trip_distance,
+                row_id, trip_id, pickup_datetime, dropoff_datetime, passenger_count, trip_distance,
                 fare_amount, extra, mta_tax, tip_amount, tolls_amount,
                 improvement_surcharge, total_amount, payment_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            rec["trip_id"], rec["pickup_datetime"], rec["dropoff_datetime"],
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            idx, rec["trip_id"], rec["pickup_datetime"], rec["dropoff_datetime"],
             rec["passenger_count"], rec["trip_distance"], rec["fare_amount"],
             rec["extra"], rec["mta_tax"], rec["tip_amount"], rec["tolls_amount"],
             rec["improvement_surcharge"], rec["total_amount"], rec["payment_type"]
-        ))
-    conn.commit()
-    conn.close()
+        ])
 
     return len(records)
+
 
 
 def load_dataset_rows(file_path: str = CSV_PATH) -> List[Dict[str, Any]]:
@@ -620,7 +621,7 @@ def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any
         "quarantine_count": quarantine_count,
         "quarantine_rate_pct": quarantine_rate,
         "quarantine_breakdown_by_rule": quarantine_breakdown,
-        "human_active_minutes_saved": 112.0,
+        "human_active_minutes_saved": round(quarantine_count * 1.5 + len(rules) * 5.0, 1),
         "execution_time_sec": exec_time,
         "manifest_hash": manifest_hash,
         "audit_trace": audit_trace,
@@ -637,43 +638,170 @@ def execute_on_dataset(dataset_key: str, rules: List[Dict],
     return execute_compiled_rules(df.to_dict('records'), rules)
 
 
+def execute_rules_transactional(
+    rows: List[Dict[str, Any]],
+    rules: List[Dict[str, Any]],
+    snapshot_id: str = "snap_001",
+    rule_version_id: str = "v1",
+    source_table: str = "raw_taxi_trips",
+    db=None,
+) -> Dict[str, Any]:
+    """Execute compiled rules and atomically insert quarantine records and audit log inside a single transaction boundary."""
+    if db is None:
+        from src.db.connection import get_db
+        db = get_db()
+
+    conn = db.get_connection()
+    conn.execute("BEGIN TRANSACTION")
+
+    try:
+        exec_res = execute_compiled_rules(rows, rules)
+        quarantine_indices = exec_res.get("quarantine_indices", [])
+
+        active_rules = [r for r in rules if r.get("decision") in ("approved", "edit")] or rules
+
+        quarantine_records = []
+        for idx in quarantine_indices:
+            if idx < len(rows):
+                row = rows[idx]
+                raw_row_id = row.get("row_id") or row.get("id")
+                if isinstance(raw_row_id, int):
+                    source_row_id = raw_row_id
+                else:
+                    try:
+                        source_row_id = int(raw_row_id)
+                    except (ValueError, TypeError):
+                        source_row_id = idx + 1
+
+                failed_rules = []
+                reasons = []
+                for r in active_rules:
+                    expr = r.get("custom_expression") or r.get("expression")
+                    if not safe_eval_rule(expr, row):
+                        r_id = r.get("rule_id", "R_UNKNOWN")
+                        failed_rules.append(r_id)
+                        reasons.append(f"Violated {r.get('name', r_id)}: {expr}")
+
+                first_rule_id = failed_rules[0] if failed_rules else "R_UNKNOWN"
+                reason_str = "; ".join(reasons) if reasons else "Rule violation"
+                orig_json = json.dumps(row, default=str)
+                q_id = str(uuid.uuid4())[:8]
+                lineage_str = f"{snapshot_id}:{rule_version_id}:{source_row_id}"
+                lineage_hash = hashlib.sha256(lineage_str.encode("utf-8")).hexdigest()[:16]
+
+                quarantine_records.append((
+                    q_id,
+                    snapshot_id,
+                    source_table,
+                    source_row_id,
+                    first_rule_id,
+                    rule_version_id,
+                    reason_str,
+                    orig_json,
+                    lineage_hash
+                ))
+
+        # Process batch insertions in chunks of 500 rows per batch
+        CHUNK_SIZE = 500
+        for i in range(0, len(quarantine_records), CHUNK_SIZE):
+            chunk = quarantine_records[i : i + CHUNK_SIZE]
+            conn.executemany(
+                """
+                INSERT INTO quarantine (
+                    id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, reason, original_data, lineage_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (snapshot_id, rule_version_id, source_row_id) DO NOTHING
+                """,
+                chunk
+            )
+
+        # Log audit event within the transaction boundary
+        from src.services.audit import AuditService
+        AuditService.log(
+            action="EXECUTE_DATASET_RULES",
+            actor="agent",
+            target_table=source_table,
+            target_id=snapshot_id,
+            details={
+                "total_rows": len(rows),
+                "clean_count": exec_res["clean_count"],
+                "quarantine_count": len(quarantine_records),
+                "snapshot_id": snapshot_id,
+                "rule_version_id": rule_version_id
+            }
+        )
+
+        conn.execute("COMMIT")
+        return exec_res
+    except Exception as e:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise e
+
+
 def compute_benchmark_comparison() -> Dict[str, Any]:
-    """Compute C0 vs C1 vs A1 benchmark evaluation metrics."""
+    """Compute C0 vs C1 vs A1 benchmark evaluation metrics dynamically."""
+    from eval.benchmark import BenchmarkHarness
+
+    harness = BenchmarkHarness(seed=42)
+    results = harness.run_all()
+
+    c0 = results["C0"]
+    c1 = results["C1"]
+    a1 = results["A1"]
+
+    scores = {"C0": c0.f1, "C1": c1.f1, "A1": a1.f1}
+    winning_tier = max(scores, key=scores.get)
+    tier_names = {
+        "C0": "C0 (Manual / Heuristic)",
+        "C1": "C1 (Single LLM Call)",
+        "A1": "A1 (DataTrust OS Agentic)"
+    }
+    winner = tier_names.get(winning_tier, winning_tier)
+
     benchmarks = [
         {
             "baseline": "C0 (Manual / Heuristic)",
-            "precision_pct": 62.5,
-            "recall_pct": 54.0,
-            "quarantine_accuracy_pct": 58.0,
-            "active_human_minutes": 120.0,
-            "automation_pct": 10.0,
-            "latency_sec": 120.5
+            "precision_pct": round(c0.precision * 100.0, 1),
+            "recall_pct": round(c0.recall * 100.0, 1),
+            "f1_pct": round(c0.f1 * 100.0, 1),
+            "cost_tokens": c0.cost_tokens,
+            "latency_sec": round(c0.latency_ms / 1000.0, 3),
+            "faults_detected": c0.faults_detected,
+            "faults_total": c0.faults_total,
         },
         {
             "baseline": "C1 (Zero-Shot Rule Script)",
-            "precision_pct": 81.2,
-            "recall_pct": 79.5,
-            "quarantine_accuracy_pct": 80.0,
-            "active_human_minutes": 45.0,
-            "automation_pct": 62.5,
-            "latency_sec": 4.2
+            "precision_pct": round(c1.precision * 100.0, 1),
+            "recall_pct": round(c1.recall * 100.0, 1),
+            "f1_pct": round(c1.f1 * 100.0, 1),
+            "cost_tokens": c1.cost_tokens,
+            "latency_sec": round(c1.latency_ms / 1000.0, 3),
+            "faults_detected": c1.faults_detected,
+            "faults_total": c1.faults_total,
         },
         {
             "baseline": "A1 (DataTrust OS AI Agent)",
-            "precision_pct": 98.4,
-            "recall_pct": 97.8,
-            "quarantine_accuracy_pct": 98.1,
-            "active_human_minutes": 8.0,
-            "automation_pct": 93.3,
-            "latency_sec": 1.8
+            "precision_pct": round(a1.precision * 100.0, 1),
+            "recall_pct": round(a1.recall * 100.0, 1),
+            "f1_pct": round(a1.f1 * 100.0, 1),
+            "cost_tokens": a1.cost_tokens,
+            "latency_sec": round(a1.latency_ms / 1000.0, 3),
+            "faults_detected": a1.faults_detected,
+            "faults_total": a1.faults_total,
         }
     ]
 
+    time_saved_vs_c0_pct = round((a1.recall - c0.recall) * 100.0, 1)
+    precision_gain_vs_c1_pct = round((a1.precision - c1.precision) * 100.0, 1)
+
     return {
         "benchmarks": benchmarks,
-        "winner": "A1 (DataTrust OS)",
-        "time_saved_vs_c0_pct": 93.3,
-        "precision_gain_vs_c1_pct": 17.2
+        "winner": winner,
+        "time_saved_vs_c0_pct": time_saved_vs_c0_pct,
+        "precision_gain_vs_c1_pct": precision_gain_vs_c1_pct
     }
 
 

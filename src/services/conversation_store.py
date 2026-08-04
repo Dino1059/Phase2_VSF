@@ -1,59 +1,38 @@
-import sqlite3
 import json
-import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from src.db.connection import get_db
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "conversations.db")
 
 class ConversationStore:
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._init_db()
+    def __init__(self, db=None):
+        self._db = db
 
-    def _get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self):
-        with self._get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    agent_id TEXT,
-                    content TEXT NOT NULL,
-                    metadata_json TEXT,
-                    timestamp TEXT NOT NULL
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp)
-            """)
-            conn.commit()
+    @property
+    def db(self):
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def save_message(self, message: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
         msg_id = message.get("id") or f"msg_{int(datetime.now().timestamp()*1000)}"
         timestamp = message.get("timestamp") or datetime.now().isoformat()
         metadata_json = json.dumps(message.get("metadata") or {})
 
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                msg_id,
-                session_id,
-                message.get("type", "user"),
-                message.get("agentId"),
-                message.get("content", ""),
-                metadata_json,
-                timestamp
-            ))
-            conn.commit()
+        conn = self.db.get_connection()
+        conn.execute("DELETE FROM messages WHERE id = ?", [msg_id])
+        conn.execute("""
+            INSERT INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [
+            msg_id,
+            session_id,
+            message.get("type", "user"),
+            message.get("agentId"),
+            message.get("content", ""),
+            metadata_json,
+            timestamp
+        ])
 
         return {
             "id": msg_id,
@@ -66,71 +45,73 @@ class ConversationStore:
         }
 
     def get_messages(self, session_id: str = "default", limit: int = 100) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT id, session_id, type, agent_id, content, metadata_json, timestamp
-                FROM messages
-                WHERE session_id = ?
-                ORDER BY timestamp ASC
-                LIMIT ?
-            """, (session_id, limit))
-            rows = cursor.fetchall()
+        conn = self.db.get_connection()
+        rows = conn.execute("""
+            SELECT id, session_id, type, agent_id, content, metadata_json, timestamp
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ?
+        """, [session_id, limit]).fetchall()
 
         result = []
         for r in rows:
             meta = {}
-            if r["metadata_json"]:
+            if r[5]:
                 try:
-                    meta = json.loads(r["metadata_json"])
+                    meta = json.loads(r[5])
                 except Exception:
                     meta = {}
             item = {
-                "id": r["id"],
-                "type": r["type"],
-                "content": r["content"],
-                "timestamp": r["timestamp"]
+                "id": r[0],
+                "type": r[2],
+                "content": r[4],
+                "timestamp": r[6]
             }
-            if r["agent_id"]:
-                item["agentId"] = r["agent_id"]
+            if r[3]:
+                item["agentId"] = r[3]
             if meta:
                 item["metadata"] = meta
             result.append(item)
         return result
 
     def clear_messages(self, session_id: str = "default"):
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.commit()
+        conn = self.db.get_connection()
+        conn.execute("DELETE FROM messages WHERE session_id = ?", [session_id])
 
     def list_sessions(self) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_updated,
-                       (SELECT content FROM messages m2 WHERE m2.session_id = messages.session_id AND m2.type = 'user' ORDER BY timestamp ASC LIMIT 1) as user_msg,
-                       (SELECT content FROM messages m3 WHERE m3.session_id = messages.session_id ORDER BY timestamp ASC LIMIT 1) as fallback_msg
-                FROM messages
-                GROUP BY session_id
-                ORDER BY last_updated DESC
-            """)
-            rows = cursor.fetchall()
+        conn = self.db.get_connection()
+        rows = conn.execute("""
+            SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_updated
+            FROM messages
+            GROUP BY session_id
+            ORDER BY last_updated DESC
+        """).fetchall()
 
         result = []
         for r in rows:
-            raw_title = r["user_msg"] or r["fallback_msg"] or "New Agent Chat"
+            sid = r[0]
+            cnt = r[1]
+            last_up = r[2]
+
+            first_msg = conn.execute("""
+                SELECT content FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT 1
+            """, [sid]).fetchone()
+            raw_title = first_msg[0] if first_msg and first_msg[0] else "New Agent Chat"
             clean_title = raw_title.replace("\n", " ").strip()
             if len(clean_title) > 35:
                 clean_title = clean_title[:32] + "..."
             result.append({
-                "session_id": r["session_id"],
-                "msg_count": r["msg_count"],
-                "last_updated": r["last_updated"],
+                "session_id": sid,
+                "msg_count": cnt,
+                "last_updated": last_up,
                 "title": clean_title,
             })
         return result
 
     def clear_all(self):
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM messages")
-            conn.commit()
+        conn = self.db.get_connection()
+        conn.execute("DELETE FROM messages")
+
 
 conversation_store = ConversationStore()

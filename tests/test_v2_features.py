@@ -28,7 +28,7 @@ from src.tools.datasource import (
     StructuredSource,
 )
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-User-Role": "Admin"})
 
 
 # --- 1. DataSource Abstraction & JSON/JSONL Loading Tests ---

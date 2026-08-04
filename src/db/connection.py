@@ -43,6 +43,11 @@ class DuckDBManager:
             self._local.connection = conn
             with self._conn_lock:
                 self._connections.append(conn)
+            try:
+                conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
+            except Exception:
+                self.init_schema()
+            self._ensure_scheduler_tables(conn)
         return self._local.connection
 
     def init_schema(self) -> None:
@@ -51,6 +56,69 @@ class DuckDBManager:
             schema_sql = f.read()
         conn = self.get_connection()
         conn.execute(schema_sql)
+        self._ensure_quarantine_schema(conn)
+        self._ensure_scheduler_tables(conn)
+
+    def _ensure_scheduler_tables(self, conn) -> None:
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS schedules (
+                    id VARCHAR PRIMARY KEY,
+                    dataset_key VARCHAR,
+                    cron_expression VARCHAR,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    next_run_at TIMESTAMP,
+                    name VARCHAR,
+                    schedule_type VARCHAR,
+                    interval_seconds INT,
+                    action VARCHAR
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS job_runs (
+                    id VARCHAR PRIMARY KEY,
+                    schedule_id VARCHAR,
+                    dataset_key VARCHAR,
+                    status VARCHAR,
+                    result_summary JSON,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id VARCHAR PRIMARY KEY,
+                    session_id VARCHAR NOT NULL,
+                    type VARCHAR NOT NULL,
+                    agent_id VARCHAR,
+                    content VARCHAR NOT NULL,
+                    metadata_json VARCHAR,
+                    timestamp VARCHAR NOT NULL
+                );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);")
+        except Exception:
+            pass
+
+    def _ensure_quarantine_schema(self, conn) -> None:
+        try:
+            cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='quarantine'"
+                ).fetchall()
+            ]
+            if cols:
+                if "snapshot_id" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN snapshot_id VARCHAR")
+                if "rule_version_id" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN rule_version_id VARCHAR")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_quarantine_idempotency ON quarantine (snapshot_id, rule_version_id, source_row_id)"
+                )
+        except Exception:
+            pass
 
     def execute(self, query: str, params: list = None) -> list:
         conn = self.get_connection()

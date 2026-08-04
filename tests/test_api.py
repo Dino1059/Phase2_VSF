@@ -11,7 +11,7 @@ from src.api.audit_store import AuditStore
 from src.api.state_machine import StateMachine, WorkflowState
 from src.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-User-Role": "Admin"})
 
 
 def test_health_endpoint():
@@ -59,6 +59,12 @@ def test_propose_rules_endpoint():
 
 
 def test_execute_transform_endpoint():
+    from src.db.connection import get_db
+    db = get_db()
+    try:
+        db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, status) VALUES ('r1', 'Drop dups', 'unique', 'x', 'approved')")
+    except Exception:
+        pass
     payload = {
         "data": [
             {"hvfhs_license_num": "HV0003", "driver_pay": 10.0, "trip_miles": 5.0},
@@ -254,6 +260,7 @@ def test_chat_send_react_loop_propose_rules():
     assert data["state"] == "RULES_PROPOSED"
 
 
+@_SKIP_LLM
 def test_chat_send_react_loop_anomaly():
     response = client.post("/api/v1/chat/send", json={"message": "Detect anomalies in dataset"})
     assert response.status_code == 200
@@ -291,3 +298,54 @@ def test_upload_dataset_endpoint():
     assert data["dataset_key"] == "uploaded_sample_test_upload"
     assert data["columns"] == ["col1", "col2", "col3"]
     assert data["total_rows"] == 3
+
+
+def test_p0_03_authentication_deny_by_default():
+    unauth_client = TestClient(app)
+
+    # Public routes should pass without auth
+    resp_health = unauth_client.get("/health")
+    assert resp_health.status_code == 200
+
+    resp_v3 = unauth_client.get("/v3")
+    assert resp_v3.status_code == 200
+
+    # Protected route without auth header -> 401
+    resp_prot = unauth_client.get("/api/v1/status")
+    assert resp_prot.status_code == 401
+
+    # Protected route with invalid role -> 403
+    resp_inv = unauth_client.get("/api/v1/status", headers={"X-User-Role": "InvalidRole"})
+    assert resp_inv.status_code == 403
+
+    # Protected route with explicit valid roles -> 200
+    for role in ["Admin", "Analyst", "Auditor", "Viewer"]:
+        resp_role = unauth_client.get("/api/v1/status", headers={"X-User-Role": role})
+        assert resp_role.status_code == 200
+
+
+def test_p0_02_hitl_approval_bypass_prevention():
+    from src.db.connection import get_db
+    db = get_db()
+    try:
+        db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, status) VALUES ('unapproved_r1', 'bad_rule', 'range', 'x', 'proposed')")
+    except Exception:
+        pass
+
+    payload = {
+        "data": [{"hvfhs_license_num": "HV0003", "driver_pay": 10.0}],
+        "rules": [
+            {
+                "rule_id": "unapproved_r1",
+                "rule_type": "range",
+                "target_column": "driver_pay",
+                "action": "flag",
+                "parameters": {},
+                "severity": "medium",
+                "description": "Unapproved rule execution test",
+            }
+        ],
+    }
+    response = client.post("/api/v1/transform/execute", json=payload)
+    assert response.status_code == 403
+    assert "Rule execution denied: Rule is not approved by HITL" in response.json()["detail"]
