@@ -1,0 +1,273 @@
+{
+  "$schema": "../cleandb.schema.json",
+  "schema": {
+    "version": "1.0.0",
+    "dataset_name": "vinfast_ev_telemetry",
+    "columns": [
+      {
+        "name": "record_id",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Unique telemetry record primary key",
+        "business_rules": "Must be non-null and unique across all records. Format: EV_REC_XXXX",
+        "tags": ["identifier", "primary_key"],
+        "pii": false
+      },
+      {
+        "name": "vehicle_vin",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Vehicle Identification Number",
+        "business_rules": "Must be a valid VinFast VIN. Format: VF8VNF... or VF9_REAL...",
+        "tags": ["identifier", "vehicle"],
+        "pii": true
+      },
+      {
+        "name": "timestamp",
+        "dtype": "datetime",
+        "nullable": false,
+        "description": "Telemetry log timestamp. Invalid timestamps indicate GSM basement blackout",
+        "business_rules": "Must follow ISO-8601 format",
+        "tags": ["temporal"],
+        "pii": false
+      },
+      {
+        "name": "speed_kmh",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Vehicle ground speed",
+        "business_rules": "Must be within physical range 0.0 to 180.0 km/h",
+        "tags": ["telemetry", "speed"],
+        "unit": "km/h",
+        "valid_range": { "min": 0.0, "max": 180.0 },
+        "pii": false
+      },
+      {
+        "name": "motor_rpm",
+        "dtype": "integer",
+        "nullable": false,
+        "description": "Electric motor revolutions per minute",
+        "business_rules": "Must be within physical range 0 to 15000 RPM",
+        "tags": ["telemetry", "motor"],
+        "unit": "RPM",
+        "valid_range": { "min": 0, "max": 15000 },
+        "pii": false
+      },
+      {
+        "name": "battery_soc",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Battery State of Charge. Negative values indicate BMS sensor fault",
+        "business_rules": "Must be within 0.0% to 100.0%. Values < 0% indicate BMS sensor defect",
+        "tags": ["telemetry", "battery"],
+        "unit": "%",
+        "valid_range": { "min": 0.0, "max": 100.0 },
+        "pii": false
+      },
+      {
+        "name": "battery_voltage",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Pack voltage. Values > 9000V indicate CAN-bus overvoltage spike",
+        "business_rules": "Normal range 300.0V to 450.0V. Values > 9000V are CAN-bus overvoltage spikes",
+        "tags": ["telemetry", "battery", "electrical"],
+        "unit": "V",
+        "valid_range": { "min": 300.0, "max": 450.0 },
+        "pii": false
+      },
+      {
+        "name": "battery_current",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Pack current discharge",
+        "business_rules": "Must be within 0.0A to 250.0A",
+        "tags": ["telemetry", "battery", "electrical"],
+        "unit": "A",
+        "valid_range": { "min": 0.0, "max": 250.0 },
+        "pii": false
+      },
+      {
+        "name": "battery_temp_c",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Battery module temperature",
+        "business_rules": "Must be within 20.0°C to 60.0°C",
+        "tags": ["telemetry", "battery", "thermal"],
+        "unit": "°C",
+        "valid_range": { "min": 20.0, "max": 60.0 },
+        "pii": false
+      },
+      {
+        "name": "latitude",
+        "dtype": "float",
+        "nullable": true,
+        "description": "Vehicle latitude coordinate. Null during GSM basement blackout",
+        "business_rules": "Must fall within Vietnam bounding box (8.0 to 23.5) when present",
+        "tags": ["location", "gps"],
+        "unit": "degrees",
+        "valid_range": { "min": 8.0, "max": 23.5 },
+        "pii": false
+      },
+      {
+        "name": "longitude",
+        "dtype": "float",
+        "nullable": true,
+        "description": "Vehicle longitude coordinate. Null during GSM basement blackout",
+        "business_rules": "Must fall within Vietnam bounding box (102.0 to 110.0) when present",
+        "tags": ["location", "gps"],
+        "unit": "degrees",
+        "valid_range": { "min": 102.0, "max": 110.0 },
+        "pii": false
+      },
+      {
+        "name": "accel_z",
+        "dtype": "float",
+        "nullable": true,
+        "description": "3-axis vertical accelerometer reading",
+        "business_rules": "Normal gravity ~9.8 m/s². Deviations indicate road surface or impact events",
+        "tags": ["telemetry", "accelerometer"],
+        "unit": "m/s²",
+        "pii": false
+      }
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "R001_RECORD_ID_NOT_NULL",
+      "target_field": "record_id",
+      "family": "not_null",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "record_id must not be null"
+    },
+    {
+      "rule_id": "R002_RECORD_ID_UNIQUE",
+      "target_field": "record_id",
+      "family": "unique",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "record_id must be unique across all records"
+    },
+    {
+      "rule_id": "R003_VEHICLE_VIN_NOT_NULL",
+      "target_field": "vehicle_vin",
+      "family": "not_null",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "vehicle_vin must not be null"
+    },
+    {
+      "rule_id": "R004_TIMESTAMP_FORMAT",
+      "target_field": "timestamp",
+      "family": "format",
+      "parameters": { "format": "iso8601" },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "timestamp must follow ISO-8601 format. Invalid timestamps indicate GSM basement blackout",
+      "evidence": "Fault Family: GSM_Underground_Basement_Blackout"
+    },
+    {
+      "rule_id": "R005_SPEED_RANGE",
+      "target_field": "speed_kmh",
+      "family": "range",
+      "parameters": { "min": 0.0, "max": 180.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "speed_kmh must be within 0.0 to 180.0 km/h"
+    },
+    {
+      "rule_id": "R006_MOTOR_RPM_RANGE",
+      "target_field": "motor_rpm",
+      "family": "range",
+      "parameters": { "min": 0, "max": 15000 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "motor_rpm must be within 0 to 15000 RPM"
+    },
+    {
+      "rule_id": "R007_BATTERY_SOC_RANGE",
+      "target_field": "battery_soc",
+      "family": "range",
+      "parameters": {
+        "min": 0.0,
+        "max": 100.0,
+        "fault_family": "Battery_BMS_Negative_Sensor_Defect"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "battery_soc must be within 0.0% to 100.0%. Negative values indicate BMS sensor fault"
+    },
+    {
+      "rule_id": "R008_BATTERY_VOLTAGE_RANGE",
+      "target_field": "battery_voltage",
+      "family": "range",
+      "parameters": {
+        "min": 300.0,
+        "max": 450.0,
+        "fault_family": "CAN_Bus_Overvoltage_Spike"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "battery_voltage must be within 300.0V to 450.0V. Values > 9000V are CAN-bus overvoltage spikes"
+    },
+    {
+      "rule_id": "R009_BATTERY_CURRENT_RANGE",
+      "target_field": "battery_current",
+      "family": "range",
+      "parameters": { "min": 0.0, "max": 250.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "battery_current must be within 0.0A to 250.0A"
+    },
+    {
+      "rule_id": "R010_BATTERY_TEMP_RANGE",
+      "target_field": "battery_temp_c",
+      "family": "range",
+      "parameters": { "min": 20.0, "max": 60.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "battery_temp_c must be within 20.0°C to 60.0°C"
+    },
+    {
+      "rule_id": "R011_MOTOR_RPM_SPEED_MISMATCH",
+      "target_field": "motor_rpm",
+      "family": "cross_field",
+      "parameters": {
+        "expression": "NOT (speed_kmh == 0 AND motor_rpm > 5000)",
+        "fault_family": "Motor_RPM_Mismatch"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "Motor RPM must not show high values (>5000) when speed is 0 km/h — indicates sensor mismatch"
+    },
+    {
+      "rule_id": "R012_LAT_RANGE",
+      "target_field": "latitude",
+      "family": "range",
+      "parameters": {
+        "min": 8.0,
+        "max": 23.5,
+        "fault_family": "GPS_Alleyway_Drift"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "latitude must fall within Vietnam bounding box (8.0 to 23.5) when present"
+    },
+    {
+      "rule_id": "R013_LON_RANGE",
+      "target_field": "longitude",
+      "family": "range",
+      "parameters": {
+        "min": 102.0,
+        "max": 110.0,
+        "fault_family": "GPS_Alleyway_Drift"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "longitude must fall within Vietnam bounding box (102.0 to 110.0) when present"
+    }
+  ]
+}

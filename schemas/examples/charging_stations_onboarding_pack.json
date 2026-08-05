@@ -1,0 +1,228 @@
+{
+  "$schema": "../cleandb.schema.json",
+  "schema": {
+    "version": "1.0.0",
+    "dataset_name": "vgreen_charging_stations",
+    "columns": [
+      {
+        "name": "session_id",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Unique charging session identifier",
+        "business_rules": "Must be non-null and unique. Format: CHG_SESS_XXXX",
+        "tags": ["identifier", "primary_key"],
+        "pii": false
+      },
+      {
+        "name": "station_id",
+        "dtype": "string",
+        "nullable": false,
+        "description": "V-GREEN station identifier",
+        "business_rules": "Must be a valid station ID. Format: VG_STA_XXXX (e.g. VG_STA_VINCOM_BA_TRIEU)",
+        "tags": ["identifier", "station"],
+        "pii": false
+      },
+      {
+        "name": "charger_id",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Individual charger plug identifier",
+        "business_rules": "Must be a valid charger ID. Format: C_XX",
+        "tags": ["identifier", "charger"],
+        "pii": false
+      },
+      {
+        "name": "vehicle_vin",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Connected VinFast vehicle VIN",
+        "business_rules": "Must be a valid VinFast VIN",
+        "tags": ["identifier", "vehicle"],
+        "pii": true
+      },
+      {
+        "name": "start_time",
+        "dtype": "datetime",
+        "nullable": false,
+        "description": "Charging session initiation timestamp",
+        "business_rules": "Must follow ISO-8601 format",
+        "tags": ["temporal"],
+        "pii": false
+      },
+      {
+        "name": "duration_mins",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Active charging session duration in minutes",
+        "business_rules": "Must be greater than 0",
+        "tags": ["telemetry", "duration"],
+        "unit": "minutes",
+        "valid_range": { "min": 0.0, "max": 1440.0 },
+        "pii": false
+      },
+      {
+        "name": "power_kw",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Charging power. 0 kW with high temperature indicates thermal fault",
+        "business_rules": "Normal range 30.0 to 250.0 kW. 0 kW is valid only during thermal fault condition",
+        "tags": ["telemetry", "power"],
+        "unit": "kW",
+        "valid_range": { "min": 0.0, "max": 250.0 },
+        "pii": false
+      },
+      {
+        "name": "kwh_consumed",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Total energy transferred during session",
+        "business_rules": "Must be greater than or equal to 0",
+        "tags": ["telemetry", "energy"],
+        "unit": "kWh",
+        "valid_range": { "min": 0.0 },
+        "pii": false
+      },
+      {
+        "name": "station_temp_c",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Charger cabinet temperature. Values > 80°C trigger thermal cutoff",
+        "business_rules": "Normal range 20.0°C to 90.0°C. Values > 80°C trigger safety cutoff",
+        "tags": ["telemetry", "thermal"],
+        "unit": "°C",
+        "valid_range": { "min": 20.0, "max": 90.0 },
+        "pii": false
+      },
+      {
+        "name": "cost_vnd",
+        "dtype": "float",
+        "nullable": false,
+        "description": "Charging session cost. Negative values indicate billing ledger defect",
+        "business_rules": "Must be greater than or equal to 0. Negative values are billing defects",
+        "tags": ["financial", "cost"],
+        "unit": "VND",
+        "valid_range": { "min": 0.0 },
+        "pii": false
+      },
+      {
+        "name": "status",
+        "dtype": "string",
+        "nullable": false,
+        "description": "Charging session completion status",
+        "business_rules": "Allowed values: COMPLETED, THERMAL_FAULT, POWER_DROP",
+        "tags": ["status"],
+        "pii": false
+      }
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "R001_SESSION_ID_NOT_NULL",
+      "target_field": "session_id",
+      "family": "not_null",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "session_id must not be null"
+    },
+    {
+      "rule_id": "R002_SESSION_ID_UNIQUE",
+      "target_field": "session_id",
+      "family": "unique",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "session_id must be unique across all records"
+    },
+    {
+      "rule_id": "R003_STATION_ID_NOT_NULL",
+      "target_field": "station_id",
+      "family": "not_null",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "station_id must not be null"
+    },
+    {
+      "rule_id": "R004_VEHICLE_VIN_NOT_NULL",
+      "target_field": "vehicle_vin",
+      "family": "not_null",
+      "parameters": {},
+      "severity": "error",
+      "action": "quarantine",
+      "description": "vehicle_vin must not be null"
+    },
+    {
+      "rule_id": "R005_START_TIME_FORMAT",
+      "target_field": "start_time",
+      "family": "format",
+      "parameters": { "format": "iso8601" },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "start_time must follow ISO-8601 format"
+    },
+    {
+      "rule_id": "R006_STATUS_FORMAT",
+      "target_field": "status",
+      "family": "format",
+      "parameters": {
+        "allowed_values": ["COMPLETED", "THERMAL_FAULT", "POWER_DROP"]
+      },
+      "severity": "warning",
+      "action": "flag",
+      "description": "status must be one of: COMPLETED, THERMAL_FAULT, POWER_DROP"
+    },
+    {
+      "rule_id": "R007_DURATION_RANGE",
+      "target_field": "duration_mins",
+      "family": "range",
+      "parameters": { "min": 0.0, "max": 1440.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "duration_mins must be between 0 and 1440 minutes (24 hours)"
+    },
+    {
+      "rule_id": "R008_POWER_KW_RANGE",
+      "target_field": "power_kw",
+      "family": "range",
+      "parameters": { "min": 0.0, "max": 250.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "power_kw must be between 0.0 and 250.0 kW"
+    },
+    {
+      "rule_id": "R009_STATION_TEMP_RANGE",
+      "target_field": "station_temp_c",
+      "family": "range",
+      "parameters": { "min": 20.0, "max": 90.0 },
+      "severity": "warning",
+      "action": "flag",
+      "description": "station_temp_c must be between 20.0°C and 90.0°C"
+    },
+    {
+      "rule_id": "R010_COST_VND_RANGE",
+      "target_field": "cost_vnd",
+      "family": "range",
+      "parameters": {
+        "min": 0.0,
+        "fault_family": "Negative_Cost_Billing_Defect"
+      },
+      "severity": "error",
+      "action": "impute_deterministic",
+      "on_fail_value": 0.0,
+      "description": "cost_vnd must be >= 0. Negative values indicate billing ledger defect"
+    },
+    {
+      "rule_id": "R011_THERMAL_POWER_DROP",
+      "target_field": "power_kw",
+      "family": "cross_field",
+      "parameters": {
+        "expression": "NOT (power_kw == 0 AND station_temp_c > 80)",
+        "fault_family": "VGREEN_Thermal_Power_Drop"
+      },
+      "severity": "error",
+      "action": "quarantine",
+      "description": "Sudden power drop to 0 kW when station_temp_c > 80°C indicates thermal fault"
+    }
+  ]
+}

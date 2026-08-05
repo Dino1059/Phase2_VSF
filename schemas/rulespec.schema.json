@@ -5,19 +5,24 @@
   "properties": {
     "rule_id": { "type": "string" },
     "target_field": { "type": "string" },
+    "description": { "type": "string" },
     "family": {
       "type": "string",
       "enum": ["not_null", "unique", "range", "format", "cross_field", "semantic"]
     },
-    "parameters": { "type": "object" },
+    "parameters": {
+      "type": "object",
+      "description": "Holds family-specific parameters."
+    },
     "severity": {
       "type": "string",
       "enum": ["error", "warning", "info"]
     },
     "action": {
       "type": "string",
-      "enum": ["quarantine", "flag", "drop", "impute_default"]
+      "enum": ["quarantine", "flag", "drop", "impute_deterministic"]
     },
+    "on_fail_value": {},
     "failure_behavior": {
       "type": "string",
       "enum": ["fail_row", "fail_batch", "warn"]

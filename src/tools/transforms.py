@@ -208,7 +208,7 @@ class TransformLibrary:
         )
 
     @staticmethod
-    def impute_default(df: pd.DataFrame, field: str, default_value: Any) -> pd.DataFrame:
+    def impute_deterministic(df: pd.DataFrame, field: str, default_value: Any) -> pd.DataFrame:
         df_out = df.copy()
         if field in df_out.columns:
             df_out[field] = df_out[field].fillna(default_value)

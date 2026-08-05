@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataTrust OS — AI Data Quality Platform</title>
+<meta name="description" content="DataTrust OS — Hệ thống AI tự động kiểm soát chất lượng dữ liệu cho VinGroup">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg-base:#08111e;--bg-surface:#0e1927;--bg-card:#141f30;--bg-card-hover:#1a2840;--bg-input:#0a1220;--border:rgba(255,255,255,0.07);--border-strong:rgba(255,255,255,0.14);--green:#00d4a0;--green-dim:rgba(0,212,160,.1);--green-glow:rgba(0,212,160,.35);--red:#ff4d6a;--red-dim:rgba(255,77,106,.1);--yellow:#ffb347;--yellow-dim:rgba(255,179,71,.1);--blue:#4da6ff;--blue-dim:rgba(77,166,255,.1);--purple:#a78bfa;--purple-dim:rgba(167,139,250,.1);--text-1:#f1f5f9;--text-2:#8da0b5;--text-3:#3d5166;--nav-w:224px;--top-h:52px;--r:10px;--r-sm:6px;--t:.18s ease}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100vh;overflow:hidden;font-family:'Inter',sans-serif;background:var(--bg-base);color:var(--text-1);font-size:13px;line-height:1.55}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px}
+.app{display:grid;grid-template-rows:var(--top-h) 1fr;grid-template-columns:var(--nav-w) 1fr;grid-template-areas:"tb tb" "nav main";height:100vh}
+.tb{grid-area:tb;background:var(--bg-surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 18px;z-index:200}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.4px;white-space:nowrap}
+.brand-ico{width:28px;height:28px;background:linear-gradient(135deg,var(--green),var(--blue));border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.tb-sep{width:1px;height:22px;background:var(--border)}
+.syspulse{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2)}
+.pdot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green-glow);animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.8)}}
+.tb-spacer{flex:1}
+.tb-actions{display:flex;align-items:center;gap:7px}
+.ico-btn{width:34px;height:34px;border:1px solid var(--border);background:var(--bg-card);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all var(--t);position:relative;font-size:15px;color:var(--text-2)}
+.ico-btn:hover{background:var(--bg-card-hover);border-color:var(--border-strong);color:var(--text-1)}
+.ico-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:700;width:15px;height:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg-surface)}
+.sch-btn{display:flex;align-items:center;gap:5px;padding:0 11px;height:34px;border:1px solid var(--border);background:var(--bg-card);border-radius:var(--r-sm);cursor:pointer;font-size:11px;font-weight:600;color:var(--text-2);font-family:inherit;transition:all var(--t)}
+.sch-btn:hover{background:var(--yellow-dim);border-color:var(--yellow);color:var(--yellow)}
+.avatar{width:30px;height:30px;background:linear-gradient(135deg,var(--purple),var(--blue));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;border:2px solid var(--border);color:#fff}
+.nav{grid-area:nav;background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:10px 0;overflow:hidden}
+.nav-sec{font-size:9.5px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:1.2px;padding:10px 16px 4px;margin-top:6px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;color:var(--text-2);font-size:12.5px;font-weight:500;transition:all var(--t);margin:1px 8px;border-radius:7px;position:relative}
+.nav-item:hover{background:var(--bg-card);color:var(--text-1)}
+.nav-item.active{background:var(--green-dim);color:var(--green)}
+.nav-item.active::before{content:'';position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:3px;height:55%;background:var(--green);border-radius:0 2px 2px 0}
+.nav-ico{font-size:15px;width:18px;text-align:center}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:99px}
+.nav-spacer{flex:1}
+.main{grid-area:main;overflow-y:auto;background:var(--bg-base);position:relative}
+.view{display:none}.view.active{display:block}
+.dash{padding:22px;max-width:1380px}
+.attn-banner{background:linear-gradient(135deg,rgba(255,179,71,.07),rgba(255,77,106,.07));border:1px solid rgba(255,179,71,.25);border-radius:var(--r);padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:14px;animation:slideDown .35s ease;cursor:pointer}
+.attn-banner:hover{border-color:rgba(255,179,71,.4)}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.attn-ico{font-size:22px}
+.attn-content{flex:1}
+.attn-title{font-weight:700;font-size:13px;color:var(--yellow);margin-bottom:1px}
+.attn-sub{font-size:11px;color:var(--text-2)}
+.attn-cta{display:flex;align-items:center;gap:5px;padding:7px 13px;background:var(--yellow-dim);border:1px solid rgba(255,179,71,.35);border-radius:var(--r-sm);color:var(--yellow);font-size:11px;font-weight:700;white-space:nowrap;cursor:pointer;transition:all var(--t);font-family:inherit}
+.attn-cta:hover{background:rgba(255,179,71,.2)}
+.sec-title{font-size:10.5px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:1.1px;margin-bottom:10px}
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.pl-cards{display:flex;flex-direction:column;gap:9px;margin-bottom:22px}
+.pl-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all var(--t)}
+.pl-card:hover{background:var(--bg-card-hover);border-color:var(--border-strong);transform:translateX(2px);box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.pl-card.urgent{border-left:3px solid var(--yellow)}
+.pl-card.running{border-left:3px solid var(--blue)}
+.pl-card.done{border-left:3px solid var(--green)}
+.pl-card-ico{font-size:22px;flex-shrink:0}
+.pl-card-info{flex:1;min-width:0}
+.pl-card-name{font-weight:600;font-size:13px;color:var(--text-1);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-card-meta{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.phase-dots{display:flex;gap:4px;align-items:center}
+.pdot-sm{width:7px;height:7px;border-radius:50%;background:var(--border-strong);flex-shrink:0}
+.pdot-sm.d{background:var(--green)}
+.pdot-sm.c{background:var(--yellow);animation:pulse 1.5s ease infinite}
+.pl-card-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;font-size:10.5px;font-weight:700}
+.chip-y{background:var(--yellow-dim);color:var(--yellow);border:1px solid rgba(255,179,71,.3)}
+.chip-b{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(77,166,255,.3)}
+.chip-g{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,212,160,.3)}
+.chip-r{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,77,106,.3)}
+.pl-card-hint{font-size:10.5px;color:var(--text-3)}
+.dash-bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.stat-lbl{font-size:10px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-val{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text-1);margin-bottom:3px}
+.stat-sub{font-size:10.5px;color:var(--text-2)}
+.agent-section{display:flex;flex-direction:column;gap:8px}
+.agent-sec-title{font-size:10.5px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.ag-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 13px;display:flex;align-items:center;gap:9px}
+.ag-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-g{background:var(--green);box-shadow:0 0 5px var(--green-glow)}
+.dot-y{background:var(--yellow);box-shadow:0 0 5px rgba(255,179,71,.5);animation:pulse 1.5s ease infinite}
+.dot-off{background:var(--text-3)}
+.ag-name{font-size:11.5px;font-weight:600;color:var(--text-1)}
+.ag-st{font-size:10.5px;color:var(--text-2);margin-left:auto}
+.feed{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:22px}
+.feed-hdr{padding:10px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;color:var(--text-2)}
+.live-dot{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--green);font-weight:700}
+.feed-list{max-height:200px;overflow-y:auto}
+.feed-item{padding:9px 15px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;animation:fadeIn .35s ease;cursor:default;transition:background var(--t)}
+.feed-item:hover{background:var(--bg-card-hover)}
+.feed-item:last-child{border-bottom:none}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.fi-time{font-size:10px;color:var(--text-3);font-family:'JetBrains Mono',monospace;white-space:nowrap;margin-top:1px;flex-shrink:0}
+.fi-ico{font-size:13px;flex-shrink:0}
+.fi-txt{font-size:11.5px;color:var(--text-2);flex:1;line-height:1.5}
+.fi-txt b{color:var(--text-1);font-weight:600}
+.pl-view{display:grid;grid-template-columns:230px 1fr;height:calc(100vh - var(--top-h));overflow:hidden}
+.pl-side{background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.pl-side-hdr{padding:16px 15px 14px;border-bottom:1px solid var(--border)}
+.pl-side-back{font-size:11px;color:var(--text-3);cursor:pointer;display:flex;align-items:center;gap:5px;margin-bottom:10px;transition:color var(--t)}
+.pl-side-back:hover{color:var(--text-1)}
+.pl-side-name{font-size:12.5px;font-weight:700;color:var(--text-1);margin-bottom:3px;word-break:break-all}
+.pl-side-meta{font-size:10.5px;color:var(--text-2)}
+.phase-tl{padding:6px 0}
+.ph-item{display:flex;align-items:flex-start;gap:11px;padding:7px 14px;cursor:pointer;transition:background var(--t);position:relative}
+.ph-item::before{content:'';position:absolute;left:25px;top:34px;bottom:-7px;width:2px;background:var(--border)}
+.ph-item:last-of-type::before{display:none}
+.ph-item.ph-done::before{background:rgba(0,212,160,.35)}
+.ph-item.ph-cur::before{background:linear-gradient(to bottom,rgba(255,179,71,.4),var(--border))}
+.ph-item:hover{background:var(--bg-card-hover)}
+.ph-circ{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0;border:2px solid var(--border);background:var(--bg-card);z-index:1;transition:all var(--t)}
+.ph-item.ph-done .ph-circ{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.ph-item.ph-cur .ph-circ{background:var(--yellow-dim);border-color:var(--yellow);color:var(--yellow);animation:pulse 2s ease infinite}
+.ph-item.ph-pend .ph-circ{color:var(--text-3)}
+.ph-label{flex:1;padding-top:3px}
+.ph-name{font-size:11.5px;font-weight:600;color:var(--text-2);transition:color var(--t)}
+.ph-item.ph-done .ph-name{color:var(--text-1)}
+.ph-item.ph-cur .ph-name{color:var(--yellow)}
+.ph-sub{font-size:10px;color:var(--text-3);margin-top:1px}
+.ph-item:hover .ph-name{color:var(--text-1)}
+.pl-side-links{margin-top:auto;padding:10px;border-top:1px solid var(--border)}
+.sl-link{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:5px;cursor:pointer;font-size:11.5px;color:var(--text-2);transition:all var(--t)}
+.sl-link:hover{background:var(--bg-card);color:var(--text-1)}
+.sl-badge{margin-left:auto;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:99px}
+.sbg{background:var(--green-dim);color:var(--green)}
+.sby{background:var(--yellow-dim);color:var(--yellow)}
+.sbr{background:var(--red-dim);color:var(--red)}
+.pl-main{overflow-y:auto;padding:22px;background:var(--bg-base)}
+.phase-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.phase-hdr-l .phase-ttl{font-size:17px;font-weight:700;color:var(--text-1)}
+.phase-hdr-l .phase-sub{font-size:12px;color:var(--text-2);margin-top:2px}
+.prof-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.prof-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px}
+.ps-lbl{font-size:10px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.ps-val{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text-1)}
+.ps-sub{font-size:10.5px;color:var(--text-2);margin-top:2px}
+.sha-row{display:flex;align-items:center;gap:9px;padding:9px 13px;background:var(--bg-input);border-radius:var(--r-sm);border:1px solid var(--border);margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)}
+.sha-val{flex:1;color:var(--text-2)}
+.col-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:14px}
+.col-table th{background:var(--bg-input);padding:7px 11px;text-align:left;color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.col-table td{padding:7px 11px;border-bottom:1px solid var(--border);color:var(--text-2)}
+.col-table tr:last-child td{border-bottom:none}
+.col-table tr:hover td{background:var(--bg-card-hover)}
+.dtype{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--blue)}
+.null-ok{color:var(--green)}.null-warn{color:var(--yellow)}.null-bad{color:var(--red)}
+.anom-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.anom-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;text-align:center}
+.anom-num{font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-bottom:3px}
+.anom-lbl{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px}
+.running-ind{display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--blue-dim);border:1px solid rgba(77,166,255,.25);border-radius:var(--r);margin-bottom:14px}
+.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.running-txt{font-size:12.5px;color:var(--blue);font-weight:500}
+.rules-filter{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
+.fchip{display:inline-flex;align-items:center;gap:4px;padding:4px 11px;border-radius:99px;border:1px solid var(--border);background:var(--bg-card);cursor:pointer;font-size:11px;font-weight:600;color:var(--text-2);transition:all var(--t);font-family:inherit}
+.fchip:hover,.fchip.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.fchip.dan.active{background:var(--red-dim);border-color:var(--red);color:var(--red)}
+.fchip.warn.active{background:var(--yellow-dim);border-color:var(--yellow);color:var(--yellow)}
+.rules-prog{display:flex;align-items:center;gap:11px;padding:11px 15px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:16px}
+.rp-bar{flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden}
+.rp-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--blue));border-radius:99px;transition:width .6s ease}
+.rp-txt{font-size:11px;color:var(--text-2);white-space:nowrap}
+.app-all-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--green-dim);border:1px solid rgba(0,212,160,.3);border-radius:var(--r-sm);color:var(--green);font-size:11px;font-weight:700;cursor:pointer;transition:all var(--t);font-family:inherit}
+.app-all-btn:hover{background:rgba(0,212,160,.2)}
+.rule-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;transition:all var(--t)}
+.rule-card.r-approved{border-left:3px solid var(--green);opacity:.72}
+.rule-card.r-rejected{border-left:3px solid var(--red);opacity:.5}
+.rule-card.r-pending{border-left:3px solid var(--yellow)}
+.rc-hdr{padding:13px 15px;display:flex;align-items:center;gap:11px;cursor:pointer;transition:background var(--t)}
+.rc-hdr:hover{background:var(--bg-card-hover)}
+.sev-ico{font-size:16px;flex-shrink:0}
+.rc-title{flex:1}
+.rc-name{font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text-1);margin-bottom:1px}
+.rc-desc{font-size:11px;color:var(--text-2)}
+.rc-meta{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.conf-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--bg-input);color:var(--text-2);border:1px solid var(--border)}
+.exp-ico{color:var(--text-3);transition:transform var(--t);font-size:12px}
+.rule-card.expanded .exp-ico{transform:rotate(180deg)}
+.rc-body{display:none;border-top:1px solid var(--border)}
+.rule-card.expanded .rc-body{display:block}
+.ev-sec{padding:14px 15px;border-bottom:1px solid var(--border)}
+.ev-title{font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:1px;margin-bottom:11px;display:flex;align-items:center;gap:5px}
+.dist-chart{display:flex;flex-direction:column;gap:5px;margin-bottom:13px}
+.dist-row{display:flex;align-items:center;gap:9px}
+.dist-lbl{font-size:10.5px;font-family:'JetBrains Mono',monospace;color:var(--text-2);width:56px;text-align:right;flex-shrink:0}
+.dist-bw{flex:1;height:18px;background:var(--bg-input);border-radius:4px;overflow:hidden}
+.dist-b{height:100%;border-radius:4px;display:flex;align-items:center;padding-left:7px;font-size:9.5px;font-weight:700;color:rgba(255,255,255,.85);min-width:24px;transition:width .8s ease}
+.db-norm{background:linear-gradient(90deg,rgba(0,212,160,.75),rgba(0,212,160,.4))}
+.db-anom{background:linear-gradient(90deg,rgba(255,179,71,.8),rgba(255,179,71,.5))}
+.db-ext{background:var(--red)}
+.dist-cnt{font-size:10.5px;color:var(--text-2);font-family:'JetBrains Mono',monospace;width:105px;flex-shrink:0}
+.det-scores{display:flex;gap:9px;margin-bottom:12px}
+.det-chip{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 11px;flex:1}
+.dc-name{font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.dc-val{font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red)}
+.dc-thr{font-size:9.5px;color:var(--text-3);margin-top:1px}
+.stbl{width:100%;border-collapse:collapse;font-size:10.5px;font-family:'JetBrains Mono',monospace;margin-bottom:7px}
+.stbl th{background:var(--bg-input);padding:5px 9px;text-align:left;color:var(--text-3);font-size:9.5px;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.stbl td{padding:5px 9px;border-bottom:1px solid var(--border);color:var(--text-2)}
+.stbl tr:last-child td{border-bottom:none}
+.stbl tr:hover td{background:var(--bg-card-hover)}
+.cell-err{color:var(--red);font-weight:700}
+.see-all{font-size:10.5px;color:var(--blue);cursor:pointer}
+.see-all:hover{text-decoration:underline}
+.imp-sec{padding:14px 15px;border-bottom:1px solid var(--border)}
+.imp-bar{height:28px;background:var(--bg-input);border-radius:var(--r-sm);overflow:hidden;display:flex;margin-bottom:9px}
+.imp-clean{background:linear-gradient(90deg,rgba(0,212,160,.6),rgba(0,212,160,.35));display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:var(--green);border-right:2px solid var(--bg-base);transition:width .8s ease;min-width:40px}
+.imp-quar{background:linear-gradient(90deg,rgba(255,77,106,.55),rgba(255,77,106,.3));display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:var(--red);transition:width .8s ease}
+.imp-legend{display:flex;gap:14px;font-size:11px;color:var(--text-2);margin-bottom:7px}
+.imp-leg-it{display:flex;align-items:center;gap:5px}
+.leg-dot{width:7px;height:7px;border-radius:50%}
+.imp-note{font-size:10.5px;color:var(--text-3);padding:7px 10px;background:var(--bg-input);border-radius:var(--r-sm);border-left:2px solid var(--blue);line-height:1.5}
+.rule-overlap{font-size:10.5px;color:var(--text-3);margin-top:6px;padding:6px 10px;background:var(--purple-dim);border-radius:var(--r-sm);border-left:2px solid var(--purple)}
+.ai-reas{margin:0 15px 11px;padding:11px 13px;background:var(--bg-input);border-radius:var(--r-sm);border:1px solid var(--border)}
+.ai-lbl{font-size:9.5px;color:var(--purple);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.ai-txt{font-size:11px;color:var(--text-2);line-height:1.65}
+.sql-prev{margin:0 15px 11px;padding:9px 13px;background:var(--bg-input);border-radius:var(--r-sm);border:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--green);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.copy-btn{font-size:10.5px;color:var(--text-3);cursor:pointer;padding:2px 7px;border:1px solid var(--border);border-radius:4px;background:transparent;font-family:inherit;transition:all var(--t)}
+.copy-btn:hover{color:var(--text-1);border-color:var(--border-strong)}
+.rule-acts{padding:11px 15px;display:flex;gap:7px;flex-wrap:wrap}
+.rule-st-overlay{padding:9px 15px;display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700}
+.ov-g{color:var(--green);background:var(--green-dim)}.ov-r{color:var(--red);background:var(--red-dim)}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:var(--r-sm);font-size:11.5px;font-weight:700;cursor:pointer;transition:all var(--t);border:1px solid;font-family:inherit;line-height:1}
+.btn-app{background:var(--green-dim);border-color:rgba(0,212,160,.4);color:var(--green)}.btn-app:hover{background:rgba(0,212,160,.2)}
+.btn-edt{background:var(--blue-dim);border-color:rgba(77,166,255,.4);color:var(--blue)}.btn-edt:hover{background:rgba(77,166,255,.2)}
+.btn-rej{background:var(--red-dim);border-color:rgba(255,77,106,.4);color:var(--red)}.btn-rej:hover{background:rgba(255,77,106,.2)}
+.btn-skp{background:transparent;border-color:var(--border);color:var(--text-3)}.btn-skp:hover{background:var(--bg-card-hover);color:var(--text-2)}
+.btn-pri{background:var(--green);border-color:var(--green);color:#08111e}.btn-pri:hover{opacity:.9}
+.btn-sec{background:var(--bg-card);border-color:var(--border);color:var(--text-1)}.btn-sec:hover{background:var(--bg-card-hover)}
+.res-split{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.res-box{border-radius:var(--r);padding:18px;text-align:center}
+.rb-clean{background:var(--green-dim);border:1px solid rgba(0,212,160,.3)}
+.rb-quar{background:var(--red-dim);border:1px solid rgba(255,77,106,.3)}
+.rb-num{font-size:30px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-bottom:3px}
+.rb-clean .rb-num{color:var(--green)}.rb-quar .rb-num{color:var(--red)}
+.rb-lbl{font-size:12.5px;font-weight:700;color:var(--text-1);margin-bottom:3px}
+.rb-sub{font-size:10.5px;color:var(--text-2)}
+.mon{padding:22px}
+.tab-bar{display:flex;border-bottom:1px solid var(--border);margin-bottom:18px}
+.tab{padding:9px 15px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text-2);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all var(--t)}
+.tab:hover{color:var(--text-1)}
+.tab.active{color:var(--green);border-bottom-color:var(--green)}
+.tab-cont{display:none}.tab-cont.active{display:block}
+.agent-feed-wrap{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.afw-hdr{padding:11px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;color:var(--text-2)}
+.afw-list{max-height:380px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10.5px}
+.afw-item{padding:7px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;color:var(--text-2);animation:feedIn .3s ease}
+@keyframes feedIn{from{opacity:0;background:rgba(0,212,160,.06)}to{opacity:1;background:transparent}}
+.afw-time{color:var(--text-3);width:58px;flex-shrink:0}
+.afw-agent{color:var(--purple);width:125px;flex-shrink:0}
+.afw-action{color:var(--blue);width:115px;flex-shrink:0}
+.afw-result{flex:1}
+.afw-result.ok{color:var(--green)}.afw-result.warn{color:var(--yellow)}.afw-result.err{color:var(--red)}
+.bench-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.bench-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:18px}
+.bench-ttl{font-size:12.5px;font-weight:700;color:var(--text-1);margin-bottom:2px}
+.bench-sub{font-size:10.5px;color:var(--text-3);margin-bottom:14px}
+.bench-row{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.bench-lbl{font-size:11.5px;font-weight:700;width:30px;flex-shrink:0}
+.lbl-c0{color:var(--text-3)}.lbl-c1{color:var(--blue)}.lbl-a1{color:var(--green)}
+.bench-bw{flex:1;height:22px;background:var(--bg-input);border-radius:4px;overflow:hidden}
+.bench-b{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:7px;font-size:10.5px;font-weight:700;color:rgba(255,255,255,.88);transition:width 1s ease}
+.bb-c0{background:linear-gradient(90deg,#3d5166,#5a7080)}
+.bb-c1{background:linear-gradient(90deg,var(--blue),rgba(77,166,255,.6))}
+.bb-a1{background:linear-gradient(90deg,var(--green),rgba(0,212,160,.6))}
+.bench-val{font-size:11px;font-weight:700;width:38px;text-align:right;font-family:'JetBrains Mono',monospace;flex-shrink:0}
+.bench-winner{margin-top:11px;padding:7px 11px;background:var(--green-dim);border:1px solid rgba(0,212,160,.25);border-radius:var(--r-sm);font-size:10.5px;color:var(--green)}
+.audit{padding:22px}
+.audit-fbar{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.aud-search{flex:1;min-width:180px;padding:7px 11px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text-1);font-size:11.5px;font-family:inherit;outline:none;transition:border-color var(--t)}
+.aud-search:focus{border-color:var(--green)}
+.aud-search::placeholder{color:var(--text-3)}
+.audit-tbl-wrap{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.aud-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.aud-tbl th{background:var(--bg-input);padding:9px 13px;text-align:left;color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.aud-tbl td{padding:9px 13px;border-bottom:1px solid var(--border);color:var(--text-2)}
+.aud-tbl tr:last-child td{border-bottom:none}
+.aud-tbl tr:hover td{background:var(--bg-card-hover)}
+.aud-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.sha-code{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)}
+.vfy-link{font-size:10px;color:var(--green);cursor:pointer;margin-left:5px}
+.vfy-link:hover{text-decoration:underline}
+.tests{padding:22px}
+.test-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.test-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:14px;text-align:center}
+.ts-num{font-size:30px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-bottom:3px}
+.ts-lbl{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px}
+.test-tbl-wrap{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.test-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.test-tbl th{background:var(--bg-input);padding:9px 13px;text-align:left;color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.test-tbl td{padding:9px 13px;border-bottom:1px solid var(--border);color:var(--text-2);font-family:'JetBrains Mono',monospace;font-size:11px}
+.test-tbl tr:last-child td{border-bottom:none}
+.test-tbl tr:hover td{background:var(--bg-card-hover)}
+.t-pass{color:var(--green);font-weight:700}.t-fail{color:var(--red);font-weight:700}
+.t-dur{color:var(--text-3);font-size:10.5px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);z-index:800;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:14px;width:100%;max-width:540px;max-height:85vh;overflow-y:auto;animation:modalIn .28s ease}
+.modal-lg{max-width:740px}
+@keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-hdr{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-ttl{font-size:14px;font-weight:700;color:var(--text-1)}
+.modal-sub-txt{font-size:11px;color:var(--text-2);margin-top:2px}
+.modal-close{width:26px;height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-3);font-size:16px;transition:all var(--t);background:transparent;border:none}
+.modal-close:hover{background:var(--bg-card);color:var(--text-1)}
+.modal-body{padding:18px}
+.modal-footer{padding:13px 18px;border-top:1px solid var(--border);display:flex;gap:7px;justify-content:flex-end}
+.slider-wrap{margin:14px 0}
+.sl-lbl{font-size:11.5px;color:var(--text-2);margin-bottom:7px}
+input[type=range]{width:100%;accent-color:var(--green);cursor:pointer}
+.sl-preview{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);font-family:'JetBrains Mono',monospace;margin-top:5px}
+.thr-display{text-align:center;padding:11px;background:var(--bg-card);border-radius:var(--r-sm);border:1px solid var(--border);margin:11px 0}
+.thr-val{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)}
+.thr-lbl{font-size:10.5px;color:var(--text-3);margin-top:3px}
+.imp-prev-live{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:11px 0}
+.ip-box{padding:11px;border-radius:var(--r-sm);text-align:center}
+.ip-clean{background:var(--green-dim);border:1px solid rgba(0,212,160,.3)}
+.ip-quar{background:var(--red-dim);border:1px solid rgba(255,77,106,.3)}
+.ip-num{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.ip-clean .ip-num{color:var(--green)}.ip-quar .ip-num{color:var(--red)}
+.ip-lbl{font-size:10.5px;color:var(--text-2);margin-top:3px}
+textarea{width:100%;padding:9px 11px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text-1);font-size:11.5px;font-family:inherit;resize:vertical;min-height:65px;outline:none;transition:border-color var(--t)}
+textarea:focus{border-color:var(--green)}
+textarea::placeholder{color:var(--text-3)}
+label{font-size:11.5px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px}
+.form-grp{margin-bottom:13px}
+.notif-panel{position:fixed;top:var(--top-h);right:0;width:350px;height:calc(100vh - var(--top-h));background:var(--bg-surface);border-left:1px solid var(--border);z-index:500;transform:translateX(105%);transition:transform .28s ease;display:flex;flex-direction:column;overflow:hidden}
+.notif-panel.open{transform:translateX(0)}
+.np-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.np-ttl{font-size:13px;font-weight:700;color:var(--text-1)}
+.mark-read-btn{font-size:10.5px;color:var(--blue);cursor:pointer;background:none;border:none;font-family:inherit}
+.notif-list{flex:1;overflow-y:auto}
+.notif-item{padding:11px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background var(--t);animation:fadeIn .3s ease}
+.notif-item:hover{background:var(--bg-card)}
+.notif-item.unread{background:rgba(0,212,160,.025)}
+.ni-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.ni-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.ni-type.nt-alert{color:var(--red)}.ni-type.nt-info{color:var(--blue)}.ni-type.nt-success{color:var(--green)}.ni-type.nt-warn{color:var(--yellow)}
+.ni-time{font-size:9.5px;color:var(--text-3);font-family:'JetBrains Mono',monospace}
+.ni-txt{font-size:11.5px;color:var(--text-2);line-height:1.5}
+.toast-container{position:fixed;bottom:18px;right:18px;z-index:2000;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.toast{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r);padding:11px 14px;display:flex;align-items:flex-start;gap:9px;min-width:280px;max-width:380px;pointer-events:all;animation:toastIn .3s ease;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+@keyframes toastIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+.toast.out{animation:toastOut .3s ease forwards}
+@keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(16px)}}
+.toast.t-success{border-left:3px solid var(--green)}.toast.t-error{border-left:3px solid var(--red)}.toast.t-warn{border-left:3px solid var(--yellow)}.toast.t-info{border-left:3px solid var(--blue)}
+.toast-ico{font-size:16px;flex-shrink:0;margin-top:1px}
+.toast-body{flex:1}
+.toast-ttl{font-size:12.5px;font-weight:700;color:var(--text-1);margin-bottom:1px}
+.toast-msg{font-size:11px;color:var(--text-2);line-height:1.45}
+.sch-panel{position:fixed;top:var(--top-h);right:0;width:400px;background:var(--bg-surface);border-left:1px solid var(--border);z-index:600;transform:translateX(105%);transition:transform .28s ease;border-radius:0 0 0 12px;overflow:hidden}
+.sch-panel.open{transform:translateX(0)}
+.sp-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sp-ttl{font-size:13px;font-weight:700;color:var(--text-1)}
+.sp-body{padding:14px 18px;max-height:calc(100vh - var(--top-h) - 60px);overflow-y:auto}
+.sch-sc{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:11px}
+.sc-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sc-name{font-size:12.5px;font-weight:700;color:var(--text-1)}
+.sc-time{font-size:10.5px;color:var(--text-3);font-family:'JetBrains Mono',monospace}
+.sc-desc{font-size:11.5px;color:var(--text-2);margin-bottom:11px;line-height:1.55}
+.run-sc-btn{display:flex;align-items:center;gap:5px;padding:7px 13px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text-1);font-size:11.5px;font-weight:700;cursor:pointer;transition:all var(--t);font-family:inherit}
+.run-sc-btn:hover{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.run-sc-btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+.sim-console{margin-top:11px;padding:11px;background:var(--bg-input);border-radius:var(--r-sm);border:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--text-2);max-height:200px;overflow-y:auto;display:none}
+.sim-console.show{display:block}
+.sim-line{padding:1.5px 0;animation:fadeIn .2s ease}
+.sl-g{color:var(--green)}.sl-b{color:var(--blue)}.sl-y{color:var(--yellow)}.sl-r{color:var(--red)}.sl-p{color:var(--purple)}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="tb">
+  <div class="brand"><div class="brand-ico">🔬</div>DataTrust OS</div>
+  <div class="tb-sep"></div>
+  <div class="syspulse"><div class="pdot" id="sysDot"></div><span id="sysStatus">System Healthy</span>&nbsp;·&nbsp;<span id="sysDatasets">3 datasets active</span></div>
+  <div class="tb-spacer"></div>
+  <div class="tb-actions">
+    <button class="sch-btn" onclick="toggleSchedulePanel()">🗓 Scheduled Runs</button>
+    <div class="ico-btn" onclick="toggleNotifPanel()" title="Thông báo">🔔<div class="ico-badge" id="notifBadge">2</div></div>
+    <div class="ico-btn" onclick="navigateTo('monitoring')" title="Monitoring">📡</div>
+    <div class="avatar" title="ngân@vingroup.vn">TN</div>
+  </div>
+</header>
+<nav class="nav">
+  <div class="nav-sec">Workspace</div>
+  <div class="nav-item active" id="nav-dashboard" onclick="navigateTo('dashboard')"><span class="nav-ico">🏠</span>Dashboard</div>
+  <div class="nav-item" id="nav-pipeline" onclick="navigateTo('pipeline')"><span class="nav-ico">⚡</span>Datasets<div class="nav-badge" id="navPipelineBadge">1</div></div>
+  <div class="nav-sec">System</div>
+  <div class="nav-item" id="nav-monitoring" onclick="navigateTo('monitoring')"><span class="nav-ico">📡</span>Monitoring</div>
+  <div class="nav-item" id="nav-audit" onclick="navigateTo('audit')"><span class="nav-ico">📋</span>Audit Log</div>
+  <div class="nav-item" id="nav-tests" onclick="navigateTo('tests')"><span class="nav-ico">🧪</span>Tests</div>
+  <div class="nav-spacer"></div>
+  <div class="nav-item" onclick="navigateTo('dashboard')"><span class="nav-ico">⚙️</span>Settings</div>
+</nav>
+<main class="main">
+
+<!-- DASHBOARD -->
+<div id="view-dashboard" class="view active">
+<div class="dash">
+<div class="attn-banner" onclick="openDataset(0)" id="attnBanner">
+  <div class="attn-ico">⚡</div>
+  <div class="attn-content">
+    <div class="attn-title">6 QUY TẮC ĐANG CHỜ DUYỆT</div>
+    <div class="attn-sub">Dataset: <b>fhvhv_tripdata_July.parquet</b> — AI đã hoàn tất phân tích, cần bạn xem xét để pipeline tiếp tục</div>
+  </div>
+  <button class="attn-cta">→ Xem và Duyệt Ngay</button>
+</div>
+<div class="sec-hdr"><div class="sec-title">Active Pipelines</div><div style="font-size:10.5px;color:var(--text-3)" id="plCount">3 datasets</div></div>
+<div class="pl-cards" id="pipelineCards">
+  <div class="pl-card urgent" onclick="openDataset(0)">
+    <div class="pl-card-ico">📄</div>
+    <div class="pl-card-info"><div class="pl-card-name">fhvhv_tripdata_July.parquet</div><div class="pl-card-meta"><div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm c"></div><div class="pdot-sm"></div><div class="pdot-sm"></div></div>Phase 5/7: HITL Review · 120,847 rows · 18 cols</div></div>
+    <div class="pl-card-right"><div class="chip chip-y">⏳ Chờ Duyệt</div><div class="pl-card-hint">6 rules pending →</div></div>
+  </div>
+  <div class="pl-card running" onclick="openDataset(1)">
+    <div class="pl-card-ico">📊</div>
+    <div class="pl-card-info"><div class="pl-card-name">ev_feedback_June.parquet</div><div class="pl-card-meta"><div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm c"></div><div class="pdot-sm"></div><div class="pdot-sm"></div><div class="pdot-sm"></div><div class="pdot-sm"></div></div>Phase 3/7: AI Đang Phân Tích · 45,231 rows · 12 cols</div></div>
+    <div class="pl-card-right"><div class="chip chip-b">🔄 Running</div><div class="pl-card-hint">AnomalyDetector...</div></div>
+  </div>
+  <div class="pl-card done" onclick="openDataset(2)">
+    <div class="pl-card-ico">✅</div>
+    <div class="pl-card-info"><div class="pl-card-name">charging_sessions_Q2.parquet</div><div class="pl-card-meta"><div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div></div>Phase 7/7: Hoàn Tất · 89,432 rows · CleanDB: 98.1%</div></div>
+    <div class="pl-card-right"><div class="chip chip-g">✅ Done</div><div class="pl-card-hint">01/08 14:23</div></div>
+  </div>
+</div>
+<div class="dash-bottom">
+  <div>
+    <div class="sec-title">Health Metrics</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-lbl">Rows Processed</div><div class="stat-val" id="statRows">1.2M</div><div class="stat-sub">Tổng cộng tháng này</div></div>
+      <div class="stat-card"><div class="stat-lbl">CleanDB Rate</div><div class="stat-val" style="color:var(--green)">96.4%</div><div class="stat-sub">↑ +1.2% tuần này</div></div>
+      <div class="stat-card"><div class="stat-lbl">Rules Today</div><div class="stat-val" id="statRules">23</div><div class="stat-sub">Đã duyệt hôm nay</div></div>
+    </div>
+  </div>
+  <div>
+    <div class="agent-sec-title">Agent Status</div>
+    <div class="agent-section">
+      <div class="ag-card"><div class="ag-dot dot-off"></div><div><div class="ag-name">ProfilerAgent</div><div class="ag-st">Idle</div></div></div>
+      <div class="ag-card"><div class="ag-dot dot-y"></div><div><div class="ag-name">RuleProposerAgent</div><div class="ag-st" style="color:var(--yellow)">Awaiting HITL</div></div></div>
+      <div class="ag-card"><div class="ag-dot dot-y"></div><div><div class="ag-name">AnomalyDetectorAgent</div><div class="ag-st" style="color:var(--blue)">Running ZScore...</div></div></div>
+      <div class="ag-card"><div class="ag-dot dot-off"></div><div><div class="ag-name">DiagnosisAgent</div><div class="ag-st">Idle</div></div></div>
+      <div class="ag-card" style="margin-top:4px"><div class="ag-dot dot-g"></div><div><div class="ag-name" style="font-size:10.5px">Claude Opus 4 (Primary)</div><div class="ag-st">Connected · Gemini 2.5 Flash fallback ✓</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="sec-title">Recent Activity</div>
+<div class="feed">
+  <div class="feed-hdr">Activity Feed<div class="live-dot"><div class="pdot" style="width:6px;height:6px;margin:0"></div>LIVE</div></div>
+  <div class="feed-list" id="activityFeed">
+    <div class="feed-item"><div class="fi-time">14:31</div><div class="fi-ico">✅</div><div class="fi-txt">Rule <b>dropoff_datetime ≥ pickup_datetime</b> được duyệt · fhvhv_tripdata_July</div></div>
+    <div class="feed-item"><div class="fi-time">14:28</div><div class="fi-ico">🤖</div><div class="fi-txt"><b>RuleProposerAgent</b> đề xuất 8 rules cho fhvhv_tripdata_July · Confidence avg: 89%</div></div>
+    <div class="feed-item"><div class="fi-time">14:15</div><div class="fi-ico">🔍</div><div class="fi-txt"><b>AnomalyDetectorAgent</b> phát hiện 3 anomalies nghiêm trọng · ZScore + IsolationForest</div></div>
+    <div class="feed-item"><div class="fi-time">13:55</div><div class="fi-ico">📁</div><div class="fi-txt">Dataset <b>ev_feedback_June.parquet</b> upload · 45,231 rows · SHA: d7c3...f12a</div></div>
+    <div class="feed-item"><div class="fi-time">13:40</div><div class="fi-ico">🏁</div><div class="fi-txt">Pipeline <b>charging_sessions_Q2</b> hoàn tất · CleanDB: 87,766 · Quarantine: 1,666</div></div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- PIPELINE VIEW -->
+<div id="view-pipeline" class="view">
+<div class="pl-view">
+  <div class="pl-side">
+    <div class="pl-side-hdr">
+      <div class="pl-side-back" onclick="navigateTo('dashboard')">← Dashboard</div>
+      <div class="pl-side-name" id="plSideName">fhvhv_tripdata_July.parquet</div>
+      <div class="pl-side-meta" id="plSideMeta">120,847 rows · 18 cols · 02/08/2026</div>
+    </div>
+    <div class="phase-tl">
+      <div class="ph-item ph-done" onclick="showPhase(0)"><div class="ph-circ">✓</div><div class="ph-label"><div class="ph-name">Ingest & Fingerprint</div><div class="ph-sub">SHA-256 locked · 2 phút trước</div></div></div>
+      <div class="ph-item ph-done" onclick="showPhase(1)"><div class="ph-circ">✓</div><div class="ph-label"><div class="ph-name">Profile & Statistics</div><div class="ph-sub">18 cols profiled</div></div></div>
+      <div class="ph-item ph-done" onclick="showPhase(2)"><div class="ph-circ">✓</div><div class="ph-label"><div class="ph-name">Anomaly Detection</div><div class="ph-sub">3 critical · 5 medium</div></div></div>
+      <div class="ph-item ph-done" onclick="showPhase(3)"><div class="ph-circ">✓</div><div class="ph-label"><div class="ph-name">AI Rule Proposal</div><div class="ph-sub">8 rules · avg conf 89%</div></div></div>
+      <div class="ph-item ph-cur" onclick="showPhase(4)"><div class="ph-circ">5</div><div class="ph-label"><div class="ph-name">HITL Review</div><div class="ph-sub" id="phaseHITLSub">2/8 duyệt · 6 chờ</div></div></div>
+      <div class="ph-item ph-pend"><div class="ph-circ">6</div><div class="ph-label"><div class="ph-name">Execute & Validate</div><div class="ph-sub">Pending</div></div></div>
+      <div class="ph-item ph-pend"><div class="ph-circ">7</div><div class="ph-label"><div class="ph-name">Export & Audit</div><div class="ph-sub">Pending</div></div></div>
+    </div>
+    <div class="pl-side-links">
+      <div class="sl-link" onclick="showModal('modal-tests')">🧪 Test Results <span class="sl-badge sby">2/3</span></div>
+      <div class="sl-link" onclick="navigateTo('monitoring')">📡 Agent Logs</div>
+      <div class="sl-link" onclick="navigateTo('audit')">📋 Audit Trail <span class="sl-badge sbg">12</span></div>
+    </div>
+  </div>
+  <div class="pl-main" id="plMain">
+
+    <!-- Phase 0 -->
+    <div id="phaseContent0" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">① Ingest & Fingerprint</div><div class="phase-sub">Dữ liệu gốc đã được đọc và đóng dấu SHA-256</div></div><div class="chip chip-g">✅ Completed</div></div>
+      <div class="prof-grid">
+        <div class="prof-stat"><div class="ps-lbl">File Size</div><div class="ps-val">214 MB</div><div class="ps-sub">fhvhv_tripdata_July.parquet</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Format</div><div class="ps-val">Parquet</div><div class="ps-sub">Snappy compression</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Status</div><div class="ps-val" style="color:var(--green)">✓ OK</div><div class="ps-sub">Đọc thành công</div></div>
+      </div>
+      <div class="sha-row"><span style="flex-shrink:0">SHA-256:</span><span class="sha-val">a3f9b2c41d8e76f0234acd5b89e1f2340ab78cd9e01234f567890abcdef12345678</span><span class="copy-btn" onclick="showToast('success','Đã copy!','SHA-256 fingerprint đã được copy')">Copy</span></div>
+      <div style="margin-top:14px;font-size:10px;color:var(--text-3);padding:8px 12px;background:var(--bg-input);border-radius:var(--r-sm)">📌 Dữ liệu gốc được bảo toàn nguyên vẹn. Mọi bước xử lý tiếp theo đều không thay đổi file gốc.</div>
+    </div>
+
+    <!-- Phase 1 -->
+    <div id="phaseContent1" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">② Profile & Statistics</div><div class="phase-sub">Phân tích cấu trúc và thống kê 18 cột</div></div><div class="chip chip-g">✅ Completed</div></div>
+      <div class="prof-grid">
+        <div class="prof-stat"><div class="ps-lbl">Total Rows</div><div class="ps-val">120,847</div><div class="ps-sub">Không có row trống</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Columns</div><div class="ps-val">18</div><div class="ps-sub">14 numeric · 4 categorical</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Null Rate</div><div class="ps-val" style="color:var(--yellow)">2.3%</div><div class="ps-sub">4 cols có missing</div></div>
+      </div>
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+        <table class="col-table">
+          <thead><tr><th>Column</th><th>Type</th><th>Null%</th><th>Min</th><th>Max</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>hvfhs_license_num</td><td class="dtype">VARCHAR(6)</td><td class="null-ok">0.0%</td><td>HV0002</td><td>HV0005</td><td>—</td></tr>
+            <tr><td>pickup_datetime</td><td class="dtype">TIMESTAMP</td><td class="null-ok">0.0%</td><td>2026-07-01</td><td>2026-07-31</td><td>—</td></tr>
+            <tr><td>dropoff_datetime</td><td class="dtype">TIMESTAMP</td><td class="null-ok">0.0%</td><td>—</td><td>—</td><td style="color:var(--yellow)">34 rows: drop &lt; pick</td></tr>
+            <tr><td>trip_miles</td><td class="dtype">FLOAT</td><td class="null-ok">0.0%</td><td style="color:var(--red)">-12.5</td><td>487.3</td><td style="color:var(--red)">⚠️ 847 negative</td></tr>
+            <tr><td>trip_time</td><td class="dtype">INTEGER</td><td class="null-ok">0.0%</td><td>0</td><td>86398</td><td style="color:var(--yellow)">12 rows = 0</td></tr>
+            <tr><td>base_passenger_fare</td><td class="dtype">FLOAT</td><td class="null-ok">0.0%</td><td>0.0</td><td>892.50</td><td style="color:var(--yellow)">8 rows = 0</td></tr>
+            <tr><td>PULocationID</td><td class="dtype">INTEGER</td><td class="null-ok">0.0%</td><td>1</td><td>265</td><td>—</td></tr>
+            <tr><td>on_scene_datetime</td><td class="dtype">TIMESTAMP</td><td class="null-warn">8.7%</td><td>—</td><td>—</td><td style="color:var(--yellow)">Nullable, OK</td></tr>
+            <tr><td>tips</td><td class="dtype">FLOAT</td><td class="null-warn">1.2%</td><td style="color:var(--red)">-5.00</td><td>450.00</td><td style="color:var(--red)">3 negative</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div id="phaseContent2" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">③ Anomaly Detection</div><div class="phase-sub">ZScore + IQR + IsolationForest đã chạy xong</div></div><div class="chip chip-g">✅ Completed</div></div>
+      <div class="anom-summary">
+        <div class="anom-stat"><div class="anom-num" style="color:var(--red)">3</div><div class="anom-lbl">🔴 Critical</div></div>
+        <div class="anom-stat"><div class="anom-num" style="color:var(--yellow)">5</div><div class="anom-lbl">🟡 Medium</div></div>
+        <div class="anom-stat"><div class="anom-num" style="color:var(--green)">2</div><div class="anom-lbl">🟢 Low</div></div>
+        <div class="anom-stat"><div class="anom-num" style="color:var(--blue)">1,026</div><div class="anom-lbl">Rows Flagged</div></div>
+      </div>
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+        <table class="col-table">
+          <thead><tr><th>Severity</th><th>Column</th><th>Detector</th><th>Rows</th><th>Score</th></tr></thead>
+          <tbody>
+            <tr><td><span class="chip chip-r" style="font-size:10px">🔴 CRITICAL</span></td><td>trip_miles</td><td>ZScore + IsolForest</td><td style="color:var(--red)">847</td><td style="font-family:'JetBrains Mono';font-size:10.5px;color:var(--red)">z=-4.8/if=0.73</td></tr>
+            <tr><td><span class="chip chip-r" style="font-size:10px">🔴 CRITICAL</span></td><td>dropoff_datetime</td><td>Cross-field</td><td style="color:var(--red)">34</td><td style="font-family:'JetBrains Mono';font-size:10.5px;color:var(--red)">logic error</td></tr>
+            <tr><td><span class="chip chip-r" style="font-size:10px">🔴 CRITICAL</span></td><td>PULocationID</td><td>ZScore</td><td style="color:var(--red)">67</td><td style="font-family:'JetBrains Mono';font-size:10.5px;color:var(--red)">z=3.8</td></tr>
+            <tr><td><span class="chip chip-y" style="font-size:10px">🟡 MEDIUM</span></td><td>trip_time</td><td>IQR</td><td style="color:var(--yellow)">12</td><td style="font-family:'JetBrains Mono';font-size:10.5px;color:var(--yellow)">iqr_outlier</td></tr>
+            <tr><td><span class="chip chip-g" style="font-size:10px">🟢 LOW</span></td><td>tips</td><td>IQR</td><td>3</td><td style="font-family:'JetBrains Mono';font-size:10.5px">iqr_mild</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div id="phaseContent3" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">④ AI Rule Proposal</div><div class="phase-sub">RuleProposerAgent · 8 rules · Repair loop: 1/3 · Compiled ✓</div></div><div class="chip chip-g">✅ Completed</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+        <div class="prof-stat"><div class="ps-lbl">Rules Proposed</div><div class="ps-val">8</div><div class="ps-sub">Từ anomaly analysis</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Avg Confidence</div><div class="ps-val" style="color:var(--green)">89%</div><div class="ps-sub">≥ 80% target ✓</div></div>
+        <div class="prof-stat"><div class="ps-lbl">Compiled</div><div class="ps-val" style="color:var(--green)">8/8</div><div class="ps-sub">SQL valid · All pass</div></div>
+      </div>
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">🤖 AI Reasoning (DiagnosisAgent):</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.7;font-style:italic">"Sau khi phân tích 1,026 rows bất thường, tôi xác định 8 pattern vi phạm chính. Nghiêm trọng nhất là trip_miles âm (847 rows) — nhiều khả năng do sensor malfunction. Các rules đã validate thống nhất với target schema FHVHV_TripData v1.0.0."</div>
+      </div>
+      <button class="btn btn-app" style="margin-top:13px" onclick="showPhase(4)">→ Xem HITL Review</button>
+    </div>
+
+    <!-- Phase 4: HITL -->
+    <div id="phaseContent4">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">⑤ HITL Review</div><div class="phase-sub">Xem xét và phê duyệt các quy tắc AI đề xuất</div></div></div>
+      <div class="rules-filter">
+        <button class="fchip active" onclick="filterRules('all',this)">Tất cả (8)</button>
+        <button class="fchip dan" onclick="filterRules('high',this)">🔴 Critical (3)</button>
+        <button class="fchip warn" onclick="filterRules('medium',this)">🟡 Medium (3)</button>
+        <button class="fchip" onclick="filterRules('low',this)">🟢 Low (2)</button>
+        <button class="fchip" onclick="filterRules('pending',this)">⏳ Chờ (6)</button>
+      </div>
+      <div class="rules-prog">
+        <div class="rp-bar"><div class="rp-fill" id="ruleProgressFill" style="width:25%"></div></div>
+        <div class="rp-txt" id="ruleProgressTxt">2 / 8 đã duyệt</div>
+        <button class="app-all-btn" onclick="approveAll()">✅ Duyệt tất cả còn lại</button>
+      </div>
+      <div id="rulesList">
+
+        <div class="rule-card r-pending" id="rule0" data-sev="high" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(0)">
+            <div class="sev-ico">🔴</div><div class="rc-title"><div class="rc-name">trip_miles &gt;= 0</div><div class="rc-desc">Số km chuyến đi không được âm — vi phạm ràng buộc vật lý</div></div>
+            <div class="rc-meta"><div class="conf-badge">94%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE — Tại sao rule này?</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">Normal</div><div class="dist-bw"><div class="dist-b db-norm" style="width:98%">119,153</div></div><div class="dist-cnt">119,153 rows (98.6%)</div></div>
+                <div class="dist-row"><div class="dist-lbl">Anomaly</div><div class="dist-bw"><div class="dist-b db-anom" style="width:1%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--yellow)">844 rows (0.70%)</div></div>
+                <div class="dist-row"><div class="dist-lbl">Extreme</div><div class="dist-bw"><div class="dist-b db-ext" style="width:0.1%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--red)">3 rows (&lt;-10)</div></div>
+              </div>
+              <div class="det-scores">
+                <div class="det-chip"><div class="dc-name">ZScore</div><div class="dc-val">-4.8</div><div class="dc-thr">Ngưỡng: ±3.0</div></div>
+                <div class="det-chip"><div class="dc-name">IsolationForest</div><div class="dc-val">0.73</div><div class="dc-thr">Ngưỡng: 0.5</div></div>
+                <div class="det-chip" style="border-color:rgba(0,212,160,.3);background:var(--green-dim)"><div class="dc-name">Consensus</div><div class="dc-val" style="color:var(--green);font-size:13px">✓ Agree</div><div class="dc-thr" style="color:var(--green)">Cả 2 detectors</div></div>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-3);margin-bottom:9px">📋 5 Sample Rows Vi Phạm:</div>
+              <table class="stbl">
+                <thead><tr><th>trip_id</th><th>trip_miles</th><th>pickup_datetime</th><th>PULocationID</th></tr></thead>
+                <tbody>
+                  <tr><td>TRP_00821</td><td class="cell-err">-12.5</td><td>2026-07-15 08:23</td><td>142</td></tr>
+                  <tr><td>TRP_04532</td><td class="cell-err">-3.2</td><td>2026-07-18 14:07</td><td>236</td></tr>
+                  <tr><td>TRP_07891</td><td class="cell-err">-0.1</td><td>2026-07-22 19:45</td><td>87</td></tr>
+                  <tr><td>TRP_09234</td><td class="cell-err">-7.8</td><td>2026-07-25 06:12</td><td>201</td></tr>
+                  <tr><td>TRP_10987</td><td class="cell-err">-0.5</td><td>2026-07-28 22:33</td><td>159</td></tr>
+                </tbody>
+              </table>
+              <a class="see-all">Xem tất cả 847 rows vi phạm →</a>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT — Nếu duyệt rule này:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:99.3%">CleanDB ✅</div><div class="imp-quar" style="width:0.7%"></div></div>
+              <div class="imp-legend">
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--green)"></div>CleanDB: <b style="color:var(--green);margin-left:3px">119,153 rows</b></div>
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--red)"></div>Quarantine: <b style="color:var(--red);margin-left:3px">847 rows (0.70%)</b></div>
+              </div>
+              <div class="imp-note">✅ 0 rows mất — Dữ liệu lỗi cách ly vào Quarantine, không xóa, luôn có thể khôi phục</div>
+              <div class="rule-overlap">🔗 Liên quan: Rule #5 (trip_time &gt; 0) dùng chung cột này</div>
+            </div>
+            <div class="ai-reas"><div class="ai-lbl">🤖 AI Reasoning (Claude Opus 4)</div><div class="ai-txt">"Theo target schema FHVHV_TripData, trip_miles là khoảng cách vật lý không thể âm. 847 rows có giá trị âm là lỗi sensor hoặc data entry. ZScore = -4.8 và IsolationForest = 0.73 đều vượt ngưỡng — cả hai detectors đồng thuận. Khuyến nghị quarantine để team kiểm tra."</div></div>
+            <div class="sql-prev"><span>trip_miles &gt;= 0</span><button class="copy-btn" onclick="showToast('info','Đã copy SQL','trip_miles >= 0')">Copy SQL</button></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(0)">✅ Duyệt Rule</button>
+              <button class="btn btn-edt" onclick="openEditModal(0,'trip_miles','trip_miles >= 0',0,-50,100,847,120847)">✏️ Chỉnh Sửa</button>
+              <button class="btn btn-rej" onclick="rejectRule(0)">❌ Từ Chối</button>
+              <button class="btn btn-skp">⏭ Bỏ Qua</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-card r-pending" id="rule1" data-sev="high" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(1)">
+            <div class="sev-ico">🔴</div><div class="rc-title"><div class="rc-name">dropoff_datetime &gt;= pickup_datetime</div><div class="rc-desc">Thời gian kết thúc không thể sớm hơn thời gian bắt đầu</div></div>
+            <div class="rc-meta"><div class="conf-badge">97%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE — Cross-field violation</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">Valid</div><div class="dist-bw"><div class="dist-b db-norm" style="width:99.97%">120,813</div></div><div class="dist-cnt">120,813 rows</div></div>
+                <div class="dist-row"><div class="dist-lbl">Violation</div><div class="dist-bw"><div class="dist-b db-ext" style="width:0.03%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--red)">34 rows</div></div>
+              </div>
+              <table class="stbl">
+                <thead><tr><th>trip_id</th><th>pickup_datetime</th><th>dropoff_datetime</th><th>diff (sec)</th></tr></thead>
+                <tbody>
+                  <tr><td>TRP_02341</td><td>2026-07-10 15:30:00</td><td class="cell-err">2026-07-10 15:28:45</td><td class="cell-err">-75</td></tr>
+                  <tr><td>TRP_05678</td><td>2026-07-14 22:15:00</td><td class="cell-err">2026-07-14 22:12:00</td><td class="cell-err">-180</td></tr>
+                  <tr><td>TRP_08901</td><td>2026-07-20 07:45:00</td><td class="cell-err">2026-07-20 07:44:55</td><td class="cell-err">-5</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:99.97%">CleanDB</div><div class="imp-quar" style="width:0.03%"></div></div>
+              <div class="imp-legend">
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--green)"></div>CleanDB: <b style="color:var(--green);margin-left:3px">120,813 rows</b></div>
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--red)"></div>Quarantine: <b style="color:var(--red);margin-left:3px">34 rows</b></div>
+              </div>
+              <div class="imp-note">📌 Target schema: <code>dropoff_datetime &gt;= pickup_datetime</code> — constraint tuyệt đối</div>
+            </div>
+            <div class="ai-reas"><div class="ai-lbl">🤖 AI Reasoning</div><div class="ai-txt">"34 rows có dropoff trước pickup — vi phạm logic cơ bản. Nhiều khả năng do UTC offset error. Confidence 97% vì đây là constraint tuyệt đối, không có ngoại lệ nghiệp vụ."</div></div>
+            <div class="sql-prev"><span>dropoff_datetime &gt;= pickup_datetime</span><button class="copy-btn" onclick="showToast('info','Đã copy','SQL đã copy')">Copy SQL</button></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(1)">✅ Duyệt Rule</button>
+              <button class="btn btn-rej" onclick="rejectRule(1)">❌ Từ Chối</button>
+              <button class="btn btn-skp">⏭ Bỏ Qua</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-card r-pending" id="rule2" data-sev="high" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(2)">
+            <div class="sev-ico">🔴</div><div class="rc-title"><div class="rc-name">PULocationID BETWEEN 1 AND 265</div><div class="rc-desc">ID khu vực đón phải trong range TLC taxi zones</div></div>
+            <div class="rc-meta"><div class="conf-badge">91%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">Valid</div><div class="dist-bw"><div class="dist-b db-norm" style="width:99.94%">120,780</div></div><div class="dist-cnt">120,780 rows</div></div>
+                <div class="dist-row"><div class="dist-lbl">Invalid</div><div class="dist-bw"><div class="dist-b db-anom" style="width:0.06%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--yellow)">67 rows</div></div>
+              </div>
+              <table class="stbl">
+                <thead><tr><th>trip_id</th><th>PULocationID</th><th>DOLocationID</th><th>Note</th></tr></thead>
+                <tbody>
+                  <tr><td>TRP_03201</td><td class="cell-err">266</td><td>142</td><td class="cell-err">Ngoài range TLC</td></tr>
+                  <tr><td>TRP_06789</td><td class="cell-err">999</td><td>87</td><td class="cell-err">Invalid zone</td></tr>
+                  <tr><td>TRP_09012</td><td class="cell-err">0</td><td>201</td><td class="cell-err">Zone 0 không tồn tại</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:99.94%">CleanDB</div><div class="imp-quar" style="width:0.06%"></div></div>
+              <div class="imp-legend">
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--green)"></div>CleanDB: <b style="color:var(--green);margin-left:3px">120,780 rows</b></div>
+                <div class="imp-leg-it"><div class="leg-dot" style="background:var(--red)"></div>Quarantine: <b style="color:var(--red);margin-left:3px">67 rows</b></div>
+              </div>
+              <div class="imp-note">🔗 Foreign key → taxi_zone_lookup.LocationID — invalid rows sẽ fail join ở downstream</div>
+            </div>
+            <div class="ai-reas"><div class="ai-lbl">🤖 AI Reasoning</div><div class="ai-txt">"Target schema định nghĩa PULocationID range 1-265. 67 rows ngoài range không thể join với bảng lookup, gây lỗi ở analytics downstream."</div></div>
+            <div class="sql-prev"><span>PULocationID BETWEEN 1 AND 265</span><button class="copy-btn" onclick="showToast('info','Copy','SQL đã copy')">Copy</button></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(2)">✅ Duyệt Rule</button>
+              <button class="btn btn-edt" onclick="openEditModal(2,'PULocationID','BETWEEN 1 AND 265',265,1,300,67,120847)">✏️ Chỉnh Sửa</button>
+              <button class="btn btn-rej" onclick="rejectRule(2)">❌ Từ Chối</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-card r-approved" id="rule3" data-sev="medium" data-status="approved">
+          <div class="rc-hdr" onclick="toggleRule(3)">
+            <div class="sev-ico">🟡</div><div class="rc-title"><div class="rc-name">trip_time &gt; 0</div><div class="rc-desc">Thời gian chuyến phải lớn hơn 0 giây</div></div>
+            <div class="rc-meta"><div class="conf-badge">88%</div><div class="chip chip-g">✅ Approved</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="rule-st-overlay ov-g">✅ Đã được duyệt lúc 14:31 — ngân@vingroup.vn · Unchanged</div>
+            <div class="sql-prev"><span>trip_time &gt; 0 OR trip_miles = 0</span></div>
+          </div>
+        </div>
+
+        <div class="rule-card r-approved" id="rule4" data-sev="medium" data-status="approved">
+          <div class="rc-hdr" onclick="toggleRule(4)">
+            <div class="sev-ico">🟡</div><div class="rc-title"><div class="rc-name">base_passenger_fare &gt;= 0.01</div><div class="rc-desc">Giá cước cơ bản tối thiểu $0.01</div></div>
+            <div class="rc-meta"><div class="conf-badge">86%</div><div class="chip chip-g">✅ Approved</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="rule-st-overlay ov-g">✅ Đã duyệt lúc 14:30 — Threshold chỉnh: 0 → 0.01</div>
+            <div class="sql-prev"><span>base_passenger_fare &gt;= 0.01</span></div>
+          </div>
+        </div>
+
+        <div class="rule-card r-pending" id="rule5" data-sev="medium" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(5)">
+            <div class="sev-ico">🟡</div><div class="rc-title"><div class="rc-name">hvfhs_license_num IN ('HV0002','HV0003','HV0004','HV0005')</div><div class="rc-desc">Mã giấy phép HVFHS chỉ có 4 giá trị hợp lệ</div></div>
+            <div class="rc-meta"><div class="conf-badge">95%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE — Categorical validation</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">HV0003</div><div class="dist-bw"><div class="dist-b db-norm" style="width:52%">63,040</div></div><div class="dist-cnt">52.2%</div></div>
+                <div class="dist-row"><div class="dist-lbl">HV0005</div><div class="dist-bw"><div class="dist-b db-norm" style="width:32%">38,671</div></div><div class="dist-cnt">32.0%</div></div>
+                <div class="dist-row"><div class="dist-lbl">HV0002</div><div class="dist-bw"><div class="dist-b db-norm" style="width:12%">14,501</div></div><div class="dist-cnt">12.0%</div></div>
+                <div class="dist-row"><div class="dist-lbl">INVALID</div><div class="dist-bw"><div class="dist-b db-ext" style="width:0.03%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--red)">31 rows</div></div>
+              </div>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:99.97%">CleanDB</div><div class="imp-quar" style="width:0.03%"></div></div>
+              <div class="imp-legend"><div class="imp-leg-it"><div class="leg-dot" style="background:var(--green)"></div>CleanDB: <b style="color:var(--green);margin-left:3px">120,816 rows</b></div><div class="imp-leg-it"><div class="leg-dot" style="background:var(--red)"></div>Quarantine: <b style="color:var(--red);margin-left:3px">31 rows</b></div></div>
+            </div>
+            <div class="ai-reas"><div class="ai-lbl">🤖 AI Reasoning</div><div class="ai-txt">"Target schema: allowed_values = ['HV0002','HV0003','HV0004','HV0005']. 31 rows có giá trị ngoài danh sách không phải HVFHS operator hợp lệ."</div></div>
+            <div class="sql-prev"><span>hvfhs_license_num IN ('HV0002','HV0003','HV0004','HV0005')</span></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(5)">✅ Duyệt Rule</button>
+              <button class="btn btn-rej" onclick="rejectRule(5)">❌ Từ Chối</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-card r-pending" id="rule6" data-sev="low" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(6)">
+            <div class="sev-ico">🟢</div><div class="rc-title"><div class="rc-name">tips &gt;= 0</div><div class="rc-desc">Tiền tip không được âm</div></div>
+            <div class="rc-meta"><div class="conf-badge">82%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">Valid</div><div class="dist-bw"><div class="dist-b db-norm" style="width:99.99%">120,844</div></div><div class="dist-cnt">99.99%</div></div>
+                <div class="dist-row"><div class="dist-lbl">Negative</div><div class="dist-bw"><div class="dist-b db-ext" style="width:0.01%">&nbsp;</div></div><div class="dist-cnt" style="color:var(--red)">3 rows</div></div>
+              </div>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:99.99%">CleanDB</div><div class="imp-quar" style="width:0.01%"></div></div>
+              <div class="imp-legend"><div class="imp-leg-it"><div class="leg-dot" style="background:var(--green)"></div>CleanDB: <b style="color:var(--green);margin-left:3px">120,844 rows</b></div><div class="imp-leg-it"><div class="leg-dot" style="background:var(--red)"></div>Quarantine: <b style="color:var(--red);margin-left:3px">3 rows</b></div></div>
+            </div>
+            <div class="ai-reas"><div class="ai-lbl">🤖 AI Reasoning</div><div class="ai-txt">"3 rows có tip âm (-$1,-$2,-$5) nhiều khả năng là refund transaction ghi nhầm vào tips field."</div></div>
+            <div class="sql-prev"><span>tips &gt;= 0 OR tips IS NULL</span></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(6)">✅ Duyệt Rule</button>
+              <button class="btn btn-rej" onclick="rejectRule(6)">❌ Từ Chối</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-card r-pending" id="rule7" data-sev="low" data-status="pending">
+          <div class="rc-hdr" onclick="toggleRule(7)">
+            <div class="sev-ico">🟢</div><div class="rc-title"><div class="rc-name">trip_miles &lt;= 500</div><div class="rc-desc">Chuyến đi không vượt quá 500 dặm (schema max)</div></div>
+            <div class="rc-meta"><div class="conf-badge">80%</div><div class="chip chip-y">⏳ Pending</div><div class="exp-ico">▼</div></div>
+          </div>
+          <div class="rc-body">
+            <div class="ev-sec">
+              <div class="ev-title">📊 EVIDENCE — Preventive rule</div>
+              <div class="dist-chart">
+                <div class="dist-row"><div class="dist-lbl">&lt;= 500mi</div><div class="dist-bw"><div class="dist-b db-norm" style="width:100%">120,847</div></div><div class="dist-cnt">100% hiện tại</div></div>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-3);padding:7px;background:var(--yellow-dim);border-radius:5px;border-left:2px solid var(--yellow)">⚠️ Max hiện tại: 487.3 miles — Chưa có row vi phạm. Rule phòng ngừa từ target schema.</div>
+            </div>
+            <div class="imp-sec">
+              <div class="ev-title">⚖️ IMPACT:</div>
+              <div class="imp-bar"><div class="imp-clean" style="width:100%">CleanDB (0 rows affected now)</div></div>
+            </div>
+            <div class="sql-prev"><span>trip_miles &lt;= 500</span><button class="copy-btn" onclick="showToast('info','Copy','SQL đã copy')">Copy</button></div>
+            <div class="rule-acts">
+              <button class="btn btn-app" onclick="approveRule(7)">✅ Duyệt Rule</button>
+              <button class="btn btn-edt" onclick="openEditModal(7,'trip_miles','<= 500',500,300,1000,0,120847)">✏️ Chỉnh Max</button>
+              <button class="btn btn-rej" onclick="rejectRule(7)">❌ Từ Chối</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="phaseContent5" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">⑥ Execute & Validate</div><div class="phase-sub">Chờ HITL hoàn tất</div></div><div class="chip chip-b">⏳ Pending</div></div>
+      <div style="padding:40px;text-align:center;color:var(--text-3)"><div style="font-size:36px;margin-bottom:12px">⏳</div><div style="font-size:13px;font-weight:600;color:var(--text-2)">Đang chờ HITL hoàn tất</div><div style="font-size:11.5px;margin-top:6px">Còn 6 rules chưa xem xét.</div></div>
+    </div>
+    <div id="phaseContent6" style="display:none">
+      <div class="phase-hdr"><div class="phase-hdr-l"><div class="phase-ttl">⑦ Export & Audit</div></div><div class="chip chip-b">⏳ Pending</div></div>
+      <div style="padding:40px;text-align:center;color:var(--text-3)"><div style="font-size:36px">📦</div></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- MONITORING -->
+<div id="view-monitoring" class="view">
+<div class="mon">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px"><div><div style="font-size:17px;font-weight:700">System Monitoring</div><div style="font-size:11.5px;color:var(--text-2);margin-top:2px">Agent activity, performance, A1 vs C1 benchmark</div></div></div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('agent-activity',this)">🤖 Agent Activity</div>
+    <div class="tab" onclick="switchTab('performance',this)">📈 Performance</div>
+    <div class="tab" onclick="switchTab('benchmark',this)">⚡ A1 vs C1 Benchmark</div>
+  </div>
+  <div id="tab-agent-activity" class="tab-cont active">
+    <div class="agent-feed-wrap">
+      <div class="afw-hdr">Live Agent Feed<div class="live-dot"><div class="pdot" style="width:6px;height:6px;margin:0"></div>LIVE</div></div>
+      <div class="afw-list">
+        <div class="afw-item"><div class="afw-time">14:31:02</div><div class="afw-agent">RuleProposerAgent</div><div class="afw-action">submit_review</div><div class="afw-result ok">prop_8 → READY_FOR_REVIEW</div></div>
+        <div class="afw-item"><div class="afw-time">14:30:58</div><div class="afw-agent">RuleProposerAgent</div><div class="afw-action">test_tool</div><div class="afw-result ok">8/8 rules → SQL VALID</div></div>
+        <div class="afw-item"><div class="afw-time">14:30:55</div><div class="afw-agent">RuleProposerAgent</div><div class="afw-action">compile_tool</div><div class="afw-result ok">8 SQL expressions compiled</div></div>
+        <div class="afw-item"><div class="afw-time">14:30:40</div><div class="afw-agent">RuleProposerAgent</div><div class="afw-action">validate_tool</div><div class="afw-result ok">8/8 PASS (1 repair)</div></div>
+        <div class="afw-item"><div class="afw-time">14:30:22</div><div class="afw-agent">RuleProposerAgent</div><div class="afw-action">LLM Call</div><div class="afw-result ok">Claude Opus 4 → 8 rules · 3.2s</div></div>
+        <div class="afw-item"><div class="afw-time">14:29:50</div><div class="afw-agent">AnomalyDetector</div><div class="afw-action">IsolForest</div><div class="afw-result warn">3 HIGH anomalies detected</div></div>
+        <div class="afw-item"><div class="afw-time">14:28:30</div><div class="afw-agent">AnomalyDetector</div><div class="afw-action">ZScoreDetector</div><div class="afw-result ok">trip_miles z=-4.8 FLAGGED</div></div>
+        <div class="afw-item"><div class="afw-time">14:27:00</div><div class="afw-agent">ProfilerAgent</div><div class="afw-action">profile_tool</div><div class="afw-result ok">120,847 rows · 18 cols</div></div>
+        <div class="afw-item"><div class="afw-time">14:26:30</div><div class="afw-agent">BoundedReActEngine</div><div class="afw-action">orchestrate</div><div class="afw-result ok">Pipeline started</div></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding:11px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);display:flex;gap:20px;font-size:11.5px">
+      <div>🔄 <b style="color:var(--text-1)">Repair Loop:</b> <span style="color:var(--green)">1/3</span></div>
+      <div>⏱ <b style="color:var(--text-1)">Runtime:</b> <span style="font-family:'JetBrains Mono',monospace">4m 32s</span></div>
+      <div>💰 <b style="color:var(--text-1)">LLM Cost:</b> <span style="font-family:'JetBrains Mono',monospace">~$0.18</span></div>
+      <div>🎯 <b style="color:var(--text-1)">Primary:</b> <span style="color:var(--green)">Claude Opus 4 ✓</span></div>
+    </div>
+  </div>
+  <div id="tab-performance" class="tab-cont">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:18px">
+      <div class="stat-card"><div class="stat-lbl">Avg Processing</div><div class="stat-val" style="font-family:'JetBrains Mono',monospace">4.2 min</div><div class="stat-sub">Per dataset ~120K rows</div></div>
+      <div class="stat-card"><div class="stat-lbl">LLM Timeout Rate</div><div class="stat-val" style="color:var(--green)">0%</div><div class="stat-sub">Max 60s · 0 timeouts</div></div>
+      <div class="stat-card"><div class="stat-lbl">Repair Loop Rate</div><div class="stat-val" style="color:var(--yellow)">12%</div><div class="stat-sub">3/25 proposals repaired</div></div>
+    </div>
+  </div>
+  <div id="tab-benchmark" class="tab-cont">
+    <div class="bench-grid">
+      <div class="bench-card">
+        <div class="bench-ttl">Error Detection Rate</div><div class="bench-sub">fhvhv_tripdata_July · 2026-08-02</div>
+        <div class="bench-row"><div class="bench-lbl lbl-c0">C0</div><div class="bench-bw"><div class="bench-b bb-c0" style="width:41%"></div></div><div class="bench-val" style="color:var(--text-3)">41%</div></div>
+        <div class="bench-row"><div class="bench-lbl lbl-c1">C1</div><div class="bench-bw"><div class="bench-b bb-c1" style="width:76%"></div></div><div class="bench-val" style="color:var(--blue)">76%</div></div>
+        <div class="bench-row"><div class="bench-lbl lbl-a1">A1</div><div class="bench-bw"><div class="bench-b bb-a1" style="width:88%"></div></div><div class="bench-val" style="color:var(--green)">88%</div></div>
+        <div class="bench-winner">✅ A1 vs C1: <b>+12%</b> — Vượt mục tiêu ≥10%</div>
+      </div>
+      <div class="bench-card">
+        <div class="bench-ttl">Precision (Rule Quality)</div><div class="bench-sub">% rules hợp lệ và thực thi được</div>
+        <div class="bench-row"><div class="bench-lbl lbl-c0">C0</div><div class="bench-bw"><div class="bench-b bb-c0" style="width:72%"></div></div><div class="bench-val" style="color:var(--text-3)">72%</div></div>
+        <div class="bench-row"><div class="bench-lbl lbl-c1">C1</div><div class="bench-bw"><div class="bench-b bb-c1" style="width:84%"></div></div><div class="bench-val" style="color:var(--blue)">84%</div></div>
+        <div class="bench-row"><div class="bench-lbl lbl-a1">A1</div><div class="bench-bw"><div class="bench-b bb-a1" style="width:91%"></div></div><div class="bench-val" style="color:var(--green)">91%</div></div>
+        <div class="bench-winner">✅ A1 Precision: <b>91%</b> — Vượt mục tiêu ≥80%</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- AUDIT -->
+<div id="view-audit" class="view">
+<div class="audit">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><div><div style="font-size:17px;font-weight:700">Audit Log</div><div style="font-size:11.5px;color:var(--text-2);margin-top:2px">Toàn bộ hành động với SHA-256 · Không thể xóa</div></div><button class="btn btn-sec" style="font-size:11px">📥 Export PDF</button></div>
+  <div class="audit-fbar">
+    <input class="aud-search" placeholder="🔍 Tìm kiếm..." oninput="filterAudit(this.value)">
+    <button class="fchip active" onclick="filterAuditType('all',this)">Tất cả</button>
+    <button class="fchip" onclick="filterAuditType('RULE_APPROVED',this)">Approved</button>
+    <button class="fchip" onclick="filterAuditType('RULE_EDITED',this)">Edited</button>
+    <button class="fchip" onclick="filterAuditType('PIPELINE',this)">Pipeline</button>
+  </div>
+  <div class="audit-tbl-wrap">
+    <table class="aud-tbl">
+      <thead><tr><th>Timestamp</th><th>Action</th><th>Dataset</th><th>User</th><th>Detail</th><th>Integrity</th></tr></thead>
+      <tbody id="auditBody">
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">14:31:02</td><td><span class="aud-chip chip-g" style="font-size:9px">RULE_APPROVED</span></td><td>fhvhv_tripdata_July</td><td>ngân@vingroup.vn</td><td>trip_time &gt; 0 · Unchanged</td><td><span class="sha-code">7d4f...a91c</span><a class="vfy-link" onclick="showToast('success','✓ Verified','SHA-256 passed')">Verify</a></td></tr>
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">14:30:45</td><td><span class="aud-chip chip-y" style="font-size:9px">RULE_EDITED</span></td><td>fhvhv_tripdata_July</td><td>ngân@vingroup.vn</td><td>base_passenger_fare: 0→0.01</td><td><span class="sha-code">3b7e...c45f</span><a class="vfy-link" onclick="showToast('success','✓ Verified','SHA-256 passed')">Verify</a></td></tr>
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">14:30:22</td><td><span class="aud-chip chip-b" style="font-size:9px">AI_PROPOSAL</span></td><td>fhvhv_tripdata_July</td><td>System (AI)</td><td>8 rules proposed · prop_id=prop_8</td><td><span class="sha-code">a2c1...9d3e</span><a class="vfy-link" onclick="showToast('success','✓ Verified','SHA-256 passed')">Verify</a></td></tr>
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">14:27:00</td><td><span class="aud-chip chip-b" style="font-size:9px">PROFILING_DONE</span></td><td>fhvhv_tripdata_July</td><td>System (ProfilerAgent)</td><td>120,847 rows · SHA locked</td><td><span class="sha-code">f9e2...7b1c</span><a class="vfy-link" onclick="showToast('success','✓ Verified','intact')">Verify</a></td></tr>
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">14:26:10</td><td><span class="aud-chip chip-b" style="font-size:9px">DATASET_INGESTED</span></td><td>fhvhv_tripdata_July</td><td>ngân@vingroup.vn</td><td>214MB · Parquet · SHA: a3f9...3456</td><td><span class="sha-code">a3f9...3456</span><a class="vfy-link" onclick="showToast('success','✓ Verified','Original fingerprint ok')">Verify</a></td></tr>
+        <tr><td style="font-family:'JetBrains Mono';font-size:10.5px">13:40:00</td><td><span class="aud-chip chip-g" style="font-size:9px">PIPELINE_COMPLETE</span></td><td>charging_sessions_Q2</td><td>System</td><td>CleanDB:87,766 · Quarantine:1,666</td><td><span class="sha-code">c4d2...0f1e</span><a class="vfy-link" onclick="showToast('success','✓ Verified','Manifest ok')">Verify</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- TESTS -->
+<div id="view-tests" class="view">
+<div class="tests">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><div><div style="font-size:17px;font-weight:700">Test Results</div><div style="font-size:11.5px;color:var(--text-2);margin-top:2px">Pipeline gates và integrity tests</div></div><button class="btn btn-app" onclick="showToast('info','Running...','Đang chạy test suite')">▶ Run All</button></div>
+  <div class="test-summary">
+    <div class="test-stat"><div class="ts-num" style="color:var(--green)">18</div><div class="ts-lbl">Passed</div></div>
+    <div class="test-stat"><div class="ts-num" style="color:var(--red)">1</div><div class="ts-lbl">Failed</div></div>
+    <div class="test-stat"><div class="ts-num" style="color:var(--yellow)">2</div><div class="ts-lbl">Warnings</div></div>
+    <div class="test-stat"><div class="ts-num" style="color:var(--blue)">21</div><div class="ts-lbl">Total</div></div>
+  </div>
+  <div class="test-tbl-wrap">
+    <table class="test-tbl">
+      <thead><tr><th>Test Name</th><th>Dataset</th><th>Status</th><th>Duration</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>test_sha256_integrity</td><td>fhvhv_tripdata_July</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.02s</td><td>Original fingerprint matches</td></tr>
+        <tr><td>test_profile_completeness</td><td>fhvhv_tripdata_July</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.45s</td><td>All 18 cols profiled</td></tr>
+        <tr><td>test_no_raw_data_to_llm</td><td>fhvhv_tripdata_July</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.01s</td><td>Only aggregated stats to LLM</td></tr>
+        <tr><td>test_rule_compilation</td><td>fhvhv_tripdata_July</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.33s</td><td>8/8 rules → valid SQL</td></tr>
+        <tr><td>test_hitl_schema_contract</td><td>fhvhv_tripdata_July</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.08s</td><td>submit_review schema matches</td></tr>
+        <tr><td>test_anomaly_coverage</td><td>fhvhv_tripdata_July</td><td class="t-fail">❌ FAIL</td><td class="t-dur">1.22s</td><td>Expected ≥5 HIGH, found 3. IsolForest needs &gt;5 historical runs.</td></tr>
+        <tr><td>test_row_count_preserved</td><td>charging_sessions_Q2</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.04s</td><td>CleanDB+Quarantine = Source</td></tr>
+        <tr><td>test_audit_immutability</td><td>All</td><td class="t-pass">✅ PASS</td><td class="t-dur">0.02s</td><td>Audit log cannot be deleted</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+</main>
+</div>
+
+<!-- MODAL: EDIT RULE -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal modal-lg">
+    <div class="modal-hdr"><div><div class="modal-ttl" id="editModalTitle">Chỉnh sửa Rule</div><div class="modal-sub-txt" id="editModalSub">Điều chỉnh threshold · Live preview</div></div><button class="modal-close" onclick="closeModal('modal-edit')">×</button></div>
+    <div class="modal-body">
+      <div class="thr-display"><div class="thr-val" id="editThrVal">0</div><div class="thr-lbl" id="editThrLbl">Threshold hiện tại</div></div>
+      <div class="slider-wrap">
+        <div class="sl-lbl" id="editSliderLbl">Điều chỉnh threshold:</div>
+        <input type="range" id="editSlider" min="-50" max="200" value="0" oninput="updateEditPreview(this.value)">
+        <div class="sl-preview"><span id="slMin">-50</span><span id="slMax">200</span></div>
+      </div>
+      <div class="imp-prev-live">
+        <div class="ip-box ip-clean"><div class="ip-num" id="editCleanNum">119,153</div><div class="ip-lbl">→ CleanDB ✅</div></div>
+        <div class="ip-box ip-quar"><div class="ip-num" id="editQuarNum">847</div><div class="ip-lbl">→ Quarantine 🚨</div></div>
+      </div>
+      <div class="form-grp"><label>Lý do chỉnh sửa:</label><textarea placeholder="Ví dụ: Business logic cho phép giá trị này..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-sec" onclick="closeModal('modal-edit')">Hủy</button><button class="btn btn-pri" onclick="saveEdit()">💾 Lưu Thay Đổi</button></div>
+  </div>
+</div>
+
+<!-- MODAL: TESTS -->
+<div class="modal-overlay" id="modal-tests">
+  <div class="modal">
+    <div class="modal-hdr"><div><div class="modal-ttl">🧪 Test Results — fhvhv_tripdata_July</div></div><button class="modal-close" onclick="closeModal('modal-tests')">×</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <div class="ip-box ip-clean" style="flex:1;padding:10px;text-align:center"><div class="ip-num" style="font-size:22px;color:var(--green)">2</div><div class="ip-lbl">PASS</div></div>
+        <div class="ip-box ip-quar" style="flex:1;padding:10px;text-align:center"><div class="ip-num" style="font-size:22px;color:var(--red)">1</div><div class="ip-lbl">FAIL</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <div style="padding:9px 12px;background:var(--green-dim);border:1px solid rgba(0,212,160,.2);border-radius:var(--r-sm)"><b style="color:var(--green)">✅ PASS</b> — test_profile_completeness (0.45s)<br><span style="color:var(--text-3);font-size:10.5px">All 18 cols profiled</span></div>
+        <div style="padding:9px 12px;background:var(--green-dim);border:1px solid rgba(0,212,160,.2);border-radius:var(--r-sm)"><b style="color:var(--green)">✅ PASS</b> — test_rule_compilation (0.33s)<br><span style="color:var(--text-3);font-size:10.5px">8/8 rules → valid SQL</span></div>
+        <div style="padding:9px 12px;background:var(--red-dim);border:1px solid rgba(255,77,106,.2);border-radius:var(--r-sm)"><b style="color:var(--red)">❌ FAIL</b> — test_anomaly_coverage<br><span style="color:var(--yellow);font-size:10.5px">→ ZScore + IQR fallback hoạt động bình thường ✓</span></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-pri" onclick="closeModal('modal-tests')">OK</button></div>
+  </div>
+</div>
+
+<!-- NOTIFICATION PANEL -->
+<div class="notif-panel" id="notifPanel">
+  <div class="np-hdr"><div class="np-ttl">🔔 Thông Báo</div><button class="mark-read-btn" onclick="markAllRead()">Đánh dấu đã đọc</button></div>
+  <div class="notif-list" id="notifList">
+    <div class="notif-item unread"><div class="ni-hdr"><div class="ni-type nt-warn">⚡ Action Required</div><div class="ni-time">14:28</div></div><div class="ni-txt">6 rules chờ duyệt · <b>fhvhv_tripdata_July.parquet</b></div></div>
+    <div class="notif-item unread"><div class="ni-hdr"><div class="ni-type nt-alert">🔴 Anomaly</div><div class="ni-time">14:15</div></div><div class="ni-txt">847 rows có <b>trip_miles âm</b> · ZScore = -4.8</div></div>
+    <div class="notif-item"><div class="ni-hdr"><div class="ni-type nt-success">✅ Pipeline</div><div class="ni-time">13:40</div></div><div class="ni-txt"><b>charging_sessions_Q2</b> hoàn tất · CleanDB: 98.1%</div></div>
+  </div>
+</div>
+
+<!-- SCHEDULE PANEL -->
+<div class="sch-panel" id="schedPanel">
+  <div class="sp-hdr"><div class="sp-ttl">🗓 Scheduled Runs</div><button class="modal-close" onclick="toggleSchedulePanel()">×</button></div>
+  <div class="sp-body">
+    <div style="font-size:11px;color:var(--text-3);margin-bottom:12px;padding:8px 10px;background:var(--bg-input);border-radius:var(--r-sm)">ℹ️ 2 pipeline tự động đã lên lịch. Nhấn Simulate để xem trước.</div>
+    <div class="sch-sc">
+      <div class="sc-hdr"><div class="sc-name">📅 Scheduled Run A</div><div class="sc-time">08:00 — 03/08/2026</div></div>
+      <div class="sc-desc">Dataset: <b>charging_daily_Aug03.parquet</b> từ V-GREEN system. Pipeline tự động — dự kiến phát hiện 1 rule mới cần duyệt trong cột <code>charging_power_kw</code>.</div>
+      <button class="run-sc-btn" id="btnScenA" onclick="runScenario('A')">▶ Simulate Run A</button>
+      <div class="sim-console" id="simA"></div>
+    </div>
+    <div class="sch-sc">
+      <div class="sc-hdr"><div class="sc-name">📅 Scheduled Run B</div><div class="sc-time">08:00 — 04/08/2026</div></div>
+      <div class="sc-desc">Dataset: <b>vfast_telemetry_Aug04.parquet</b>. Fully automatic — không cần rule mới (existing rules cover all). Chạy thẳng Phase 1→7.</div>
+      <button class="run-sc-btn" id="btnScenB" onclick="runScenario('B')">▶ Simulate Run B</button>
+      <div class="sim-console" id="simB"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+const state={approvedCount:2,totalRules:8,ruleStatus:['pending','pending','pending','approved','approved','pending','pending','pending'],currentDataset:0,currentPhase:4,notifOpen:false,schedOpen:false,editRuleIdx:-1,editTotalRows:120847,editViolatingRows:847,editColName:'',editMin:-50,editMax:200,scenARunning:false,scenBRunning:false};
+const DATASETS=[{name:'fhvhv_tripdata_July.parquet',meta:'120,847 rows · 18 cols · 02/08/2026',phase:4},{name:'ev_feedback_June.parquet',meta:'45,231 rows · 12 cols · 02/08/2026',phase:2},{name:'charging_sessions_Q2.parquet',meta:'89,432 rows · 15 cols · 01/08/2026',phase:6}];
+function navigateTo(v){document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));const el=document.getElementById('view-'+v);if(el)el.classList.add('active');const nav=document.getElementById('nav-'+v);if(nav)nav.classList.add('active');if(v==='pipeline')showPhase(state.currentPhase);closePanels()}
+function openDataset(i){state.currentDataset=i;const ds=DATASETS[i];document.getElementById('plSideName').textContent=ds.name;document.getElementById('plSideMeta').textContent=ds.meta;state.currentPhase=ds.phase;updatePhaseTimeline(ds.phase);navigateTo('pipeline');showPhase(ds.phase)}
+function updatePhaseTimeline(p){document.querySelectorAll('.ph-item').forEach((item,i)=>{item.classList.remove('ph-done','ph-cur','ph-pend');if(i<p)item.classList.add('ph-done');else if(i===p)item.classList.add('ph-cur');else item.classList.add('ph-pend')})}
+function showPhase(n){document.querySelectorAll('[id^=phaseContent]').forEach(el=>el.style.display='none');const el=document.getElementById('phaseContent'+n);if(el)el.style.display='block'}
+function toggleRule(i){document.getElementById('rule'+i).classList.toggle('expanded')}
+function approveRule(i){const card=document.getElementById('rule'+i);if(state.ruleStatus[i]!=='pending')return;state.ruleStatus[i]='approved';state.approvedCount++;card.classList.remove('r-pending','r-rejected');card.classList.add('r-approved');card.classList.remove('expanded');const chip=card.querySelector('.rc-meta .chip');if(chip){chip.className='chip chip-g';chip.textContent='✅ Approved'}const body=card.querySelector('.rc-body');if(body){const acts=body.querySelector('.rule-acts');if(acts)acts.innerHTML=`<div class="rule-st-overlay ov-g">✅ Duyệt ${now()} — ngân@vingroup.vn</div>`}updateProgress();addFeedItem('✅',`Rule <b>${card.querySelector('.rc-name').textContent}</b> được duyệt`);showToast('success','Rule Approved! ✅',card.querySelector('.rc-name').textContent);if(state.approvedCount>=state.totalRules)setTimeout(onAllApproved,800)}
+function rejectRule(i){const card=document.getElementById('rule'+i);if(state.ruleStatus[i]!=='pending')return;state.ruleStatus[i]='rejected';card.classList.remove('r-pending');card.classList.add('r-rejected');card.classList.remove('expanded');const chip=card.querySelector('.rc-meta .chip');if(chip){chip.className='chip chip-r';chip.textContent='❌ Rejected'}const body=card.querySelector('.rc-body');if(body){const acts=body.querySelector('.rule-acts');if(acts)acts.innerHTML=`<div class="rule-st-overlay ov-r">❌ Từ chối ${now()}</div>`}showToast('error','Rule Rejected',card.querySelector('.rc-name').textContent)}
+function approveAll(){for(let i=0;i<state.totalRules;i++){if(state.ruleStatus[i]==='pending')setTimeout(()=>approveRule(i),i*350)}}
+function updateProgress(){const pct=Math.round((state.approvedCount/state.totalRules)*100);document.getElementById('ruleProgressFill').style.width=pct+'%';document.getElementById('ruleProgressTxt').textContent=`${state.approvedCount} / ${state.totalRules} đã duyệt`;document.getElementById('phaseHITLSub').textContent=`${state.approvedCount}/${state.totalRules} duyệt`;const pending=state.ruleStatus.filter(s=>s==='pending').length;const badge=document.getElementById('navPipelineBadge');if(badge){badge.textContent=pending||'';badge.style.display=pending?'':'none'}}
+function onAllApproved(){showToast('success','🎉 Tất cả rules!','Hệ thống đang chạy Execute...');const banner=document.getElementById('attnBanner');if(banner)banner.style.display='none';setTimeout(()=>showToast('info','⚙️ Executing...','Áp dụng 8 rules · 120,847 rows...'),1500);setTimeout(()=>{showToast('success','✅ Pipeline Complete!','CleanDB: 118,951 · Quarantine: 1,896');addFeedItem('🏁',`Pipeline <b>fhvhv_tripdata_July.parquet</b> hoàn tất`)},4500)}
+function filterRules(t,btn){document.querySelectorAll('.fchip').forEach(c=>c.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.rule-card').forEach(card=>{const sev=card.dataset.sev,status=card.dataset.status;if(t==='all')card.style.display='';else if(t==='high')card.style.display=sev==='high'?'':'none';else if(t==='medium')card.style.display=sev==='medium'?'':'none';else if(t==='low')card.style.display=sev==='low'?'':'none';else if(t==='pending')card.style.display=status==='pending'?'':'none'})}
+function openEditModal(ri,col,expr,cur,mn,mx,vr,tr){state.editRuleIdx=ri;state.editColName=col;state.editViolatingRows=vr;state.editTotalRows=tr;state.editMin=mn;state.editMax=mx;document.getElementById('editModalTitle').textContent='Chỉnh sửa: '+expr;document.getElementById('editModalSub').textContent='Cột: '+col+' · '+vr.toLocaleString()+' rows vi phạm';document.getElementById('editSlider').min=mn;document.getElementById('editSlider').max=mx;document.getElementById('editSlider').value=cur;document.getElementById('slMin').textContent=mn;document.getElementById('slMax').textContent=mx;updateEditPreview(cur);showModal('modal-edit')}
+function updateEditPreview(v){const pct=(v-state.editMin)/(state.editMax-state.editMin);const adj=Math.max(0,Math.round(state.editViolatingRows*(1-pct*0.3)));document.getElementById('editThrVal').textContent=parseFloat(v).toFixed(1);document.getElementById('editThrLbl').textContent=state.editColName+' >= '+parseFloat(v).toFixed(1);document.getElementById('editCleanNum').textContent=(state.editTotalRows-adj).toLocaleString();document.getElementById('editQuarNum').textContent=adj.toLocaleString()}
+function saveEdit(){const t=document.getElementById('editSlider').value;closeModal('modal-edit');showToast('success','💾 Updated',state.editColName+' → '+parseFloat(t).toFixed(1));setTimeout(()=>approveRule(state.editRuleIdx),400)}
+function switchTab(id,btn){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-cont').forEach(t=>t.classList.remove('active'));btn.classList.add('active');document.getElementById('tab-'+id).classList.add('active')}
+function filterAudit(q){document.querySelectorAll('#auditBody tr').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q.toLowerCase())?'':'none')}
+function filterAuditType(t,btn){document.querySelectorAll('.audit-fbar .fchip').forEach(c=>c.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('#auditBody tr').forEach(r=>r.style.display=t==='all'||r.textContent.includes(t)?'':'none')}
+function addAuditRow(type,ds,user,detail){const colors={'RULE_APPROVED':'chip-g','RULE_EDITED':'chip-y','RULE_REJECTED':'chip-r','PIPELINE_COMPLETE':'chip-g','AI_PROPOSAL':'chip-b','DATASET_INGESTED':'chip-b'};const tbody=document.getElementById('auditBody');const sha=randSHA();const tr=document.createElement('tr');tr.innerHTML=`<td style="font-family:'JetBrains Mono';font-size:10.5px">${now()}</td><td><span class="aud-chip ${colors[type]||'chip-b'}" style="font-size:9px">${type}</span></td><td>${ds}</td><td>${user}</td><td>${detail}</td><td><span class="sha-code">${sha}</span><a class="vfy-link" onclick="showToast('success','✓ Verified','ok')">Verify</a></td>`;tbody.insertBefore(tr,tbody.firstChild)}
+function toggleNotifPanel(){state.notifOpen=!state.notifOpen;document.getElementById('notifPanel').classList.toggle('open',state.notifOpen);if(state.schedOpen){state.schedOpen=false;document.getElementById('schedPanel').classList.remove('open')}}
+function toggleSchedulePanel(){state.schedOpen=!state.schedOpen;document.getElementById('schedPanel').classList.toggle('open',state.schedOpen);if(state.notifOpen){state.notifOpen=false;document.getElementById('notifPanel').classList.remove('open')}}
+function closePanels(){state.notifOpen=false;state.schedOpen=false;document.getElementById('notifPanel').classList.remove('open');document.getElementById('schedPanel').classList.remove('open')}
+function markAllRead(){document.querySelectorAll('.notif-item.unread').forEach(el=>el.classList.remove('unread'));document.getElementById('notifBadge').style.display='none';showToast('info','Đã đọc tất cả','')}
+function showModal(id){document.getElementById(id).classList.add('show')}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',function(e){if(e.target===this)this.classList.remove('show')}))
+function showToast(type,title,msg){const icons={success:'✅',error:'❌',warning:'⚠️',info:'ℹ️'};const c=document.getElementById('toastContainer');const t=document.createElement('div');t.className=`toast t-${type}`;t.innerHTML=`<div class="toast-ico">${icons[type]||'ℹ️'}</div><div class="toast-body"><div class="toast-ttl">${title}</div><div class="toast-msg">${msg}</div></div>`;c.appendChild(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),320)},3500)}
+function addFeedItem(icon,text){const feed=document.getElementById('activityFeed');const item=document.createElement('div');item.className='feed-item';item.innerHTML=`<div class="fi-time">${now()}</div><div class="fi-ico">${icon}</div><div class="fi-txt">${text}</div>`;feed.insertBefore(item,feed.firstChild)}
+function addNotification(type,title,text){const list=document.getElementById('notifList');const item=document.createElement('div');item.className='notif-item unread';const m={warn:'nt-warn',success:'nt-success',alert:'nt-alert',info:'nt-info'};item.innerHTML=`<div class="ni-hdr"><div class="ni-type ${m[type]}">${title}</div><div class="ni-time">${now()}</div></div><div class="ni-txt">${text}</div>`;list.insertBefore(item,list.firstChild);const badge=document.getElementById('notifBadge');badge.style.display='flex';badge.textContent=parseInt(badge.textContent||0)+1}
+function runScenario(sc){if(sc==='A'&&state.scenARunning)return;if(sc==='B'&&state.scenBRunning)return;const btn=document.getElementById('btnScen'+sc);const con=document.getElementById('sim'+sc);btn.disabled=true;btn.textContent='⏳ Simulating...';con.classList.add('show');con.innerHTML='';if(sc==='A'){state.scenARunning=true;runScenA(con,btn)}else{state.scenBRunning=true;runScenB(con,btn)}}
+function sl(el,cls,text){return new Promise(res=>setTimeout(()=>{const d=document.createElement('div');d.className='sim-line '+cls;d.textContent=text;el.appendChild(d);el.scrollTop=el.scrollHeight;res()},550))}
+async function runScenA(con,btn){const steps=[['sl-b','[08:00:00] 🗓 Scheduled Run A — charging_daily_Aug03.parquet'],['sl-b','[08:00:01] 📁 67,234 rows · 11 cols — received from V-GREEN system'],['sl-b','[08:00:02] 🔐 SHA-256: b7d3...e92f — LOCKED'],['sl-g','[08:00:08] ① Ingest & Fingerprint — DONE ✓'],['sl-b','[08:00:09] ProfilerAgent → profile_tool...'],['sl-b','[08:00:22] 11 cols profiled · null_rate=0.8%'],['sl-g','[08:00:23] ② Profile & Statistics — DONE ✓'],['sl-b','[08:00:24] AnomalyDetectorAgent → ZScoreDetector...'],['sl-b','[08:00:31] charging_power_kw: 89 rows with value=0 (z=3.1)'],['sl-y','[08:00:38] ⚠ ANOMALY: charging_power_kw=0 trong active session'],['sl-g','[08:00:39] ③ Anomaly Detection — DONE ✓'],['sl-p','[08:00:40] RuleProposerAgent → LLM Call (Claude Opus 4)...'],['sl-p','[08:00:43] LLM: "89 rows có charging_power_kw=0 không hợp lý"'],['sl-b','[08:00:44] Proposed: charging_power_kw > 0 — confidence 87%'],['sl-b','[08:00:45] validate → PASS · compile → SQL valid · test → PASS'],['sl-y','[08:00:46] submit_review → READY_FOR_REVIEW (1 rule pending HITL)'],['sl-y','⏸ Pipeline PAUSED — Cần human approval'],['sl-y','📨 Notification sent to ngân@vingroup.vn']];for(const[cls,txt]of steps)await sl(con,cls,txt);setTimeout(()=>{showToast('warning','🗓 Run A','1 rule mới: charging_daily_Aug03');addFeedItem('🗓','<b>Scheduled Run A:</b> 1 rule cần duyệt · charging_power_kw > 0');addNotification('warn','⚡ Action Required','Run A: charging_daily_Aug03 — 1 rule cần duyệt');const cards=document.getElementById('pipelineCards');const card=document.createElement('div');card.className='pl-card urgent';card.style.animation='slideDown .4s ease';card.innerHTML='<div class="pl-card-ico">⚡</div><div class="pl-card-info"><div class="pl-card-name">charging_daily_Aug03.parquet</div><div class="pl-card-meta"><div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm c"></div><div class="pdot-sm"></div><div class="pdot-sm"></div></div>Phase 5/7: HITL Review · 67,234 rows · 1 rule</div></div><div class="pl-card-right"><div class="chip chip-y">⏳ Chờ Duyệt</div><div class="pl-card-hint">1 rule pending</div></div>';cards.insertBefore(card,cards.firstChild);btn.textContent='✅ Xong — Dataset đã thêm';btn.disabled=false;state.scenARunning=false},500)}
+async function runScenB(con,btn){const steps=[['sl-b','[08:00:00] 🗓 Scheduled Run B — vfast_telemetry_Aug04.parquet'],['sl-b','[08:00:01] 📁 98,521 rows · 14 cols — VinFast system'],['sl-b','[08:00:02] 🔐 SHA-256: c5e1...a73d — LOCKED'],['sl-g','[08:00:09] ① Ingest — DONE ✓'],['sl-b','[08:00:10] ProfilerAgent → profile_tool...'],['sl-b','[08:00:25] 14 cols · null_rate=0.3%'],['sl-g','[08:00:26] ② Profile — DONE ✓'],['sl-b','[08:00:27] AnomalyDetectorAgent → ZScoreDetector...'],['sl-b','[08:00:35] All columns within ±2.8 — no critical flags'],['sl-b','[08:00:42] IQRDetector: 3 mild outliers (non-critical)'],['sl-g','[08:00:43] ③ Anomaly Detection — DONE ✓ (3 LOW only)'],['sl-p','[08:00:44] RuleProposerAgent → checking existing rule library...'],['sl-p','[08:00:47] Existing rules cover: trip_miles, fare, timestamps, location'],['sl-g','[08:00:48] ✅ All patterns COVERED — 0 new rules needed'],['sl-g','[08:00:49] ④ Rule Proposal — SKIPPED (no new rules) · Skipping HITL'],['sl-b','[08:00:50] Executing 12 approved rules on 98,521 rows...'],['sl-g','[08:00:58] CleanDB: 97,841 · Quarantine: 680'],['sl-b','[08:00:59] Manifest SHA-256: f2a4...1c9b — audit logged'],['sl-g','[08:01:00] ✅ Pipeline COMPLETE — No human needed!'],['sl-g','📊 CleanDB: 99.3% — Ready for analytics']];for(const[cls,txt]of steps)await sl(con,cls,txt);setTimeout(()=>{showToast('success','✅ Run B Complete!','vfast_telemetry_Aug04 — Tự động 100% · CleanDB: 99.3%');addFeedItem('🗓','<b>Scheduled Run B:</b> vfast_telemetry_Aug04 hoàn tất tự động · 99.3%');addNotification('success','✅ Auto Complete','Run B: vfast_telemetry_Aug04 — không cần HITL');const cards=document.getElementById('pipelineCards');const card=document.createElement('div');card.className='pl-card done';card.style.animation='slideDown .4s ease';card.innerHTML='<div class="pl-card-ico">✅</div><div class="pl-card-info"><div class="pl-card-name">vfast_telemetry_Aug04.parquet</div><div class="pl-card-meta"><div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div></div>Phase 7/7: Hoàn Tất · 98,521 rows · Auto ✓</div></div><div class="pl-card-right"><div class="chip chip-g">✅ Done</div><div class="pl-card-hint">04/08 08:01</div></div>';cards.insertBefore(card,cards.firstChild);btn.textContent='✅ Xong — Dataset đã thêm';btn.disabled=false;state.scenBRunning=false},500)}
+function now(){const d=new Date();return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')}
+function randSHA(){const h='0123456789abcdef';return[...Array(4)].map(()=>h[Math.floor(Math.random()*16)]).join('')+'...'+[...Array(4)].map(()=>h[Math.floor(Math.random()*16)]).join('')}
+document.addEventListener('DOMContentLoaded',()=>{navigateTo('dashboard');setTimeout(()=>{const c=document.querySelectorAll('.pl-card')[1];if(c){setTimeout(()=>{const chip=c.querySelector('.chip');if(chip){chip.className='chip chip-y';chip.textContent='⏳ Chờ Duyệt'}c.querySelector('.pl-card-meta').innerHTML='<div class="phase-dots"><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm d"></div><div class="pdot-sm c"></div><div class="pdot-sm"></div><div class="pdot-sm"></div></div>Phase 5/7: HITL · 45,231 rows · 3 rules';c.querySelector('.pl-card-hint').textContent='3 rules pending';c.classList.remove('running');c.classList.add('urgent');addFeedItem('⏳','<b>ev_feedback_June.parquet</b> sẵn sàng HITL · 3 rules');showToast('warning','⚡ Cần duyệt','ev_feedback_June: 3 rules');addNotification('warn','⚡ Action Required','ev_feedback_June: 3 rules mới');document.getElementById('navPipelineBadge').textContent='2'},12000)}},500)})
+document.addEventListener('click',function(e){if(state.notifOpen&&!document.getElementById('notifPanel').contains(e.target)&&!e.target.closest('.ico-btn')){state.notifOpen=false;document.getElementById('notifPanel').classList.remove('open')}if(state.schedOpen&&!document.getElementById('schedPanel').contains(e.target)&&!e.target.closest('.sch-btn')){state.schedOpen=false;document.getElementById('schedPanel').classList.remove('open')}})
+</script>
+</body>
+</html>

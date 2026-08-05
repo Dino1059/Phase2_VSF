@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CleanDB Onboarding Pack",
+  "description": "Onboarding pack combining a CleanDB target schema (data dictionary) with validation rules",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "#/definitions/CleanDBSchema"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "rulespec.schema.json"
+      }
+    }
+  },
+  "required": ["schema", "rules"],
+  "definitions": {
+    "CleanDBSchema": {
+      "title": "CleanDB Schema",
+      "description": "Target Schema & Data Dictionary — single source of truth for dataset column definitions",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "dataset_name": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "dtype": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "integer",
+                  "float",
+                  "boolean",
+                  "datetime",
+                  "text"
+                ]
+              },
+              "nullable": {
+                "type": "boolean",
+                "default": true
+              },
+              "description": {
+                "type": "string"
+              },
+              "business_rules": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unit": {
+                "type": "string"
+              },
+              "valid_range": {
+                "type": "object",
+                "properties": {
+                  "min": {
+                    "type": "number"
+                  },
+                  "max": {
+                    "type": "number"
+                  }
+                }
+              },
+              "pii": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "name",
+              "dtype"
+            ]
+          }
+        }
+      },
+      "required": [
+        "version",
+        "dataset_name",
+        "columns"
+      ]
+    }
+  }
+}

@@ -23,7 +23,7 @@ class Compiler:
     """
 
     FAMILY_ORDER = {
-        "impute_default": 1,
+        "impute_deterministic": 1,
         "format": 2,
         "not_null": 3,
         "unique": 4,

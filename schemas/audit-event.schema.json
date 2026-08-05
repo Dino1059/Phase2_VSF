@@ -5,6 +5,19 @@
   "properties": {
     "event_id": { "type": "string" },
     "run_id": { "type": "string" },
+    "dataset_name": { "type": "string" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "config_change",
+        "rule_execution",
+        "transform_execution",
+        "promotion",
+        "quarantine",
+        "manual_override",
+        "schema_update"
+      ]
+    },
     "timestamp": { "type": "string" },
     "actor": {
       "type": "string",
@@ -16,7 +29,19 @@
     "before": { "type": ["object", "null"] },
     "after": { "type": ["object", "null"] },
     "evidence": { "type": ["string", "null"] },
-    "reason": { "type": ["string", "null"] }
+    "reason": { "type": ["string", "null"] },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
   },
-  "required": ["event_id", "run_id", "timestamp", "actor", "action", "target"]
+  "required": [
+    "event_id",
+    "run_id",
+    "timestamp",
+    "actor",
+    "action",
+    "target",
+    "dataset_name"
+  ]
 }

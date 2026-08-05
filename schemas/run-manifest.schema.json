@@ -4,6 +4,8 @@
   "type": "object",
   "properties": {
     "run_id": { "type": "string" },
+    "dataset_name": { "type": "string" },
+    "schema_version": { "type": "string" },
     "snapshot_id": { "type": "string" },
     "input_checksum": { "type": "string" },
     "output_checksum": { "type": "string" },
@@ -11,9 +13,22 @@
     "total_rows": { "type": "integer" },
     "clean_rows": { "type": "integer" },
     "quarantined_rows": { "type": "integer" },
+    "flagged_rows": { "type": "integer" },
+    "dropped_rows": { "type": "integer" },
+    "rules_evaluated": { "type": "integer" },
+    "rules_passed": { "type": "integer" },
+    "rules_failed": { "type": "integer" },
     "operations": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation": { "type": "string" },
+          "target_field": { "type": "string" },
+          "params": { "type": "object" },
+          "rows_affected": { "type": "integer" }
+        }
+      }
     },
     "duration_ms": { "type": "integer" },
     "errors": {
@@ -24,7 +39,23 @@
     "tests_failed": { "type": "integer" },
     "model_version": { "type": "string" },
     "prompt_version": { "type": "string" },
-    "created_at": { "type": "string" }
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
   },
-  "required": ["run_id", "snapshot_id", "input_checksum", "output_checksum", "total_rows", "clean_rows", "quarantined_rows"]
+  "required": [
+    "run_id",
+    "snapshot_id",
+    "input_checksum",
+    "output_checksum",
+    "total_rows",
+    "clean_rows",
+    "quarantined_rows",
+    "started_at"
+  ]
 }
