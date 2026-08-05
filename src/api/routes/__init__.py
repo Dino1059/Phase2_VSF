@@ -50,7 +50,9 @@ from src.api.routes.executions import router as executions_router
 from src.api.routes.profiling import router as profiling_router
 from src.api.routes.rules import router as rules_router
 from src.api.routes.schedules import router as schedules_router
+from src.api.routes.search import router as search_router
 
+from src.tools.algolia_tool import AlgoliaSearchTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
 from src.models.schemas import (
@@ -259,11 +261,16 @@ async def send_chat_message(request: ChatRequest):
     registry.register(ProfileDatasetTool())
     registry.register(ProposeQualityRulesTool())
     registry.register(CleanDatabaseTool())
+    registry.register(AlgoliaSearchTool())
 
     llm_service = LLMService()
     react_engine = BoundedReActEngine(llm_service=llm_service, tools=registry)
     
-    result = react_engine.run(request.message)
+    import sentry_sdk
+    sentry_sdk.set_user({"id": session_id})
+    sentry_sdk.set_tag("agent.version", "v1.0")
+    with sentry_sdk.start_transaction(op="agent.react", name="ReAct Engine Execution"):
+        result = react_engine.run(request.message)
 
     # Save and broadcast step thoughts/actions
     for step in result.steps:

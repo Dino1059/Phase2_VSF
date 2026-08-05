@@ -123,7 +123,9 @@ class ReActEngine:
 
             # Get LLM response
             try:
-                llm_response = self.llm.chat(messages, tools=tool_specs)
+                import sentry_sdk
+                with sentry_sdk.start_span(op="llm.chat", description="Gemma LLM Generation"):
+                    llm_response = self.llm.chat(messages, tools=tool_specs)
             except Exception as e:
                 result.status = "error"
                 result.final_answer = f"LLM error: {e}"
@@ -148,7 +150,9 @@ class ReActEngine:
                 step.action_input = tc.get("arguments", {})
 
                 try:
-                    tool_result = self.tools.execute(step.action, step.action_input)
+                    import sentry_sdk
+                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
+                        tool_result = self.tools.execute(step.action, step.action_input)
                     output_data = getattr(tool_result, "output_data", str(tool_result))
                     step.observation = json.dumps(output_data)[:2000]
                 except Exception as e:
@@ -202,7 +206,9 @@ class ReActEngine:
                 break
             elif step.action and hasattr(self.tools, "tool_names") and step.action in self.tools.tool_names:
                 try:
-                    tool_result = self.tools.execute(step.action, step.action_input)
+                    import sentry_sdk
+                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
+                        tool_result = self.tools.execute(step.action, step.action_input)
                     output_data = getattr(tool_result, "output_data", str(tool_result))
                     step.observation = json.dumps(output_data)[:2000]
                 except Exception as e:

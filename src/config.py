@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
 
+    # Algolia Search
+    algolia_app_id: str = Field(default="", validation_alias="ALGOLIA_APPLICATION_ID")
+    algolia_search_key: str = Field(default="", validation_alias="ALGOLIA_SEARCH_API_KEY")
+    algolia_write_key: str = Field(default="", validation_alias="ALGOLIA_API_WRITE_KEY")
+
+    # Sentry Monitoring
+    sentry_dsn: str = Field(default="", validation_alias="SENTRY_DSN")
+
     # Dataset registry
     raw_data_dir: str = "./data/raw"
     default_dataset: str = "nyc_fhvhv"
