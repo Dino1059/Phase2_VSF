@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DataTrust OS API",
     description="AI-Augmented Data Trust & Governance Operating System",
-    version="3.0.0",
+    version="4.2.0",
     lifespan=lifespan,
 )
 
@@ -103,7 +103,7 @@ app.include_router(hitl_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "app": "DataTrust OS", "env": settings.app_env, "version": "v3.0"}
+    return {"status": "ok", "app": settings.app_name, "env": settings.app_env, "version": settings.app_version}
 
 
 # Static asset handlers for /vite.svg and /favicon.ico

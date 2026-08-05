@@ -11,14 +11,14 @@ def check_pipeline_rule_approved(rule_id: Optional[str] = None, table_name: str 
     db = get_db()
     if rule_id:
         rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
-        if not rules or rules[0][1] not in ("approved", "edited"):
+        if not rules or rules[0][1] != "approved":
             raise HTTPException(
                 status_code=403,
                 detail="Rule execution denied: Rule is not approved by HITL"
             )
     else:
         unapproved = db.execute(
-            "SELECT id FROM quality_rules WHERE (snapshot_id = ? OR rule_name LIKE ?) AND status NOT IN ('approved', 'edited')",
+            "SELECT id FROM quality_rules WHERE (snapshot_id = ? OR rule_name LIKE ?) AND status != 'approved'",
             [table_name, f"%{table_name}%"]
         )
         if unapproved:

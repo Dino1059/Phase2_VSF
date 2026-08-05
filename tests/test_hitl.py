@@ -72,7 +72,7 @@ def test_edit_rule(client):
     db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) VALUES ('r1', 'test', 'range', 'x > 0', 0.9, 'proposed')")
     resp = c.post("/api/v1/hitl/edit/r1", json={"rule_expression": "x > 10", "edited_by": "tester"})
     assert resp.status_code == 200
-    assert resp.json()["status"] == "edited"
+    assert resp.json()["status"] == "proposed"
 
 
 def test_edit_not_found(client):
@@ -128,6 +128,7 @@ def test_full_workflow(client):
     db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) VALUES ('r2', 'b', 'range', 'y > 0', 0.8, 'proposed')")
     # Edit r1, then approve
     c.post("/api/v1/hitl/edit/r1", json={"rule_expression": "x > 5"})
+    c.post("/api/v1/hitl/approve/r1", json={"approved_by": "tester"})
     # Reject r2
     c.post("/api/v1/hitl/reject/r2", json={"reason": "not needed"})
     # Check queue is empty

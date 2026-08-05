@@ -7,10 +7,13 @@ python-dotenv>=1.0.0
 apscheduler>=3.10.0
 python-multipart>=0.0.12
 
+# Data pipeline (scripts/build_source_db.py, scripts/profile_source_db.py)
+pandas>=2.0.0
+
 # AI / LangChain
-langchain>=0.3.0
-langchain-openai>=0.3.0
-langgraph>=0.2.0
+langchain>=0.3.0,<0.4.0
+langchain-openai>=0.3.0,<0.4.0
+langgraph>=0.2.0,<0.3.0
 
 # Database (uncomment as needed)
 # sqlalchemy>=2.0.0

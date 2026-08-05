@@ -14,7 +14,12 @@ from src.db.connection import get_db
 class DecisionRecord:
     """Structured decision log record for ReAct step execution."""
     selected_action: str
+    decision_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    claim: str = ""
     evidence_refs: list[str] = field(default_factory=list)
+    contradicting_evidence_refs: list[str] = field(default_factory=list)
+    source_query_hashes: list[str] = field(default_factory=list)
+    confidence_method: str = "heuristic_grounding"
     confidence: float = 1.0
     alternative_considered: str | None = None
     stop_continue_reason: str = ""

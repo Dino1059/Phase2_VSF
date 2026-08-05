@@ -158,7 +158,7 @@ async def execute_transform_endpoint(
     for r in request.rules:
         if r.rule_id:
             rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [r.rule_id])
-            if not rows or rows[0][0] not in ("approved", "edited"):
+            if not rows or rows[0][0] != "approved":
                 raise HTTPException(
                     status_code=403, detail="Rule execution denied: Rule is not approved by HITL"
                 )
@@ -232,13 +232,13 @@ async def execute_endpoint(request: Request, payload: Optional[dict] = None):
     db = get_db()
     if rule_id:
         rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [rule_id])
-        if not rows or rows[0][0] not in ("approved", "edited"):
+        if not rows or rows[0][0] != "approved":
             raise HTTPException(
                 status_code=403, detail="Rule execution denied: Rule is not approved by HITL"
             )
     else:
         unapproved = db.execute(
-            "SELECT id FROM quality_rules WHERE status NOT IN ('approved', 'edited')"
+            "SELECT id FROM quality_rules WHERE status != 'approved'"
         )
         if unapproved:
             raise HTTPException(

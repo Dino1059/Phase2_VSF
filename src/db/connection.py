@@ -47,6 +47,8 @@ class DuckDBManager:
                 conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
             except Exception:
                 self.init_schema()
+            self._ensure_quarantine_schema(conn)
+            self._ensure_audit_schema(conn)
             self._ensure_scheduler_tables(conn)
         return self._local.connection
 
@@ -57,6 +59,7 @@ class DuckDBManager:
         conn = self.get_connection()
         conn.execute(schema_sql)
         self._ensure_quarantine_schema(conn)
+        self._ensure_audit_schema(conn)
         self._ensure_scheduler_tables(conn)
 
     def _ensure_scheduler_tables(self, conn) -> None:
@@ -114,9 +117,22 @@ class DuckDBManager:
                     conn.execute("ALTER TABLE quarantine ADD COLUMN snapshot_id VARCHAR")
                 if "rule_version_id" not in cols:
                     conn.execute("ALTER TABLE quarantine ADD COLUMN rule_version_id VARCHAR")
-                conn.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_quarantine_idempotency ON quarantine (snapshot_id, rule_version_id, source_row_id)"
-                )
+        except Exception:
+            pass
+
+    def _ensure_audit_schema(self, conn) -> None:
+        try:
+            cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='audit_log'"
+                ).fetchall()
+            ]
+            if cols:
+                if "previous_event_hash" not in cols:
+                    conn.execute("ALTER TABLE audit_log ADD COLUMN previous_event_hash VARCHAR")
+                if "event_hash" not in cols:
+                    conn.execute("ALTER TABLE audit_log ADD COLUMN event_hash VARCHAR")
         except Exception:
             pass
 

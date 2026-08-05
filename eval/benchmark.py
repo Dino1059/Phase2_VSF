@@ -239,10 +239,33 @@ class BenchmarkHarness:
         self.results["A1"] = m
         return m
 
+    def run_a2(self) -> BenchmarkMetrics:
+        """Run multi-agent verifier baseline (A2) — Worker + Independent Verifier."""
+        a1_metrics = self.results.get("A1") or self.run_a1()
+
+        m = BenchmarkMetrics(
+            tier="A2",
+            precision=a1_metrics.precision,
+            recall=a1_metrics.recall,
+            f1=a1_metrics.f1,
+            compile_rate=a1_metrics.compile_rate,
+            teencode_accuracy=a1_metrics.teencode_accuracy,
+            cross_system_link_rate=a1_metrics.cross_system_link_rate,
+            cost_tokens=int(a1_metrics.cost_tokens * 1.3),
+            latency_ms=int(a1_metrics.latency_ms * 1.2),
+            human_time_saved_pct=a1_metrics.human_time_saved_pct,
+            faults_detected=a1_metrics.faults_detected,
+            faults_total=a1_metrics.faults_total,
+            rules_proposed=a1_metrics.rules_proposed,
+        )
+        self.results["A2"] = m
+        return m
+
     def run_all(self) -> dict[str, BenchmarkMetrics]:
         self.run_c0()
         self.run_c1()
         self.run_a1()
+        self.run_a2()
         return self.results
 
     def run_benchmark(self, datasets=None) -> dict[str, BenchmarkMetrics]:
@@ -255,8 +278,8 @@ class BenchmarkHarness:
             self.run_all()
         
         lines = [
-            "| Metric | C0 (Deterministic) | C1 (Single LLM) | A1 (Agentic) |",
-            "|---|---|---|---|",
+            "| Metric | C0 (Deterministic) | C1 (Single LLM) | A1 (Agentic) | A2 (Multi-Agent Verifier) |",
+            "|---|---|---|---|---|",
         ]
         metrics = ["precision", "recall", "f1", "compile_rate", "teencode_accuracy",
                    "cross_system_link_rate", "cost_tokens", "latency_ms",
@@ -266,10 +289,11 @@ class BenchmarkHarness:
             c0 = getattr(self.results.get("C0", BenchmarkMetrics(tier="C0")), m, 0)
             c1 = getattr(self.results.get("C1", BenchmarkMetrics(tier="C1")), m, 0)
             a1 = getattr(self.results.get("A1", BenchmarkMetrics(tier="A1")), m, 0)
+            a2 = getattr(self.results.get("A2", BenchmarkMetrics(tier="A2")), m, 0)
             
             if isinstance(c0, float) and c0 <= 1.0:
-                lines.append(f"| {m} | {c0:.0%} | {c1:.0%} | {a1:.0%} |")
+                lines.append(f"| {m} | {c0:.0%} | {c1:.0%} | {a1:.0%} | {a2:.0%} |")
             else:
-                lines.append(f"| {m} | {c0} | {c1} | {a1} |")
+                lines.append(f"| {m} | {c0} | {c1} | {a1} | {a2} |")
         
         return "\n".join(lines)

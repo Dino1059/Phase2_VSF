@@ -20,15 +20,8 @@ export function AnomalyWorkspace() {
     anomalies?: AnomalyItem[];
   } | null;
 
-  const score = workspaceData?.anomaly_score ?? 0.75;
-  const anomalies: AnomalyItem[] = workspaceData?.anomalies && workspaceData.anomalies.length > 0
-    ? workspaceData.anomalies
-    : [
-        { column: 'fare_amount', metric: 'min_value_check', expected_range: '>= 0.0', observed_value: -45.5, score: 0.95, status: 'critical' },
-        { column: 'passenger_count', metric: 'type_match_check', expected_range: 'integer', observed_value: 'INVALID_STR', score: 0.82, status: 'critical' },
-        { column: 'pickup_latitude', metric: 'geo_bounds_check', expected_range: '8.5 to 23.5 (VN)', observed_value: 40.71, score: 0.88, status: 'warning' },
-        { column: 'trip_distance', metric: 'iqr_outlier_check', expected_range: '0.1 to 120.0 km', observed_value: 980.0, score: 0.76, status: 'warning' },
-      ];
+  const score = workspaceData?.anomaly_score ?? 0.0;
+  const anomalies: AnomalyItem[] = workspaceData?.anomalies ?? [];
 
   return (
     <div className="p-4 space-y-4">
@@ -77,34 +70,42 @@ export function AnomalyWorkspace() {
           <span className="text-xs font-semibold text-text-primary">Detected Outliers & Schema Drift</span>
           <span className="text-[10px] text-text-muted font-mono">{anomalies.length} issues identified</span>
         </div>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-surface/50 border-b border-border text-text-muted font-medium">
-              <th className="text-left px-3 py-2">Column</th>
-              <th className="text-left px-3 py-2">Metric Check</th>
-              <th className="text-left px-3 py-2">Expected Bounds</th>
-              <th className="text-right px-3 py-2">Observed</th>
-              <th className="text-center px-3 py-2">Severity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {anomalies.map((item, idx) => (
-              <tr key={idx} className="border-b border-border hover:bg-surface-hover transition-colors">
-                <td className="px-3 py-2 font-mono text-agent-anomaly-detector font-semibold">{item.column}</td>
-                <td className="px-3 py-2 text-text-secondary">{item.metric}</td>
-                <td className="px-3 py-2 font-mono text-text-muted">{item.expected_range}</td>
-                <td className="px-3 py-2 font-mono text-right text-status-error font-semibold">{item.observed_value}</td>
-                <td className="px-3 py-2 text-center">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                    item.status === 'critical' ? 'bg-status-error/10 text-status-error' : 'bg-status-warning/10 text-status-warning'
-                  }`}>
-                    {item.status}
-                  </span>
-                </td>
+        {anomalies.length === 0 ? (
+          <div className="p-8 text-center text-xs text-text-muted">
+            <ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-40 text-text-muted" />
+            <p className="font-medium text-text-secondary">No Live Anomaly Data Available</p>
+            <p className="text-[11px] mt-1 text-text-muted">Run profiling or an anomaly scan on a dataset to populate live observations.</p>
+          </div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-surface/50 border-b border-border text-text-muted font-medium">
+                <th className="text-left px-3 py-2">Column</th>
+                <th className="text-left px-3 py-2">Metric Check</th>
+                <th className="text-left px-3 py-2">Expected Bounds</th>
+                <th className="text-right px-3 py-2">Observed</th>
+                <th className="text-center px-3 py-2">Severity</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {anomalies.map((item, idx) => (
+                <tr key={idx} className="border-b border-border hover:bg-surface-hover transition-colors">
+                  <td className="px-3 py-2 font-mono text-agent-anomaly-detector font-semibold">{item.column}</td>
+                  <td className="px-3 py-2 text-text-secondary">{item.metric}</td>
+                  <td className="px-3 py-2 font-mono text-text-muted">{item.expected_range}</td>
+                  <td className="px-3 py-2 font-mono text-right text-status-error font-semibold">{item.observed_value}</td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      item.status === 'critical' ? 'bg-status-error/10 text-status-error' : 'bg-status-warning/10 text-status-warning'
+                    }`}>
+                      {item.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

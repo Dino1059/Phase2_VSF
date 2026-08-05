@@ -27,17 +27,34 @@ const VIEW_LABELS: Record<WorkspaceView, string> = {
 
 export function WorkspacePanel() {
   const { t } = useTranslation();
-  const { activeWorkspace } = useChatStore();
-  const Icon = VIEW_ICONS[activeWorkspace];
+  const { activeWorkspace, setWorkspace } = useChatStore();
+
+  const views: WorkspaceView[] = ['profile', 'rules', 'anomaly', 'audit'];
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Workspace header */}
-      <div className="flex items-center gap-2 px-4 h-10 bg-surface border-b border-border shrink-0">
-        {Icon && <Icon className="w-4 h-4 text-text-secondary" />}
-        <span className="text-xs font-medium text-text-secondary">
-          {t(VIEW_LABELS[activeWorkspace])}
-        </span>
+      {/* Workspace header & view selector */}
+      <div className="flex items-center justify-between px-4 h-10 bg-surface border-b border-border shrink-0">
+        <div className="flex items-center gap-1">
+          {views.map((v) => {
+            const IconComp = VIEW_ICONS[v];
+            const isActive = activeWorkspace === v;
+            return (
+              <button
+                key={v}
+                onClick={() => setWorkspace(v)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  isActive
+                    ? 'bg-surface-hover text-text-primary border border-border'
+                    : 'text-text-muted hover:text-text-secondary hover:bg-surface-hover/50'
+                }`}
+              >
+                {IconComp && <IconComp className="w-3.5 h-3.5" />}
+                <span>{t(VIEW_LABELS[v])}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Workspace content */}
@@ -61,15 +78,34 @@ export function WorkspacePanel() {
 }
 
 function EmptyWorkspace() {
-  const { t } = useTranslation();
+  const { setWorkspace } = useChatStore();
   return (
-    <div className="flex flex-col items-center justify-center h-full text-text-muted">
-      <LayoutDashboard className="w-16 h-16 mb-4 opacity-20" />
-      <p className="text-sm font-medium">{t('common:appSubtitle')}</p>
-      <p className="text-xs mt-2 opacity-60 max-w-xs text-center">
-        Agent workspace will appear here as they process your data.
-        Start by typing a command in the chat.
+    <div className="flex flex-col items-center justify-center h-full text-text-muted p-6">
+      <LayoutDashboard className="w-12 h-12 mb-3 opacity-30 text-agent-orchestrator" />
+      <p className="text-sm font-semibold text-text-primary">Reliability Operations Cockpit</p>
+      <p className="text-xs mt-1 text-text-muted max-w-sm text-center">
+        Monitor data reliability, review proposed quality rules, analyze incident root causes, and verify audit records.
       </p>
+      <div className="flex items-center gap-2 mt-4">
+        <button
+          onClick={() => setWorkspace('profile')}
+          className="px-3 py-1.5 bg-surface border border-border text-text-primary rounded text-xs hover:bg-surface-hover transition-colors font-medium flex items-center gap-1.5"
+        >
+          <Database className="w-3.5 h-3.5 text-agent-profiler" /> Dataset Profile
+        </button>
+        <button
+          onClick={() => setWorkspace('rules')}
+          className="px-3 py-1.5 bg-surface border border-border text-text-primary rounded text-xs hover:bg-surface-hover transition-colors font-medium flex items-center gap-1.5"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-agent-validator" /> Quality Rules
+        </button>
+        <button
+          onClick={() => setWorkspace('anomaly')}
+          className="px-3 py-1.5 bg-surface border border-border text-text-primary rounded text-xs hover:bg-surface-hover transition-colors font-medium flex items-center gap-1.5"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-status-warning" /> Incidents
+        </button>
+      </div>
     </div>
   );
 }
