@@ -243,6 +243,7 @@ def test_websocket_endpoint_clean_connection():
         assert data == {"type": "pong"}
 
 
+@_SKIP_LLM
 def test_chat_send_react_loop_profile():
     response = client.post("/api/v1/chat/send", json={"message": "Profile the dataset"})
     assert response.status_code == 200
@@ -252,6 +253,7 @@ def test_chat_send_react_loop_profile():
     assert "ReAct Loop Completed" in data["analysis"]
 
 
+@_SKIP_LLM
 def test_chat_send_react_loop_propose_rules():
     response = client.post("/api/v1/chat/send", json={"message": "Propose data quality rules"})
     assert response.status_code == 200
@@ -349,3 +351,46 @@ def test_p0_02_hitl_approval_bypass_prevention():
     response = client.post("/api/v1/transform/execute", json=payload)
     assert response.status_code == 403
     assert "Rule execution denied: Rule is not approved by HITL" in response.json()["detail"]
+
+
+def test_p0_03_react_dynamic_tool_state_transitions():
+    from src.tools.base import BaseTool
+    from src.tools.chat_tools import ProfileDatasetTool, ProposeQualityRulesTool, CleanDatabaseTool
+    from src.api.state_machine import WorkflowState
+
+    assert ProfileDatasetTool.target_workflow_state == WorkflowState.PROFILED
+    assert ProposeQualityRulesTool.target_workflow_state == WorkflowState.RULES_PROPOSED
+    assert CleanDatabaseTool.target_workflow_state == WorkflowState.COMPLETED
+
+
+def test_chat_send_tool_driven_state_transition_mocked(monkeypatch):
+    from src.orchestrator.engine import ReActResult, ReActStep
+    from src.api.routes import state_machine
+    from src.api.state_machine import WorkflowState
+
+    state_machine.reset()
+    mock_result = ReActResult(
+        task="Random message without any keyword",
+        steps=[
+            ReActStep(
+                step_index=0,
+                thought="I will profile the dataset",
+                action="profile_dataset",
+                observation="Profile complete",
+            )
+        ],
+        final_answer="Profile done",
+        status="completed",
+    )
+
+    from src.orchestrator.engine import ReActEngine
+    monkeypatch.setattr(ReActEngine, "run", lambda self, task, context=None: mock_result)
+
+    # Note user prompt contains NO keyword like 'profile' or 'scan'
+    response = client.post("/api/v1/chat/send", json={"message": "Please do some analysis"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["state"] == "PROFILED"
+    assert "Executed action(s) [profile_dataset]" in data["analysis"]
+
+

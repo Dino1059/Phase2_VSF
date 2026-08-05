@@ -72,7 +72,7 @@ def test_edit_rule(client):
     db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) VALUES ('r1', 'test', 'range', 'x > 0', 0.9, 'proposed')")
     resp = c.post("/api/v1/hitl/edit/r1", json={"rule_expression": "x > 10", "edited_by": "tester"})
     assert resp.status_code == 200
-    assert resp.json()["status"] == "proposed"
+    assert resp.json()["status"] == "edited"
 
 
 def test_edit_not_found(client):

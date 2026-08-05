@@ -71,3 +71,50 @@ async def batch_approval(request: BatchApprovalRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AuthorizeRequest(BaseModel):
+    dataset_key: str
+    rule_ids: List[str]
+
+
+@router.post("/authorize", summary="Authorize execution of approved rules for a dataset")
+async def authorize_execution(request: AuthorizeRequest):
+    import json
+    import uuid
+    import hashlib
+    db = get_db()
+    try:
+        # Check that rules exist and are approved
+        for rid in request.rule_ids:
+            rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [rid])
+            if not rows or rows[0][0] != "approved":
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Rule '{rid}' is not approved by HITL. Execution authorization denied.",
+                )
+
+        auth_id = f"auth_{uuid.uuid4().hex[:12]}"
+        payload_str = f"{request.dataset_key}:{sorted(request.rule_ids)}"
+        payload_hash = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+
+        db.execute(
+            """
+            INSERT INTO execution_authorizations (id, dataset_key, rule_ids, actor, payload_hash)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [auth_id, request.dataset_key, json.dumps(request.rule_ids), "HITL_USER", payload_hash],
+        )
+
+        return {
+            "authorization_id": auth_id,
+            "dataset_key": request.dataset_key,
+            "rule_ids": request.rule_ids,
+            "status": "authorized",
+            "payload_hash": payload_hash,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

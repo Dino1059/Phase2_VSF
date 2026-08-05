@@ -100,6 +100,23 @@ class DuckDBManager:
                     timestamp VARCHAR NOT NULL
                 );
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS execution_authorizations (
+                    id VARCHAR PRIMARY KEY,
+                    dataset_key VARCHAR,
+                    rule_ids JSON,
+                    actor VARCHAR,
+                    payload_hash VARCHAR,
+                    authorized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS datasets (
+                    dataset_key VARCHAR PRIMARY KEY,
+                    file_path VARCHAR,
+                    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);")
         except Exception:
             pass

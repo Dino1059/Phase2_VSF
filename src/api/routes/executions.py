@@ -24,13 +24,17 @@ async def execute_transform_endpoint(
 
     db = get_db()
     for r in request.rules:
-        if r.rule_id:
-            rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [r.rule_id])
-            if not rows or rows[0][0] != "approved":
-                raise HTTPException(
-                    status_code=403,
-                    detail="Rule execution denied: Rule is not approved by HITL",
-                )
+        if not r.rule_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Rule execution denied: Rule ID is required for HITL verification",
+            )
+        rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [r.rule_id])
+        if not rows or rows[0][0] not in ("approved", "edited"):
+            raise HTTPException(
+                status_code=403,
+                detail="Rule execution denied: Rule is not approved by HITL",
+            )
 
     try:
         df = pd.DataFrame(request.data)
@@ -102,13 +106,13 @@ async def execute_endpoint(request: Request, payload: Optional[dict] = None):
     db = get_db()
     if rule_id:
         rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [rule_id])
-        if not rows or rows[0][0] != "approved":
+        if not rows or rows[0][0] not in ("approved", "edited"):
             raise HTTPException(
                 status_code=403, detail="Rule execution denied: Rule is not approved by HITL"
             )
     else:
         unapproved = db.execute(
-            "SELECT id FROM quality_rules WHERE status != 'approved'"
+            "SELECT id FROM quality_rules WHERE status NOT IN ('approved', 'edited')"
         )
         if unapproved:
             raise HTTPException(

@@ -29,7 +29,7 @@ from src.services.scheduler import scheduler_service
 from src.db.connection import get_db
 
 UI_DIR_V2 = os.path.join(os.path.dirname(__file__), "ui")
-UI_DIR_V3 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "dist")
+UI_DIR_V3 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
 INDEX_HTML_V2 = os.path.join(UI_DIR_V2, "index.html")
 APP_HTML_V2 = os.path.join(UI_DIR_V2, "app.html")
@@ -110,9 +110,9 @@ async def health():
 @app.get("/vite.svg")
 async def serve_vite_svg():
     candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "vite.svg"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "public", "vite.svg"),
         os.path.join(UI_DIR_V3, "vite.svg"),
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "src", "assets", "vite.svg"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "src", "assets", "vite.svg"),
         os.path.join(UI_DIR_V2, "vite.svg"),
     ]
     for candidate in candidates:
@@ -124,10 +124,10 @@ async def serve_vite_svg():
 @app.get("/favicon.ico")
 async def serve_favicon_ico():
     candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.ico"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "public", "favicon.ico"),
         os.path.join(UI_DIR_V3, "favicon.ico"),
         os.path.join(UI_DIR_V2, "favicon.ico"),
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.svg"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "public", "favicon.svg"),
         os.path.join(UI_DIR_V3, "favicon.svg"),
         os.path.join(UI_DIR_V2, "favicon.svg"),
     ]
@@ -141,7 +141,7 @@ async def serve_favicon_ico():
 @app.get("/favicon.svg")
 async def serve_favicon_svg():
     candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "public", "favicon.svg"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "public", "favicon.svg"),
         os.path.join(UI_DIR_V3, "favicon.svg"),
         os.path.join(UI_DIR_V2, "favicon.svg"),
     ]
@@ -161,7 +161,7 @@ if os.path.exists(UI_DIR_V2):
 # Mount /v3/assets to frontend-v3/dist/assets (or fallback)
 v3_assets_dir = os.path.join(UI_DIR_V3, "assets")
 if not os.path.exists(v3_assets_dir):
-    v3_src_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "src", "assets")
+    v3_src_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "src", "assets")
     v2_assets_dir = os.path.join(UI_DIR_V2, "assets")
     if os.path.exists(v3_src_assets):
         v3_assets_dir = v3_src_assets
@@ -182,10 +182,10 @@ if os.path.exists(UI_DIR_V3):
 async def serve_v3(full_path: str = ""):
     if os.path.exists(INDEX_HTML_V3):
         return FileResponse(INDEX_HTML_V3)
-    frontend_v3_src_index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend-v3", "index.html")
+    frontend_v3_src_index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
     if os.path.exists(frontend_v3_src_index):
         return FileResponse(frontend_v3_src_index)
-    return HTMLResponse("<html><body><h1>DataTrust OS v3</h1><p>v3 build pending. Run <code>pnpm run build</code> in frontend-v3.</p></body></html>")
+    return HTMLResponse("<html><body><h1>DataTrust OS v3</h1><p>v3 build pending. Run <code>pnpm run build</code> in frontend.</p></body></html>")
 
 
 # v2 Guided Workflow Web UI at GET / and GET /ui

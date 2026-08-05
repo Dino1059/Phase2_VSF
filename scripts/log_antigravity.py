@@ -101,10 +101,10 @@ def get_brain_dirs() -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def _normalize(p: str) -> str:
-    """Lower-case + backslash form, no trailing separator."""
+    """Lower-case path, normalized, no trailing separator."""
     if not p:
         return ""
-    return p.strip().lower().replace("/", "\\").rstrip("\\")
+    return os.path.normpath(p.strip()).lower().rstrip("/").rstrip("\\")
 
 
 def _unquote_arg(val):
@@ -147,15 +147,17 @@ def _conv_cwds(transcript: Path) -> set[str]:
 
 
 def _conv_matches_repo(cwds: set[str], repo_root_n: str) -> bool:
-    """True if any cwd is equal to, ancestor of, or descendant of the repo."""
+    """True ONLY if any cwd is equal to or a descendant of the repo root.
+    
+    Ancestor directories (such as /home/shayneeo or /home/shayneeo/Downloads)
+    must NEVER match, as tool calls in home/parent dirs do not belong to P-086.
+    """
     if not repo_root_n or not cwds:
         return False
     for cwd in cwds:
         if cwd == repo_root_n:
             return True
-        if cwd.startswith(repo_root_n + "\\"):
-            return True
-        if repo_root_n.startswith(cwd + "\\"):
+        if cwd.startswith(repo_root_n + "/") or cwd.startswith(repo_root_n + "\\"):
             return True
     return False
 
@@ -203,9 +205,17 @@ def get_logged_entry_ids(log_file: Path) -> set[str]:
 # Iterating user inputs
 # ---------------------------------------------------------------------------
 
+def _is_repo_dir(c: str, repo_root_n: str) -> bool:
+    if not c or not repo_root_n:
+        return False
+    n = _normalize(c)
+    return n == repo_root_n or n.startswith(repo_root_n + "/") or n.startswith(repo_root_n + "\\")
+
+
 def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                      only_conv: str | None, repo_root_n: str):
-    """Yield user-input dicts from every matching conversation transcript."""
+    """Yield user-input dicts from transcripts where the prompt or its tool calls
+    specifically belong to repo_root_n (or its subdirectories)."""
     for brain in brain_dirs:
         for conv_dir in sorted(brain.iterdir()):
             if not conv_dir.is_dir():
@@ -218,45 +228,81 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
             if not transcript.exists() or transcript.stat().st_size == 0:
                 continue
 
-            cwds = _conv_cwds(transcript)
-            # If we have a repo root, skip convs that never touched it.
-            if repo_root_n and not _conv_matches_repo(cwds, repo_root_n):
+            entries = []
+            try:
+                with open(transcript, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+            except OSError:
                 continue
 
-            with open(transcript, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
+            active_cwd = ""
+            for i, entry in enumerate(entries):
+                # Track active Cwd from tool calls preceding or inside this entry
+                for tc in (entry.get("tool_calls") or []):
+                    args = tc.get("args") or {}
+                    cwd = args.get("Cwd") or args.get("cwd")
+                    cwd = _unquote_arg(cwd)
+                    if isinstance(cwd, str) and cwd:
+                        active_cwd = cwd
+
+                if (entry.get("type") != "USER_INPUT"
+                        or entry.get("source") != "USER_EXPLICIT"):
+                    continue
+
+                ts = entry.get("created_at") or ""
+                if cutoff and ts:
                     try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if (entry.get("type") != "USER_INPUT"
-                            or entry.get("source") != "USER_EXPLICIT"):
+                        ts_dt = datetime.fromisoformat(
+                            ts.replace("Z", "+00:00")
+                        )
+                        if ts_dt < cutoff:
+                            continue
+                    except ValueError:
+                        pass
+
+                text = extract_user_prompt(entry.get("content", ""))
+                if len(text) < 2:
+                    continue
+
+                # Strict repo filtering per prompt step
+                if repo_root_n:
+                    prompt_cwds = set()
+                    for j in range(i + 1, len(entries)):
+                        next_e = entries[j]
+                        if (next_e.get("type") == "USER_INPUT"
+                                and next_e.get("source") == "USER_EXPLICIT"):
+                            break
+                        for tc in (next_e.get("tool_calls") or []):
+                            args = tc.get("args") or {}
+                            cwd = args.get("Cwd") or args.get("cwd")
+                            cwd = _unquote_arg(cwd)
+                            if isinstance(cwd, str) and cwd:
+                                prompt_cwds.add(cwd)
+
+                    if prompt_cwds:
+                        is_repo_prompt = any(_is_repo_dir(c, repo_root_n) for c in prompt_cwds)
+                    elif active_cwd:
+                        is_repo_prompt = _is_repo_dir(active_cwd, repo_root_n)
+                    else:
+                        text_n = _normalize(text)
+                        is_repo_prompt = ("p-086" in text_n or "p086" in text_n)
+
+                    if not is_repo_prompt:
                         continue
 
-                    ts = entry.get("created_at") or ""
-                    if cutoff and ts:
-                        try:
-                            ts_dt = datetime.fromisoformat(
-                                ts.replace("Z", "+00:00")
-                            )
-                            if ts_dt < cutoff:
-                                continue
-                        except ValueError:
-                            pass
-
-                    text = extract_user_prompt(entry.get("content", ""))
-                    if len(text) < 2:
-                        continue
-
-                    yield {
-                        "conv_id": conv_dir.name,
-                        "step_index": int(entry.get("step_index", 0)),
-                        "timestamp": ts,
-                        "text": text,
-                    }
+                yield {
+                    "conv_id": conv_dir.name,
+                    "step_index": int(entry.get("step_index", 0)),
+                    "timestamp": ts,
+                    "text": text,
+                }
 
 
 # ---------------------------------------------------------------------------

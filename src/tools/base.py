@@ -33,6 +33,7 @@ class BaseTool(ABC):
     description: str = ""
     input_schema: dict | Type[BaseModel] = {}
     output_schema: dict | Type[BaseModel] = {}
+    target_workflow_state: Optional[Any] = None
 
     @abstractmethod
     def execute(self, input_data: dict) -> dict | ToolResult | BaseModel:

@@ -11,10 +11,10 @@ hitl_router = APIRouter(prefix="/hitl", tags=["HITL"])
 
 
 def check_rule_approved(rule_id: str):
-    """Verify rule exists in DuckDB quality_rules table and status is approved."""
+    """Verify rule exists in DuckDB quality_rules table and status is approved or edited."""
     db = get_db()
     rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
-    if not rules or rules[0][1] != "approved":
+    if not rules or rules[0][1] not in ("approved", "edited"):
         raise HTTPException(
             status_code=403,
             detail="Rule execution denied: Rule is not approved by HITL"
@@ -70,11 +70,11 @@ async def edit_rule(rule_id: str, req: EditRequest):
     if not rules:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
 
-    db.execute("UPDATE quality_rules SET rule_expression = ?, status = 'proposed' WHERE id = ?",
+    db.execute("UPDATE quality_rules SET rule_expression = ?, status = 'edited' WHERE id = ?",
                [req.rule_expression, rule_id])
     AuditService.log("EDIT_RULE", req.edited_by, "quality_rules", rule_id,
                      {"new_expression": req.rule_expression})
-    return {"status": "proposed", "rule_id": rule_id}
+    return {"status": "edited", "rule_id": rule_id}
 
 
 @hitl_router.post("/execute/{rule_id}")

@@ -116,17 +116,36 @@ async def execute_rules_on_dataset(
 ):
     """Execute proposed rules on a dataset, returning clean/quarantine split."""
     try:
+        from src.db.connection import get_db
         from src.services.dataset_engine import (
             execute_compiled_rules,
-            generate_rules_for_baseline,
             load_dataset,
-            profile_rows,
         )
 
         df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
         rows = df.to_dict("records")
-        profile_data = profile_rows(rows)
-        rules, _ = generate_rules_for_baseline("A1", profile_data)
+
+        db = get_db()
+        rule_rows = db.execute(
+            "SELECT id, rule_name, rule_type, rule_expression, status FROM quality_rules WHERE status IN ('approved', 'edited')"
+        )
+
+        if not rule_rows:
+            raise HTTPException(
+                status_code=403, detail="Rule execution denied: Rule is not approved by HITL"
+            )
+
+        rules = [
+            {
+                "rule_id": r[0],
+                "rule_name": r[1],
+                "rule_type": r[2],
+                "rule_expression": r[3],
+                "decision": r[4],
+            }
+            for r in rule_rows
+        ]
+
         result = execute_compiled_rules(rows, rules)
         clean_result = _sanitize_nans(result)
         return {
@@ -137,6 +156,8 @@ async def execute_rules_on_dataset(
             "rules_applied": len(rules),
             "execution_result": clean_result,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

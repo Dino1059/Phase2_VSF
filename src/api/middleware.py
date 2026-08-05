@@ -79,8 +79,18 @@ def is_public_path(path: str) -> bool:
     return False
 
 
+MOCK_TOKEN_REGISTRY = {
+    "token_admin": "Admin",
+    "token_analyst": "Analyst",
+    "token_auditor": "Auditor",
+    "token_steward": "Steward",
+    "token_viewer": "Viewer",
+    "admin_token": "Admin",
+}
+
+
 async def check_user_role(request: Request):
-    """Middleware dependency for X-User-Role role-based access control."""
+    """Middleware dependency for token/role-based access control."""
     if request.scope.get("type") == "websocket":
         return "Admin"
 
@@ -98,14 +108,18 @@ async def check_user_role(request: Request):
             )
         return "Viewer"
 
-    raw_role = x_user_role or (auth_header.replace("Bearer ", "") if auth_header else "")
-    role = raw_role.strip().capitalize() if raw_role else ""
+    raw_token = auth_header.replace("Bearer ", "").strip() if auth_header else ""
+    if raw_token in MOCK_TOKEN_REGISTRY:
+        role = MOCK_TOKEN_REGISTRY[raw_token]
+    else:
+        raw_role = x_user_role or raw_token
+        role = raw_role.strip().capitalize() if raw_role else ""
 
     valid_roles = {"Admin", "Analyst", "Auditor", "Viewer", "Steward"}
     if role not in valid_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Forbidden: Unknown or invalid user role '{raw_role}'",
+            detail=f"Forbidden: Unknown or invalid user role/token '{x_user_role or raw_token}'",
         )
 
     request.state.user_role = role

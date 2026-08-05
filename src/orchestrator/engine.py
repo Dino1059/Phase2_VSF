@@ -295,3 +295,13 @@ class ReActEngine:
             )
         except Exception:
             pass
+
+    def detect_anomalies(self, current_profile: dict, baseline_profile: dict | None = None) -> Any:
+        from src.agents.sub_agents import AnomalyDetectorAgent
+        agent = AnomalyDetectorAgent(llm_service=self.llm)
+        return agent.run(current_profile=current_profile, baseline_profile=baseline_profile)
+
+    def diagnose(self, data_profile: dict, anomaly_context: dict | None = None) -> Any:
+        from src.agents.sub_agents import DiagnosisAgent
+        agent = DiagnosisAgent(llm_service=self.llm)
+        return agent.run(data_profile=data_profile, anomaly_context=anomaly_context)

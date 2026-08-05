@@ -172,20 +172,19 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
 
-CREATE TABLE IF NOT EXISTS raw_taxi_trips (
-    row_id INTEGER PRIMARY KEY,
-    trip_id VARCHAR,
-    pickup_datetime TIMESTAMP,
-    dropoff_datetime TIMESTAMP,
-    passenger_count INT,
-    trip_distance FLOAT,
-    fare_amount FLOAT,
-    extra FLOAT,
-    mta_tax FLOAT,
-    tip_amount FLOAT,
-    tolls_amount FLOAT,
-    improvement_surcharge FLOAT,
-    total_amount FLOAT,
-    payment_type VARCHAR
+CREATE TABLE IF NOT EXISTS execution_authorizations (
+    id VARCHAR PRIMARY KEY,
+    dataset_key VARCHAR,
+    rule_ids JSON,
+    actor VARCHAR,
+    payload_hash VARCHAR,
+    authorized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS datasets (
+    dataset_key VARCHAR PRIMARY KEY,
+    file_path VARCHAR,
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 
