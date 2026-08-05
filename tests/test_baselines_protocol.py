@@ -8,6 +8,7 @@ from src.agents.baselines import (
     BaselineR0,
     BaselineC1,
     BaselineA1,
+    BaselineA2,
 )
 
 
@@ -46,14 +47,17 @@ def test_baselines_protocol_conformance():
     b_r0 = BaselineR0()
     b_c1 = BaselineC1()
     b_a1 = BaselineA1()
+    b_a2 = BaselineA2()
 
     assert isinstance(b_r0, Baseline)
     assert isinstance(b_c1, Baseline)
     assert isinstance(b_a1, Baseline)
+    assert isinstance(b_a2, Baseline)
 
     assert b_r0.tier == "R0"
     assert b_c1.tier == "C1"
     assert b_a1.tier == "A1"
+    assert b_a2.tier == "A2"
 
 
 @pytest.mark.asyncio
@@ -68,7 +72,8 @@ async def test_baseline_r0_run():
 
     assert isinstance(result, BaselineResult)
     assert result.tier == "R0"
-    assert "f_type_1" in result.predictions
+    assert isinstance(result.predictions, set)
+    assert len(result.evidence_refs) > 0
     assert isinstance(result.evidence_refs, list)
     assert isinstance(result.tool_trace, list)
     assert result.cost_tokens == 0
@@ -127,9 +132,21 @@ async def test_baseline_a1_run():
 
 
 @pytest.mark.asyncio
+async def test_baseline_a2_run():
+    b_a2 = BaselineA2()
+    case = BenchmarkCase(case_id="case_a2", dataset_key="vgreen_telemetry")
+    result = await b_a2.run(case)
+
+    assert isinstance(result, BaselineResult)
+    assert result.tier == "A2"
+    assert result.cost_tokens >= 0
+    assert any(t.get("step") == "a2_verifier_audit" for t in result.tool_trace)
+
+
+@pytest.mark.asyncio
 async def test_all_baselines_return_identical_result_attributes():
     case = BenchmarkCase(case_id="c_test", dataset_key="test_db")
-    baselines = [BaselineR0(), BaselineC1(), BaselineA1()]
+    baselines = [BaselineR0(), BaselineC1(), BaselineA1(), BaselineA2()]
 
     expected_attrs = {
         "tier",

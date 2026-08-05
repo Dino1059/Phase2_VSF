@@ -14,7 +14,12 @@ from src.db.connection import get_db
 class DecisionRecord:
     """Structured decision log record for ReAct step execution."""
     selected_action: str
+    decision_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    claim: str = ""
     evidence_refs: list[str] = field(default_factory=list)
+    contradicting_evidence_refs: list[str] = field(default_factory=list)
+    source_query_hashes: list[str] = field(default_factory=list)
+    confidence_method: str = "heuristic_grounding"
     confidence: float = 1.0
     alternative_considered: str | None = None
     stop_continue_reason: str = ""
@@ -290,3 +295,13 @@ class ReActEngine:
             )
         except Exception:
             pass
+
+    def detect_anomalies(self, current_profile: dict, baseline_profile: dict | None = None) -> Any:
+        from src.agents.sub_agents import AnomalyDetectorAgent
+        agent = AnomalyDetectorAgent(llm_service=self.llm)
+        return agent.run(current_profile=current_profile, baseline_profile=baseline_profile)
+
+    def diagnose(self, data_profile: dict, anomaly_context: dict | None = None) -> Any:
+        from src.agents.sub_agents import DiagnosisAgent
+        agent = DiagnosisAgent(llm_service=self.llm)
+        return agent.run(data_profile=data_profile, anomaly_context=anomaly_context)

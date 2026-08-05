@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "AI20K Agent"
+    app_name: str = "DataTrust OS"
+    app_version: str = "4.2.0"
     app_env: Literal["development", "production", "test"] = "development"
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
@@ -65,8 +66,18 @@ class Settings(BaseSettings):
 
     def get_dataset_path(self, key: str) -> str:
         import os
+        from src.db.connection import get_db
 
         path = self.dataset_registry.get(key)
+        if not path:
+            try:
+                db = get_db()
+                rows = db.execute("SELECT file_path FROM datasets WHERE dataset_key = ?", [key])
+                if rows:
+                    path = rows[0][0]
+            except Exception:
+                pass
+
         if not path:
             raise ValueError(
                 f"Unknown dataset: {key}. Available: {list(self.dataset_registry.keys())}"
@@ -81,12 +92,32 @@ class Settings(BaseSettings):
 
     def register_dataset(self, key: str, rel_path: str):
         self.dataset_registry[key] = rel_path
+        try:
+            from src.db.connection import get_db
+            db = get_db()
+            db.execute(
+                "INSERT INTO datasets (dataset_key, file_path) VALUES (?, ?) ON CONFLICT (dataset_key) DO UPDATE SET file_path = EXCLUDED.file_path",
+                [key, rel_path],
+            )
+        except Exception:
+            pass
 
     def list_available_datasets(self) -> list:
         import os
+        from src.db.connection import get_db
+
+        merged_registry = dict(self.dataset_registry)
+        try:
+            db = get_db()
+            rows = db.execute("SELECT dataset_key, file_path FROM datasets")
+            for r in rows:
+                merged_registry[r[0]] = r[1]
+        except Exception:
+            pass
+
         result = []
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for key, rel_path in self.dataset_registry.items():
+        for key, rel_path in merged_registry.items():
             full_path = os.path.join(base, rel_path)
             exists = os.path.exists(full_path)
             size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2) if exists else 0

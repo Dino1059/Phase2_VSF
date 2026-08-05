@@ -1,0 +1,163 @@
+[
+  {
+    "rule_id": "R001",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "battery_soc",
+    "operator": "between",
+    "value": [0, 100],
+    "description": "Battery SOC must be within 0-100% (negative SOC = BMS sensor fault)"
+  },
+  {
+    "rule_id": "R002",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "battery_voltage",
+    "operator": "between",
+    "value": [300.0, 450.0],
+    "description": "Pack voltage must stay within 300-450V (>9000V = CAN-bus overvoltage spike)"
+  },
+  {
+    "rule_id": "R003",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "battery_temp_c",
+    "operator": "between",
+    "value": [20.0, 60.0],
+    "description": "Battery module temperature must stay within 20-60C"
+  },
+  {
+    "rule_id": "R004",
+    "table": "vgreen_charging_stations_dirty",
+    "column": "cost_vnd",
+    "operator": "gte",
+    "value": 0,
+    "description": "Charging session cost cannot be negative (billing ledger defect)"
+  },
+  {
+    "rule_id": "R005",
+    "table": "vgreen_charging_stations_dirty",
+    "column": "station_temp_c",
+    "operator": "lte",
+    "value": 90.0,
+    "description": "Station cabinet temperature must not exceed 90C (thermal cutoff)"
+  },
+  {
+    "rule_id": "R006",
+    "table": "vgreen_charging_stations_dirty",
+    "column": "status",
+    "operator": "in",
+    "value": ["COMPLETED", "THERMAL_FAULT", "POWER_DROP"],
+    "description": "Session status must be one of the documented enum values"
+  },
+  {
+    "rule_id": "R007",
+    "table": "xanh_sm_trips_dirty",
+    "column": "fare_amount",
+    "operator": "gte",
+    "value": 0,
+    "description": "Base fare cannot be negative (negative fare defect)"
+  },
+  {
+    "rule_id": "R008",
+    "table": "xanh_sm_trips_dirty",
+    "column": "total_fare",
+    "operator": "expr_eq",
+    "value": "fare_amount + tip_amount - discount_amount",
+    "tolerance": 0.01,
+    "description": "total_fare must equal fare_amount + tip_amount - discount_amount (arithmetic ledger check)"
+  },
+  {
+    "rule_id": "R009",
+    "table": "xanh_sm_trips_dirty",
+    "column": "vehicle_type",
+    "operator": "in",
+    "value": ["VF_5_TAXI", "VF_e34_TAXI", "FELIZ_S_BIKE"],
+    "description": "Vehicle type must be one of the documented Xanh SM fleet categories"
+  },
+  {
+    "rule_id": "R010",
+    "table": "xanh_sm_customer_feedback_dirty",
+    "column": "severity_level",
+    "operator": "in",
+    "value": ["CRITICAL", "WARNING", "INFO"],
+    "description": "Feedback severity must be one of the documented enum values"
+  },
+  {
+    "rule_id": "R011",
+    "table": "xanh_sm_customer_feedback_dirty",
+    "column": "feedback_id",
+    "operator": "not_null",
+    "description": "Every feedback record must have a non-null primary identifier"
+  },
+  {
+    "rule_id": "R012",
+    "table": "xanh_sm_customer_feedback_dirty",
+    "column": "raw_comment_text",
+    "operator": "regex",
+    "value": "^.+$",
+    "description": "Comment text must be non-empty"
+  },
+  {
+    "rule_id": "R013",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "timestamp",
+    "operator": "valid_date",
+    "description": "Telemetry timestamp must be a well-formed ISO-8601 datetime (corrupted timestamps from GSM basement blackouts)"
+  },
+  {
+    "rule_id": "R014",
+    "table": "vgreen_charging_stations_dirty",
+    "column": "start_time",
+    "operator": "valid_date",
+    "description": "Charging session start_time must be a well-formed ISO-8601 datetime"
+  },
+  {
+    "rule_id": "R015",
+    "table": "xanh_sm_trips_dirty",
+    "column": "pickup_datetime",
+    "operator": "valid_date",
+    "description": "Trip pickup_datetime must be a well-formed ISO-8601 datetime"
+  },
+  {
+    "rule_id": "R016",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "battery_soc",
+    "operator": "is_numeric",
+    "description": "battery_soc must actually be stored as a numeric value, not text/garbage"
+  },
+  {
+    "rule_id": "R017",
+    "table": "vgreen_charging_stations_dirty",
+    "column": "cost_vnd",
+    "operator": "is_numeric",
+    "description": "cost_vnd must actually be stored as a numeric value, not text/garbage"
+  },
+  {
+    "rule_id": "R_BAD_01",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "vehicle_vin",
+    "operator": "between",
+    "value": [0, 100],
+    "description": "INTENTIONALLY INVALID: vehicle_vin is TEXT, 'between' requires a numeric column"
+  },
+  {
+    "rule_id": "R_BAD_02",
+    "table": "xanh_sm_trips_dirty",
+    "column": "settlement_score",
+    "operator": "gte",
+    "value": 0,
+    "description": "INTENTIONALLY INVALID: settlement_score does not exist in xanh_sm_trips_dirty"
+  },
+  {
+    "rule_id": "R_BAD_03",
+    "table": "customers",
+    "column": "customer_id",
+    "operator": "not_null",
+    "description": "INTENTIONALLY INVALID: table 'customers' does not exist in the source schema"
+  },
+  {
+    "rule_id": "R_BAD_04",
+    "table": "vinfast_ev_telemetry_dirty",
+    "column": "battery_soc",
+    "operator": "valid_date",
+    "description": "INTENTIONALLY INVALID: battery_soc is REAL, 'valid_date' requires a TEXT column"
+  }
+]

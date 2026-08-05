@@ -24,13 +24,17 @@ async def execute_transform_endpoint(
 
     db = get_db()
     for r in request.rules:
-        if r.rule_id:
-            rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [r.rule_id])
-            if not rows or rows[0][0] not in ("approved", "edited"):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Rule execution denied: Rule is not approved by HITL",
-                )
+        if not r.rule_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Rule execution denied: Rule ID is required for HITL verification",
+            )
+        rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [r.rule_id])
+        if not rows or rows[0][0] not in ("approved", "edited"):
+            raise HTTPException(
+                status_code=403,
+                detail="Rule execution denied: Rule is not approved by HITL",
+            )
 
     try:
         df = pd.DataFrame(request.data)

@@ -544,8 +544,7 @@ def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any
     """Execute active/approved rules on rows, outputting CleanDB and QuarantineTable with Lineage Trace."""
     active_rules = [r for r in rules if r.get("decision") in ("approved", "edit")]
     if not active_rules:
-        # If no explicit decisions made yet, default to executing all rules
-        active_rules = rules
+        raise ValueError("Rule execution denied: No rules are approved by HITL")
 
     clean_db = []
     quarantine_table = []
@@ -561,8 +560,9 @@ def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any
             expr = r.get("custom_expression") or r.get("expression")
             passed = safe_eval_rule(expr, row)
             if not passed:
+                rule_name_str = r.get("name") or r.get("rule_name") or "Rule"
                 violated_rules.append(r["rule_id"])
-                reasons.append(f"Violated {r['name']} ({r['rule_id']}): {expr}")
+                reasons.append(f"Violated {rule_name_str} ({r['rule_id']}): {expr}")
                 quarantine_breakdown[r["rule_id"]] += 1
 
         if violated_rules:
@@ -658,7 +658,7 @@ def execute_rules_transactional(
         exec_res = execute_compiled_rules(rows, rules)
         quarantine_indices = exec_res.get("quarantine_indices", [])
 
-        active_rules = [r for r in rules if r.get("decision") in ("approved", "edit")] or rules
+        active_rules = [r for r in rules if r.get("decision") in ("approved", "edit")]
 
         quarantine_records = []
         for idx in quarantine_indices:

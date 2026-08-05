@@ -1,105 +1,94 @@
-export type UserRole = 'Admin' | 'Steward' | 'Viewer';
+// Agent types
+export type AgentId = 'orchestrator' | 'profiler' | 'ruleProposer' | 'anomalyDetector' | 'diagnosis';
+export type AgentStatus = 'active' | 'working' | 'done' | 'idle' | 'error';
 
-export interface ColumnProfile {
-  column_name: string;
-  data_type: string;
-  null_count: number;
-  null_percentage: number;
-  distinct_count: number;
-  min_value?: any;
-  max_value?: any;
-  sample_values?: any[];
-  health_status?: 'Good' | 'Drifting' | 'Warning';
+export interface AgentInfo {
+  id: AgentId;
+  nameKey: string; // i18n key
+  descKey: string; // i18n key
+  color: string;
+  icon: string; // Lucide icon name
+  status: AgentStatus;
 }
 
-export interface ProfileReport {
-  snapshot_id: string;
-  row_count: number;
-  column_count: number;
-  duplicate_count: number;
-  columns: ColumnProfile[];
-}
+export const AGENTS: Record<AgentId, Omit<AgentInfo, 'status'>> = {
+  orchestrator: { id: 'orchestrator', nameKey: 'agents:orchestrator', descKey: 'agents:orchestratorDesc', color: '#06b6d4', icon: 'Brain' },
+  profiler: { id: 'profiler', nameKey: 'agents:profiler', descKey: 'agents:profilerDesc', color: '#3b82f6', icon: 'ScanSearch' },
+  ruleProposer: { id: 'ruleProposer', nameKey: 'agents:ruleProposer', descKey: 'agents:ruleProposerDesc', color: '#22c55e', icon: 'ShieldCheck' },
+  anomalyDetector: { id: 'anomalyDetector', nameKey: 'agents:anomalyDetector', descKey: 'agents:anomalyDetectorDesc', color: '#f59e0b', icon: 'AlertTriangle' },
+  diagnosis: { id: 'diagnosis', nameKey: 'agents:diagnosisAgent', descKey: 'agents:diagnosisAgentDesc', color: '#a855f7', icon: 'Stethoscope' },
+};
 
-export interface RuleSchema {
-  rule_id: string;
-  rule_type: string;
-  target_column: string;
-  action: string;
-  parameters: Record<string, any>;
-  severity: 'High' | 'Medium' | 'Low';
-  description: string;
-  status?: 'Proposed' | 'Approved' | 'Rejected';
-  confidence_score?: number;
-  evidence?: string;
-}
+// Chat message types
+export type MessageType = 'user' | 'agent' | 'system' | 'proposal' | 'handoff';
 
-export interface ProposeRulesResponse {
-  variant: string;
-  rules: RuleSchema[];
-  reasoning: string;
-}
-
-export interface ExecuteTransformRequest {
-  data: Record<string, any>[];
-  rules: RuleSchema[];
-}
-
-export interface ExecuteTransformResponse {
-  initial_rows: number;
-  clean_rows: number;
-  quarantine_rows: number;
-  execution_time_sec: number;
-  quarantine_summary: Record<string, number>;
-}
-
-export interface CronSchedule {
+export interface ChatMessage {
   id: string;
-  name: string;
-  dataset_source: string;
-  cron_expression: string;
-  variant: string;
-  notification_email: string;
-  active: boolean;
-  next_run: string;
-  last_status: 'Success' | 'Failed' | 'Pending';
+  type: MessageType;
+  content: string;
+  timestamp: string;
+  agentId?: AgentId;
+  metadata?: Record<string, unknown>;
 }
 
-export interface AnomalyEvent {
+export interface RuleProposal {
   id: string;
-  timestamp: string;
-  target_column: string;
-  metric: string;
-  severity: 'Critical' | 'Warning' | 'Info';
-  detected_value: string | number;
-  expected_range: string;
-  root_cause: string;
-  remediation_suggestion: string;
-  impact_summary: string;
-  status: 'Open' | 'Investigating' | 'Resolved';
-}
-
-export interface NotificationAlert {
-  id: string;
-  timestamp: string;
-  title: string;
-  message: string;
-  severity: 'Critical' | 'Warning' | 'Info';
-  read: boolean;
-  category: 'Schema Drift' | 'Data Quality' | 'Governance' | 'System';
-}
-
-export interface AuditRecord {
-  timestamp: string;
-  event_type: string;
-  role?: string;
-  details: Record<string, any>;
-  hash?: string;
-}
-
-export interface TargetSchemaField {
-  name: string;
   type: string;
-  nullable: boolean;
-  primaryKey: boolean;
+  column: string;
+  expression: string;
   description: string;
+  severity: 'critical' | 'warning' | 'info';
+  status: 'pending' | 'approved' | 'rejected';
+  agentId: AgentId;
 }
+
+export interface ProposalMessage extends ChatMessage {
+  type: 'proposal';
+  proposals: RuleProposal[];
+}
+
+export interface HandoffMessage extends ChatMessage {
+  type: 'handoff';
+  fromAgent: AgentId;
+  toAgent: AgentId;
+}
+
+// Workspace types
+export type WorkspaceView = 'empty' | 'profile' | 'rules' | 'anomaly' | 'audit' | 'diff';
+
+export interface WorkspaceState {
+  activeView: WorkspaceView;
+  data: unknown;
+}
+
+// WebSocket event types
+export type AgentEventType =
+  | 'agent.status'
+  | 'agent.message'
+  | 'chat.message'
+  | 'agent.proposal'
+  | 'agent.handoff'
+  | 'workspace.update'
+  | 'execution.progress'
+  | 'execution.complete';
+
+export interface AgentEvent {
+  type: AgentEventType | string;
+  agent?: AgentId;
+  panel?: WorkspaceView | string;
+  proposals?: RuleProposal[];
+  data?: unknown;
+  id?: string;
+  delta?: string;
+  timestamp?: string;
+}
+
+export type UserRole = 'admin' | 'steward' | 'viewer';
+
+export interface DecisionRecord {
+  action: string;
+  evidence: string[];
+  confidence: number;
+  status: string;
+}
+

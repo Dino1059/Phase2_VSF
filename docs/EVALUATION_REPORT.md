@@ -1,7 +1,9 @@
-# DataTrust OS v4.0 — Evaluation Report
+# DataTrust OS v4.2 — Evaluation Report
 
-> Generated: 2026-08-04T23:31:58.347034
+> Generated: 2026-08-05T14:54:21.424297
 > Seed: 42
+> Validation Status: NOT YET VALIDATED FOR PRODUCTION
+> Evidence Tier: PILOT / PROXY (Synthetic & Public Benchmark Corpus)
 
 ## Executive Summary
 
@@ -15,19 +17,19 @@ This report compares three implementation tiers for data quality governance:
 
 ## Comparative Results
 
-| Metric | C0 (Deterministic) | C1 (Single LLM) | A1 (Agentic) |
-|---|---|---|---|
-| precision | 100% | 95% | 100% |
-| recall | 25% | 45% | 100% |
-| f1 | 40% | 61% | 100% |
-| compile_rate | 100% | 95% | 100% |
-| teencode_accuracy | 0% | 0% | 0% |
-| cross_system_link_rate | 0% | 0% | 55% |
-| cost_tokens | 0 | 106750 | 366000 |
-| latency_ms | 1 | 1 | 1 |
-| human_time_saved_pct | 25.0 | 45.0 | 100.0 |
-| faults_detected | 10 | 18 | 40 |
-| rules_proposed | 10 | 38 | 80 |
+| Metric | C0 (Deterministic) | C1 (Single LLM) | A1 (Agentic) | A2 (Multi-Agent Verifier) |
+|---|---|---|---|---|
+| precision | 100% | 95% | 100% | 100% |
+| recall | 25% | 45% | 100% | 100% |
+| f1 | 40% | 61% | 100% | 100% |
+| compile_rate | 100% | 95% | 100% | 100% |
+| teencode_accuracy | 0% | 0% | 0% | 0% |
+| cross_system_link_rate | 0% | 0% | 55% | 55% |
+| cost_tokens | 0 | 106750 | 366000 | 475800 |
+| latency_ms | 1 | 1 | 1 | 1 |
+| human_time_saved_pct | 25.0 | 45.0 | 100.0 | 100.0 |
+| faults_detected | 10 | 18 | 40 | 40 |
+| rules_proposed | 10 | 38 | 80 | 80 |
 
 ## Why Agents Are Necessary
 

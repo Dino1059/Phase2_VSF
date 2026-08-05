@@ -35,10 +35,12 @@ def generate_report(output_path: str = None) -> str:
         coverage_rows.append(f"| {ff} | {c0_mark} | {c1_mark} | {a1_mark} |")
     coverage_table_str = "\n".join(coverage_rows)
 
-    report = f"""# DataTrust OS v4.0 — Evaluation Report
+    report = f"""# DataTrust OS v4.2 — Evaluation Report
 
 > Generated: {datetime.now().isoformat()}
 > Seed: 42
+> Validation Status: NOT YET VALIDATED FOR PRODUCTION
+> Evidence Tier: PILOT / PROXY (Synthetic & Public Benchmark Corpus)
 
 ## Executive Summary
 

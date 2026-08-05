@@ -82,6 +82,10 @@ def main():
         print("[ai-log] AI_LOG_SERVER not set — skipping submission.", file=sys.stderr)
         sys.exit(0)
 
+    # Pick up any existing pending files from previous pushes
+    for pf in list(LOG_DIR.glob("session.pending.*.jsonl")):
+        _restore_pending(pf)
+
     if not LOG_FILE.exists() or LOG_FILE.stat().st_size == 0:
         print("[ai-log] No logs to submit.", file=sys.stderr)
         sys.exit(0)
