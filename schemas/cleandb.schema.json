@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CleanDB Onboarding Pack",
-  "description": "Onboarding pack combining a CleanDB target schema (data dictionary) with validation rules",
+  "description": "v4 onboarding pack — generic target schema (data dictionary) for any dataset. Rules now reference v4 RuleSpec with SQL expressions + HITL lifecycle.",
   "type": "object",
   "properties": {
     "schema": {
@@ -11,10 +11,11 @@
       "type": "array",
       "items": {
         "$ref": "rulespec.schema.json"
-      }
+      },
+      "description": "Quality rules for this dataset (v4 format — SQL expressions, HITL status)"
     }
   },
-  "required": ["schema", "rules"],
+  "required": ["schema"],
   "definitions": {
     "CleanDBSchema": {
       "title": "CleanDB Schema",
@@ -26,6 +27,10 @@
         },
         "dataset_name": {
           "type": "string"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Domain category for cross-domain diagnosis (e.g. feedback, telemetry, bms, trips)"
         },
         "columns": {
           "type": "array",
@@ -43,7 +48,8 @@
                   "float",
                   "boolean",
                   "datetime",
-                  "text"
+                  "text",
+                  "json"
                 ]
               },
               "nullable": {

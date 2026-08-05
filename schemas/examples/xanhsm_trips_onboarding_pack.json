@@ -3,6 +3,7 @@
   "schema": {
     "version": "1.0.0",
     "dataset_name": "xanhsm_trips",
+    "domain": "trips",
     "columns": [
       {
         "name": "trip_id",
@@ -10,10 +11,7 @@
         "nullable": false,
         "description": "Unique identifier for each ride-hailing trip",
         "business_rules": "Must be non-null and unique across all records",
-        "tags": [
-          "identifier",
-          "primary_key"
-        ],
+        "tags": ["identifier", "primary_key"],
         "pii": false
       },
       {
@@ -22,11 +20,7 @@
         "nullable": false,
         "description": "Unique identifier of the assigned Xanh SM driver",
         "business_rules": "Must be a valid driver identifier and non-null",
-        "tags": [
-          "identifier",
-          "driver",
-          "pii"
-        ],
+        "tags": ["identifier", "driver", "pii"],
         "pii": true
       },
       {
@@ -35,16 +29,9 @@
         "nullable": false,
         "description": "Geographic latitude coordinate of trip pickup location in Ho Chi Minh City",
         "business_rules": "Must fall within Ho Chi Minh City bounding box latitude limits (10.3 to 11.2)",
-        "tags": [
-          "location",
-          "gps",
-          "pickup"
-        ],
+        "tags": ["location", "gps", "pickup"],
         "unit": "degrees",
-        "valid_range": {
-          "min": 10.3,
-          "max": 11.2
-        },
+        "valid_range": { "min": 10.3, "max": 11.2 },
         "pii": false
       },
       {
@@ -53,16 +40,9 @@
         "nullable": false,
         "description": "Geographic longitude coordinate of trip pickup location in Ho Chi Minh City",
         "business_rules": "Must fall within Ho Chi Minh City bounding box longitude limits (106.3 to 107.0)",
-        "tags": [
-          "location",
-          "gps",
-          "pickup"
-        ],
+        "tags": ["location", "gps", "pickup"],
         "unit": "degrees",
-        "valid_range": {
-          "min": 106.3,
-          "max": 107.0
-        },
+        "valid_range": { "min": 106.3, "max": 107.0 },
         "pii": false
       },
       {
@@ -71,16 +51,9 @@
         "nullable": false,
         "description": "Geographic latitude coordinate of trip dropoff location in Ho Chi Minh City",
         "business_rules": "Must fall within Ho Chi Minh City bounding box latitude limits (10.3 to 11.2)",
-        "tags": [
-          "location",
-          "gps",
-          "dropoff"
-        ],
+        "tags": ["location", "gps", "dropoff"],
         "unit": "degrees",
-        "valid_range": {
-          "min": 10.3,
-          "max": 11.2
-        },
+        "valid_range": { "min": 10.3, "max": 11.2 },
         "pii": false
       },
       {
@@ -89,16 +62,9 @@
         "nullable": false,
         "description": "Geographic longitude coordinate of trip dropoff location in Ho Chi Minh City",
         "business_rules": "Must fall within Ho Chi Minh City bounding box longitude limits (106.3 to 107.0)",
-        "tags": [
-          "location",
-          "gps",
-          "dropoff"
-        ],
+        "tags": ["location", "gps", "dropoff"],
         "unit": "degrees",
-        "valid_range": {
-          "min": 106.3,
-          "max": 107.0
-        },
+        "valid_range": { "min": 106.3, "max": 107.0 },
         "pii": false
       },
       {
@@ -107,15 +73,9 @@
         "nullable": false,
         "description": "Total distance traveled during the trip in miles",
         "business_rules": "Must be a non-negative floating point number",
-        "tags": [
-          "telemetry",
-          "distance"
-        ],
+        "tags": ["telemetry", "distance"],
         "unit": "miles",
-        "valid_range": {
-          "min": 0.0,
-          "max": 500.0
-        },
+        "valid_range": { "min": 0.0, "max": 500.0 },
         "pii": false
       },
       {
@@ -124,15 +84,9 @@
         "nullable": false,
         "description": "Base trip fare charged in VND",
         "business_rules": "Must be greater than or equal to zero (fare_amount >= 0)",
-        "tags": [
-          "financial",
-          "fare"
-        ],
+        "tags": ["financial", "fare"],
         "unit": "VND",
-        "valid_range": {
-          "min": 0.0,
-          "max": 10000000.0
-        },
+        "valid_range": { "min": 0.0, "max": 10000000.0 },
         "pii": false
       },
       {
@@ -141,15 +95,9 @@
         "nullable": true,
         "description": "Optional tip amount given to driver in VND",
         "business_rules": "Must be greater than or equal to zero (tip_amount >= 0)",
-        "tags": [
-          "financial",
-          "tip"
-        ],
+        "tags": ["financial", "tip"],
         "unit": "VND",
-        "valid_range": {
-          "min": 0.0,
-          "max": 5000000.0
-        },
+        "valid_range": { "min": 0.0, "max": 5000000.0 },
         "pii": false
       },
       {
@@ -158,15 +106,9 @@
         "nullable": false,
         "description": "Total trip fare charged to rider in VND",
         "business_rules": "Must equal sum of fare_amount and tip_amount",
-        "tags": [
-          "financial",
-          "total"
-        ],
+        "tags": ["financial", "total"],
         "unit": "VND",
-        "valid_range": {
-          "min": 0.0,
-          "max": 15000000.0
-        },
+        "valid_range": { "min": 0.0, "max": 15000000.0 },
         "pii": false
       },
       {
@@ -175,10 +117,7 @@
         "nullable": false,
         "description": "Payment method used for the trip",
         "business_rules": "Allowed values: cash, card, ewallet",
-        "tags": [
-          "financial",
-          "payment"
-        ],
+        "tags": ["financial", "payment"],
         "pii": false
       },
       {
@@ -187,10 +126,7 @@
         "nullable": false,
         "description": "Timestamp of trip pickup in UTC ISO8601 format",
         "business_rules": "Must follow ISO8601 timestamp format",
-        "tags": [
-          "temporal",
-          "pickup"
-        ],
+        "tags": ["temporal", "pickup"],
         "pii": false
       }
     ]
@@ -199,130 +135,123 @@
     {
       "rule_id": "R001_TRIP_ID_NOT_NULL",
       "target_field": "trip_id",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "trip_id IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "trip_id must not be null"
+      "description": "trip_id must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R002_TRIP_ID_UNIQUE",
       "target_field": "trip_id",
-      "family": "unique",
-      "parameters": {},
+      "rule_type": "unique",
+      "rule_expression": "COUNT(*) OVER (PARTITION BY trip_id) = 1",
       "severity": "error",
       "action": "quarantine",
-      "description": "trip_id must be unique across all records"
+      "description": "trip_id must be unique across all records",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R003_DRIVER_ID_NOT_NULL",
       "target_field": "driver_id",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "driver_id IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "driver_id must not be null"
+      "description": "driver_id must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R004_PICKUP_DATETIME_FORMAT",
       "target_field": "pickup_datetime",
-      "family": "format",
-      "parameters": {
-        "format": "iso8601"
-      },
+      "rule_type": "format",
+      "rule_expression": "TRY_CAST(pickup_datetime AS TIMESTAMP) IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "pickup_datetime must follow ISO8601 timestamp format"
+      "description": "pickup_datetime must follow ISO8601 timestamp format",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R005_PAYMENT_TYPE_FORMAT",
       "target_field": "payment_type",
-      "family": "format",
-      "parameters": {
-        "allowed_values": [
-          "cash",
-          "card",
-          "ewallet"
-        ]
-      },
+      "rule_type": "format",
+      "rule_expression": "payment_type IN ('cash', 'card', 'ewallet')",
       "severity": "warning",
       "action": "flag",
-      "description": "payment_type must be one of allowed values: cash, card, ewallet"
+      "description": "payment_type must be one of allowed values: cash, card, ewallet",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R006_PICKUP_LAT_RANGE",
       "target_field": "pickup_latitude",
-      "family": "range",
-      "parameters": {
-        "min": 10.3,
-        "max": 11.2,
-        "fault_family": "GPS_Alleyway_Drift"
-      },
+      "rule_type": "range",
+      "rule_expression": "pickup_latitude BETWEEN 10.3 AND 11.2",
       "severity": "error",
       "action": "quarantine",
-      "description": "pickup_latitude must be within Ho Chi Minh City bounds (10.3 to 11.2)"
+      "description": "pickup_latitude must be within Ho Chi Minh City bounds (10.3 to 11.2)",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R007_PICKUP_LNG_RANGE",
       "target_field": "pickup_longitude",
-      "family": "range",
-      "parameters": {
-        "min": 106.3,
-        "max": 107.0,
-        "fault_family": "GPS_Alleyway_Drift"
-      },
+      "rule_type": "range",
+      "rule_expression": "pickup_longitude BETWEEN 106.3 AND 107.0",
       "severity": "error",
       "action": "quarantine",
-      "description": "pickup_longitude must be within Ho Chi Minh City bounds (106.3 to 107.0)"
+      "description": "pickup_longitude must be within Ho Chi Minh City bounds (106.3 to 107.0)",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R008_DROPOFF_LAT_RANGE",
       "target_field": "dropoff_latitude",
-      "family": "range",
-      "parameters": {
-        "min": 10.3,
-        "max": 11.2,
-        "fault_family": "GPS_Alleyway_Drift"
-      },
+      "rule_type": "range",
+      "rule_expression": "dropoff_latitude BETWEEN 10.3 AND 11.2",
       "severity": "error",
       "action": "quarantine",
-      "description": "dropoff_latitude must be within Ho Chi Minh City bounds (10.3 to 11.2)"
+      "description": "dropoff_latitude must be within Ho Chi Minh City bounds (10.3 to 11.2)",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R009_FARE_AMOUNT_RANGE",
       "target_field": "fare_amount",
-      "family": "range",
-      "parameters": {
-        "min": 0.0,
-        "fault_family": "Negative_Fare_Defect"
-      },
+      "rule_type": "range",
+      "rule_expression": "fare_amount >= 0.0",
       "severity": "error",
       "action": "impute_deterministic",
-      "description": "fare_amount must be greater than or equal to 0"
+      "description": "fare_amount must be greater than or equal to 0",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R010_TIP_AMOUNT_RANGE",
       "target_field": "tip_amount",
-      "family": "range",
-      "parameters": {
-        "min": 0.0,
-        "fault_family": "Negative_Fare_Defect"
-      },
+      "rule_type": "range",
+      "rule_expression": "tip_amount >= 0.0",
       "severity": "error",
       "action": "impute_deterministic",
-      "description": "tip_amount must be greater than or equal to 0"
+      "description": "tip_amount must be greater than or equal to 0",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R011_TOTAL_FARE_CROSS_FIELD",
       "target_field": "total_fare",
-      "family": "cross_field",
-      "parameters": {
-        "expression": "total_fare == fare_amount + tip_amount",
-        "fault_family": "Arithmetic_Ledger_Mismatch"
-      },
+      "rule_type": "cross_field",
+      "rule_expression": "total_fare = fare_amount + COALESCE(tip_amount, 0)",
       "severity": "error",
       "action": "drop",
-      "description": "total_fare must equal fare_amount + tip_amount"
+      "description": "total_fare must equal fare_amount + tip_amount",
+      "status": "proposed",
+      "proposed_by": "system"
     }
   ]
 }

@@ -3,6 +3,7 @@
   "schema": {
     "version": "1.0.0",
     "dataset_name": "vinfast_ev_telemetry",
+    "domain": "telemetry",
     "columns": [
       {
         "name": "record_id",
@@ -135,139 +136,146 @@
     {
       "rule_id": "R001_RECORD_ID_NOT_NULL",
       "target_field": "record_id",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "record_id IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "record_id must not be null"
+      "description": "record_id must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R002_RECORD_ID_UNIQUE",
       "target_field": "record_id",
-      "family": "unique",
-      "parameters": {},
+      "rule_type": "unique",
+      "rule_expression": "COUNT(*) OVER (PARTITION BY record_id) = 1",
       "severity": "error",
       "action": "quarantine",
-      "description": "record_id must be unique across all records"
+      "description": "record_id must be unique across all records",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R003_VEHICLE_VIN_NOT_NULL",
       "target_field": "vehicle_vin",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "vehicle_vin IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "vehicle_vin must not be null"
+      "description": "vehicle_vin must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R004_TIMESTAMP_FORMAT",
       "target_field": "timestamp",
-      "family": "format",
-      "parameters": { "format": "iso8601" },
+      "rule_type": "format",
+      "rule_expression": "TRY_CAST(timestamp AS TIMESTAMP) IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
       "description": "timestamp must follow ISO-8601 format. Invalid timestamps indicate GSM basement blackout",
-      "evidence": "Fault Family: GSM_Underground_Basement_Blackout"
+      "evidence": "Fault Family: GSM_Underground_Basement_Blackout",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R005_SPEED_RANGE",
       "target_field": "speed_kmh",
-      "family": "range",
-      "parameters": { "min": 0.0, "max": 180.0 },
+      "rule_type": "range",
+      "rule_expression": "speed_kmh BETWEEN 0.0 AND 180.0",
       "severity": "warning",
       "action": "flag",
-      "description": "speed_kmh must be within 0.0 to 180.0 km/h"
+      "description": "speed_kmh must be within 0.0 to 180.0 km/h",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R006_MOTOR_RPM_RANGE",
       "target_field": "motor_rpm",
-      "family": "range",
-      "parameters": { "min": 0, "max": 15000 },
+      "rule_type": "range",
+      "rule_expression": "motor_rpm BETWEEN 0 AND 15000",
       "severity": "warning",
       "action": "flag",
-      "description": "motor_rpm must be within 0 to 15000 RPM"
+      "description": "motor_rpm must be within 0 to 15000 RPM",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R007_BATTERY_SOC_RANGE",
       "target_field": "battery_soc",
-      "family": "range",
-      "parameters": {
-        "min": 0.0,
-        "max": 100.0,
-        "fault_family": "Battery_BMS_Negative_Sensor_Defect"
-      },
+      "rule_type": "range",
+      "rule_expression": "battery_soc BETWEEN 0.0 AND 100.0",
       "severity": "error",
       "action": "quarantine",
-      "description": "battery_soc must be within 0.0% to 100.0%. Negative values indicate BMS sensor fault"
+      "description": "battery_soc must be within 0.0% to 100.0%. Negative values indicate BMS sensor fault",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R008_BATTERY_VOLTAGE_RANGE",
       "target_field": "battery_voltage",
-      "family": "range",
-      "parameters": {
-        "min": 300.0,
-        "max": 450.0,
-        "fault_family": "CAN_Bus_Overvoltage_Spike"
-      },
+      "rule_type": "range",
+      "rule_expression": "battery_voltage BETWEEN 300.0 AND 450.0",
       "severity": "error",
       "action": "quarantine",
-      "description": "battery_voltage must be within 300.0V to 450.0V. Values > 9000V are CAN-bus overvoltage spikes"
+      "description": "battery_voltage must be within 300.0V to 450.0V. Values > 9000V are CAN-bus overvoltage spikes",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R009_BATTERY_CURRENT_RANGE",
       "target_field": "battery_current",
-      "family": "range",
-      "parameters": { "min": 0.0, "max": 250.0 },
+      "rule_type": "range",
+      "rule_expression": "battery_current BETWEEN 0.0 AND 250.0",
       "severity": "warning",
       "action": "flag",
-      "description": "battery_current must be within 0.0A to 250.0A"
+      "description": "battery_current must be within 0.0A to 250.0A",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R010_BATTERY_TEMP_RANGE",
       "target_field": "battery_temp_c",
-      "family": "range",
-      "parameters": { "min": 20.0, "max": 60.0 },
+      "rule_type": "range",
+      "rule_expression": "battery_temp_c BETWEEN 20.0 AND 60.0",
       "severity": "warning",
       "action": "flag",
-      "description": "battery_temp_c must be within 20.0°C to 60.0°C"
+      "description": "battery_temp_c must be within 20.0°C to 60.0°C",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R011_MOTOR_RPM_SPEED_MISMATCH",
       "target_field": "motor_rpm",
-      "family": "cross_field",
-      "parameters": {
-        "expression": "NOT (speed_kmh == 0 AND motor_rpm > 5000)",
-        "fault_family": "Motor_RPM_Mismatch"
-      },
+      "rule_type": "cross_field",
+      "rule_expression": "NOT (speed_kmh = 0 AND motor_rpm > 5000)",
       "severity": "error",
       "action": "quarantine",
-      "description": "Motor RPM must not show high values (>5000) when speed is 0 km/h — indicates sensor mismatch"
+      "description": "Motor RPM must not show high values (>5000) when speed is 0 km/h — indicates sensor mismatch",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R012_LAT_RANGE",
       "target_field": "latitude",
-      "family": "range",
-      "parameters": {
-        "min": 8.0,
-        "max": 23.5,
-        "fault_family": "GPS_Alleyway_Drift"
-      },
+      "rule_type": "range",
+      "rule_expression": "latitude BETWEEN 8.0 AND 23.5",
       "severity": "error",
       "action": "quarantine",
-      "description": "latitude must fall within Vietnam bounding box (8.0 to 23.5) when present"
+      "description": "latitude must fall within Vietnam bounding box (8.0 to 23.5) when present",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R013_LON_RANGE",
       "target_field": "longitude",
-      "family": "range",
-      "parameters": {
-        "min": 102.0,
-        "max": 110.0,
-        "fault_family": "GPS_Alleyway_Drift"
-      },
+      "rule_type": "range",
+      "rule_expression": "longitude BETWEEN 102.0 AND 110.0",
       "severity": "error",
       "action": "quarantine",
-      "description": "longitude must fall within Vietnam bounding box (102.0 to 110.0) when present"
+      "description": "longitude must fall within Vietnam bounding box (102.0 to 110.0) when present",
+      "status": "proposed",
+      "proposed_by": "system"
     }
   ]
 }

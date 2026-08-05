@@ -3,6 +3,7 @@
   "schema": {
     "version": "1.0.0",
     "dataset_name": "xanhsm_customer_feedback",
+    "domain": "feedback",
     "columns": [
       {
         "name": "feedback_id",
@@ -10,7 +11,10 @@
         "nullable": false,
         "description": "Unique feedback record identifier",
         "business_rules": "Must be non-null and unique. Format: FB_RAW_XXXX",
-        "tags": ["identifier", "primary_key"],
+        "tags": [
+          "identifier",
+          "primary_key"
+        ],
         "pii": false
       },
       {
@@ -19,7 +23,10 @@
         "nullable": false,
         "description": "Customer account identifier",
         "business_rules": "Must be a valid customer ID",
-        "tags": ["identifier", "customer"],
+        "tags": [
+          "identifier",
+          "customer"
+        ],
         "pii": true
       },
       {
@@ -28,7 +35,9 @@
         "nullable": false,
         "description": "Comment submission timestamp",
         "business_rules": "Must follow ISO-8601 format",
-        "tags": ["temporal"],
+        "tags": [
+          "temporal"
+        ],
         "pii": false
       },
       {
@@ -37,7 +46,11 @@
         "nullable": false,
         "description": "Unstructured Vietnamese feedback text. May contain teen code slang (e.g. 'ko sac dc', 'app lag vl')",
         "business_rules": "Must not be empty. Content may require NLP teen-code normalization before analysis",
-        "tags": ["text", "nlp", "feedback"],
+        "tags": [
+          "text",
+          "nlp",
+          "feedback"
+        ],
         "pii": false
       },
       {
@@ -46,7 +59,11 @@
         "nullable": true,
         "description": "Location entity extracted by NLP (e.g. Vincom Bà Triệu, Royal City, Landmark 81)",
         "business_rules": "Populated by NLP entity extraction pipeline. Null when no location detected",
-        "tags": ["nlp", "entity", "location"],
+        "tags": [
+          "nlp",
+          "entity",
+          "location"
+        ],
         "pii": false
       },
       {
@@ -55,7 +72,11 @@
         "nullable": true,
         "description": "Component entity extracted by NLP (e.g. Trạm sạc V-GREEN, Pin xe VinFast, Ứng dụng di động)",
         "business_rules": "Populated by NLP entity extraction pipeline. Null when no component detected",
-        "tags": ["nlp", "entity", "component"],
+        "tags": [
+          "nlp",
+          "entity",
+          "component"
+        ],
         "pii": false
       },
       {
@@ -64,7 +85,11 @@
         "nullable": true,
         "description": "Error classification from NLP (e.g. Lỗi thiết bị / Phần cứng trạm sạc, Lỗi ứng dụng di động)",
         "business_rules": "Populated by NLP classification pipeline. Null when no error type detected",
-        "tags": ["nlp", "classification", "error"],
+        "tags": [
+          "nlp",
+          "classification",
+          "error"
+        ],
         "pii": false
       },
       {
@@ -73,7 +98,10 @@
         "nullable": false,
         "description": "Severity rating assigned to the feedback",
         "business_rules": "Allowed values: CRITICAL, WARNING, INFO",
-        "tags": ["classification", "severity"],
+        "tags": [
+          "classification",
+          "severity"
+        ],
         "pii": false
       }
     ]
@@ -82,74 +110,81 @@
     {
       "rule_id": "R001_FEEDBACK_ID_NOT_NULL",
       "target_field": "feedback_id",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "feedback_id IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "feedback_id must not be null"
+      "description": "feedback_id must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R002_FEEDBACK_ID_UNIQUE",
       "target_field": "feedback_id",
-      "family": "unique",
-      "parameters": {},
+      "rule_type": "unique",
+      "rule_expression": "COUNT(*) OVER (PARTITION BY feedback_id) = 1",
       "severity": "error",
       "action": "quarantine",
-      "description": "feedback_id must be unique across all records"
+      "description": "feedback_id must be unique across all records",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R003_CUSTOMER_ID_NOT_NULL",
       "target_field": "customer_id",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "customer_id IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "customer_id must not be null"
+      "description": "customer_id must not be null",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R004_TIMESTAMP_FORMAT",
       "target_field": "timestamp",
-      "family": "format",
-      "parameters": { "format": "iso8601" },
+      "rule_type": "format",
+      "rule_expression": "TRY_CAST(timestamp AS TIMESTAMP) IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "timestamp must follow ISO-8601 format"
+      "description": "timestamp must follow ISO-8601 format",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R005_RAW_COMMENT_NOT_NULL",
       "target_field": "raw_comment_text",
-      "family": "not_null",
-      "parameters": {},
+      "rule_type": "not_null",
+      "rule_expression": "raw_comment_text IS NOT NULL",
       "severity": "error",
       "action": "quarantine",
-      "description": "raw_comment_text must not be null — empty feedback records have no value"
+      "description": "raw_comment_text must not be null — empty feedback records have no value",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R006_SEVERITY_FORMAT",
       "target_field": "severity_level",
-      "family": "format",
-      "parameters": {
-        "allowed_values": ["CRITICAL", "WARNING", "INFO"]
-      },
+      "rule_type": "format",
+      "rule_expression": "severity_level IN ('CRITICAL', 'WARNING', 'INFO')",
       "severity": "warning",
       "action": "flag",
-      "description": "severity_level must be one of: CRITICAL, WARNING, INFO"
+      "description": "severity_level must be one of: CRITICAL, WARNING, INFO",
+      "status": "proposed",
+      "proposed_by": "system"
     },
     {
       "rule_id": "R007_TEEN_CODE_DETECTION",
       "target_field": "raw_comment_text",
-      "family": "semantic",
-      "parameters": {
-        "detector": "vietnamese_teen_code_normalizer",
-        "patterns": ["ko", "dc", "vl", "k ", "ntn", "bth"],
-        "fault_family": "Unstructured_Teen_Code_Noise"
-      },
+      "rule_type": "semantic",
+      "rule_expression": "TRUE /* requires vietnamese_teen_code_normalizer NLP pipeline */",
       "severity": "info",
       "action": "flag",
       "description": "Detect Vietnamese teen-code slang in feedback text for normalization. Common patterns: 'ko sac dc', 'app lag vl'",
       "evidence": "UIT-VSFC corpus contains extensive Vietnamese teen-code and missing-accent text",
       "confidence": 0.7,
-      "source": "profiler"
+      "status": "proposed",
+      "proposed_by": "system"
     }
   ]
 }
