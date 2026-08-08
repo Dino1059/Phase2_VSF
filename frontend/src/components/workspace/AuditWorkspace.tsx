@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileText, Hash, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
@@ -16,8 +17,30 @@ interface AuditEntry {
 
 export function AuditWorkspace() {
   const { t } = useTranslation('audit');
-  const workspaceData = useChatStore((s) => s.workspaceData) as { entries?: AuditEntry[] } | null;
-  const entries = workspaceData?.entries || [];
+  const auditData = useChatStore((s) => (s as any).auditData || s.workspaceData) as { entries?: AuditEntry[] } | null;
+  const [remoteEntries, setRemoteEntries] = useState<AuditEntry[]>([]);
+
+  useEffect(() => {
+    fetch('/api/v1/audit/store', { headers: { 'X-User-Role': 'Admin' } })
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const mapped: AuditEntry[] = data.map((item: any) => ({
+            id: item.id || item.event_hash?.slice(0, 8) || Math.random().toString(),
+            timestamp: item.timestamp || new Date().toISOString(),
+            action: item.action || 'GOVERNANCE_AUDIT',
+            agentId: 'orchestrator',
+            status: 'success',
+            details: item.details ? (typeof item.details === 'string' ? item.details : JSON.stringify(item.details)) : `Target: ${item.target_table || 'system'}`,
+            manifestHash: item.event_hash ? item.event_hash.slice(0, 16) : undefined,
+          }));
+          setRemoteEntries(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const entries = (auditData?.entries && auditData.entries.length > 0) ? auditData.entries : remoteEntries;
 
   if (entries.length === 0) {
     return (

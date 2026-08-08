@@ -23,12 +23,47 @@ class LLMResponse:
     tokens_used: int = 0
 
 
+# Patch google-genai SDK cleanup bug where BaseApiClient.aclose checks uninitialized _async_httpx_client
+try:
+    from google.genai._api_client import BaseApiClient
+    async def _safe_aclose(self):
+        if getattr(self, "_async_httpx_client", None) is not None:
+            await self._async_httpx_client.aclose()
+    BaseApiClient.aclose = _safe_aclose
+except Exception:
+    pass
+
+
 class GemmaLLMAdapter:
     """Adapter for Google AI Studio (Gemini/Gemma models)."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        self.api_key = api_key or os.environ.get("GOOGLE_AI_API_KEY", "")
-        self.model = model or os.environ.get("GOOGLE_AI_MODEL", "gemini-2.0-flash")
+        try:
+            from src.config import get_settings
+            settings = get_settings()
+            default_key = (
+                settings.ai_studio_api_key
+                or getattr(settings, "google_ai_api_key", "")
+                or getattr(settings, "gemini_api_key", "")
+            )
+        except Exception:
+            default_key = ""
+
+        self.api_key = (
+            api_key
+            or os.environ.get("GOOGLE_AI_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("AI_STUDIO_API_KEY")
+            or default_key
+            or ""
+        )
+        self.model = (
+            model
+            or os.environ.get("GOOGLE_AI_MODEL")
+            or os.environ.get("AI_MODEL")
+            or "gemini-3.5-flash-lite"
+        )
         self._client = None
 
     def _get_client(self):
@@ -84,7 +119,7 @@ class GemmaLLMAdapter:
             tool_calls = []
             content_text = ""
             
-            if response.candidates and response.candidates[0].content:
+            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, 'text') and part.text:
                         content_text += part.text

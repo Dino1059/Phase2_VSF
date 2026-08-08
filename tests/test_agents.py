@@ -40,6 +40,8 @@ def tools():
 def tmp_db():
     with tempfile.NamedTemporaryFile(suffix='.duckdb', delete=False) as f:
         db_path = f.name
+    if os.path.exists(db_path):
+        os.unlink(db_path)
     db = DuckDBManager(db_path=db_path)
     db.init_schema()
     db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")

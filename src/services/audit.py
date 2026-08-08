@@ -2,6 +2,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime
+from typing import Any
 
 from src.db.connection import get_db
 from src.api.audit_store import AuditStore, audit_store
@@ -50,8 +51,9 @@ class AuditService:
         target_id: str = "",
         details: dict | str | None = None,
         timestamp: str | datetime | None = None,
+        db: Any = None,
     ) -> str:
-        db = get_db()
+        db = db or get_db()
         audit_id = str(uuid.uuid4())[:8]
 
         target_table = target_table or ""

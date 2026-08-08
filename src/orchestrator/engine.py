@@ -154,7 +154,7 @@ class ReActEngine:
                     with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
                         tool_result = self.tools.execute(step.action, step.action_input)
                     output_data = getattr(tool_result, "output_data", str(tool_result))
-                    step.observation = json.dumps(output_data)[:2000]
+                    step.observation = json.dumps(output_data)
                 except Exception as e:
                     step.observation = f"Error: {e}"
 
@@ -204,21 +204,25 @@ class ReActEngine:
                 result.steps.append(step)
                 self._log_trace(result.session_id, step)
                 break
-            elif step.action and hasattr(self.tools, "tool_names") and step.action in self.tools.tool_names:
+            elif step.action and hasattr(self.tools, "tool_names") and (
+                step.action in self.tools.tool_names
+                or step.action.replace("default_api:", "") in self.tools.tool_names
+            ):
+                action_name = step.action.replace("default_api:", "")
                 try:
                     import sentry_sdk
-                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
-                        tool_result = self.tools.execute(step.action, step.action_input)
+                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {action_name}"):
+                        tool_result = self.tools.execute(action_name, step.action_input)
                     output_data = getattr(tool_result, "output_data", str(tool_result))
-                    step.observation = json.dumps(output_data)[:2000]
+                    step.observation = json.dumps(output_data)
                 except Exception as e:
                     step.observation = f"Error: {e}"
 
                 decision = DecisionRecord(
-                    selected_action=step.action,
+                    selected_action=action_name,
                     evidence_refs=[f"step_{step_idx}"],
                     confidence=0.9,
-                    stop_continue_reason=f"Executing tool '{step.action}'"
+                    stop_continue_reason=f"Executing tool '{action_name}'"
                 )
                 step.decision = decision
                 result.decision_records.append(decision)
@@ -262,7 +266,8 @@ class ReActEngine:
             if line_str.startswith("Thought:"):
                 thought = line_str[len("Thought:"):].strip()
             elif line_str.startswith("Action:"):
-                action = line_str[len("Action:"):].strip()
+                raw_action = line_str[len("Action:"):].strip()
+                action = raw_action.replace("default_api:", "").strip()
             elif line_str.startswith("Action Input:"):
                 raw = line_str[len("Action Input:"):].strip()
                 try:

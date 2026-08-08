@@ -13,15 +13,15 @@ interface AnomalyItem {
 
 export function AnomalyWorkspace() {
   const { t } = useTranslation('agents');
-  const workspaceData = useChatStore((s) => s.workspaceData) as {
+  const anomalyData = useChatStore((s) => (s as any).anomalyData || s.workspaceData) as {
     status?: string;
     anomaly_score?: number;
     summary?: string;
     anomalies?: AnomalyItem[];
   } | null;
 
-  const score = workspaceData?.anomaly_score ?? 0.0;
-  const anomalies: AnomalyItem[] = workspaceData?.anomalies ?? [];
+  const score = anomalyData?.anomaly_score ?? 0.0;
+  const anomalies: AnomalyItem[] = anomalyData?.anomalies ?? [];
 
   return (
     <div className="p-4 space-y-4">
@@ -57,10 +57,10 @@ export function AnomalyWorkspace() {
       </div>
 
       {/* Summary card */}
-      {workspaceData?.summary && (
+      {anomalyData?.summary && (
         <div className="p-3 bg-surface border border-border rounded-lg text-xs text-text-secondary font-mono flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-status-warning shrink-0" />
-          <span>{workspaceData.summary}</span>
+          <span>{anomalyData.summary}</span>
         </div>
       )}
 

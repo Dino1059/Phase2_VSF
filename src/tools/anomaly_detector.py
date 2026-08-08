@@ -3,8 +3,12 @@ from src.tools.base import BaseTool
 from src.db.connection import get_db
 
 
+from src.api.state_machine import WorkflowState
+
+
 class AnomalyDetectorTool(BaseTool):
     name = "anomaly_detector"
+    target_workflow_state = WorkflowState.PROFILED
     description = "Detect statistical anomalies in a DuckDB table column using Z-score, IQR, or simple threshold methods."
     input_schema = {
         "type": "object",
@@ -56,9 +60,33 @@ class AnomalyDetectorTool(BaseTool):
             anomaly_mask = (values < q1 - threshold * iqr) | (values > q3 + threshold * iqr)
 
         anomaly_indices = [int(ids[i]) for i in range(len(ids)) if anomaly_mask[i]]
+        anomalies_found = int(anomaly_mask.sum())
+        anomaly_score = float(anomalies_found / len(values)) if len(values) > 0 else 0.0
+
+        # Construct structured anomaly items for Right Panel rendering
+        anomalies_list = []
+        if anomalies_found > 0:
+            for idx in anomaly_indices[:20]:
+                val = float(values[ids.index(idx)]) if idx in ids else 0.0
+                dev = abs(val - mean) / std if std > 0 else 0.0
+                anomalies_list.append({
+                    "column": column,
+                    "metric": f"{method.upper()} Outlier Check",
+                    "expected_range": f"[{round(mean - threshold * std, 2)}, {round(mean + threshold * std, 2)}]",
+                    "observed_value": round(val, 2),
+                    "score": round(min(dev / (threshold * 2), 1.0), 2),
+                    "status": "critical" if dev > threshold * 1.5 else "warning"
+                })
+
         return {
-            "anomalies_found": int(anomaly_mask.sum()),
-            "anomaly_indices": anomaly_indices[:50],  # cap at 50
+            "status": "success",
+            "table_name": table,
+            "column_name": column,
+            "anomalies_found": anomalies_found,
+            "anomaly_score": round(anomaly_score, 4),
+            "summary": f"Detected {anomalies_found} outlier(s) in {table}.{column} using {method.upper()} threshold ({threshold})",
+            "anomalies": anomalies_list,
+            "anomaly_indices": anomaly_indices[:50],
             "statistics": {
                 "count": len(values),
                 "mean": round(mean, 4),

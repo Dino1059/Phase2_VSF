@@ -1,7 +1,7 @@
 import { useState, useRef, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send } from 'lucide-react';
-import { sendChatMessage } from '../../services/api';
+import { sendChatMessage, fetchChatHistory } from '../../services/api';
 import { useChatStore } from '../../stores/chatStore';
 
 export function ChatInput() {
@@ -19,6 +19,10 @@ export function ChatInput() {
 
     try {
       await sendChatMessage(trimmed, sessionId);
+      const history = await fetchChatHistory(sessionId);
+      if (history.messages && Array.isArray(history.messages)) {
+        useChatStore.getState().setMessages(history.messages);
+      }
     } catch (e) {
       console.error('Failed to send message:', e);
     }

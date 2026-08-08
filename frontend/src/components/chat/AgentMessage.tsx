@@ -66,9 +66,8 @@ export function AgentMessage({ message }: { message: ChatMessage }) {
             {content.replace(/^Thought:\s*/, '')}
           </div>
         ) : isObservation ? (
-          <div className="bg-surface/90 border border-border/80 rounded-xl rounded-tl-md px-3.5 py-2 text-xs font-mono text-emerald-400/90 leading-relaxed shadow-inner">
-            <span className="text-text-muted select-none">$ </span>
-            {content.replace(/^Observation:\s*/, '')}
+          <div className="bg-surface/90 border border-border/80 rounded-xl rounded-tl-md px-3.5 py-2 text-xs text-text-primary leading-relaxed shadow-inner space-y-1">
+            {renderFormattedContent(content.replace(/^Observation:\s*/, ''))}
           </div>
         ) : (
           <div className="bg-chat-agent-bubble border border-border/70 rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-text-primary leading-relaxed space-y-1.5 shadow-sm">

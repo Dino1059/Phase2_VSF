@@ -31,13 +31,14 @@ class Settings(BaseSettings):
     # LLM
     openai_api_key: str = ""
     ai_studio_api_key: str = Field(default="", validation_alias="AI_STUDIO_API_KEY")
-    ai_model: str = Field(default="gemma-4-26b-a4b-it", validation_alias="AI_MODEL")
-    model_name: str = "gpt-4o-mini"
+    ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="AI_MODEL")
+    google_ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="GOOGLE_AI_MODEL")
+    model_name: str = "gemini-3.5-flash-lite"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
     # Database
     database_url: str = "duckdb:///./data/datatrust_v4.duckdb"
-    duckdb_path: str = "data/datatrust_v4.duckdb"
+    duckdb_path: str = Field(default="data/datatrust_v4.duckdb", validation_alias="DUCKDB_PATH")
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"

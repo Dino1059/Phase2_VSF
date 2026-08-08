@@ -16,11 +16,19 @@ from src.services.audit import AuditService
 
 
 @pytest.fixture
-def e2e_db():
+def e2e_db(monkeypatch):
     with tempfile.NamedTemporaryFile(suffix='.duckdb', delete=False) as f:
         db_path = f.name
+    if os.path.exists(db_path):
+        os.unlink(db_path)
+    from src.db import connection as conn_module
+    conn_module._db_manager = None
     db = DuckDBManager(db_path=db_path)
     db.init_schema()
+    conn_module._db_manager = db
+    monkeypatch.setattr("src.tools.rule_executor.get_db", lambda: db)
+    monkeypatch.setattr("src.services.audit.get_db", lambda: db)
+    monkeypatch.setattr("src.db.connection.get_db", lambda: db)
     # Seed data
     db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")
     db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
@@ -31,7 +39,7 @@ def e2e_db():
     os.unlink(db_path)
 
 
-def test_e2e_pipeline(e2e_db, monkeypatch):
+def test_e2e_pipeline(e2e_db):
     """Full E2E: Seed → NLP → Tool execution → ReAct → HITL queue → Verify."""
     # Step 1: NLP Analysis
     nlp = VietnameseNLPService()
@@ -58,6 +66,7 @@ def test_e2e_pipeline(e2e_db, monkeypatch):
     assert len(react_result.steps) >= 1
 
     # Step 4: HITL Queue (insert proposed rule)
+    e2e_db.execute("DELETE FROM quality_rules WHERE id = 'e2e-r1'")
     e2e_db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by) VALUES ('e2e-r1', 'temp_range', 'range', 'temperature_celsius BETWEEN -10 AND 85', 0.95, 'proposed', 'agent')")
     rules = e2e_db.execute("SELECT id, status FROM quality_rules WHERE id = 'e2e-r1'")
     assert rules[0][1] == "proposed"
@@ -68,11 +77,11 @@ def test_e2e_pipeline(e2e_db, monkeypatch):
     assert approved[0][0] == "approved"
 
     # Step 6: Execute and verify quarantine
+    e2e_db.execute("INSERT OR REPLACE INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
     violations = e2e_db.execute("SELECT id FROM vgreen_telemetry WHERE NOT (temperature_celsius BETWEEN -10 AND 85)")
     assert len(violations) >= 1  # id=2 has temp=999
 
     # Step 7: Verify audit logging
-    monkeypatch.setattr('src.services.audit.get_db', lambda: e2e_db)
     audit_id = AuditService.log("E2E_TEST", "tester", "vgreen_telemetry", "e2e-r1", {"violations": len(violations)})
     assert audit_id
     audit = e2e_db.execute("SELECT action FROM audit_log WHERE id = ?", [audit_id])

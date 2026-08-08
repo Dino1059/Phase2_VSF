@@ -181,20 +181,20 @@ def test_p0_05_file_upload_security_validation(client):
 
     # 1. Reject forbidden extension (.exe, .sh) -> HTTP 400
     file_bad_ext = ("../malicious.exe", io.BytesIO(b"binary payload"), "application/octet-stream")
-    resp_ext = client.post("/api/v1/dataset/upload", files={"file": file_bad_ext}, headers=headers)
+    resp_ext = client.post("/api/v1/datasets/upload", files={"file": file_bad_ext}, headers=headers)
     assert resp_ext.status_code == 400
     assert "Invalid file extension" in resp_ext.json()["detail"]
 
     # 2. Directory traversal path in CSV filename is sanitized safely
     file_traversal = ("../../etc/passwd.csv", io.BytesIO(b"col1,col2\nval1,val2\n"), "text/csv")
-    resp_trav = client.post("/api/v1/dataset/upload", files={"file": file_traversal}, headers=headers)
+    resp_trav = client.post("/api/v1/datasets/upload", files={"file": file_traversal}, headers=headers)
     assert resp_trav.status_code == 200
     assert resp_trav.json()["dataset_key"] == "uploaded_passwd"
 
     # 3. File size exceeding 50MB -> HTTP 413 Payload Too Large
     large_content = b"x" * (50 * 1024 * 1024 + 1024)
     file_large = ("large_file.csv", io.BytesIO(large_content), "text/csv")
-    resp_large = client.post("/api/v1/dataset/upload", files={"file": file_large}, headers=headers)
+    resp_large = client.post("/api/v1/datasets/upload", files={"file": file_large}, headers=headers)
     assert resp_large.status_code == 413
     assert "File size exceeds maximum allowed limit of 50 MB." in resp_large.json()["detail"]
 
