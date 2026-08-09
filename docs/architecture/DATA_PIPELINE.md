@@ -143,7 +143,7 @@ sequenceDiagram
         loop For Each Data Row
             Executor->>Eval: safe_eval_rule(expression, row)
             alt Rule Satisfied
-                Eval-->>Executor: True -> Append to clean_db
+                Eval-->>Executor: True -> Record passes validation
             else Rule Violated
                 Eval-->>Executor: False -> Format quarantine record & compute lineage_hash
             end
@@ -179,7 +179,7 @@ sequenceDiagram
    - `execute_rules_transactional` issues `BEGIN TRANSACTION` to DuckDB, ensuring atomic processing.
 3. **Row Evaluation & Partitioning**:
    - Every input record is tested against compiled rule expressions via AST/safe python parsing (`safe_eval_rule`).
-   - Clean records are allocated to `clean_db`.
+   - Clean records are processed and return success.
    - Records triggering violations generate structured quarantine tuples containing `q_id`, `snapshot_id`, `source_table`, `source_row_id`, `rule_id`, `reason`, `original_data` JSON, and `lineage_hash` (`SHA256(snapshot_id:rule_version_id:source_row_id)`).
 4. **Chunked 500-Row Batch Insertion**:
    - Quarantine records are sliced into chunks of 500 (`CHUNK_SIZE = 500`).

@@ -422,8 +422,7 @@ The table below outlines key operational tools registered within the DataTrust O
 | Tool Name | Class & Module | Primary Purpose | Input Key Fields | Output Key Fields |
 |---|---|---|---|---|
 | `profile_dataset` | `ProfilerTool`<br>`src/tools/dq/profiler_tool.py` | Generates statistical data quality profiles (null count, min/max, uniqueness) | `dataset_key`, `sample_size` | `total_rows`, `column_profiles`, `missing_matrix` |
-| `compile_rules` | `CompilerTool`<br>`src/tools/dq/compiler_tool.py` | Compiles abstract DataTrust DQ rules into executable DuckDB SQL | `rules: list[dict]` | `compiled_sql`, `is_valid`, `syntax_errors` |
-| `execute_rules` | `TestRunnerTool`<br>`src/tools/dq/test_runner_tool.py` | Executes compiled DQ SQL validation rules against target dataset | `dataset_key`, `compiled_sql` | `passed_count`, `failed_count`, `quarantine_row_ids` |
+| `execute_rules` | `RuleExecutorTool`<br>`src/tools/rule_executor.py` | Compiles and executes DQ SQL validation rules against target dataset | `dataset_key`, `rules: list[dict]` | `passed_count`, `failed_count`, `quarantine_row_ids` |
 | `detect_anomalies` | `AnomalyDetectorTool`<br>`src/tools/anomaly.py` | Identifies distribution drift and outliers across EV telemetry metrics | `current_profile`, `baseline_profile` | `anomalies: list[dict]`, `severity_score` |
 | `diagnose_issue` | `DiagnosisTool`<br>`src/tools/base.py` | Conducts root-cause analysis on flagged data quality anomalies | `anomaly_id`, `context_data` | `root_cause`, `confidence`, `suggested_action` |
 | `search_docs` | `AlgoliaSearchTool`<br>`src/tools/algolia_tool.py` | Queries technical documentation index via Algolia Search API | `query: str`, `top_k: int` | `hits: list[dict]`, `nbHits` |

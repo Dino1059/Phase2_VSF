@@ -117,7 +117,7 @@ graph TD
     end
 
     subgraph Backend ["Backend API & WebSocket Server"]
-        HTTPEndpoints["FastAPI HTTP Endpoints\n- /api/v1/auth/*\n- /api/v1/datasets/*\n- /api/v1/approvals/*\n- /api/v1/chat/*\n- /api/v1/dashboard/stats"]
+        HTTPEndpoints["FastAPI HTTP Endpoints\n- /api/v1/auth/*\n- /api/v1/datasets/*\n- /api/v1/approvals/*"]
         WSEndpoint["WebSocket Gate (/ws)\n- Broadcasts agent events"]
     end
 
@@ -165,11 +165,11 @@ Below is the definitive matrix mapping all primary components, their props, inte
 | **`App.tsx`** | `None` | Initializes `BrowserRouter` with `/v3` base path; wraps app in `ErrorBoundary`. | `N/A` |
 | **`AppShell`** | `None` | Reads `workspacePanelVisible`, `sidebarCollapsed` from `appStore`. Renders TopBar, Sidebar, ChatPanel, WorkspacePanel, AgentStatusBar. | `N/A` |
 | **`TopBar`** | `None` | - `toggleSidebar()`<br>- `setRole(role)`<br>- `setWorkspacePanelVisible(bool)`<br>- `toggleLang()`<br>- Navigates to `/dashboard` or `/`<br>- `uploadDatasetFile(file)` | - `POST /api/v1/datasets/upload`<br>- Emits agent status updates via `useChatStore` |
-| **`ChatPanel`** | `None` | - Connects WebSocket (`agentSocket.connect()`) on mount<br>- Fetches chat history for `sessionId`<br>- Auto-scrolls message list<br>- Shows `TypingIndicator` when agents are active | - `GET /api/v1/chat/history?session_id={id}`<br>- WS: `ws://localhost:8000/ws` |
-| **`ChatInput`** | `None` | - `setInput()`<br>- `handleSend()` on Enter or click<br>- Triggers `sendChatMessage(input, sessionId)` | `POST /api/v1/chat/send` |
+| **`ChatPanel`** | `None` | - Connects WebSocket (`agentSocket.connect()`) on mount<br>- Auto-scrolls message list<br>- Shows `TypingIndicator` when agents are active | - WS: `ws://localhost:8000/ws` |
+| **`ChatInput`** | `None` | - `setInput()`<br>- `handleSend()` on Enter or click<br>- Triggers WebSocket message | - WS: `ws://localhost:8000/ws` |
 | **`ChatMessage`** | `message: ChatMessage` | Routes rendering to `UserMessage`, `AgentMessage`, or `SystemMessage` based on `message.type`. | `N/A` |
 | **`AgentMessage`** | `message: ChatMessage` | Displays agent reasoning metadata, markdown content, `AgentAvatar`, `ProposalPanel` if proposals present, and `ApprovalSummary`. | `N/A` |
-| **`RuleProposalCard`** (`ProposalPanel`) | `proposal: RuleProposal` | - `updateProposalStatus(id, 'approved' \| 'rejected')`<br>- If autonomous pipeline gate: triggers `sendChatMessage("Detect anomalies and propose quality rules...")` | - `POST /api/v1/approvals/{id}/approve`<br>- `POST /api/v1/approvals/{id}/reject`<br>- `POST /api/v1/chat/send` |
+| **`RuleProposalCard`** (`ProposalPanel`) | `proposal: RuleProposal` | - `updateProposalStatus(id, 'approved' \| 'rejected')`<br>- If autonomous pipeline gate: triggers WebSocket message | - `POST /api/v1/approvals/{id}/approve`<br>- `POST /api/v1/approvals/{id}/reject` |
 | **`BatchApprovalBar`** | `None` | - `approveAll()`: updates status for all pending proposals to approved<br>- `rejectAll()`: updates status for all pending proposals to rejected | `POST /api/v1/approvals/batch` |
 | **`ApprovalSummary`** | `approved: number`<br>`rejected: number`<br>`total: number` | Pure presentation of HITL approval progress and metrics. | `N/A` |
 | **`WorkspacePanel`** | `None` | - `setWorkspace(view: WorkspaceView)`<br>- Switches active view between `profile`, `rules`, `anomaly`, `audit`, `diff` | `N/A` |
@@ -177,8 +177,8 @@ Below is the definitive matrix mapping all primary components, their props, inte
 | **`RuleWorkspace`** | `None` | Reads `pendingProposals` & executed rules. Renders quality rule expressions & severity tags. | `POST /api/v1/datasets/{key}/propose` |
 | **`AnomalyWorkspace`** | `None` | Reads `anomalyData` from `chatStore`. Displays anomaly scores, affected rows, and flag explanations. | `POST /api/v1/datasets/{key}/execute` |
 | **`AuditWorkspace`** | `None` | Reads `auditData` from `chatStore`. Displays immutable execution logs, timestamped telemetry, and decision records. | `GET /api/v1/approvals` |
-| **`DashboardPage`** (`ExecutiveDashboard`) | `None` | - `fetchDashboardData()` on mount<br>- Navigates back to `/`<br>- Filters telemetry via global search input | `GET /api/v1/dashboard/stats` |
-| **`KpiCardGrid`** | Rendered inside `DashboardPage` | Renders `totalAnomalies`, `anomalyRate`, and `avgResolutionTime` metrics from `dashboardStore`. | `GET /api/v1/dashboard/stats` |
+| **`DashboardPage`** (`ExecutiveDashboard`) | `None` | - `fetchDashboardData()` on mount<br>- Navigates back to `/`<br>- Filters telemetry via global search input | (Uses `datasets` or internal state) |
+| **`KpiCardGrid`** | Rendered inside `DashboardPage` | Renders `totalAnomalies`, `anomalyRate`, and `avgResolutionTime` metrics from `dashboardStore`. | (Uses `datasets` or internal state) |
 | **`AgentStatusBar`** | `None` | Displays live multi-agent network status bar (`orchestrator`, `profiler`, `ruleProposer`, `anomalyDetector`, `diagnosis`). | WS: `agent.status` events |
 
 ---

@@ -60,7 +60,7 @@ graph TD
   - **Boundary Constraints:** Invoked strictly with 60-second execution timeouts and 3-stage exponential backoff retry policy. Communication strictly uses structured JSON inputs/outputs via Pydantic schemas. Free-text database mutation commands are forbidden.
 - **DuckDB Database (`DuckDB`):**
   - **Interface:** Local embedded relational analytical database storage file located at `data/datatrust_v4.duckdb`.
-  - **Boundary Constraints:** High-performance vectorized analytical queries, SQL schema management (`src/db/schema.sql`), atomic table transactions, and dataset storage across `datasets`, `quality_rules`, `schedules`, `audit_log`, `clean_db`, and `quarantine_db`.
+  - **Boundary Constraints:** High-performance vectorized analytical queries, SQL schema management (`src/db/schema.sql`), atomic table transactions, and dataset storage across `datasets`, `quality_rules`, `schedules`, `audit_log`, and `quarantine`.
 - **External Data Sources (`DataSources`):**
   - **Interface:** File-system files and streaming feeds from VinFast CAN-bus telemetry, V-GREEN charging station metrics, Xanh SM trip logs, and UIT-VSFC / App Store Vietnamese customer feedback datasets.
 
@@ -149,7 +149,7 @@ graph TD
 
     subgraph DatabaseLayer["Data Access & Storage Engine"]
         DuckDBConn["🦆 DuckDBManager / get_db()<br/>(src/db/connection.py)"]
-        DuckDBTables[("DuckDB Storage Tables:<br/>datasets, quality_rules, schedules,<br/>audit_log, clean_db, quarantine_db")]
+        DuckDBTables[("DuckDB Storage Tables:<br/>datasets, quality_rules, schedules,<br/>audit_log, quarantine")]
     end
 
     AuthRouter -->|"Validates Token & Roles"| AuditSvc
@@ -192,7 +192,7 @@ graph TD
    - **Responsibilities:** Manages the Human-In-The-Loop (HITL) approval workflow. Handles state transitions (`draft` ➔ `pending_approval` ➔ `approved` or `rejected`), batch approval processing, and audit trail logging upon status change.
 6. **`executions` Router (`executions.py`):**
    - **Path:** `/api/v1/executions`
-   - **Responsibilities:** Triggers full quality execution runs against target datasets using approved rules. Routes records passing all rules to `clean_db` and records violating rules to `quarantine_db`.
+   - **Responsibilities:** Triggers full quality execution runs against target datasets using approved rules. Routes records violating rules to the `quarantine` table.
 7. **`benchmarks` Router (`benchmarks.py`):**
    - **Path:** `/api/v1/benchmarks`
    - **Responsibilities:** Evaluates system accuracy and agent performance against standardized governance benchmarks (comparing C0 baseline vs C1 fixed vs A1 agent execution).
@@ -210,7 +210,7 @@ graph TD
   - **SQL Safety Inspection (`_check_sql_safety`):** Scans input rule expressions against regex blacklists (`FORBIDDEN_SQL_PATTERNS`) to block SQL injection vectors (e.g., `--`, `/*`, `;`, `UNION`, `DROP`, `ALTER`, `EXEC`).
   - **Identifier Sanitization (`_validate_identifier`):** Enforces strict identifier syntax `^[a-zA-Z_][a-zA-Z0-9_]*$` for table and column names.
   - **Rule Compilation (`compile_rule_spec`):** Translates operators (`gt`, `lt`, `between`, `in`, `not_null`, `regex`) into safe DuckDB SQL `WHERE` filter clauses.
-  - **Partitioning Execution:** Runs parameterized SQL queries to filter valid records into `clean_db_<dataset_key>` and invalid records into `quarantine_db_<dataset_key>`, attaching `failed_rule_id` and `quarantine_reason` metadata.
+  - **Partitioning Execution:** Runs parameterized SQL queries to insert invalid records into the `quarantine` table, attaching `failed_rule_id` and `quarantine_reason` metadata.
 
 #### 2. `VietnameseNLPService` (`src/services/vietnamese_nlp.py`)
 - **Core Purpose:** Specialized natural language processing engine designed for VinGroup Vietnamese customer feedback (UIT-VSFC, app reviews, charging station comments).
@@ -262,10 +262,9 @@ sequenceDiagram
     API->>DB: Update rule status='approved'
     API->>Audit: Append approved status hash chain entry
 
-    Steward->>API: 4. POST /api/v1/executions/run (Trigger Clean DB build)
+    Steward->>API: 4. POST /api/v1/executions (Trigger Data Execution)
     API->>Exec: Execute compiled rules against raw dataset
-    Exec->>DB: Insert clean rows into clean_db table
-    Exec->>DB: Route failing rows to quarantine_db table
+    Exec->>DB: Route failing rows to the quarantine table
     API->>Audit: Record execution SHA-256 manifest & quarantine count
     API-->>Steward: Return execution status summary (Clean vs Quarantine counts)
 ```
