@@ -368,7 +368,7 @@ Hệ thống được đánh giá qua bộ 40+ trường hợp thử nghiệm Be
 | **C1 Semi-Agentic** | 0.78 | 0.72 | 0.75 | 72.4% | 4.8s |
 | **A1 DataTrust OS (Active)** | **0.94** | **0.91** | **0.925** | **92.8%** | 8.5s |
 
-Chi tiết báo cáo đánh giá Benchmark kỹ thuật có thể tham khảo tại tài liệu: [docs/EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md).
+Chi tiết báo cáo đánh giá Benchmark kỹ thuật có thể tham khảo tại tài liệu: [docs/planning/EVALUATION_REPORT.md](docs/planning/EVALUATION_REPORT.md).
 
 ---
 
