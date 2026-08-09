@@ -146,9 +146,18 @@ P-086/
 │   ├── raw_public/                # Dữ liệu công khai tải về từ nguồn
 │   ├── vingroup/                  # Bộ dữ liệu lỗi thử nghiệm VinGroup (Dirty bundle)
 │   └── vingroup_real/             # Dữ liệu doanh nghiệp VinGroup đã ingest
-├── docs/                          # Tài liệu kiến trúc & báo cáo đánh giá
-│   ├── ARCHITECTURE.md            # Tài liệu thiết kế kiến trúc kỹ thuật chi tiết
-│   └── EVALUATION_REPORT.md       # Báo cáo kết quả đánh giá Benchmark 3-tier
+├── docs/                          # Tài liệu kiến trúc & sơ đồ kỹ thuật v4
+│   ├── architecture/              # Sơ đồ C4, ERD Database, Data Pipeline, AI State Machine
+│   │   ├── C4_MODEL.md            # Sơ đồ C4 Level 1, 2, 3 chi tiết
+│   │   ├── DATABASE_SCHEMA.md     # Sơ đồ ERD & định dạng bảng DuckDB v4
+│   │   ├── DATA_PIPELINE.md       # Sơ đồ Sequence luồng xử lý dữ liệu & Quarantine
+│   │   └── AI_ORCHESTRATION.md    # Sơ đồ State Machine cho ReAct Engine & DecisionRecord
+│   ├── design/                    # Sơ đồ luồng UX & Cấu trúc Component Frontend
+│   │   ├── UX_FLOW.md             # Sơ đồ hành trình người dùng & Vòng đời Rule
+│   │   └── COMPONENT_TOPOLOGY.md  # Sơ đồ cây React Component & State Management
+│   ├── planning/                  # Kế hoạch phát triển & Báo cáo đánh giá Benchmark
+│   ├── logs/                      # Nhật ký phát triển (Journal, Worklog)
+│   └── archive/                   # Lưu trữ các bản kiến trúc v2 cũ
 ├── frontend/                      # Mã nguồn Frontend (React 19 + TypeScript + Vite)
 │   ├── src/
 │   │   ├── components/
@@ -158,6 +167,22 @@ P-086/
 │   │   │   └── workspace/         # Panel 4 Tab (Profile, Rules, Anomaly, Audit)
 │   │   ├── pages/                 # Command Center & Executive Dashboard Pages
 │   │   ├── services/              # API Client HTTP & WebSocket Client với Reconnect
+
+---
+
+## 🗺️ 4.1. Hướng Dẫn Tra Cứu Kiến Trúc & Sơ Đồ Kỹ Thuật (Architecture Navigation Guide)
+
+Dành cho **Giảng viên & Mentor** theo dõi và kiểm chứng thiết kế v4.0 của hệ thống DataTrust OS. Toàn bộ sơ đồ được biểu diễn bằng Mermaid chuẩn:
+
+| Danh Mục | Tài Liệu Sơ Đồ | Mô Tả Chi Tiết |
+|---|---|---|
+| **Kiến Trúc Tổng Thể** | 📐 [docs/architecture/C4_MODEL.md](docs/architecture/C4_MODEL.md) | Sơ đồ C4 Level 1 (Context), Level 2 (Container), Level 3 (Component) & Phân vùng An ninh. |
+| **Cơ Sở Dữ Liệu** | 🗄️ [docs/architecture/DATABASE_SCHEMA.md](docs/architecture/DATABASE_SCHEMA.md) | Sơ đồ ERD 15 bảng DuckDB, ràng buộc Uniqueness `idx_quarantine_idempotency` & kiểu dữ liệu. |
+| **Luồng Dữ Liệu** | ⚡ [docs/architecture/DATA_PIPELINE.md](docs/architecture/DATA_PIPELINE.md) | Sơ đồ Sequence upload dữ liệu, đề xuất luật, giao dịch HITL Quarantine & Chuỗi băm SHA-256. |
+| **Trí Tuệ Nhân Tạo** | 🤖 [docs/architecture/AI_ORCHESTRATION.md](docs/architecture/AI_ORCHESTRATION.md) | Sơ đồ State Machine `ReActEngine`, Adapter Gemma 26B, DecisionRecord & ToolRegistry. |
+| **Hành Trình UX** | 🎨 [docs/design/UX_FLOW.md](docs/design/UX_FLOW.md) | Flowchart hành trình Command Center -> HITL Approval -> Executive Dashboard & WebSocket trace. |
+| **Cấu Trúc Frontend** | ⚛️ [docs/design/COMPONENT_TOPOLOGY.md](docs/design/COMPONENT_TOPOLOGY.md) | Cây Component React 19, Zustand stores, luồng dữ liệu state & hợp đồng props API. |
+
 │   │   ├── stores/                # Zustand ChatStore, DashboardStore & UI State
 │   │   └── types/                 # TypeScript interfaces & type definitions
 │   └── package.json
