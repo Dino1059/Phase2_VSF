@@ -8,13 +8,16 @@ from src.services.audit import AuditService
 
 
 @pytest.fixture
-def audit_db():
+def audit_db(monkeypatch):
     """Create a fresh temporary database for audit chain testing."""
     with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=False) as f:
         db_path = f.name
-    conn_module._db_manager = None
-    db = get_db(db_path=db_path)
+    if os.path.exists(db_path):
+        os.unlink(db_path)
+    db = DuckDBManager(db_path=db_path)
     db.init_schema()
+    monkeypatch.setattr("src.services.audit.get_db", lambda: db)
+    monkeypatch.setattr("src.db.connection.get_db", lambda: db)
     yield db
     db.close()
     conn_module._db_manager = None

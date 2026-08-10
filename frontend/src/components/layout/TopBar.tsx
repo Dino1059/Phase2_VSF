@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen, Upload, Loader2 } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Brain, Globe, Bell, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen, Upload, Loader2, LayoutDashboard } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useChatStore } from '../../stores/chatStore';
 import { uploadDatasetFile } from '../../services/api';
@@ -11,6 +12,8 @@ const ROLE_OPTIONS: UserRole[] = ['admin', 'steward', 'viewer'];
 
 export function TopBar() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { role, setRole, workspacePanelVisible, setWorkspacePanelVisible, sidebarCollapsed, toggleSidebar } = useAppStore();
   const { agentStatuses } = useChatStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +106,16 @@ export function TopBar() {
         >
           {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
           <span className="max-sm:hidden">Upload DB</span>
+        </button>
+
+        {/* Dashboard Link */}
+        <button
+          onClick={() => navigate(location.pathname === '/dashboard' ? '/' : '/dashboard')}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/10 rounded-md transition-colors"
+          title={location.pathname === '/dashboard' ? 'Go to Command Center' : 'Go to Executive Dashboard'}
+        >
+          <LayoutDashboard className="w-3.5 h-3.5" />
+          <span className="max-sm:hidden">{location.pathname === '/dashboard' ? 'Command Center' : 'Dashboard'}</span>
         </button>
 
         {/* Language toggle */}

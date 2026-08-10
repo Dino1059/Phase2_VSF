@@ -715,23 +715,28 @@ def execute_rules_transactional(
                 chunk
             )
 
-        # Log audit event within the transaction boundary
-        from src.services.audit import AuditService
-        AuditService.log(
-            action="EXECUTE_DATASET_RULES",
-            actor="agent",
-            target_table=source_table,
-            target_id=snapshot_id,
-            details={
-                "total_rows": len(rows),
-                "clean_count": exec_res["clean_count"],
-                "quarantine_count": len(quarantine_records),
-                "snapshot_id": snapshot_id,
-                "rule_version_id": rule_version_id
-            }
-        )
-
         conn.execute("COMMIT")
+
+        # Log audit event after transaction commit
+        from src.services.audit import AuditService
+        try:
+            AuditService.log(
+                action="EXECUTE_DATASET_RULES",
+                actor="agent",
+                target_table=source_table,
+                target_id=snapshot_id,
+                details={
+                    "total_rows": len(rows),
+                    "clean_count": exec_res["clean_count"],
+                    "quarantine_count": len(quarantine_records),
+                    "snapshot_id": snapshot_id,
+                    "rule_version_id": rule_version_id
+                },
+                db=db
+            )
+        except Exception:
+            pass
+
         return exec_res
     except Exception as e:
         try:

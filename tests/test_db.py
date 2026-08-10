@@ -9,6 +9,8 @@ def tmp_db():
     """Create a temporary DuckDB database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=False) as f:
         db_path = f.name
+    if os.path.exists(db_path):
+        os.unlink(db_path)
     db = DuckDBManager(db_path=db_path)
     db.init_schema()
     yield db

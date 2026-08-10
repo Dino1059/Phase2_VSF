@@ -7,12 +7,17 @@ from src.services.dataset_engine import execute_rules_transactional
 
 
 @pytest.fixture
-def tmp_db():
+def tmp_db(monkeypatch):
     """Create a temporary DuckDB database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=False) as f:
         db_path = f.name
+    if os.path.exists(db_path):
+        os.unlink(db_path)
     db = DuckDBManager(db_path=db_path)
     db.init_schema()
+    monkeypatch.setattr("src.tools.rule_executor.get_db", lambda: db)
+    monkeypatch.setattr("src.services.audit.get_db", lambda: db)
+    monkeypatch.setattr("src.db.connection.get_db", lambda: db)
     yield db
     db.close()
     if os.path.exists(db_path):

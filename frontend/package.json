@@ -18,12 +18,14 @@
     "vite": "^8.2.0"
   },
   "dependencies": {
+    "@sentry/react": "^10.69.0",
     "framer-motion": "^12.43.0",
     "i18next": "^26.3.6",
     "lucide-react": "^1.28.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.11",
+    "react-router-dom": "^7.18.2",
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.14"
   }

@@ -16,6 +16,7 @@ from src.api.routes import (
     executions_router,
     benchmarks_router,
     schedules_router,
+    search_router,
 )
 from src.api.hitl import hitl_router
 from src.api.dashboard import dashboard_router
@@ -39,6 +40,17 @@ INDEX_HTML_V3 = os.path.join(UI_DIR_V3, "index.html")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    if settings.sentry_dsn:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.app_env,
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            integrations=[FastApiIntegration()],
+        )
+        print("Sentry Backend SDK initialized successfully")
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
     # Pre-seed dataset if not exists
     seed_dataset()
@@ -92,6 +104,7 @@ app.include_router(approvals_router, prefix="/api/v1")
 app.include_router(executions_router, prefix="/api/v1")
 app.include_router(benchmarks_router, prefix="/api/v1")
 app.include_router(schedules_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api/v1")
 
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")

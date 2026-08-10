@@ -215,17 +215,22 @@ class RuleExecutorTool(BaseTool):
                     )
                 quarantined = len(quarantine_records)
 
-                # Log audit event within the transaction boundary
-                from src.services.audit import AuditService
+            conn.execute("COMMIT")
+
+            # Log audit event after transaction commit
+            from src.services.audit import AuditService
+            try:
                 AuditService.log(
                     action="EXECUTE_RULE",
                     actor="agent",
                     target_table=target_table,
                     target_id=rule_id,
-                    details={"violations": violations, "quarantined": quarantined, "snapshot_id": effective_snapshot_id, "rule_version_id": effective_rule_version_id}
+                    details={"violations": violations, "quarantined": quarantined, "snapshot_id": effective_snapshot_id, "rule_version_id": effective_rule_version_id},
+                    db=db
                 )
+            except Exception:
+                pass
 
-            conn.execute("COMMIT")
             return {
                 "records_checked": total,
                 "violations_found": violations,

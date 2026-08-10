@@ -19,7 +19,7 @@ async def list_pending_approvals():
     db = get_db()
     try:
         rows = db.execute(
-            "SELECT id, rule_type, rule_name, status, rule_expression FROM quality_rules WHERE status = 'pending'"
+            "SELECT id, rule_type, rule_name, status, rule_expression FROM quality_rules WHERE status IN ('pending', 'proposed')"
         )
         return [
             {

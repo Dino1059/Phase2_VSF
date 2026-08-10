@@ -143,6 +143,15 @@ export const benchmarksApi = {
     }),
 };
 
+export const dashboardApi = {
+  getStats: () =>
+    request<{
+      metrics?: any;
+      insights?: any[];
+      activityFeed?: any[];
+    }>('/dashboard/stats'),
+};
+
 // Legacy exported standalone helpers
 export async function sendChatMessage(message: string, sessionId: string = 'default') {
   return request('/chat/send', {

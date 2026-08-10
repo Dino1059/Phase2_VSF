@@ -821,7 +821,7 @@ cd frontend && pnpm build && pnpm dev
 - Measure: Precision, Recall, F1, Compile Rate, Teen-code Accuracy, Cross-system Link Rate, Cost, Latency, Human Time Saved
 
 ### T9.3: Report generator (`eval/generate_report.py` [NEW])
-- Output: `docs/EVALUATION_REPORT.md`
+- Output: `docs/planning/EVALUATION_REPORT.md`
 
 ### T9.4: Benchmark pytest gate (`tests/test_benchmark.py` [NEW])
 ```python
@@ -875,9 +875,9 @@ uv run pytest tests/ -v --tb=short
 ### T11.2: E2E integration test (`tests/test_e2e.py` [NEW])
 - Seed → NLP → Orchestrate → HITL → Execute → Verify
 
-### T11.3: Update `docs/ARCHITECTURE.md` for v4
+### T11.3: Update `docs/archive/v2_ARCHITECTURE.md` for v4
 ### T11.4: Generate evaluation report
-### T11.5: Demo script (`docs/DEMO_SCRIPT.md` [NEW]) — 15 min max
+### T11.5: Demo script (`docs/guide/DEMO_SCRIPT.md` [NEW]) — 15 min max
 ### T11.6: Update `README.md`
 
 ## 11.2 Exit Criteria
@@ -905,7 +905,7 @@ uv run pytest tests/ -v --tb=short
 | 8 | `src/api/dashboard.py`, `pipeline.py`, `traces.py`, `quarantine.py`, `snapshots.py` | Python |
 | 9 | `eval/fault_injector.py`, `benchmark.py`, `generate_report.py` | Python |
 | 10 | `Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `scripts/reset.sh` | Docker/Shell |
-| 11 | `tests/test_e2e.py`, `docs/DEMO_SCRIPT.md` | Python/MD |
+| 11 | `tests/test_e2e.py`, `docs/guide/DEMO_SCRIPT.md` | Python/MD |
 
 ## Modified Files: 12
 
@@ -921,7 +921,7 @@ uv run pytest tests/ -v --tb=short
 | 6 | `src/services/audit.py` | Enhanced |
 | 6 | `src/services/ws_manager.py` | HITL WebSocket |
 | 8 | `src/api/middleware.py` | CORS + security |
-| 11 | `docs/ARCHITECTURE.md` | v4 update |
+| 11 | `docs/archive/v2_ARCHITECTURE.md` | v4 update |
 | 11 | `README.md` | Quick start |
 
 ## Test Files: 150+ tests

@@ -65,4 +65,4 @@ class RuleProposerTool(BaseTool):
                     "rationale": f"3-sigma bounds from statistical analysis (mean={stats['mean']}, std={stats['std']})"
                 })
 
-        return {"proposed_rules": rules, "rule_count": len(rules), "target_table": table}
+        return {"proposed_rules": rules, "proposals": rules, "rule_count": len(rules), "target_table": table}

@@ -50,7 +50,10 @@ from src.api.routes.executions import router as executions_router
 from src.api.routes.profiling import router as profiling_router
 from src.api.routes.rules import router as rules_router
 from src.api.routes.schedules import router as schedules_router
+from src.api.routes.search import router as search_router
 
+from src.tools.algolia_tool import AlgoliaSearchTool
+from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
 from src.models.schemas import (
@@ -237,6 +240,53 @@ async def websocket_endpoint(websocket: WebSocket, session_id: Optional[str] = N
         ws_manager.disconnect(websocket)
 
 
+def format_friendly_observation(action: str, observation: str) -> str:
+    try:
+        import json
+        data = json.loads(observation)
+        if action == "profile_dataset":
+            total_rows = data.get("total_rows", data.get("profile", {}).get("total_rows", 0))
+            cols_count = data.get("columns_count", len(data.get("profile", {}).get("columns", [])))
+            health = data.get("health_score", 100.0)
+            key = data.get("dataset_key", "dataset")
+            return (
+                f"### 📊 Profile Summary for `{key}`\n"
+                f"- **Total Rows:** `{total_rows:,}`\n"
+                f"- **Total Columns:** `{cols_count}`\n"
+                f"- **Dataset Health:** `{health}%`\n\n"
+                f"Full column profiles updated in the **Data Profiler** workspace panel on the right.\n\n"
+                f"Observation:\n<details>\n<summary>🔍 View Technical Observation JSON</summary>\n\n"
+                f"```json\n{json.dumps(data, indent=2)}\n```\n</details>"
+            )
+        elif action == "propose_quality_rules":
+            props = data.get("proposals", [])
+            key = data.get("dataset_key", "dataset")
+            return (
+                f"### 🛡️ Quality Rule Proposals for `{key}`\n"
+                f"- **Proposed Rules:** `{len(props)}` rule(s)\n"
+                f"- **Action Required:** Review and approve rules in the **Quality Rules** workspace panel.\n\n"
+                f"Observation:\n<details>\n<summary>🔍 View Technical Observation JSON</summary>\n\n"
+                f"```json\n{json.dumps(data, indent=2)}\n```\n</details>"
+            )
+        elif action == "anomaly_detector":
+            found = data.get("anomalies_found", 0)
+            score = data.get("anomaly_score", 0.0)
+            col = data.get("column_name", "*")
+            tbl = data.get("table_name", "dataset")
+            return (
+                f"### ⚠️ Anomaly Scan Results for `{tbl}.{col}`\n"
+                f"- **Outliers Found:** `{found}`\n"
+                f"- **Anomaly Score:** `{round(score * 100, 2)}%`\n"
+                f"- **Summary:** {data.get('summary', 'Scan complete.')}\n\n"
+                f"Outlier details updated in the **Anomaly Detector Agent** workspace panel on the right.\n\n"
+                f"Observation:\n<details>\n<summary>🔍 View Technical Observation JSON</summary>\n\n"
+                f"```json\n{json.dumps(data, indent=2)}\n```\n</details>"
+            )
+    except Exception:
+        pass
+    return f"Action '{action}' executed. Observation: {observation}"
+
+
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
     session_id = request.session_id or "default"
@@ -259,11 +309,17 @@ async def send_chat_message(request: ChatRequest):
     registry.register(ProfileDatasetTool())
     registry.register(ProposeQualityRulesTool())
     registry.register(CleanDatabaseTool())
+    registry.register(AlgoliaSearchTool())
+    registry.register(AnomalyDetectorTool())
 
     llm_service = LLMService()
     react_engine = BoundedReActEngine(llm_service=llm_service, tools=registry)
     
-    result = react_engine.run(request.message)
+    import sentry_sdk
+    sentry_sdk.set_user({"id": session_id})
+    sentry_sdk.set_tag("agent.version", "v1.0")
+    with sentry_sdk.start_transaction(op="agent.react", name="ReAct Engine Execution"):
+        result = react_engine.run(request.message)
 
     # Save and broadcast step thoughts/actions
     for step in result.steps:
@@ -279,11 +335,12 @@ async def send_chat_message(request: ChatRequest):
             await ws_manager.broadcast({"type": "chat.message", "data": thought_msg}, session_id=session_id)
 
         if step.action and step.action not in ("FINISH", "ABSTAIN"):
+            friendly_content = format_friendly_observation(step.action, step.observation)
             obs_msg = conversation_store.save_message(
                 {
                     "type": "agent",
                     "agentId": step.action,
-                    "content": f"Action '{step.action}' executed. Observation: {step.observation[:300]}",
+                    "content": friendly_content,
                 },
                 session_id=session_id,
             )

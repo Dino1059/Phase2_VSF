@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../../stores/chatStore';
 import { Database, ShieldCheck, AlertTriangle, FileText, GitCompare, LayoutDashboard } from 'lucide-react';
 import type { WorkspaceView } from '../../types';
@@ -17,16 +16,15 @@ const VIEW_ICONS: Record<WorkspaceView, React.ComponentType<{ className?: string
 };
 
 const VIEW_LABELS: Record<WorkspaceView, string> = {
-  empty: 'common:appName',
-  profile: 'profiler:title',
-  rules: 'rules:title',
-  anomaly: 'agents:anomalyDetector',
-  audit: 'audit:title',
+  empty: 'Cockpit',
+  profile: 'Data Profiler',
+  rules: 'Quality Rules',
+  anomaly: 'Anomaly Detector',
+  audit: 'Audit Trail',
   diff: 'Diff View',
 };
 
 export function WorkspacePanel() {
-  const { t } = useTranslation();
   const { activeWorkspace, setWorkspace } = useChatStore();
 
   const views: WorkspaceView[] = ['profile', 'rules', 'anomaly', 'audit'];
@@ -50,7 +48,7 @@ export function WorkspacePanel() {
                 }`}
               >
                 {IconComp && <IconComp className="w-3.5 h-3.5" />}
-                <span>{t(VIEW_LABELS[v])}</span>
+                <span>{VIEW_LABELS[v]}</span>
               </button>
             );
           })}

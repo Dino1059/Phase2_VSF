@@ -23,7 +23,11 @@ class DuckDBManager:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         if db_path is None:
-            db_path = os.path.join(project_root, "data", "datatrust_v4.duckdb")
+            env_db = os.environ.get("DUCKDB_PATH")
+            if env_db:
+                db_path = env_db if os.path.isabs(env_db) else os.path.join(project_root, env_db)
+            else:
+                db_path = os.path.join(project_root, "data", "datatrust_v4.duckdb")
 
         self.db_path = db_path
         self.project_root = project_root
@@ -37,9 +41,24 @@ class DuckDBManager:
             dir_name = os.path.dirname(self.db_path)
             if dir_name:
                 os.makedirs(dir_name, exist_ok=True)
-            if os.path.exists(self.db_path) and os.path.getsize(self.db_path) == 0:
-                os.remove(self.db_path)
-            conn = duckdb.connect(self.db_path)
+            import time
+            conn = None
+            for attempt in range(4):
+                try:
+                    conn = duckdb.connect(self.db_path)
+                    break
+                except duckdb.IOException as e:
+                    if "Could not set lock" in str(e):
+                        if attempt < 3:
+                            time.sleep(0.3)
+                        else:
+                            try:
+                                conn = duckdb.connect(self.db_path, read_only=True)
+                                break
+                            except Exception:
+                                raise e
+                    else:
+                        raise
             self._local.connection = conn
             with self._conn_lock:
                 self._connections.append(conn)
@@ -180,6 +199,20 @@ _db_manager = None
 
 def get_db(db_path: str = None) -> DuckDBManager:
     global _db_manager
+    target_path = db_path or os.environ.get("DUCKDB_PATH")
+    if target_path:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        resolved_path = target_path if os.path.isabs(target_path) else os.path.join(project_root, target_path)
+        if _db_manager is not None and _db_manager.db_path != resolved_path:
+            try:
+                _db_manager.close()
+            except Exception:
+                pass
+            _db_manager = None
+        if _db_manager is None:
+            _db_manager = DuckDBManager(resolved_path)
+        return _db_manager
+
     if _db_manager is None:
         _db_manager = DuckDBManager(db_path)
     return _db_manager

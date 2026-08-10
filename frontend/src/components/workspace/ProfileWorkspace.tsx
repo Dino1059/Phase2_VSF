@@ -21,10 +21,10 @@ const HEALTH_COLORS = {
 
 export function ProfileWorkspace() {
   const { t } = useTranslation('profiler');
-  const workspaceData = useChatStore((s) => s.workspaceData) as { columns?: ColumnProfile[]; totalRows?: number } | null;
+  const profileData = useChatStore((s) => (s as any).profileData || s.workspaceData) as { columns?: ColumnProfile[]; totalRows?: number } | null;
 
-  const columns = workspaceData?.columns || [];
-  const totalRows = workspaceData?.totalRows || 0;
+  const columns = profileData?.columns || [];
+  const totalRows = profileData?.totalRows || 0;
 
   if (columns.length === 0) {
     return (
