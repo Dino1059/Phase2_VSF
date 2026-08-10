@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from src.db.connection import DuckDBManager
-from src.services.vietnamese_nlp import VietnameseNLPService
+from src.teencode.vietnamese_nlp import VietnameseNLPService
 from src.services.llm import GemmaLLMAdapter, LLMResponse
 from src.tools.base import ToolRegistry
 from src.tools.nlp_extractor import NLPExtractorTool

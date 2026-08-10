@@ -1,5 +1,5 @@
 import pytest
-from src.services.vietnamese_nlp import VietnameseNLPService, NLPResult, Aspect
+from src.teencode.vietnamese_nlp import VietnameseNLPService, NLPResult, Aspect
 
 
 @pytest.fixture
@@ -152,3 +152,34 @@ def test_analyze_long_text(nlp):
 def test_find_teencode(nlp):
     found = nlp.find_teencode("ko dc j, bt thôi nma cx ok")
     assert len(found) >= 3
+
+
+# === Per-Aspect Severity & Sentiment (ABSA) Tests ===
+
+def test_aspect_severity_not_blended_across_components(nlp):
+    """A single feedback mixing a critical charger fault with a minor app
+    gripe must not blend the critical severity onto the app aspect."""
+    aspects = nlp.extract_aspects("trạm sạc cháy nổ nguy hiểm, nhưng app thì vẫn ổn")
+    charger = next(a for a in aspects if a.component == "charger")
+    app = next(a for a in aspects if a.component == "app")
+    assert charger.severity == "critical"
+    assert app.severity != "critical"
+
+
+def test_aspect_sentiment_not_blended_across_components(nlp):
+    aspects = nlp.extract_aspects("trạm sạc cháy nổ nguy hiểm, nhưng app thì vẫn ổn")
+    charger = next(a for a in aspects if a.component == "charger")
+    app = next(a for a in aspects if a.component == "app")
+    assert charger.sentiment < 0
+    assert app.sentiment > 0
+
+
+def test_severity_diacritic_insensitive(nlp):
+    """Real dirty feedback is often accentless; severity keywords must still match."""
+    assert nlp.compute_severity("tram sac bi ngat dien dot ngot") == "high"
+    assert nlp.compute_severity("trạm sạc bị ngắt điện đột ngột") == "high"
+
+
+def test_extract_pricing_aspect(nlp):
+    aspects = nlp.extract_aspects("giá cước hôm nay hợp lý")
+    assert any(a.component == "pricing" for a in aspects)

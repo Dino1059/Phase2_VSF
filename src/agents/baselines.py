@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol, Any, runtime_checkable
 
 from src.db.connection import get_db
-from src.services.vietnamese_nlp import VietnameseNLPService
+from src.teencode.vietnamese_nlp import VietnameseNLPService
 from src.services.llm import GemmaLLMAdapter
 
 

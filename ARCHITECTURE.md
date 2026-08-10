@@ -93,7 +93,7 @@ flowchart LR
     end
     
     ORCH --> SubAgentCluster
-    SubAgentCluster <--> NLP["🇻🇳 Vietnamese NLP Engine<br/>(src/services/vietnamese_nlp.py)"]
+    SubAgentCluster <--> NLP["🇻🇳 Vietnamese NLP Engine<br/>(src/teencode/vietnamese_nlp.py)"]
     SubAgentCluster <--> LLM["🤖 Google AI Studio LLM<br/>(gemma-4-26b-a4b-it + 60s timeout)"]
     SubAgentCluster --> TOOLS["🔧 Deterministic Tool Layer"]
     
@@ -264,7 +264,7 @@ sequenceDiagram
 flowchart TD
     RawText["💬 Raw Customer Feedback Comment<br/>('xe di em nhung tram sac v-green o vincom ba trieu bi loi ko sac dc, app lag vl')"]
     
-    Norm["🔤 Teen-code Normalizer (src/services/vietnamese_nlp.py)<br/>- ko ➔ không<br/>- dc ➔ được<br/>- tram sac ➔ trạm sạc<br/>- app lag ➔ ứng dụng có độ trễ<br/>- vl ➔ rất nhiều"]
+    Norm["🔤 Teen-code Normalizer (src/teencode/vietnamese_nlp.py)<br/>- ko ➔ không<br/>- dc ➔ được<br/>- tram sac ➔ trạm sạc<br/>- app lag ➔ ứng dụng có độ trễ<br/>- vl ➔ rất nhiều"]
     
     Aspect["🏷️ Aspect-Based Entity Extractor<br/>- Location: Vincom Bà Triệu<br/>- Component: Trạm sạc V-GREEN<br/>- Error Type: Lỗi thiết bị / Phần cứng trạm sạc<br/>- Severity: CRITICAL"]
     
@@ -365,7 +365,7 @@ stateDiagram-v2
 | **VinGroup Dataset Generator** | `scripts/generate_vingroup_dataset.py` | `tests/test_vingroup.py` | Data Engine Builder |
 | **Real Public Data Fetcher** | `scripts/fetch_real_public_datasets.py` | `tests/test_real_public_ingestion.py` | Data Engine Builder |
 | **VinGroup Schema Mapper** | `scripts/ingest_vingroup_real_data.py` | `tests/test_real_public_ingestion.py` | Data Engine Builder |
-| **Vietnamese NLP Aspect Engine** | `src/services/vietnamese_nlp.py` | `tests/test_vingroup.py` | NLP Specialist |
+| **Vietnamese NLP Aspect Engine** | `src/teencode/vietnamese_nlp.py` | `tests/test_vingroup.py` | NLP Specialist |
 | **Anomaly & Composite Scoring** | `src/tools/anomaly.py` | `tests/test_v2_features.py`, `tests/test_vingroup.py` | ML Engineer |
 | **Sub-Agent Execution Cluster** | `src/agents/sub_agents.py`, `react.py` | `tests/test_sub_agents.py` | Agent Architect |
 | **Frontend Workspace v3** | `frontend-v3/src/components/` | `tests/test_api.py` | Frontend Developer |

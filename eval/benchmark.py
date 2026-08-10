@@ -90,7 +90,7 @@ class BenchmarkHarness:
     def _eval_teencode_accuracy(self, tier: str) -> float:
         """Dynamically evaluate Vietnamese teencode normalization accuracy."""
         try:
-            from src.services.vietnamese_nlp import VietnameseNLPService
+            from src.teencode.vietnamese_nlp import VietnameseNLPService
             nlp = VietnameseNLPService()
             sample_phrases = ["sac nhanh vl", "app lag qua", "ko sac dc", "tram sac ok phet"]
             normalized = [nlp.normalize_text(p) for p in sample_phrases]

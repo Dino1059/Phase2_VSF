@@ -1,5 +1,5 @@
 import pytest
-from src.services.vietnamese_nlp import VietnameseNLPService, NLPResult, Aspect
+from src.teencode.vietnamese_nlp import VietnameseNLPService, NLPResult, Aspect
 
 
 @pytest.fixture

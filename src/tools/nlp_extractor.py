@@ -1,5 +1,5 @@
 from src.tools.base import BaseTool
-from src.services.vietnamese_nlp import VietnameseNLPService
+from src.teencode.vietnamese_nlp import VietnameseNLPService
 
 
 class NLPExtractorTool(BaseTool):
