@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS raw_snapshots (
     sha256_hash VARCHAR,
     row_count INT,
     column_count INT,
+    provenance VARCHAR,
+    tag VARCHAR,
     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -184,6 +186,8 @@ CREATE TABLE IF NOT EXISTS execution_authorizations (
 CREATE TABLE IF NOT EXISTS datasets (
     dataset_key VARCHAR PRIMARY KEY,
     file_path VARCHAR,
+    provenance VARCHAR,
+    tag VARCHAR,
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

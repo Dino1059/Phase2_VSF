@@ -12,6 +12,7 @@ class Incident(BaseModel):
     entity_ids: List[str]
     signal_ids: List[str]
     admission_reason: str
+    supporting_layers: List[str] = Field(default_factory=list)
     severity: str = "MEDIUM"  # LOW, MEDIUM, HIGH, CRITICAL
     time_window: Dict[str, datetime] = Field(default_factory=dict)
     confirmed_facts: List[str] = Field(default_factory=list)

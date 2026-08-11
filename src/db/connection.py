@@ -69,6 +69,7 @@ class DuckDBManager:
             self._ensure_quarantine_schema(conn)
             self._ensure_audit_schema(conn)
             self._ensure_scheduler_tables(conn)
+            self._ensure_snapshots_schema(conn)
         return self._local.connection
 
     def init_schema(self) -> None:
@@ -80,6 +81,7 @@ class DuckDBManager:
         self._ensure_quarantine_schema(conn)
         self._ensure_audit_schema(conn)
         self._ensure_scheduler_tables(conn)
+        self._ensure_snapshots_schema(conn)
 
     def _ensure_scheduler_tables(self, conn) -> None:
         try:
@@ -133,10 +135,40 @@ class DuckDBManager:
                 CREATE TABLE IF NOT EXISTS datasets (
                     dataset_key VARCHAR PRIMARY KEY,
                     file_path VARCHAR,
+                    provenance VARCHAR,
+                    tag VARCHAR,
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);")
+        except Exception:
+            pass
+
+    def _ensure_snapshots_schema(self, conn) -> None:
+        try:
+            cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='raw_snapshots'"
+                ).fetchall()
+            ]
+            if cols:
+                if "provenance" not in cols:
+                    conn.execute("ALTER TABLE raw_snapshots ADD COLUMN provenance VARCHAR")
+                if "tag" not in cols:
+                    conn.execute("ALTER TABLE raw_snapshots ADD COLUMN tag VARCHAR")
+
+            ds_cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='datasets'"
+                ).fetchall()
+            ]
+            if ds_cols:
+                if "provenance" not in ds_cols:
+                    conn.execute("ALTER TABLE datasets ADD COLUMN provenance VARCHAR")
+                if "tag" not in ds_cols:
+                    conn.execute("ALTER TABLE datasets ADD COLUMN tag VARCHAR")
         except Exception:
             pass
 

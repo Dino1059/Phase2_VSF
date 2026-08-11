@@ -176,3 +176,73 @@ def test_seed_database(tmp_db):
     trips = tmp_db.execute("SELECT COUNT(*) FROM xanhsm_trips")
     assert trips[0][0] > 0
 
+
+def test_seed_database_provenance_verification(tmp_db):
+    """seed_database assigns explicit DataProvenance metadata and tag across all ingested snapshots."""
+    from src.db.seed import seed_database
+    from src.reliability.models.provenance import DataProvenance
+
+    seed_database(db_path=tmp_db.db_path)
+    
+    rows = tmp_db.execute("SELECT source_name, provenance, tag FROM raw_snapshots")
+    assert len(rows) == 4
+    for r in rows:
+        assert r[1] == DataProvenance.SEMI_SYNTHETIC.value
+        assert r[2] == "Semi-Synthetic Causal Digital Twin"
+
+
+def test_integrated_benchmark_dataset_provenance_tag(tmp_db):
+    """Integrated benchmark dataset is tagged explicitly as Semi-Synthetic Causal Digital Twin in DuckDB datasets table."""
+    from src.db.seed import seed_database
+    from src.reliability.models.provenance import DataProvenance
+
+    seed_database(db_path=tmp_db.db_path)
+
+    rows = tmp_db.execute("SELECT dataset_key, provenance, tag FROM datasets WHERE dataset_key = 'integrated_benchmark'")
+    assert len(rows) == 1
+    key, prov, tag = rows[0]
+    assert key == "integrated_benchmark"
+    assert prov == DataProvenance.SEMI_SYNTHETIC.value
+    assert tag == "Semi-Synthetic Causal Digital Twin"
+
+
+def test_config_dataset_provenance_enum_assignment():
+    """Config contains explicit DataProvenance Enum assignments and metadata for all datasets."""
+    from src.config import get_settings
+    from src.reliability.models.provenance import DataProvenance
+
+    settings = get_settings()
+    
+    # Check integrated benchmark metadata
+    bm_prov = settings.get_dataset_provenance("integrated_benchmark")
+    assert bm_prov == DataProvenance.SEMI_SYNTHETIC
+    
+    meta = settings.get_dataset_metadata("integrated_benchmark")
+    assert meta["tag"] == "Semi-Synthetic Causal Digital Twin"
+    assert meta["horizon_days"] == 60
+    assert meta["vin_count"] == 30
+    assert meta["station_count"] == 4
+    assert meta["provenance"] == DataProvenance.SEMI_SYNTHETIC.value
+
+    # Check all registered datasets have valid DataProvenance enum
+    for ds_key in settings.dataset_registry.keys():
+        prov = settings.get_dataset_provenance(ds_key)
+        assert isinstance(prov, DataProvenance)
+        assert prov in [
+            DataProvenance.SEMI_SYNTHETIC,
+            DataProvenance.REAL_OPERATIONAL,
+            DataProvenance.PUBLIC_PROXY,
+            DataProvenance.SYNTHETIC,
+        ]
+
+
+def test_data_provenance_enum_values():
+    """DataProvenance Enum defines all four required provenance metadata categories."""
+    from src.reliability.models.provenance import DataProvenance
+
+    assert DataProvenance.SEMI_SYNTHETIC.value == "SEMI_SYNTHETIC"
+    assert DataProvenance.REAL_OPERATIONAL.value == "REAL_OPERATIONAL"
+    assert DataProvenance.PUBLIC_PROXY.value == "PUBLIC_PROXY"
+    assert DataProvenance.SYNTHETIC.value == "SYNTHETIC"
+
+

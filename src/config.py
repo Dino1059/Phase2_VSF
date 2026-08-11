@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.reliability.models.provenance import DataProvenance
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -69,9 +71,126 @@ class Settings(BaseSettings):
         "real_vgreen_charging_stations": "data/data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
         "real_xanh_sm_trips": "data/data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
         "real_xanh_sm_customer_feedback": "data/data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
+        "integrated_benchmark": "data/data_new/vingroup_faulty_pilot_dataset",
+    }
+
+    dataset_provenance_map: dict = {
+        "nyc_fhvhv": DataProvenance.PUBLIC_PROXY,
+        "grab_sea_demand": DataProvenance.PUBLIC_PROXY,
+        "weather_hcmc": DataProvenance.PUBLIC_PROXY,
+        "vietnam_trips": DataProvenance.SYNTHETIC,
+        "vietnam_trips_dirty": DataProvenance.SYNTHETIC,
+        "vietnam_ecommerce_test": DataProvenance.SYNTHETIC,
+        "vinfast_ev_telemetry_dirty": DataProvenance.SEMI_SYNTHETIC,
+        "vgreen_charging_stations_dirty": DataProvenance.SEMI_SYNTHETIC,
+        "xanh_sm_trips_dirty": DataProvenance.SEMI_SYNTHETIC,
+        "xanh_sm_customer_feedback_dirty": DataProvenance.SEMI_SYNTHETIC,
+        "real_vinfast_ev_telemetry": DataProvenance.SEMI_SYNTHETIC,
+        "real_vgreen_charging_stations": DataProvenance.SEMI_SYNTHETIC,
+        "real_xanh_sm_trips": DataProvenance.SEMI_SYNTHETIC,
+        "real_xanh_sm_customer_feedback": DataProvenance.PUBLIC_PROXY,
+        "integrated_benchmark": DataProvenance.SEMI_SYNTHETIC,
+    }
+
+    dataset_metadata_map: dict = {
+        "integrated_benchmark": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+            "description": "Integrated benchmark dataset (60-day horizon, 30 VIN, 4 stations target)",
+            "horizon_days": 60,
+            "vin_count": 30,
+            "station_count": 4,
+        },
+        "vinfast_ev_telemetry_dirty": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "vgreen_charging_stations_dirty": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "xanh_sm_trips_dirty": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "xanh_sm_customer_feedback_dirty": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "real_vinfast_ev_telemetry": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "real_vgreen_charging_stations": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "real_xanh_sm_trips": {
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": "Semi-Synthetic Causal Digital Twin",
+        },
+        "real_xanh_sm_customer_feedback": {
+            "provenance": DataProvenance.PUBLIC_PROXY,
+            "tag": "Public Proxy Dataset",
+        },
+        "nyc_fhvhv": {
+            "provenance": DataProvenance.PUBLIC_PROXY,
+            "tag": "Public Proxy Dataset",
+        },
+        "grab_sea_demand": {
+            "provenance": DataProvenance.PUBLIC_PROXY,
+            "tag": "Public Proxy Dataset",
+        },
+        "weather_hcmc": {
+            "provenance": DataProvenance.PUBLIC_PROXY,
+            "tag": "Public Proxy Dataset",
+        },
+        "vietnam_trips": {
+            "provenance": DataProvenance.SYNTHETIC,
+            "tag": "Synthetic Dataset",
+        },
+        "vietnam_trips_dirty": {
+            "provenance": DataProvenance.SYNTHETIC,
+            "tag": "Synthetic Dataset",
+        },
+        "vietnam_ecommerce_test": {
+            "provenance": DataProvenance.SYNTHETIC,
+            "tag": "Synthetic Dataset",
+        },
     }
     fault_manifest_path: str = "data/synthetic/fault_manifest.json"
     profile_sample_size: int = 100_000
+
+    def get_dataset_provenance(self, key: str) -> DataProvenance:
+        if key in self.dataset_provenance_map:
+            prov = self.dataset_provenance_map[key]
+            if isinstance(prov, DataProvenance):
+                return prov
+            return DataProvenance(prov)
+        if key in self.dataset_metadata_map:
+            prov = self.dataset_metadata_map[key].get("provenance")
+            if isinstance(prov, DataProvenance):
+                return prov
+            if isinstance(prov, str):
+                return DataProvenance(prov)
+        return DataProvenance.SEMI_SYNTHETIC
+
+    def get_dataset_metadata(self, key: str) -> dict:
+        meta = dict(self.dataset_metadata_map.get(key, {}))
+        prov = self.get_dataset_provenance(key)
+        result = {
+            "provenance": prov.value if isinstance(prov, DataProvenance) else str(prov),
+            "tag": meta.get(
+                "tag",
+                "Semi-Synthetic Causal Digital Twin"
+                if prov == DataProvenance.SEMI_SYNTHETIC
+                else "Dataset",
+            ),
+        }
+        for field in ("description", "horizon_days", "vin_count", "station_count"):
+            if field in meta:
+                result[field] = meta[field]
+        return result
 
     def get_dataset_path(self, key: str) -> str:
         import os
@@ -99,14 +218,21 @@ class Settings(BaseSettings):
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(base, self.duckdb_path)
 
-    def register_dataset(self, key: str, rel_path: str):
+    def register_dataset(self, key: str, rel_path: str, provenance: DataProvenance | str = DataProvenance.SYNTHETIC):
         self.dataset_registry[key] = rel_path
+        prov_enum = provenance if isinstance(provenance, DataProvenance) else (DataProvenance(provenance) if provenance in DataProvenance.__members__ else DataProvenance.SYNTHETIC)
+        self.dataset_provenance_map[key] = prov_enum
+        tag_val = "Semi-Synthetic Causal Digital Twin" if prov_enum == DataProvenance.SEMI_SYNTHETIC else "Uploaded Dataset"
+        self.dataset_metadata_map[key] = {
+            "provenance": prov_enum,
+            "tag": tag_val,
+        }
         try:
             from src.db.connection import get_db
             db = get_db()
             db.execute(
-                "INSERT INTO datasets (dataset_key, file_path) VALUES (?, ?) ON CONFLICT (dataset_key) DO UPDATE SET file_path = EXCLUDED.file_path",
-                [key, rel_path],
+                "INSERT INTO datasets (dataset_key, file_path, provenance, tag) VALUES (?, ?, ?, ?) ON CONFLICT (dataset_key) DO UPDATE SET file_path = EXCLUDED.file_path, provenance = EXCLUDED.provenance, tag = EXCLUDED.tag",
+                [key, rel_path, prov_enum.value, tag_val],
             )
         except Exception:
             pass
@@ -130,7 +256,9 @@ class Settings(BaseSettings):
             full_path = os.path.join(base, rel_path)
             exists = os.path.exists(full_path)
             size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2) if exists else 0
-            fmt = rel_path.split(".")[-1]
+            fmt = rel_path.split(".")[-1] if "." in rel_path else "directory"
+            prov_enum = self.get_dataset_provenance(key)
+            meta = self.get_dataset_metadata(key)
             result.append({
                 "key": key,
                 "name": key.replace("_", " ").title(),
@@ -138,8 +266,12 @@ class Settings(BaseSettings):
                 "format": fmt,
                 "exists": exists,
                 "size_mb": size_mb,
+                "provenance": prov_enum.value,
+                "tag": meta.get("tag", "Dataset"),
+                "metadata": meta,
             })
         return result
+
 
 
 

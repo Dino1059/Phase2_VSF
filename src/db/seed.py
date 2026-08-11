@@ -4,6 +4,11 @@ import os
 import uuid
 import pandas as pd
 from src.db.connection import DuckDBManager
+from src.reliability.models.provenance import DataProvenance
+
+
+BENCHMARK_TAG = "Semi-Synthetic Causal Digital Twin"
+BENCHMARK_TARGET = "60-day horizon, 30 VIN, 4 stations target"
 
 
 def compute_sha256(file_path: str) -> str:
@@ -114,7 +119,7 @@ def map_xanhsm_trips(df: pd.DataFrame, snapshot_id: str, start_id: int = 1) -> p
 
 
 def seed_database(db_path: str = None) -> None:
-    """Ingest CSV files into DuckDB tables with raw_snapshots metadata tracking."""
+    """Ingest CSV files into DuckDB tables with raw_snapshots metadata tracking and provenance tagging."""
     db_manager = DuckDBManager(db_path=db_path)
     db_manager.init_schema()
 
@@ -132,24 +137,32 @@ def seed_database(db_path: str = None) -> None:
             "table_name": "xanhsm_feedback",
             "source_name": "xanh_sm_customer_feedback",
             "mapper": map_xanhsm_feedback,
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": BENCHMARK_TAG,
         },
         {
             "file_names": ["acn_charging_mapped.csv", "real_vgreen_charging_stations.csv"],
             "table_name": "vgreen_telemetry",
             "source_name": "vgreen_charging_stations",
             "mapper": map_vgreen_telemetry,
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": BENCHMARK_TAG,
         },
         {
             "file_names": ["synthetic_ev_telemetry_ved_ref.csv", "real_vinfast_ev_telemetry.csv"],
             "table_name": "vinfast_bms",
             "source_name": "vinfast_ev_telemetry",
             "mapper": map_vinfast_bms,
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": BENCHMARK_TAG,
         },
         {
             "file_names": ["ride_hailing_xanh_sm_trips.csv", "real_xanh_sm_trips.csv"],
             "table_name": "xanhsm_trips",
             "source_name": "xanh_sm_trips",
             "mapper": map_xanhsm_trips,
+            "provenance": DataProvenance.SEMI_SYNTHETIC,
+            "tag": BENCHMARK_TAG,
         },
     ]
 
@@ -170,6 +183,8 @@ def seed_database(db_path: str = None) -> None:
         table_name = config["table_name"]
         source_name = config["source_name"]
         mapper = config["mapper"]
+        prov_val = config["provenance"].value if isinstance(config["provenance"], DataProvenance) else config["provenance"]
+        tag_val = config.get("tag", BENCHMARK_TAG)
 
         sha256_hash = compute_sha256(file_path)
 
@@ -177,7 +192,12 @@ def seed_database(db_path: str = None) -> None:
             "SELECT id FROM raw_snapshots WHERE sha256_hash = ?", [sha256_hash]
         )
         if existing:
-            print(f"Snapshot for {table_name} ({sha256_hash[:8]}...) already exists. Skipping ingestion.")
+            # Ensure existing record has provenance metadata updated
+            db_manager.execute(
+                "UPDATE raw_snapshots SET provenance = ?, tag = ? WHERE sha256_hash = ?",
+                [prov_val, tag_val, sha256_hash]
+            )
+            print(f"Snapshot for {table_name} ({sha256_hash[:8]}...) already exists. Updated provenance metadata.")
             continue
 
         df = pd.read_csv(file_path)
@@ -187,13 +207,13 @@ def seed_database(db_path: str = None) -> None:
         res = db_manager.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table_name}")
         start_id = (res[0][0] if res else 0) + 1
 
-        # Insert raw_snapshots metadata record
+        # Insert raw_snapshots metadata record with explicit provenance
         db_manager.execute(
             """
-            INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count, provenance, tag)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [snapshot_id, source_name, file_path, sha256_hash, len(df), len(df.columns)],
+            [snapshot_id, source_name, file_path, sha256_hash, len(df), len(df.columns), prov_val, tag_val],
         )
 
         # Map DataFrame columns to target DuckDB schema
@@ -202,17 +222,31 @@ def seed_database(db_path: str = None) -> None:
         # Insert data rows into target table using DuckDB's INSERT INTO ... SELECT from pandas DataFrame
         cols = ", ".join(mapped_df.columns)
         conn.execute(f"INSERT INTO {table_name} ({cols}) SELECT {cols} FROM mapped_df")
-        print(f"Ingested {len(mapped_df)} rows into '{table_name}' (snapshot: {snapshot_id}).")
+        print(f"Ingested {len(mapped_df)} rows into '{table_name}' (snapshot: {snapshot_id}, provenance: {prov_val}).")
+
+    # Tag integrated benchmark dataset in datasets registry table
+    rel_data_dir = os.path.relpath(data_dir, project_root) if os.path.isabs(data_dir) else data_dir
+    db_manager.execute(
+        """
+        INSERT INTO datasets (dataset_key, file_path, provenance, tag)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (dataset_key) DO UPDATE SET file_path = EXCLUDED.file_path, provenance = EXCLUDED.provenance, tag = EXCLUDED.tag
+        """,
+        ["integrated_benchmark", rel_data_dir, DataProvenance.SEMI_SYNTHETIC.value, BENCHMARK_TAG],
+    )
 
     # Print summary
     print("\n=== Database Seed Summary ===")
+    print(f"Integrated Benchmark Tag: '{BENCHMARK_TAG}' ({BENCHMARK_TARGET})")
     for config in csv_configs:
         t_name = config["table_name"]
+        prov_val = config["provenance"].value if isinstance(config["provenance"], DataProvenance) else config["provenance"]
         res = db_manager.execute(f"SELECT COUNT(*) FROM {t_name}")
         count = res[0][0] if res else 0
-        print(f"Table '{t_name}': {count} records")
+        print(f"Table '{t_name}': {count} records | Provenance: {prov_val}")
     print("=============================\n")
 
 
 if __name__ == "__main__":
     seed_database()
+
