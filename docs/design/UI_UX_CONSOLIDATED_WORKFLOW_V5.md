@@ -1,4 +1,4 @@
-# 📋 DataTrust OS v3.0 — Consolidated UI/UX & Mentor Workflow Board Specification
+# 📋 DataTrust OS v5 Operational Trust Console.0 — Consolidated UI/UX & Mentor Workflow Board Specification
 
 > **Document Status:** Official Consolidated UI/UX & Mentor Workflow Specification  
 > **Canvas Dimensions:** 4,800px × 1,080px (3 Side-by-Side Sections)  
@@ -13,7 +13,7 @@
 This document specifies the **single consolidated Excalidraw wireframe board** that unifies:
 1. **TRANG 1 (Page 1)**: Executive Governance Homepage & Dashboard.
 2. **TRANG 2 (Page 2)**: Agentic Chat & HITL Workspace with Fast Date/Rule Filters (Quickly search "3 days ago rules").
-3. **TRANG 3 (Section 3)**: Vietnamese Workflow Board designed specifically for mentors to keep track of the DataTrust OS v3.0 multi-agent governance pipeline.
+3. **TRANG 3 (Section 3)**: Vietnamese Workflow Board designed specifically for mentors to keep track of the DataTrust OS v5 Operational Trust Console.0 multi-agent governance pipeline.
 
 ---
 

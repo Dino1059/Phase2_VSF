@@ -20,14 +20,14 @@ DATA-02 asks for an AI agent that:
 - Governance: read-only metadata, no sensitive data exposure
 
 **DataTrust OS v2 Integration:**  
-DataTrust OS v2 addresses both onboarding/contract creation AND scheduled continuous monitoring. It combines multi-source abstraction (`DataSource` supporting CSV, Parquet, JSON, JSONL), specialized sub-agents (`ProfilerAgent`, `RuleProposerAgent`, `AnomalyDetectorAgent`, `DiagnosisAgent`), `APScheduler` scheduled monitoring, `AlertService` with root-cause diagnosis and webhooks, `RoleMiddleware` RBAC (`Admin`, `Steward`, `Viewer`), and an expanded quantitative evaluation benchmark harness.
+DataTrust OS v2 addresses both onboarding/contract creation AND scheduled continuous monitoring. It combines multi-source abstraction (`DataSource` supporting CSV, Parquet, JSON, JSONL), specialized sub-agents (`ProfilerAgent`, `C1/A1 Investigators`, `Fusion/L1-L4 Engine`, `DiagnosisAgent`), `APScheduler` scheduled monitoring, `AlertService` with root-cause diagnosis and webhooks, `RoleMiddleware` RBAC (`Admin`, `Steward`, `Viewer`), and an expanded quantitative evaluation benchmark harness.
 
 ### 1.2 DATA-02 Scope vs DataTrust OS v2 Implementation
 
 | DATA-02 Feature | DataTrust OS v2 Implementation | Status |
 |---|---|---|
 | Multi-source Ingestion | Polymorphic `DataSource` hierarchy (`StructuredSource` for CSV, Parquet, JSON, JSONL; stubs for PDF, Log, Image) | ✅ Delivered |
-| Sub-Agent Decomposition | 4 specialized sub-agents: `ProfilerAgent`, `RuleProposerAgent`, `AnomalyDetectorAgent`, `DiagnosisAgent` | ✅ Delivered |
+| Sub-Agent Decomposition | 4 specialized sub-agents: `ProfilerAgent`, `C1/A1 Investigators`, `Fusion/L1-L4 Engine`, `DiagnosisAgent` | ✅ Delivered |
 | Scheduled Monitoring | `SchedulerService` wrapping `APScheduler` for interval and cron scheduled checks | ✅ Delivered |
 | Anomaly Detection & Alerts | Tri-detector suite (`ZScoreDetector`, `IQRDetector`, `IsolationForestDetector`) + `AlertService` with webhooks | ✅ Delivered |
 | Access Control & Roles | `RoleMiddleware` enforcing `Admin`, `Steward`, and `Viewer` permissions | ✅ Delivered |

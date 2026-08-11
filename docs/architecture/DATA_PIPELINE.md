@@ -1,12 +1,15 @@
-# DataTrust OS v4 — Data Pipeline & Execution Flow Architecture
+> **Note:** This document reflects the V3/V4 architecture state. For the current V5 Operational Trust Console architecture, please refer to the root [`README.md`](../../README.md), [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and [`ADR_V5.md`](ADR_V5.md).
 
-This document details the end-to-end data pipeline, sequence flows, transaction isolation mechanics, idempotency controls, and cryptographic audit hashing in **DataTrust OS v4**.
+
+# DataTrust OS v5 Operational Trust Console — Data Pipeline & Execution Flow Architecture
+
+This document details the end-to-end data pipeline, sequence flows, transaction isolation mechanics, idempotency controls, and cryptographic audit hashing in **DataTrust OS v5 Operational Trust Console**.
 
 ---
 
 ## 1. Overview & Architecture Summary
 
-DataTrust OS v4 operates an AI-augmented data trust and governance pipeline designed around zero-trust execution boundaries, Human-in-the-Loop (HITL) gatekeeping, and immutable cryptographic lineage.
+DataTrust OS v5 Operational Trust Console operates an AI-augmented data trust and governance pipeline designed around zero-trust execution boundaries, Human-in-the-Loop (HITL) gatekeeping, and immutable cryptographic lineage.
 
 The pipeline comprises three core phases:
 1. **Dataset Upload & Profiling**: Ingesting raw datasets, computing statistical profiles, and storing baseline metadata.

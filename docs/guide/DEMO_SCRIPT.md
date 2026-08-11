@@ -1,4 +1,4 @@
-# DataTrust OS v4.0 — Demo Script (15 min)
+# DataTrust OS v5 Operational Trust Console.0 — Demo Script (15 min)
 
 ## Setup (2 min)
 

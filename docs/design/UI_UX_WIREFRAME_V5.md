@@ -1,4 +1,4 @@
-# 🎨 DataTrust OS v3.0 — Master UI/UX & Wireframe Specification
+# 🎨 DataTrust OS v5 Operational Trust Console.0 — Master UI/UX & Wireframe Specification
 
 > **Document Status:** Official Production UI/UX Specification  
 > **Design Pattern:** Agentic-Centric + Context Workspace Dashboard (Hybrid HITL Architecture)  
@@ -31,7 +31,7 @@ Based on the core design discussion between **Quốc Thanh**, **Tạ Kim Ngân**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ 🤖 DataTrust OS v3.0 — VinGroup Enterprise AI Governance  │ 📦 real_vinfast_ev_telemetry │ 🔍 Ctrl+K │ 📤 Upload DB │ 👤 Steward│
+│ 🤖 DataTrust OS v5 Operational Trust Console.0 — VinGroup Enterprise AI Governance  │ 📦 real_vinfast_ev_telemetry │ 🔍 Ctrl+K │ 📤 Upload DB │ 👤 Steward│
 ├──────────────────────────┬───────────────────────────────────────────────────────┬───────────────────────────────┤
 │ + New Chat Session       │ ⚖️ Pending Governance Review (3 rules)  | [✓ Approve All] │ [📊 Profile] [🛡️ Rules]       │
 ├──────────────────────────┤ 👤 User: Detect anomalies & propose quality rules     │ [⚠️ Anomaly & RCA] [📋 Audit] │
@@ -61,7 +61,7 @@ Based on the core design discussion between **Quốc Thanh**, **Tạ Kim Ngân**
 ## 🎨 3. Structural Component Breakdown
 
 ### 3.1 Top Header & Global Bar
-- **Application Title**: `DataTrust OS v3.0 — VinGroup Enterprise AI Governance`.
+- **Application Title**: `DataTrust OS v5 Operational Trust Console.0 — VinGroup Enterprise AI Governance`.
 - **Dataset Context Selector**: Pinned dataset badge `[📦 real_vinfast_ev_telemetry]`.
 - **Command Palette (`Ctrl + K`)**: Instant semantic search across chat history, rules, and audit manifests.
 - **Upload DB Action**: Triggers file picker for `.csv`, `.parquet`, `.json`, and `.sqlite` uploads.

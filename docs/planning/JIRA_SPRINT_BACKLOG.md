@@ -1,4 +1,4 @@
-# 🎯 DataTrust OS v3.0 — Master 5-Sprint Schedule with Hard Due Dates
+# 🎯 DataTrust OS v5 Operational Trust Console.0 — Master 5-Sprint Schedule with Hard Due Dates
 
 > **Project Key:** `SCRUM` (`ShayNeeo's Cơm tấm Sài Gòn`)  
 > **Final Submission Hard Gate:** `24 August 2026` (Completed before 25th August)  

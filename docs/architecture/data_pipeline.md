@@ -1,3 +1,6 @@
+> **Note:** This document reflects the V3/V4 architecture state. For the current V5 Operational Trust Console architecture, please refer to the root [`README.md`](../../README.md), [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and [`ADR_V5.md`](ADR_V5.md).
+
+
 # Data Quality Pipeline — Nhật ký xây dựng
 
 > Ghi lại toàn bộ các tool đã xây dựng cho pipeline DataTrust OS: mục tiêu, cách làm, file liên quan, cách chạy, và kết quả thực tế.

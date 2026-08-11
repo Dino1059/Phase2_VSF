@@ -1,4 +1,4 @@
-# DataTrust OS v4.0 — Architecture
+# DataTrust OS v5 Operational Trust Console.0 — Architecture
 
 ## Overview
 
@@ -53,7 +53,7 @@ DataTrust OS is an Enterprise Cross-Domain Root-Cause Diagnosis & Data Quality G
 2. **Profile**: DataProfilerTool computes column statistics
 3. **Analyze**: AnomalyDetectorTool + NLPExtractorTool find issues
 4. **Diagnose**: DiagnosisAgent cross-references NLP + telemetry
-5. **Propose**: RuleProposerAgent suggests quality rules
+5. **Propose**: C1/A1 Investigators suggests quality rules
 6. **Review**: HITL queue for human approval
 7. **Execute**: RuleExecutorTool applies approved rules, quarantines violations
 8. **Audit**: Every action logged with SHA-256 state hash

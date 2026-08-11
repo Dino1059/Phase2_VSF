@@ -1,8 +1,11 @@
-# DataTrust OS v4 — AI Orchestration & ReAct Engine Architecture
+> **Note:** This document reflects the V3/V4 architecture state. For the current V5 Operational Trust Console architecture, please refer to the root [`README.md`](../../README.md), [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and [`ADR_V5.md`](ADR_V5.md).
+
+
+# DataTrust OS v5 Operational Trust Console — AI Orchestration & ReAct Engine Architecture
 
 ## 1. Executive Summary & Architectural Overview
 
-The AI Orchestration layer of **DataTrust OS v4** forms the cognitive control plane responsible for autonomous data quality profiling, anomaly detection, root-cause diagnosis, and rule execution across the VinGroup Electric Vehicle (EV) ecosystem (comprising **VinFast EV Telemetry**, **VGreen Charging Stations**, **Xanh SM Taxi Trips**, and **Customer Feedback** streams).
+The AI Orchestration layer of **DataTrust OS v5 Operational Trust Console** forms the cognitive control plane responsible for autonomous data quality profiling, anomaly detection, root-cause diagnosis, and rule execution across the VinGroup Electric Vehicle (EV) ecosystem (comprising **VinFast EV Telemetry**, **VGreen Charging Stations**, **Xanh SM Taxi Trips**, and **Customer Feedback** streams).
 
 At the core of this architecture is `ReActEngine` (`src/orchestrator/engine.py`), a dynamic Reasoning + Acting (ReAct) loop orchestrator. The engine interfaces directly with:
 - **`GemmaLLMAdapter`** (`src/services/llm.py`): The primary LLM adapter connecting to `gemma-4-26b-a4b-it` via Google AI Studio API under a strict zero-fallback operational policy and 60-second execution timeout.
@@ -11,7 +14,7 @@ At the core of this architecture is `ReActEngine` (`src/orchestrator/engine.py`)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   DataTrust OS v4                                      │
+│                                   DataTrust OS v5 Operational Trust Console                                      │
 │                               AI Orchestration Engine                                  │
 └──────────────────────────────────────────┬─────────────────────────────────────────────┘
                                            │
@@ -417,7 +420,7 @@ class ToolRegistry:
 
 ## 6. Registered DataTrust Tools Matrix
 
-The table below outlines key operational tools registered within the DataTrust OS v4 tool ecosystem:
+The table below outlines key operational tools registered within the DataTrust OS v5 Operational Trust Console tool ecosystem:
 
 | Tool Name | Class & Module | Primary Purpose | Input Key Fields | Output Key Fields |
 |---|---|---|---|---|

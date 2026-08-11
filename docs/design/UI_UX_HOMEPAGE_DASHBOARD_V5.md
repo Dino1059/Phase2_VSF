@@ -1,4 +1,4 @@
-# 🏠 DataTrust OS v3.0 — Executive Homepage & Dashboard Wireframe Specification
+# 🏠 DataTrust OS v5 Operational Trust Console.0 — Executive Homepage & Dashboard Wireframe Specification
 
 > **Document Status:** Official Production Homepage & Executive Dashboard Specification  
 > **Layout Model:** Full-Width Executive Dashboard + Ingestion Automation + HITL Task Queue + Anomaly Analytics  
@@ -9,11 +9,11 @@
 
 ## 🏛️ 1. Executive Dashboard Architecture
 
-The **Executive Homepage & Dashboard** serves as the central operational hub for DataTrust OS v3.0, combining real-time data flow monitoring, agent auto-suggested rules, error trend analytics, and governance audit ledgers into a single, cohesive view.
+The **Executive Homepage & Dashboard** serves as the central operational hub for DataTrust OS v5 Operational Trust Console.0, combining real-time data flow monitoring, agent auto-suggested rules, error trend analytics, and governance audit ledgers into a single, cohesive view.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ 🤖 DataTrust OS v3.0 — Executive Governance Homepage & Dashboard                   │ 🔍 Ctrl+K │ 📤 Upload DB │ 👤 Steward│
+│ 🤖 DataTrust OS v5 Operational Trust Console.0 — Executive Governance Homepage & Dashboard                   │ 🔍 Ctrl+K │ 📤 Upload DB │ 👤 Steward│
 ├──────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────┤
 │ 🏠 Executive Homepage    │ 📊 Monitored: 8 Datasets  │ ⚡ Processed: 1.45M Rows │ ⚖️ HITL Pending: 3 Rules │ 🔥 Index: 0.89 │
 ├──────────────────────────┼───────────────────────────────────────────┬───────────────────────────────────────────┤

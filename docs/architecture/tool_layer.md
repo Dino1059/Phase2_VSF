@@ -1,3 +1,6 @@
+> **Note:** This document reflects the V3/V4 architecture state. For the current V5 Operational Trust Console architecture, please refer to the root [`README.md`](../../README.md), [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and [`ADR_V5.md`](ADR_V5.md).
+
+
 # Tool Layer cho AI Agent — Task 2
 
 > Bọc 4 tool của Task 1 (`scripts/*.py`) thành một lớp "Agent Tool Layer" có typed input/output, timeout, error code chuẩn hóa, và whitelist — để một AI Agent (LangGraph) có thể gọi mà không thể thực thi mã tùy ý.

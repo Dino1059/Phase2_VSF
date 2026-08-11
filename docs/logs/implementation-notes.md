@@ -1,4 +1,4 @@
-# DataTrust OS v3 — Technical Implementation Notes & Developer Log
+# DataTrust OS v5 Operational Trust Console — Technical Implementation Notes & Developer Log
 
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
 > **Last Updated:** 2026-08-02  
@@ -9,7 +9,7 @@
 
 ## 1. Project Context & Objectives (DATA-02)
 
-DataTrust OS v3 is an autonomous AI data governance system built for the VinGroup enterprise ecosystem (VinFast EVs, Xanh SM Ride-Hailing, V-GREEN Charging Infrastructure, and Vietnamese Customer Feedback).
+DataTrust OS v5 Operational Trust Console is an autonomous AI data governance system built for the VinGroup enterprise ecosystem (VinFast EVs, Xanh SM Ride-Hailing, V-GREEN Charging Infrastructure, and Vietnamese Customer Feedback).
 
 ### Key Architecture Components:
 1. **Single Model Enforcement (`src/services/llm.py`)**: Uses strictly `gemma-4-26b-a4b-it` with 60s timeout and 3 exponential backoff retries.

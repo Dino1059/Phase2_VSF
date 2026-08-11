@@ -1,4 +1,4 @@
-# Worklog — DataTrust OS v3 (VinGroup DATA-02)
+# Worklog — DataTrust OS v5 Operational Trust Console (VinGroup DATA-02)
 
 > Chronological log of major technical milestones, architectural updates, and verification gates.
 
