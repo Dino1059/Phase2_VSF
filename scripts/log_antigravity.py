@@ -242,16 +242,36 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
             except OSError:
                 continue
 
-            active_cwd = ""
-            for i, entry in enumerate(entries):
-                # Track active Cwd from tool calls preceding or inside this entry
-                for tc in (entry.get("tool_calls") or []):
-                    args = tc.get("args") or {}
-                    cwd = args.get("Cwd") or args.get("cwd")
-                    cwd = _unquote_arg(cwd)
-                    if isinstance(cwd, str) and cwd:
-                        active_cwd = cwd
+            # Determine if conversation belongs to repo
+            if repo_root_n:
+                cwds = set()
+                for entry in entries:
+                    for tc in (entry.get("tool_calls") or []):
+                        args = tc.get("args") or {}
+                        cwd = args.get("Cwd") or args.get("cwd")
+                        cwd = _unquote_arg(cwd)
+                        if isinstance(cwd, str) and cwd:
+                            n = _normalize(cwd)
+                            if n:
+                                cwds.add(n)
+                
+                is_conv_in_repo = False
+                if _conv_matches_repo(cwds, repo_root_n):
+                    is_conv_in_repo = True
+                else:
+                    # Fallback: check if any user prompt mentions the repo
+                    for entry in entries:
+                        if entry.get("type") == "USER_INPUT" and entry.get("source") == "USER_EXPLICIT":
+                            text = extract_user_prompt(entry.get("content", ""))
+                            text_n = _normalize(text)
+                            if "p-086" in text_n or "p086" in text_n:
+                                is_conv_in_repo = True
+                                break
+                
+                if not is_conv_in_repo:
+                    continue
 
+            for i, entry in enumerate(entries):
                 if (entry.get("type") != "USER_INPUT"
                         or entry.get("source") != "USER_EXPLICIT"):
                     continue
@@ -270,32 +290,6 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                 text = extract_user_prompt(entry.get("content", ""))
                 if len(text) < 2:
                     continue
-
-                # Strict repo filtering per prompt step
-                if repo_root_n:
-                    prompt_cwds = set()
-                    for j in range(i + 1, len(entries)):
-                        next_e = entries[j]
-                        if (next_e.get("type") == "USER_INPUT"
-                                and next_e.get("source") == "USER_EXPLICIT"):
-                            break
-                        for tc in (next_e.get("tool_calls") or []):
-                            args = tc.get("args") or {}
-                            cwd = args.get("Cwd") or args.get("cwd")
-                            cwd = _unquote_arg(cwd)
-                            if isinstance(cwd, str) and cwd:
-                                prompt_cwds.add(cwd)
-
-                    if prompt_cwds:
-                        is_repo_prompt = any(_is_repo_dir(c, repo_root_n) for c in prompt_cwds)
-                    elif active_cwd:
-                        is_repo_prompt = _is_repo_dir(active_cwd, repo_root_n)
-                    else:
-                        text_n = _normalize(text)
-                        is_repo_prompt = ("p-086" in text_n or "p086" in text_n)
-
-                    if not is_repo_prompt:
-                        continue
 
                 yield {
                     "conv_id": conv_dir.name,
@@ -345,8 +339,8 @@ def main() -> None:
     )
     parser.add_argument("--auto", action="store_true",
                         help="Default mode: scan recent conversations.")
-    parser.add_argument("--hours", type=int, default=24,
-                        help="Window in hours when scanning (default: 24).")
+    parser.add_argument("--hours", type=int, default=168,
+                        help="Window in hours when scanning (default: 168 for 7 days).")
     parser.add_argument("--all", action="store_true",
                         help="Ignore the time window; scan everything.")
     parser.add_argument("--conv-id",

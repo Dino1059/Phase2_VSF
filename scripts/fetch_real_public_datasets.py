@@ -119,7 +119,7 @@ def fetch_real_ride_hailing():
     print(f"[FETCH MIRROR] Ride Hailing dataset created at {output_path} ({len(df)} rows)")
 
 if __name__ == "__main__":
-    fetch_real_st_evcdp()
+    # fetch_real_st_evcdp()
     fetch_real_uit_vsfc()
     fetch_real_vehicle_telemetry()
-    fetch_real_ride_hailing()
+    # fetch_real_ride_hailing()
