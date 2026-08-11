@@ -3,9 +3,11 @@ import {
   projectsApi,
   incidentsApi,
   signalsApi,
+  summaryApi,
   ProjectInfo,
   IncidentInfo,
   SignalInfo,
+  SummaryInfo,
 } from '../services/api';
 import {
   ShieldAlert,
@@ -18,10 +20,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Database,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const ProjectControlRoom: React.FC = () => {
   const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [summary, setSummary] = useState<SummaryInfo | null>(null);
   const [incidents, setIncidents] = useState<IncidentInfo[]>([]);
   const [signals, setSignals] = useState<SignalInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -32,26 +36,20 @@ export const ProjectControlRoom: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [projectsData, incidentsData, signalsData] = await Promise.all([
+      const [projectsData, incidentsData, signalsData, summaryData] = await Promise.all([
         projectsApi.list(),
         incidentsApi.list('proj-vingroup-pilot'),
         signalsApi.list('proj-vingroup-pilot'),
+        summaryApi.get().catch(() => null),
       ]);
 
       if (projectsData && projectsData.length > 0) {
         setProject(projectsData[0]);
       } else {
-        setProject({
-          project_id: 'proj-vingroup-pilot',
-          name: 'Vingroup Faulty Fleet Pilot',
-          status: 'ACTIVE',
-          provenance: 'SEMI_SYNTHETIC',
-          entities_count: 30,
-          stations_count: 4,
-          datasets: ['vinfast_bms', 'xanhsm_trips', 'vgreen_telemetry', 'xanhsm_feedback'],
-        });
+        setProject(null);
       }
 
+      setSummary(summaryData);
       setIncidents(incidentsData || []);
       setSignals(signalsData || []);
     } catch (err: any) {
@@ -87,12 +85,46 @@ export const ProjectControlRoom: React.FC = () => {
     (s) => (s.severity || '').toUpperCase() === 'CRITICAL'
   ).length;
 
+  const activeProvenance = (project?.provenance || summary?.provenance || 'SEMI_SYNTHETIC').toUpperCase();
+
+  const getProvenanceBadge = (provenance: string) => {
+    switch (provenance) {
+      case 'REAL_OPERATIONAL':
+        return {
+          colorClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+          dotClass: 'bg-emerald-400',
+          label: 'REAL_OPERATIONAL',
+        };
+      case 'PUBLIC_PROXY':
+        return {
+          colorClass: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+          dotClass: 'bg-blue-400',
+          label: 'PUBLIC_PROXY',
+        };
+      case 'SEMI_SYNTHETIC':
+        return {
+          colorClass: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
+          dotClass: 'bg-amber-400',
+          label: 'SEMI_SYNTHETIC',
+        };
+      case 'SYNTHETIC':
+      default:
+        return {
+          colorClass: 'bg-purple-500/10 border-purple-500/30 text-purple-400',
+          dotClass: 'bg-purple-400',
+          label: 'SYNTHETIC',
+        };
+    }
+  };
+
+  const provBadge = getProvenanceBadge(activeProvenance);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-6">
       {/* Top Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4 gap-4">
         <div>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 flex-wrap gap-y-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-100">
               {project ? project.name : 'Project Control Room'}
             </h1>
@@ -101,16 +133,18 @@ export const ProjectControlRoom: React.FC = () => {
               {project?.status || 'ACTIVE'}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Project ID:{' '}
-            <span className="font-mono text-slate-300">
-              {project?.project_id || 'proj-vingroup-pilot'}
-            </span>{' '}
-            • Provenance:{' '}
-            <span className="font-mono text-emerald-400">
-              {project?.provenance || 'SEMI_SYNTHETIC'}
+
+          <div className="flex items-center space-x-3 mt-2 flex-wrap gap-2 text-xs">
+            <span className="text-slate-400">
+              Project ID: <span className="font-mono text-slate-300">{project?.project_id || 'proj-vingroup-pilot'}</span>
             </span>
-          </p>
+            <span className="text-slate-600">•</span>
+            {/* PROVENANCE NOTICE Badge */}
+            <span className={`px-2.5 py-0.5 rounded font-mono font-bold border flex items-center space-x-1.5 ${provBadge.colorClass}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${provBadge.dotClass} animate-pulse`} />
+              <span>PROVENANCE NOTICE: {provBadge.label}</span>
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center space-x-3">
@@ -140,15 +174,17 @@ export const ProjectControlRoom: React.FC = () => {
         </div>
       )}
 
-      {/* KPI Overview Grid connected to /api/v1 */}
+      {/* KPI Overview Grid connected directly to /api/v1 endpoints */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl backdrop-blur flex justify-between items-center">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Monitored Fleet Entities</div>
-            <div className="text-2xl font-extrabold text-slate-100 mt-1">
-              {loading ? '...' : `${project?.entities_count ?? 30} VINs`}
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Monitored Fleet Entities
             </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">Active Telematic Nodes</div>
+            <div className="text-2xl font-extrabold text-slate-100 mt-1">
+              {loading ? '...' : `${project?.entities_count ?? 0} VINs`}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">/api/v1/projects</div>
           </div>
           <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400">
             <Activity className="w-5 h-5" />
@@ -157,9 +193,11 @@ export const ProjectControlRoom: React.FC = () => {
 
         <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl backdrop-blur flex justify-between items-center">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Charging Infrastructure</div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Charging Infrastructure
+            </div>
             <div className="text-2xl font-extrabold text-slate-100 mt-1">
-              {loading ? '...' : `${project?.stations_count ?? 4} Stations`}
+              {loading ? '...' : `${project?.stations_count ?? 0} Stations`}
             </div>
             <div className="text-[10px] text-slate-500 mt-0.5">Fast DC Hubs</div>
           </div>
@@ -170,11 +208,15 @@ export const ProjectControlRoom: React.FC = () => {
 
         <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl backdrop-blur flex justify-between items-center">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Detected Signals</div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Detected Signals
+            </div>
             <div className="text-2xl font-extrabold text-cyan-400 mt-1">
               {loading ? '...' : `${signals.length} Signals`}
             </div>
-            <div className="text-[10px] text-cyan-500/80 mt-0.5">{criticalSignalsCount} Critical Severity</div>
+            <div className="text-[10px] text-cyan-500/80 mt-0.5">
+              {criticalSignalsCount} Critical Severity (/api/v1/signals)
+            </div>
           </div>
           <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-cyan-400">
             <Radio className="w-5 h-5" />
@@ -183,11 +225,15 @@ export const ProjectControlRoom: React.FC = () => {
 
         <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl backdrop-blur flex justify-between items-center">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Open Incidents</div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Open Incidents
+            </div>
             <div className="text-2xl font-extrabold text-rose-400 mt-1">
               {loading ? '...' : `${openIncidents.length} Active`}
             </div>
-            <div className="text-[10px] text-rose-500/80 mt-0.5">{incidents.length} Total Registered</div>
+            <div className="text-[10px] text-rose-500/80 mt-0.5">
+              {incidents.length} Total Registered (/api/v1/incidents)
+            </div>
           </div>
           <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400">
             <ShieldAlert className="w-5 h-5" />
@@ -201,10 +247,12 @@ export const ProjectControlRoom: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           {/* Anomaly Trend Layer Buttons */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 backdrop-blur space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
               <div className="flex items-center space-x-2">
                 <Layers className="w-5 h-5 text-cyan-400" />
-                <h2 className="font-semibold text-slate-100">Telemetry Anomaly Layers (/api/v1/signals)</h2>
+                <h2 className="font-semibold text-slate-100">
+                  Telemetry Anomaly Layers (/api/v1/signals)
+                </h2>
               </div>
               <div className="flex items-center space-x-2 text-xs">
                 <button
@@ -233,11 +281,15 @@ export const ProjectControlRoom: React.FC = () => {
               </div>
             </div>
 
-            {/* Signal List */}
+            {/* Signal List or Clean Empty State */}
             <div className="space-y-3">
               {filteredSignals.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-500">
-                  No anomaly signals detected for the selected filter.
+                <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
+                  <AlertTriangle className="w-8 h-8 text-slate-600 mx-auto" />
+                  <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
+                  <p className="text-xs text-slate-500">
+                    No anomaly signals detected for the selected filter from /api/v1/signals.
+                  </p>
                 </div>
               ) : (
                 filteredSignals.map((sig) => (
@@ -292,7 +344,9 @@ export const ProjectControlRoom: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <div className="flex items-center space-x-2">
                 <Database className="w-4 h-4 text-emerald-400" />
-                <h3 className="font-semibold text-sm text-slate-100">Bound Project Datasets (/api/v1/projects)</h3>
+                <h3 className="font-semibold text-sm text-slate-100">
+                  Bound Project Datasets (/api/v1/projects)
+                </h3>
               </div>
               <span className="text-xs text-slate-500 font-mono">
                 {project?.datasets?.length || 0} Registered Sources
@@ -318,14 +372,20 @@ export const ProjectControlRoom: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <ShieldAlert className="w-5 h-5 text-rose-400" />
-                <h2 className="font-semibold text-slate-100">Live Active Incidents (/api/v1/incidents)</h2>
+                <h2 className="font-semibold text-slate-100">
+                  Live Active Incidents (/api/v1/incidents)
+                </h2>
               </div>
             </div>
 
             <div className="space-y-3">
               {incidents.length === 0 ? (
-                <div className="text-center py-6 text-xs text-slate-500">
-                  No incidents listed for this project.
+                <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
+                  <ShieldAlert className="w-8 h-8 text-slate-600 mx-auto" />
+                  <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
+                  <p className="text-xs text-slate-500">
+                    No open incidents listed for this project from /api/v1/incidents.
+                  </p>
                 </div>
               ) : (
                 incidents.map((inc) => (

@@ -173,15 +173,30 @@ export const projectsApi = {
   list: () => request<ProjectInfo[]>('/projects'),
 };
 
+export interface SummaryInfo {
+  projects_count: number;
+  active_project_id: string;
+  provenance: string;
+  total_data_records: number;
+  clean_records: number;
+  quarantined_records: number;
+  pass_validation_rate: string;
+  system_status: string;
+}
+
+export const summaryApi = {
+  get: () => request<SummaryInfo>('/summary'),
+};
+
 export interface IncidentInfo {
   incident_id: string;
   project_id: string;
-  status: string;
+  status: 'OPEN' | 'INVESTIGATING' | 'RESOLVED' | 'CLOSED' | 'DISMISSED' | string;
   entity_ids: string[];
   signal_ids: string[];
   admission_reason: string;
   supporting_layers?: string[];
-  severity: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
   time_window?: Record<string, string>;
   confirmed_facts?: string[];
   evidence_refs?: string[];
@@ -199,6 +214,10 @@ export const incidentsApi = {
     request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}`, { method: 'POST' }),
 };
 
+export async function fetchIncident(incidentId: string): Promise<IncidentInfo> {
+  return incidentsApi.get(incidentId);
+}
+
 export interface SignalInfo {
   signal_id: string;
   project_id: string;
@@ -210,6 +229,7 @@ export interface SignalInfo {
   severity: string;
   detector: string;
   provenance: string;
+  timestamp?: string;
 }
 
 export const signalsApi = {
@@ -221,6 +241,98 @@ export const signalsApi = {
     const qs = params.toString();
     return request<SignalInfo[]>(`/signals${qs ? `?${qs}` : ''}`);
   },
+};
+
+export interface PreventiveControlInfo {
+  control_id: string;
+  rule_type: string;
+  rule_expression: string;
+  target_table: string;
+  target_column: string;
+  proposed_by: string;
+  version: number;
+  status: 'PROPOSED' | 'REVIEWED' | 'COMPILED' | 'SANDBOX_VALIDATED' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | string;
+  approval_hash?: string | null;
+  created_at?: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  compiled_expression?: string | null;
+  compiled_at?: string | null;
+  sandbox_passed?: boolean | null;
+  sandbox_details?: Record<string, any> | null;
+  sandbox_validated_at?: string | null;
+}
+
+export const controlsApi = {
+  list: () => request<PreventiveControlInfo[]>('/controls'),
+  get: (controlId: string) => request<PreventiveControlInfo>(`/controls/${encodeURIComponent(controlId)}`),
+  propose: (payload: {
+    control_id: string;
+    rule_type?: string;
+    rule_expression: string;
+    target_table: string;
+    target_column: string;
+  }) =>
+    request<PreventiveControlInfo>('/controls/propose', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  approve: (controlId: string, actor: string) =>
+    request<AuthorizationInfo>(`/controls/${encodeURIComponent(controlId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ actor }),
+    }),
+};
+
+export interface AuthorizationInfo {
+  authorization_id: string;
+  control_id: string;
+  version: number;
+  authorized_actor: string;
+  payload_hash: string;
+  authorized_at?: string;
+  expires_at?: string | null;
+  status: 'VALID' | 'EXPIRED' | 'REVOKED' | 'EXECUTED' | string;
+}
+
+export const authorizationsApi = {
+  list: () => request<AuthorizationInfo[]>('/authorizations'),
+  get: (authorizationId: string) =>
+    request<AuthorizationInfo>(`/authorizations/${encodeURIComponent(authorizationId)}`),
+  pipeline: (payload: {
+    control_id: string;
+    rule_type?: string;
+    rule_expression: string;
+    target_table: string;
+    target_column: string;
+    reviewer?: string;
+    actor?: string;
+    dry_run?: boolean;
+    expires_in_seconds?: number;
+  }) =>
+    request<{ proposal: PreventiveControlInfo; authorization: AuthorizationInfo; execution: any }>('/authorizations/pipeline', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  issue: (payload: { control_id: string; actor?: string; expires_in_seconds?: number }) =>
+    request<AuthorizationInfo>('/authorizations/issue', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  verify: (payload: { authorization_id: string; control_id?: string; version?: number }) =>
+    request<{ authorization_id: string; is_valid: boolean; status: string }>('/authorizations/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  execute: (payload: { control_id: string; authorization_id: string; dry_run?: boolean }) =>
+    request<any>('/authorizations/execute', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  revoke: (authorizationId: string) =>
+    request<AuthorizationInfo>(`/authorizations/revoke/${encodeURIComponent(authorizationId)}`, {
+      method: 'POST',
+    }),
 };
 
 export interface AuditEntry {
@@ -238,6 +350,28 @@ export interface AuditEntry {
 export const auditApi = {
   list: (limit: number = 50) =>
     request<AuditEntry[]>(`/audit?limit=${limit}`),
+};
+
+export interface EvaluationBenchmarkItem {
+  baseline: string;
+  precision_pct: number;
+  recall_pct: number;
+  f1_pct: number;
+  cost_tokens: number;
+  latency_sec: number;
+  faults_detected: number;
+  faults_total: number;
+}
+
+export interface EvaluationMetricsInfo {
+  benchmarks: EvaluationBenchmarkItem[];
+  winner: string;
+  time_saved_vs_c0_pct: number;
+  precision_gain_vs_c1_pct: number;
+}
+
+export const evaluationApi = {
+  get: () => request<EvaluationMetricsInfo>('/evaluation'),
 };
 
 // Legacy exported standalone helpers

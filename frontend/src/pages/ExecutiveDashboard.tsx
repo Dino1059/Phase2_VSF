@@ -25,11 +25,55 @@ import { useDashboardStore } from '../stores/dashboardStore';
 
 export const ExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { metrics, insights, activityFeed, signals, fetchDashboardData, loading } = useDashboardStore();
+  const {
+    metrics,
+    insights,
+    activityFeed,
+    signals,
+    project,
+    summary,
+    fetchDashboardData,
+    loading,
+  } = useDashboardStore();
 
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
+
+  // Provenance helper for notice badge
+  const activeProvenance = (project?.provenance || summary?.provenance || 'SEMI_SYNTHETIC').toUpperCase();
+
+  const getProvenanceBadge = (provenance: string) => {
+    switch (provenance) {
+      case 'REAL_OPERATIONAL':
+        return {
+          colorClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+          dotClass: 'bg-emerald-400',
+          label: 'REAL_OPERATIONAL',
+        };
+      case 'PUBLIC_PROXY':
+        return {
+          colorClass: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+          dotClass: 'bg-blue-400',
+          label: 'PUBLIC_PROXY',
+        };
+      case 'SEMI_SYNTHETIC':
+        return {
+          colorClass: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
+          dotClass: 'bg-amber-400',
+          label: 'SEMI_SYNTHETIC',
+        };
+      case 'SYNTHETIC':
+      default:
+        return {
+          colorClass: 'bg-purple-500/10 border-purple-500/30 text-purple-400',
+          dotClass: 'bg-purple-400',
+          label: 'SYNTHETIC',
+        };
+    }
+  };
+
+  const provBadge = getProvenanceBadge(activeProvenance);
 
   // Compute live signal layer counts
   const layerCounts = signals.reduce(
@@ -58,8 +102,8 @@ export const ExecutiveDashboard: React.FC = () => {
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header HUD */}
-      <header className="flex items-center justify-between bg-slate-900/80 backdrop-blur border border-slate-800 rounded-xl px-6 py-4 shadow-lg relative z-10">
-        <div className="flex items-center space-x-4">
+      <header className="flex flex-col lg:flex-row items-start lg:items-center justify-between bg-slate-900/80 backdrop-blur border border-slate-800 rounded-xl px-6 py-4 shadow-lg gap-4 relative z-10">
+        <div className="flex items-center space-x-4 flex-wrap gap-y-2">
           <button
             onClick={() => {
               if (window.location.hash) {
@@ -73,7 +117,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <ArrowLeft className="w-4 h-4" />
             <span>Control Room</span>
           </button>
-          <div className="h-6 w-px bg-slate-800" />
+          <div className="h-6 w-px bg-slate-800 hidden sm:block" />
           <div className="flex items-center space-x-2">
             <Atom className="w-6 h-6 text-cyan-400 animate-spin-slow" />
             <span className="font-bold text-lg tracking-wider text-slate-100">
@@ -82,14 +126,23 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search signals, incidents, audit logs..."
-            className="w-full bg-slate-950/60 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-          />
+        {/* Provenance Notice Badge & Search Bar */}
+        <div className="flex items-center space-x-4 w-full lg:w-auto justify-between lg:justify-end">
+          <div
+            className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold ${provBadge.colorClass}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${provBadge.dotClass} animate-pulse`} />
+            <span>PROVENANCE NOTICE: {provBadge.label}</span>
+          </div>
+
+          <div className="relative w-72 hidden sm:block">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search signals, incidents, audit logs..."
+              className="w-full bg-slate-950/60 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+            />
+          </div>
         </div>
       </header>
 
@@ -99,8 +152,13 @@ export const ExecutiveDashboard: React.FC = () => {
         <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-4 gap-6">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Total Signals & Anomalies</p>
-              <h3 className="text-3xl font-extrabold text-red-400 mt-1">{loading ? '...' : metrics.totalAnomalies}</h3>
+              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                Total Signals & Anomalies
+              </p>
+              <h3 className="text-3xl font-extrabold text-red-400 mt-1">
+                {loading ? '...' : metrics.totalAnomalies}
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/signals</p>
             </div>
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
               <AlertTriangle className="w-6 h-6 text-red-400" />
@@ -109,8 +167,13 @@ export const ExecutiveDashboard: React.FC = () => {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Anomaly Rate</p>
-              <h3 className="text-3xl font-extrabold text-cyan-400 mt-1">{loading ? '...' : metrics.anomalyRate}</h3>
+              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                Anomaly Rate
+              </p>
+              <h3 className="text-3xl font-extrabold text-cyan-400 mt-1">
+                {loading ? '...' : metrics.anomalyRate}
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/summary</p>
             </div>
             <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
               <Activity className="w-6 h-6 text-cyan-400" />
@@ -119,8 +182,13 @@ export const ExecutiveDashboard: React.FC = () => {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Active Incidents</p>
-              <h3 className="text-3xl font-extrabold text-amber-400 mt-1">{loading ? '...' : metrics.activeIncidentsCount}</h3>
+              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                Active Incidents
+              </p>
+              <h3 className="text-3xl font-extrabold text-amber-400 mt-1">
+                {loading ? '...' : metrics.activeIncidentsCount}
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/incidents</p>
             </div>
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
               <Zap className="w-6 h-6 text-amber-400" />
@@ -129,8 +197,13 @@ export const ExecutiveDashboard: React.FC = () => {
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Avg Detection Cadence</p>
-              <h3 className="text-3xl font-extrabold text-emerald-400 mt-1">{loading ? '...' : metrics.avgResolutionTime}</h3>
+              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                Avg Resolution Cadence
+              </p>
+              <h3 className="text-3xl font-extrabold text-emerald-400 mt-1">
+                {loading ? '...' : metrics.avgResolutionTime}
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">Dynamic Incident Cadence</p>
             </div>
             <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
               <Clock className="w-6 h-6 text-emerald-400" />
@@ -143,41 +216,79 @@ export const ExecutiveDashboard: React.FC = () => {
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
               <Layers className="w-5 h-5 text-cyan-400" />
-              <h2 className="font-semibold text-lg text-slate-100">Live Anomaly Trends & Signal Layer Distribution</h2>
+              <h2 className="font-semibold text-lg text-slate-100">
+                Live Anomaly Trends & Signal Layer Distribution
+              </h2>
             </div>
             <span className="text-xs text-slate-400 font-mono">Backend API: /api/v1/signals</span>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-              <span className="text-xs font-mono text-cyan-400 uppercase">L1 Schema & Range</span>
-              <div className="text-2xl font-bold text-slate-100 mt-1">{layerCounts.L1 || 0}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Constraint Violations</div>
+          {signals.length === 0 ? (
+            <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
+              <AlertTriangle className="w-8 h-8 text-slate-600 mx-auto" />
+              <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
+              <p className="text-xs text-slate-500">
+                No anomaly signals detected from backend /api/v1/signals.
+              </p>
             </div>
-            <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-              <span className="text-xs font-mono text-amber-400 uppercase">L2 Contextual Drift</span>
-              <div className="text-2xl font-bold text-slate-100 mt-1">{layerCounts.L2 || 0}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Statistical Outliers</div>
-            </div>
-            <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-              <span className="text-xs font-mono text-purple-400 uppercase">L3 Multi-Entity</span>
-              <div className="text-2xl font-bold text-slate-100 mt-1">{layerCounts.L3 || 0}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Cross-System Inconsistency</div>
-            </div>
-            <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-              <span className="text-xs font-mono text-rose-400 uppercase">L4 Causal Graph</span>
-              <div className="text-2xl font-bold text-slate-100 mt-1">{layerCounts.L4 || 0}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Root Cause Cascades</div>
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
+                  <span className="text-xs font-mono text-cyan-400 uppercase">
+                    L1 Schema & Range
+                  </span>
+                  <div className="text-2xl font-bold text-slate-100 mt-1">
+                    {layerCounts.L1 || 0}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Constraint Violations</div>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
+                  <span className="text-xs font-mono text-amber-400 uppercase">
+                    L2 Contextual Drift
+                  </span>
+                  <div className="text-2xl font-bold text-slate-100 mt-1">
+                    {layerCounts.L2 || 0}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Statistical Outliers</div>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
+                  <span className="text-xs font-mono text-purple-400 uppercase">
+                    L3 Multi-Entity
+                  </span>
+                  <div className="text-2xl font-bold text-slate-100 mt-1">
+                    {layerCounts.L3 || 0}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Cross-System Inconsistency</div>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
+                  <span className="text-xs font-mono text-rose-400 uppercase">
+                    L4 Causal Graph
+                  </span>
+                  <div className="text-2xl font-bold text-slate-100 mt-1">
+                    {layerCounts.L4 || 0}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Root Cause Cascades</div>
+                </div>
+              </div>
 
-          <div className="flex items-center space-x-6 text-xs text-slate-400 pt-2 border-t border-slate-800/60">
-            <span>Severity Breakdown:</span>
-            <span className="text-rose-400 font-medium">Critical: {severityCounts.CRITICAL || 0}</span>
-            <span className="text-amber-400 font-medium">High: {severityCounts.HIGH || 0}</span>
-            <span className="text-yellow-400 font-medium">Medium: {severityCounts.MEDIUM || 0}</span>
-            <span className="text-slate-400 font-medium">Low: {severityCounts.LOW || 0}</span>
-          </div>
+              <div className="flex items-center space-x-6 text-xs text-slate-400 pt-2 border-t border-slate-800/60">
+                <span>Severity Breakdown:</span>
+                <span className="text-rose-400 font-medium">
+                  Critical: {severityCounts.CRITICAL || 0}
+                </span>
+                <span className="text-amber-400 font-medium">
+                  High: {severityCounts.HIGH || 0}
+                </span>
+                <span className="text-yellow-400 font-medium">
+                  Medium: {severityCounts.MEDIUM || 0}
+                </span>
+                <span className="text-slate-400 font-medium">
+                  Low: {severityCounts.LOW || 0}
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* AI Diagnosis & Root Cause Section */}
@@ -185,7 +296,9 @@ export const ExecutiveDashboard: React.FC = () => {
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
               <Microchip className="w-5 h-5 text-cyan-400" />
-              <h2 className="font-semibold text-lg text-slate-100">Live Active Incidents & Root Cause Analysis</h2>
+              <h2 className="font-semibold text-lg text-slate-100">
+                Live Active Incidents & Root Cause Analysis
+              </h2>
             </div>
             <span className="flex items-center space-x-1.5 text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded-full px-3 py-1 font-medium">
               <span>{insights.length} Active Incident(s)</span>
@@ -194,12 +307,19 @@ export const ExecutiveDashboard: React.FC = () => {
 
           <div className="space-y-4 flex-1 overflow-y-auto max-h-96">
             {insights.length === 0 ? (
-              <div className="text-center py-8 text-slate-500 text-sm">
-                No active incidents reported from /api/v1/incidents endpoint.
+              <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
+                <AlertTriangle className="w-8 h-8 text-slate-600 mx-auto" />
+                <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
+                <p className="text-xs text-slate-500">
+                  No active incidents reported from /api/v1/incidents endpoint.
+                </p>
               </div>
             ) : (
               insights.map((insight) => (
-                <div key={insight.id} className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-4 space-y-2 hover:border-slate-700 transition-colors">
+                <div
+                  key={insight.id}
+                  className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-4 space-y-2 hover:border-slate-700 transition-colors"
+                >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-cyan-300 text-sm flex items-center space-x-2">
                       <Flame className="w-4 h-4 text-purple-400" />
@@ -213,7 +333,8 @@ export const ExecutiveDashboard: React.FC = () => {
                     <strong className="text-slate-400">Diagnosis Detail:</strong> {insight.rootCause}
                   </p>
                   <p className="text-xs text-slate-300">
-                    <strong className="text-cyan-400">Recommended Action:</strong> {insight.recommendedAction}
+                    <strong className="text-cyan-400">Recommended Action:</strong>{' '}
+                    {insight.recommendedAction}
                   </p>
                 </div>
               ))
@@ -236,12 +357,17 @@ export const ExecutiveDashboard: React.FC = () => {
 
           <div className="space-y-3 flex-1 overflow-y-auto max-h-96">
             {activityFeed.length === 0 ? (
-              <div className="text-center py-8 text-slate-500 text-xs">
-                No recent activity logged in audit trail.
+              <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
+                <BarChart3 className="w-8 h-8 text-slate-600 mx-auto" />
+                <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
+                <p className="text-xs text-slate-500">No recent activity logged in audit trail.</p>
               </div>
             ) : (
               activityFeed.map((item) => (
-                <div key={item.id} className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-slate-800/40 transition-colors border border-slate-800/40">
+                <div
+                  key={item.id}
+                  className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-slate-800/40 transition-colors border border-slate-800/40"
+                >
                   <div className="p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400">
                     {item.icon === 'user-check' && <UserCheck className="w-4 h-4" />}
                     {item.icon === 'microchip' && <Microchip className="w-4 h-4" />}
@@ -264,7 +390,9 @@ export const ExecutiveDashboard: React.FC = () => {
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              <h2 className="font-semibold text-lg text-slate-100">Governance Execution Summary</h2>
+              <h2 className="font-semibold text-lg text-slate-100">
+                Governance Execution Summary (/api/v1/summary)
+              </h2>
             </div>
             <span className="flex items-center space-x-1 text-xs text-purple-400 font-mono bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20">
               <Fingerprint className="w-3.5 h-3.5" />
@@ -275,7 +403,9 @@ export const ExecutiveDashboard: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 text-center">
               <Database className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
-              <div className="text-xl font-bold text-slate-100">{metrics.cleanRecords.toLocaleString()}</div>
+              <div className="text-xl font-bold text-slate-100">
+                {metrics.cleanRecords.toLocaleString()}
+              </div>
               <div className="text-xs text-slate-400 mt-1">Clean Records</div>
             </div>
 
@@ -298,7 +428,7 @@ export const ExecutiveDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-3">
+          <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-3 flex-wrap gap-2">
             <span>Latest Immutable Ledger Hash:</span>
             <code className="font-mono text-cyan-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800 text-[11px] truncate max-w-lg">
               {metrics.latestLedgerHash}

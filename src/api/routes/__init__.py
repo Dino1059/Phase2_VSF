@@ -59,6 +59,8 @@ from src.api.routes.incidents import router as incidents_router
 from src.api.routes.controls import router as controls_router
 from src.api.routes.authorizations import router as authorizations_router
 from src.api.routes.audit import router as audit_router
+from src.api.routes.evaluation import router as evaluation_router
+from src.api.routes.summary import summary_router
 
 from src.tools.algolia_tool import AlgoliaSearchTool
 from src.tools.anomaly_detector import AnomalyDetectorTool
@@ -585,4 +587,5 @@ __all__ = [
     "executions_router",
     "benchmarks_router",
     "schedules_router",
+    "evaluation_router",
 ]

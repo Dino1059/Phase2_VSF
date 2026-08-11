@@ -51,3 +51,13 @@ def test_controls_and_authorizations_endpoint():
 def test_audit_endpoint():
     res = client.get("/api/v1/audit", headers=HEADERS)
     assert res.status_code == 200
+
+
+def test_summary_endpoint():
+    res = client.get("/api/v1/summary", headers=HEADERS)
+    assert res.status_code == 200
+    data = res.json()
+    assert "projects_count" in data
+    assert "provenance" in data
+    assert data["active_project_id"] == "proj-vingroup-pilot"
+

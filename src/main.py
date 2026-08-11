@@ -23,6 +23,8 @@ from src.api.routes import (
     controls_router,
     authorizations_router,
     audit_router,
+    summary_router,
+    evaluation_router,
 )
 from src.api.hitl import hitl_router
 from src.api.dashboard import dashboard_router
@@ -117,6 +119,8 @@ app.include_router(incidents_router, prefix="/api/v1")
 app.include_router(controls_router, prefix="/api/v1")
 app.include_router(authorizations_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
+app.include_router(summary_router, prefix="/api/v1")
+app.include_router(evaluation_router, prefix="/api/v1")
 
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")
