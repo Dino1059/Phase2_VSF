@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
@@ -325,7 +326,8 @@ def get_hidden_rca_ground_truth_cases() -> List[RCAGroundTruthCase]:
 
 def run_rca_evaluation(
     investigator: Any = None,
-    cases: Optional[List[RCAGroundTruthCase]] = None
+    cases: Optional[List[RCAGroundTruthCase]] = None,
+    save_artifact: bool = True
 ) -> Dict[str, Any]:
     """
     Evaluates Root Cause Analysis (RCA) hypothesis accuracy, evidence precision, recall,
@@ -339,7 +341,7 @@ def run_rca_evaluation(
 
     total_cases = len(cases)
     if total_cases == 0:
-        return {
+        res = {
             "rca_evaluation": {
                 "top1_cause_accuracy": 0.0,
                 "top3_cause_recall": 0.0,
@@ -349,6 +351,19 @@ def run_rca_evaluation(
                 "abstention_precision": 0.0
             }
         }
+        if save_artifact:
+            results_dir = Path(__file__).parent / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            artifact_path = results_dir / f"eval_rca_{timestamp_str}.json"
+            payload = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **res
+            }
+            with open(artifact_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            print(f"Saved evaluation artifact to {artifact_path}")
+        return res
 
     correct_top1 = 0
     correct_top3 = 0
@@ -364,11 +379,11 @@ def run_rca_evaluation(
     total_abstain_predictions = 0
 
     for case in cases:
-        res = investigator.investigate_incident(case.incident, case.available_evidence)
-        if isinstance(res, tuple):
-            hyp = res[0]
+        res_inv = investigator.investigate_incident(case.incident, case.available_evidence)
+        if isinstance(res_inv, tuple):
+            hyp = res_inv[0]
         else:
-            hyp = res
+            hyp = res_inv
 
         classification = hyp.classification if hyp else "UNKNOWN"
         supporting_ev = hyp.supporting_evidence if hyp else []
@@ -414,7 +429,7 @@ def run_rca_evaluation(
     unsup_rate = round(unsupported_claims / non_abstain_predictions, 4) if non_abstain_predictions > 0 else 0.0
     abst_prec = round(correct_abstentions / total_abstain_predictions, 4) if total_abstain_predictions > 0 else 1.0
 
-    return {
+    res = {
         "rca_evaluation": {
             "top1_cause_accuracy": top1_acc,
             "top3_cause_recall": top3_rec,
@@ -424,6 +439,22 @@ def run_rca_evaluation(
             "abstention_precision": abst_prec
         }
     }
+
+    if save_artifact:
+        results_dir = Path(__file__).parent / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        artifact_path = results_dir / f"eval_rca_{timestamp_str}.json"
+        
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **res
+        }
+        with open(artifact_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"Saved evaluation artifact to {artifact_path}")
+
+    return res
 
 
 if __name__ == "__main__":

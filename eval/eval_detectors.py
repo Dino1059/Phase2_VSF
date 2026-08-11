@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -24,7 +25,7 @@ def _safe_f1(precision: float, recall: float) -> float:
     return round(2 * precision * recall / (precision + recall), 4)
 
 
-def run_detector_evaluation() -> Dict[str, Any]:
+def run_detector_evaluation(save_artifact: bool = True) -> Dict[str, Any]:
     """
     Evaluates L1-L4 Anomaly Detectors on synthetic/pilot corpus.
     Calculates precision, recall, F1, SLA latency, and false positive rates
@@ -223,7 +224,7 @@ def run_detector_evaluation() -> Dict[str, Any]:
         else 0.0
     )
 
-    return {
+    res = {
         "l1_evaluation": {
             "precision": l1_precision,
             "recall": l1_recall,
@@ -238,6 +239,22 @@ def run_detector_evaluation() -> Dict[str, Any]:
             "fp_per_entity_day": fp_per_entity_day,
         },
     }
+
+    if save_artifact:
+        results_dir = Path(__file__).parent / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        artifact_path = results_dir / f"eval_detectors_{timestamp_str}.json"
+        
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **res
+        }
+        with open(artifact_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"Saved evaluation artifact to {artifact_path}")
+
+    return res
 
 
 if __name__ == "__main__":

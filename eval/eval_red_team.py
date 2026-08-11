@@ -1,12 +1,21 @@
+import sys
+import json
+from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime, timezone
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.reliability.models.incident import Incident
 from src.reliability.models.evidence import Evidence
 from src.reliability.investigation.a1 import A1BoundedInvestigator
 from src.reliability.governance.preventive_controls import PreventiveControlManager
 
 
-def run_red_team_harness() -> Dict[str, Any]:
+def run_red_team_harness(save_artifact: bool = True) -> Dict[str, Any]:
     """
     Executes red-team adversarial scenarios:
     1. Prompt Injection / Malicious Evidence
@@ -57,14 +66,31 @@ def run_red_team_harness() -> Dict[str, Any]:
 
     all_passed = all(results.values())
 
-    return {
+    res = {
         "red_team_harness": {
             "all_scenarios_passed": all_passed,
             "details": results
         }
     }
 
+    if save_artifact:
+        results_dir = Path(__file__).parent / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        artifact_path = results_dir / f"eval_red_team_{timestamp_str}.json"
+        
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **res
+        }
+        with open(artifact_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"Saved evaluation artifact to {artifact_path}")
+
+    return res
+
 
 if __name__ == "__main__":
     res = run_red_team_harness()
     print("Red Team Harness Results:", res)
+

@@ -1,6 +1,15 @@
+import sys
 import time
+import json
+from pathlib import Path
 from typing import Dict, Any, List, Set
 from datetime import datetime, timezone
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.reliability.models.incident import Incident
 from src.reliability.models.evidence import Evidence
 from src.reliability.investigation.r0 import R0DeterministicInvestigator
@@ -11,7 +20,7 @@ from src.reliability.investigation.a1 import A1BoundedInvestigator
 COST_PER_TOKEN = 0.000002
 
 
-def run_unbiased_agentic_evaluation() -> Dict[str, Any]:
+def run_unbiased_agentic_evaluation(save_artifact: bool = True) -> Dict[str, Any]:
     """
     Unbiased comparison harness evaluating R0 (Deterministic), C1 (Fixed AI), and A1 (Bounded Dynamic AI).
     Evaluates SLA latency, cost per incident, Top-1 accuracy, evidence recall, and tool calls using empirical trace outputs.
@@ -182,7 +191,7 @@ def run_unbiased_agentic_evaluation() -> Dict[str, Any]:
     a1_cost = round(a1_tok * COST_PER_TOKEN, 6)
     a1_calls = round(a1_metrics["tool_calls"] / total_cases, 2)
 
-    return {
+    res = {
         "agentic_comparison": {
             "R0_Deterministic": {
                 "top1_accuracy": r0_acc,
@@ -210,6 +219,22 @@ def run_unbiased_agentic_evaluation() -> Dict[str, Any]:
             }
         }
     }
+
+    if save_artifact:
+        results_dir = Path(__file__).parent / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        artifact_path = results_dir / f"eval_agentic_{timestamp_str}.json"
+        
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **res
+        }
+        with open(artifact_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"Saved evaluation artifact to {artifact_path}")
+
+    return res
 
 
 if __name__ == "__main__":
