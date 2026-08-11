@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from src.reliability.models import Signal, Incident, Evidence, Hypothesis
+from src.reliability.models import Signal, Incident, Evidence, Hypothesis, DataProvenance
 
 def test_signal_contract():
     now = datetime.now(timezone.utc)
@@ -43,6 +43,18 @@ def test_evidence_contract():
     )
     assert ev.evidence_id.startswith("ev-")
     assert ev.provenance == "SEMI_SYNTHETIC"
+
+def test_data_provenance_enum():
+    assert DataProvenance.REAL_OPERATIONAL == "REAL_OPERATIONAL"
+    assert DataProvenance.PUBLIC_PROXY == "PUBLIC_PROXY"
+    assert DataProvenance.SEMI_SYNTHETIC == "SEMI_SYNTHETIC"
+    assert DataProvenance.SYNTHETIC == "SYNTHETIC"
+    assert list(DataProvenance) == [
+        DataProvenance.REAL_OPERATIONAL,
+        DataProvenance.PUBLIC_PROXY,
+        DataProvenance.SEMI_SYNTHETIC,
+        DataProvenance.SYNTHETIC,
+    ]
 
 def test_hypothesis_contract():
     hyp = Hypothesis(
