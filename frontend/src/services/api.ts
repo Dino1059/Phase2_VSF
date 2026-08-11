@@ -212,6 +212,11 @@ export const incidentsApi = {
     request<IncidentInfo>(`/incidents/${encodeURIComponent(incidentId)}`),
   investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' = 'C1') =>
     request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}`, { method: 'POST' }),
+  chat: (incidentId: string, payload: any) =>
+    request<{ reply: string; reasoning?: string; tokens_used?: number }>(`/incidents/${encodeURIComponent(incidentId)}/chat`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };
 
 export async function fetchIncident(incidentId: string): Promise<IncidentInfo> {

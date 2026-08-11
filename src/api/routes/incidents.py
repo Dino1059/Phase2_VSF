@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from src.reliability.incidents.service import IncidentService
 from src.reliability.models.incident import Incident
 from src.reliability.models.evidence import Evidence
@@ -74,4 +75,54 @@ def investigate_incident(incident_id: str, mode: str = Query("C1")):
         "hypothesis": hyp.model_dump(mode="json") if hyp else None,
         "recommendation": rec.model_dump(mode="json") if rec else None,
         "metadata": meta
+    }
+
+
+class IncidentChatRequest(BaseModel):
+    message: str
+    investigation_mode: Optional[str] = "C1"
+    user_role: Optional[str] = "steward"
+    active_hypothesis: Optional[Dict[str, Any]] = None
+    selected_evidence: Optional[Dict[str, Any]] = None
+
+
+@router.post("/{incident_id}/chat")
+def incident_chat(incident_id: str, request: IncidentChatRequest):
+    """
+    Contextual Assistant Chat Endpoint powered by LLM.
+    """
+    from src.services.llm import LLMService
+    llm = LLMService()
+
+    inc = service.get_incident(incident_id)
+    evidence_list = service.get_evidence_for_incident(incident_id)
+
+    system_prompt = f"""
+    You are the Contextual Assistant for DataTrust OS v5 Operational Trust Console.
+    You are currently assisting a Data Steward ({request.user_role}) analyzing Incident {incident_id}.
+    
+    Incident Context:
+    - Incident ID: {incident_id}
+    - Admission Reason: {inc.admission_reason if inc else 'Anomaly detection drift'}
+    - Severity: {inc.severity if inc else 'HIGH'}
+    - Target Entities: {', '.join(inc.entity_ids) if inc and inc.entity_ids else 'VIN-010'}
+    - Investigation Mode: {request.investigation_mode}
+    - Supporting Evidence Count: {len(evidence_list)}
+    - Active Hypothesis: {request.active_hypothesis.get('claim') if request.active_hypothesis else 'None selected'}
+    - Focused Evidence: {request.selected_evidence.get('summary') if request.selected_evidence else 'None focused'}
+
+    Provide concise, professional, evidence-grounded answers for data stewardship and reliability operations.
+    """
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": request.message}
+    ]
+
+    res = llm.chat(messages)
+    return {
+        "incident_id": incident_id,
+        "reply": res.content,
+        "reasoning": f"Synthesized via LLM against incident evidence & hypothesis graph.",
+        "tokens_used": res.tokens_used
     }

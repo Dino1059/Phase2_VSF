@@ -538,7 +538,10 @@ export const IncidentWorkspace: React.FC = () => {
           <EvidencePanel
             supporting={incident.supportingEvidence}
             contradicting={incident.contradictingEvidence}
-            onSelectEvidenceForAssistant={(ev) => setSelectedEvidence(ev)}
+            onSelectEvidenceForAssistant={(ev) => {
+              setSelectedEvidence(ev);
+              setIsAssistantCollapsed(false);
+            }}
           />
 
           {/* 3. RCA Ranked Hypotheses */}
@@ -546,7 +549,10 @@ export const IncidentWorkspace: React.FC = () => {
             hypotheses={incident.hypotheses}
             activeHypothesisId={activeHypothesis?.hypothesis_id}
             onSelectHypothesis={(hyp) => setActiveHypothesis(hyp)}
-            onAskAssistantAboutHypothesis={(hyp) => setActiveHypothesis(hyp)}
+            onAskAssistantAboutHypothesis={(hyp) => {
+              setActiveHypothesis(hyp);
+              setIsAssistantCollapsed(false);
+            }}
           />
 
           {/* 4. Recommendation Action Panel & HITL Authorization */}

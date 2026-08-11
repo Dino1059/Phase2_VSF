@@ -61,3 +61,13 @@ def test_summary_endpoint():
     assert "provenance" in data
     assert data["active_project_id"] == "proj-vingroup-pilot"
 
+
+def test_incident_chat_endpoint():
+    payload = {"message": "Summarize the root cause of this anomaly."}
+    res = client.post("/api/v1/incidents/inc-01/chat", json=payload, headers=HEADERS)
+    assert res.status_code == 200
+    data = res.json()
+    assert "reply" in data
+    assert "incident_id" in data
+    assert data["incident_id"] == "inc-01"
+

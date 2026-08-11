@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { HypothesisItem } from '../incident/HypothesisPanel';
 import type { EvidenceItem } from '../incident/EvidencePanel';
+import { incidentsApi } from '../../services/api';
 
 interface ChatMessageItem {
   id: string;
@@ -136,7 +137,7 @@ export const ContextualAssistant: React.FC<ContextualAssistantProps> = ({
     }
   }, [investigationMode, isApproved, activeHypothesis, selectedEvidence, approvalHash, userRole]);
 
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const queryText = textToSend || input;
     if (!queryText.trim()) return;
 
@@ -151,7 +152,26 @@ export const ContextualAssistant: React.FC<ContextualAssistantProps> = ({
     if (!textToSend) setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
+    try {
+      const data = await incidentsApi.chat(incidentId, {
+        message: queryText,
+        investigation_mode: investigationMode,
+        user_role: userRole,
+        active_hypothesis: activeHypothesis,
+        selected_evidence: selectedEvidence,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `asst-${Date.now()}`,
+          sender: 'assistant',
+          text: data.reply || (data as any).response || 'Contextual analysis complete.',
+          reasoning: data.reasoning,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } catch (err) {
       let reply = '';
       let reasoning = undefined;
 
@@ -187,8 +207,9 @@ export const ContextualAssistant: React.FC<ContextualAssistantProps> = ({
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
+    } finally {
       setIsTyping(false);
-    }, 600);
+    }
   };
 
   // Render Collapsed Strip view
