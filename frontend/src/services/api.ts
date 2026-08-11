@@ -146,10 +146,98 @@ export const benchmarksApi = {
 export const dashboardApi = {
   getStats: () =>
     request<{
+      tables?: Record<string, number>;
+      quality_score?: number;
+      rule_stats?: Record<string, number>;
+      total_data_records?: number;
+      quarantined?: number;
       metrics?: any;
       insights?: any[];
       activityFeed?: any[];
     }>('/dashboard/stats'),
+  getActivity: (limit: number = 20) =>
+    request<{ activity: Array<{ id: string; action: string; actor: string; target_table: string; details: string; timestamp: string }> }>(`/dashboard/activity?limit=${limit}`),
+};
+
+export interface ProjectInfo {
+  project_id: string;
+  name: string;
+  status: string;
+  provenance: string;
+  entities_count: number;
+  stations_count: number;
+  datasets: string[];
+}
+
+export const projectsApi = {
+  list: () => request<ProjectInfo[]>('/projects'),
+};
+
+export interface IncidentInfo {
+  incident_id: string;
+  project_id: string;
+  status: string;
+  entity_ids: string[];
+  signal_ids: string[];
+  admission_reason: string;
+  supporting_layers?: string[];
+  severity: string;
+  time_window?: Record<string, string>;
+  confirmed_facts?: string[];
+  evidence_refs?: string[];
+  owner?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const incidentsApi = {
+  list: (projectId: string = 'proj-vingroup-pilot') =>
+    request<IncidentInfo[]>(`/incidents?project_id=${encodeURIComponent(projectId)}`),
+  get: (incidentId: string) =>
+    request<IncidentInfo>(`/incidents/${encodeURIComponent(incidentId)}`),
+  investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' = 'C1') =>
+    request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}`, { method: 'POST' }),
+};
+
+export interface SignalInfo {
+  signal_id: string;
+  project_id: string;
+  entity_ids: string[];
+  layer: string;
+  signal_type: string;
+  metric_or_relationship: string;
+  score: number;
+  severity: string;
+  detector: string;
+  provenance: string;
+}
+
+export const signalsApi = {
+  list: (projectId: string = 'proj-vingroup-pilot', layer?: string, entityId?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.append('project_id', projectId);
+    if (layer) params.append('layer', layer);
+    if (entityId) params.append('entity_id', entityId);
+    const qs = params.toString();
+    return request<SignalInfo[]>(`/signals${qs ? `?${qs}` : ''}`);
+  },
+};
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  actor: string;
+  target_table: string;
+  target_id?: string;
+  details: any;
+  timestamp: string;
+  previous_event_hash?: string;
+  event_hash?: string;
+}
+
+export const auditApi = {
+  list: (limit: number = 50) =>
+    request<AuditEntry[]>(`/audit?limit=${limit}`),
 };
 
 // Legacy exported standalone helpers

@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App';
-import './i18n/config';
+import './i18n';
 import './index.css';
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN;

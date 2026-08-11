@@ -18,10 +18,10 @@ interface AnomalyTimelineProps {
 export const AnomalyTimeline: React.FC<AnomalyTimelineProps> = ({ signals }) => {
   const getLayerBadgeColor = (layer: string) => {
     switch (layer) {
-      case 'L1': return 'bg-red-900/50 text-red-300 border-red-700';
-      case 'L2': return 'bg-amber-900/50 text-amber-300 border-amber-700';
-      case 'L3': return 'bg-blue-900/50 text-blue-300 border-blue-700';
-      case 'L4': return 'bg-purple-900/50 text-purple-300 border-purple-700';
+      case 'L1': return 'layer-l1';
+      case 'L2': return 'layer-l2';
+      case 'L3': return 'layer-l3';
+      case 'L4': return 'layer-l4';
       default: return 'bg-gray-800 text-gray-300 border-gray-700';
     }
   };

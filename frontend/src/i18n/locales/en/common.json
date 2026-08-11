@@ -29,5 +29,16 @@
   "criticalOnly": "Critical Only",
   "admin": "Admin",
   "steward": "Steward",
-  "viewer": "Viewer"
+  "viewer": "Viewer",
+  "reliabilityOverview": "Reliability Overview",
+  "incident": "Incident",
+  "evidence": "Evidence",
+  "hypothesis": "Hypothesis",
+  "preventiveControl": "Preventive Control",
+  "operationalRecommendation": "Operational Recommendation",
+  "layerL1Label": "L1 Hard Constraints",
+  "layerL2Label": "L2 Contextual Drift",
+  "layerL3Label": "L3 Cross-Entity Integrity",
+  "layerL4Label": "L4 Systemic Reliability"
 }
+

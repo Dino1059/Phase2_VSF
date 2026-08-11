@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectControlRoom } from './pages/ProjectControlRoom';
 import { IncidentWorkspace } from './pages/IncidentWorkspace';
-import { DashboardPage } from './pages/DashboardPage';
+import { ExecutiveDashboard } from './pages/ExecutiveDashboard';
 
 export const App: React.FC = () => {
   const [route, setRoute] = useState(window.location.hash || '#/control-room');
@@ -27,7 +27,7 @@ export const App: React.FC = () => {
       </nav>
 
       {route === '#/incident' && <IncidentWorkspace />}
-      {route === '#/dashboard' && <DashboardPage />}
+      {route === '#/dashboard' && <ExecutiveDashboard />}
       {(route === '#/control-room' || (route !== '#/incident' && route !== '#/dashboard')) && <ProjectControlRoom />}
     </div>
   );

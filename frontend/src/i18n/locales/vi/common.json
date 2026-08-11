@@ -29,5 +29,16 @@
   "criticalOnly": "Chỉ sự cố nghiêm trọng",
   "admin": "Quản trị viên",
   "steward": "Quản lý Dữ liệu",
-  "viewer": "Người xem"
+  "viewer": "Người xem",
+  "reliabilityOverview": "Tổng quan độ tin cậy",
+  "incident": "Sự cố",
+  "evidence": "Bằng chứng",
+  "hypothesis": "Giả thuyết",
+  "preventiveControl": "Kiểm soát phòng ngừa",
+  "operationalRecommendation": "Khuyến nghị vận hành",
+  "layerL1Label": "L1 Ràng buộc cứng",
+  "layerL2Label": "L2 Trôi ngắt ngữ cảnh",
+  "layerL3Label": "L3 Toàn vẹn liên kết",
+  "layerL4Label": "L4 Độ tin cậy hệ thống"
 }
+

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { dashboardApi } from '../services/api';
+import { dashboardApi, signalsApi, incidentsApi, auditApi, SignalInfo, IncidentInfo, AuditEntry } from '../services/api';
 
 export interface DashboardMetrics {
   totalAnomalies: number;
@@ -10,6 +10,7 @@ export interface DashboardMetrics {
   passValidationRate: string;
   rulesExecuted: number;
   latestLedgerHash: string;
+  activeIncidentsCount: number;
 }
 
 export interface DiagnosisInsight {
@@ -18,6 +19,7 @@ export interface DiagnosisInsight {
   confidence: string;
   rootCause: string;
   recommendedAction: string;
+  severity: string;
 }
 
 export interface ActivityFeedItem {
@@ -32,6 +34,9 @@ interface DashboardState {
   metrics: DashboardMetrics;
   insights: DiagnosisInsight[];
   activityFeed: ActivityFeedItem[];
+  signals: SignalInfo[];
+  incidents: IncidentInfo[];
+  auditLogs: AuditEntry[];
   loading: boolean;
 
   fetchDashboardData: () => Promise<void>;
@@ -39,55 +44,97 @@ interface DashboardState {
 
 export const useDashboardStore = create<DashboardState>((set) => ({
   metrics: {
-    totalAnomalies: 412,
-    anomalyRate: '0.03%',
-    avgResolutionTime: '1.4 min',
-    cleanRecords: 1248500,
-    quarantinedRecords: 412,
-    passValidationRate: '99.96%',
-    rulesExecuted: 142,
-    latestLedgerHash: '0x8f3a9e21b77c3094d1f2e864aa9124bb',
+    totalAnomalies: 0,
+    anomalyRate: '0.00%',
+    avgResolutionTime: '< 1 min',
+    cleanRecords: 0,
+    quarantinedRecords: 0,
+    passValidationRate: '100.0%',
+    rulesExecuted: 0,
+    latestLedgerHash: '0x00000000000000000000000000000000',
+    activeIncidentsCount: 0,
   },
-  insights: [
-    {
-      id: 'rca-1',
-      title: 'Connector Thermal Overheat Spike',
-      confidence: '98.6%',
-      rootCause: 'Grid harmonic distortion on Landmark 81 Charging Hub caused Connector Latch Voltage drop.',
-      recommendedAction: 'Apply Rule #R-8091 to quarantine affected session logs & dispatch maintenance flag.',
-    },
-    {
-      id: 'rca-2',
-      title: 'BMS Cell Imbalance Delta',
-      confidence: '94.2%',
-      rootCause: 'Firmware v3.4 thermal offset calculation drift during DC fast charge cycle.',
-      recommendedAction: 'Filter outlier pack telemetry and push firmware telemetry sync patch.',
-    },
-  ],
-  activityFeed: [
-    { id: '1', icon: 'user-check', color: 'purple', title: 'Steward Approved 2 Rules', time: '2 mins ago' },
-    { id: '2', icon: 'microchip', color: 'danger', title: 'Diagnosis Agent completed RCA', time: '8 mins ago' },
-    { id: '3', icon: 'exclamation-triangle', color: 'warning', title: 'Anomaly Detector found 189 anomalies', time: '15 mins ago' },
-    { id: '4', icon: 'robot', color: 'primary', title: 'Rule Proposer generated 3 rules', time: '22 mins ago' },
-    { id: '5', icon: 'chart-bar', color: 'green', title: 'Data Profiler completed analysis', time: '30 mins ago' },
-  ],
+  insights: [],
+  activityFeed: [],
+  signals: [],
+  incidents: [],
+  auditLogs: [],
   loading: false,
 
   fetchDashboardData: async () => {
     set({ loading: true });
     try {
-      const data = await dashboardApi.getStats();
-      if (data) {
-        set((state) => ({
-          metrics: data.metrics ? { ...state.metrics, ...data.metrics } : state.metrics,
-          insights: data.insights && data.insights.length > 0 ? data.insights : state.insights,
-          activityFeed: data.activityFeed && data.activityFeed.length > 0 ? data.activityFeed : state.activityFeed,
-        }));
-      }
+      const [statsRes, signalsRes, incidentsRes, auditRes] = await Promise.allSettled([
+        dashboardApi.getStats(),
+        signalsApi.list('proj-vingroup-pilot'),
+        incidentsApi.list('proj-vingroup-pilot'),
+        auditApi.list(20),
+      ]);
+
+      const stats = statsRes.status === 'fulfilled' ? statsRes.value : {};
+      const signals = signalsRes.status === 'fulfilled' ? signalsRes.value : [];
+      const incidents = incidentsRes.status === 'fulfilled' ? incidentsRes.value : [];
+      const auditLogs = auditRes.status === 'fulfilled' ? auditRes.value : [];
+
+      const totalDataRecords = stats.total_data_records || 0;
+      const quarantinedCount = stats.quarantined || 0;
+      const totalAnomaliesCount = signals.length > 0 ? signals.length : quarantinedCount;
+      const anomalyRateCalc = totalDataRecords > 0
+        ? ((totalAnomaliesCount / totalDataRecords) * 100).toFixed(2) + '%'
+        : (totalAnomaliesCount > 0 ? `${totalAnomaliesCount} detected` : '0.00%');
+      
+      const cleanRecordsCalc = Math.max(0, totalDataRecords - quarantinedCount);
+      const qualityScoreCalc = stats.quality_score !== undefined ? `${stats.quality_score}%` : '100.0%';
+      const rulesExecutedCalc = stats.rule_stats
+        ? Object.values(stats.rule_stats).reduce((a, b) => a + b, 0)
+        : (stats.tables?.quality_rules || 0);
+
+      const latestHash = (auditLogs.length > 0 && auditLogs[0].event_hash)
+        ? auditLogs[0].event_hash
+        : (stats.tables?.audit_log ? `0x${stats.tables.audit_log.toString(16).padStart(32, '0')}` : '0x00000000000000000000000000000000');
+
+      const activeIncidents = incidents.filter((i) => i.status !== 'CLOSED' && i.status !== 'RESOLVED');
+
+      const formattedInsights: DiagnosisInsight[] = incidents.map((inc) => ({
+        id: inc.incident_id,
+        title: inc.admission_reason || `Incident ${inc.incident_id}`,
+        confidence: `Severity: ${inc.severity || 'MEDIUM'}`,
+        rootCause: `Entity Targets: ${inc.entity_ids?.join(', ') || 'N/A'} | Signals: ${inc.signal_ids?.join(', ') || 'None'}`,
+        recommendedAction: `Status: ${inc.status}. Execute automated investigation (R0/C1/A1) or trigger control.`,
+        severity: inc.severity || 'MEDIUM',
+      }));
+
+      const formattedActivityFeed: ActivityFeedItem[] = auditLogs.map((entry) => ({
+        id: entry.id,
+        icon: entry.action.includes('RULE') ? 'user-check' : entry.action.includes('INCIDENT') ? 'exclamation-triangle' : 'microchip',
+        color: entry.action.includes('INCIDENT') ? 'danger' : entry.action.includes('RULE') ? 'purple' : 'primary',
+        title: `${entry.actor || 'System'} - ${entry.action} on ${entry.target_table || 'system'}`,
+        time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : 'Just now',
+      }));
+
+      set({
+        metrics: {
+          totalAnomalies: totalAnomaliesCount,
+          anomalyRate: anomalyRateCalc,
+          avgResolutionTime: '< 1 min',
+          cleanRecords: cleanRecordsCalc,
+          quarantinedRecords: quarantinedCount,
+          passValidationRate: qualityScoreCalc,
+          rulesExecuted: rulesExecutedCalc,
+          latestLedgerHash: latestHash,
+          activeIncidentsCount: activeIncidents.length,
+        },
+        insights: formattedInsights,
+        activityFeed: formattedActivityFeed,
+        signals,
+        incidents,
+        auditLogs,
+      });
     } catch (err) {
-      console.warn('Dashboard stats backend sync warning:', err);
+      console.warn('Dashboard stats backend sync error:', err);
     } finally {
       set({ loading: false });
     }
   },
 }));
+
