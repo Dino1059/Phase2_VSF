@@ -218,3 +218,179 @@ def test_p0_06_ssrf_private_ip_webhook_validation():
 
     # Valid public HTTPS URL
     assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
+
+
+from src.reliability.governance.preventive_controls import PreventiveControlManager
+
+
+def test_unified_governance_lifecycle():
+    """
+    Test Wave 6: Unified proposal, review, compilation, sandbox validation, authorization token generation, and execution.
+    """
+    mgr = PreventiveControlManager()
+
+    # 1. Proposal
+    prop = mgr.propose_control(
+        control_id="ctrl-wave6-01",
+        rule_type="range",
+        rule_expression="battery_soc >= 0 AND battery_soc <= 100",
+        target_table="vinfast_bms",
+        target_column="battery_soc"
+    )
+    assert prop.status == "PROPOSED"
+    assert prop.version == 1
+
+    # 2. HITL Review
+    rev = mgr.review_control("ctrl-wave6-01", reviewer="data_steward_1", approved=True)
+    assert rev.status == "REVIEWED"
+    assert rev.reviewed_by == "data_steward_1"
+
+    # 3. Compilation
+    comp = mgr.compile_control("ctrl-wave6-01")
+    assert comp.status == "COMPILED"
+    assert "WHERE NOT" in comp.compiled_expression
+
+    # 4. Sandbox Validation
+    sandbox = mgr.sandbox_validate_control("ctrl-wave6-01")
+    assert sandbox.status == "SANDBOX_VALIDATED"
+    assert sandbox.sandbox_passed is True
+
+    # 5. Authorization Token Generation
+    auth = mgr.generate_authorization("ctrl-wave6-01", actor="data_steward_1", expires_in_seconds=3600)
+    assert auth.status == "VALID"
+    assert auth.authorization_id.startswith("auth-")
+    assert auth.version == 1
+
+    # 6. Execution with Authorization ID
+    res = mgr.execute_control("ctrl-wave6-01", authorization_id=auth.authorization_id, dry_run=False)
+    assert res["status"] == "EXECUTED"
+    assert res["authorization_id"] == auth.authorization_id
+
+
+def test_execution_requires_authorization_id_and_rejects_missing():
+    """
+    Test Wave 6: Execution fails if authorization_id is missing.
+    """
+    mgr = PreventiveControlManager()
+    mgr.propose_control(
+        control_id="ctrl-wave6-02",
+        rule_type="range",
+        rule_expression="temperature_celsius < 80.0",
+        target_table="vgreen_telemetry",
+        target_column="temperature_celsius"
+    )
+
+    with pytest.raises(PermissionError) as exc_info:
+        mgr.execute_control("ctrl-wave6-02", authorization_id=None)
+    assert "Authorization ID is required for execution" in str(exc_info.value)
+
+
+def test_strict_exact_version_matching_and_rule_modification_rejection():
+    """
+    Test Wave 6: Enforce strict exact-version matching (rejecting modified rules or mismatched versions).
+    """
+    mgr = PreventiveControlManager()
+    mgr.propose_control(
+        control_id="ctrl-wave6-03",
+        rule_type="range",
+        rule_expression="duty_cycle <= 1.0",
+        target_table="vgreen_telemetry",
+        target_column="duty_cycle"
+    )
+    auth = mgr.generate_authorization("ctrl-wave6-03", actor="data_steward_1")
+
+    # Modifying control rule expression increments version to 2
+    mgr.update_control_rule("ctrl-wave6-03", new_expression="duty_cycle <= 0.9")
+
+    # Attempting to execute updated control (v2) with token issued for v1 fails
+    with pytest.raises(PermissionError) as exc_info:
+        mgr.execute_control("ctrl-wave6-03", authorization_id=auth.authorization_id)
+    assert "Version mismatch" in str(exc_info.value)
+
+
+def test_expired_and_revoked_tokens_rejected():
+    """
+    Test Wave 6: Reject execution using expired or revoked authorization tokens.
+    """
+    mgr = PreventiveControlManager()
+    mgr.propose_control(
+        control_id="ctrl-wave6-04",
+        rule_type="range",
+        rule_expression="rating >= 1.0",
+        target_table="xanhsm_trips",
+        target_column="rating"
+    )
+    # Generate expired token
+    auth_exp = mgr.generate_authorization("ctrl-wave6-04", actor="data_steward_1", expires_in_seconds=-10)
+
+    with pytest.raises(PermissionError) as exc_info:
+        mgr.execute_control("ctrl-wave6-04", authorization_id=auth_exp.authorization_id)
+    assert "expired" in str(exc_info.value).lower()
+
+    # Generate valid token and then revoke it
+    auth_rev = mgr.generate_authorization("ctrl-wave6-04", actor="data_steward_1", expires_in_seconds=3600)
+    mgr.revoke_authorization(auth_rev.authorization_id)
+
+    with pytest.raises(PermissionError) as exc_info2:
+        mgr.execute_control("ctrl-wave6-04", authorization_id=auth_rev.authorization_id)
+    assert "REVOKED" in str(exc_info2.value) or "not valid" in str(exc_info2.value).lower() or "is revoked" in str(exc_info2.value).lower()
+
+
+def test_ai_path_direct_mutation_without_hitl_approval_blocked():
+    """
+    Test Wave 6: Ensure no AI path can directly mutate production state without HITL approval and signed authorization.
+    """
+    mgr = PreventiveControlManager()
+    mgr.propose_control(
+        control_id="ctrl-wave6-05",
+        rule_type="range",
+        rule_expression="fare_vnd > 0",
+        target_table="xanhsm_trips",
+        target_column="fare_vnd"
+    )
+
+    # Autonomous self-review by AI is rejected
+    with pytest.raises(PermissionError) as exc_info:
+        mgr.review_control("ctrl-wave6-05", reviewer="autonomous_agent", approved=True)
+    assert "HITL human steward review is required" in str(exc_info.value)
+
+
+def test_authorizations_api_endpoints(client):
+    """
+    Test Wave 6: API endpoints for authorizations route.
+    """
+    headers = {"X-User-Role": "Admin"}
+
+    # 1. Pipeline endpoint
+    pipeline_payload = {
+        "control_id": "ctrl-api-01",
+        "rule_type": "range",
+        "rule_expression": "voltage >= 200.0",
+        "target_table": "vgreen_telemetry",
+        "target_column": "voltage",
+        "reviewer": "data_steward_1",
+        "actor": "data_steward_1",
+        "dry_run": False
+    }
+    resp = client.post("/api/v1/authorizations/pipeline", json=pipeline_payload, headers=headers)
+    assert resp.status_code == 200
+    res_json = resp.json()
+    assert "authorization" in res_json
+    auth_id = res_json["authorization"]["authorization_id"]
+    assert auth_id.startswith("auth-")
+
+    # 2. List authorizations
+    resp_list = client.get("/api/v1/authorizations", headers=headers)
+    assert resp_list.status_code == 200
+    assert len(resp_list.json()) >= 1
+
+    # 3. Verify authorization
+    resp_verify = client.post("/api/v1/authorizations/verify", json={"authorization_id": auth_id, "control_id": "ctrl-api-01"}, headers=headers)
+    assert resp_verify.status_code == 200
+    assert resp_verify.json()["is_valid"] is True
+
+    # 4. Execute without authorization_id -> 403 Forbidden
+    resp_exec_no_auth = client.post("/api/v1/authorizations/execute", json={"control_id": "ctrl-api-01"}, headers=headers)
+    assert resp_exec_no_auth.status_code == 403
+    assert "Authorization ID is required" in resp_exec_no_auth.json()["detail"]
+

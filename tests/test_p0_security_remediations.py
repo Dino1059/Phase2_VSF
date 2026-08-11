@@ -1,7 +1,11 @@
 import io
 import pytest
+from fastapi.testclient import TestClient
 from src.tools.rule_executor import RuleSpec, compile_rule_spec, RuleExecutorTool
 from src.services.security import validate_webhook_url
+from src.middleware.auth import create_access_token, decode_access_token
+from src.services.websocket import websocket_manager
+from src.main import app
 
 
 def test_p0_04_rule_spec_ast_compilation():
@@ -63,10 +67,8 @@ def test_p0_04_sql_injection_rejection():
 
 
 def test_p0_05_upload_security_validation():
-    from fastapi.testclient import TestClient
-    from src.main import app
-
-    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    token = create_access_token({"sub": "admin@datatrust.os", "user_id": "usr_admin_01", "role": "Admin"})
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
 
     # 1. Reject forbidden extension (.exe)
     file_bad_ext = ("test.exe", io.BytesIO(b"binary data"), "application/octet-stream")
@@ -107,3 +109,57 @@ def test_p0_06_ssrf_defense():
 
     # Accept valid public HTTPS URLs
     assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
+
+
+def test_p0_signed_jwt_authentication_and_server_role_resolution():
+    client = TestClient(app)
+
+    # 1. Login with credentials returns signed JWT token with server-resolved role
+    resp_login = client.post("/api/v1/auth/login", json={"username": "steward", "password": "password123"})
+    assert resp_login.status_code == 200
+    login_data = resp_login.json()
+    assert "access_token" in login_data
+    assert login_data["role"] == "Steward"
+    assert login_data["user"] == "steward@datatrust.os"
+
+    # Decode and verify token
+    payload = decode_access_token(login_data["access_token"])
+    assert payload is not None
+    assert payload["role"] == "Steward"
+    assert payload["sub"] == "steward@datatrust.os"
+
+    # 2. Call /auth/me with valid Bearer token returns server-resolved user info and permissions
+    token = login_data["access_token"]
+    resp_me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp_me.status_code == 200
+    me_data = resp_me.json()
+    assert me_data["role"] == "Steward"
+    assert me_data["username"] == "steward@datatrust.os"
+    assert "execute_transform" in me_data["permissions"]
+
+    # 3. Call /auth/me without token returns HTTP 401
+    resp_unauth = client.get("/api/v1/auth/me")
+    assert resp_unauth.status_code == 401
+
+
+def test_p0_websocket_token_authenticated_scoped_rooms():
+    client = TestClient(app)
+
+    # Generate token for user
+    token = create_access_token({"sub": "steward@datatrust.os", "user_id": "usr_steward_01", "role": "Steward"})
+
+    # Connect to WebSocket with token
+    with client.websocket_connect(f"/ws?token={token}") as websocket:
+        # Join project, incident, user rooms
+        rooms_to_test = ["project:proj_99", "incident:inc_88", "user:usr_steward_01"]
+        for room in rooms_to_test:
+            websocket.send_json({"type": "subscribe", "room": room})
+            res = websocket.receive_json()
+            assert res["type"] == "subscribed"
+            assert res["room"] == room
+
+        # Unsubscribe test
+        websocket.send_json({"type": "unsubscribe", "room": "project:proj_99"})
+        res_unsub = websocket.receive_json()
+        assert res_unsub["type"] == "unsubscribed"
+        assert res_unsub["room"] == "project:proj_99"

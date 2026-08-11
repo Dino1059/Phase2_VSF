@@ -1,9 +1,8 @@
 from fastapi import APIRouter, HTTPException, Body
 from typing import List, Dict, Any
-from src.reliability.governance.preventive_controls import PreventiveControlManager
+from src.reliability.governance.preventive_controls import global_control_manager as manager
 
 router = APIRouter(prefix="/controls", tags=["controls"])
-manager = PreventiveControlManager()
 
 
 @router.post("/propose", response_model=Dict[str, Any])

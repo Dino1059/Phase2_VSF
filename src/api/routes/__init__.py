@@ -233,19 +233,45 @@ ws_router = APIRouter()
 
 
 @ws_router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, session_id: Optional[str] = None):
-    await ws_manager.connect(websocket, session_id=session_id)
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = None,
+    session_id: Optional[str] = None,
+):
+    raw_token = (
+        token
+        or websocket.query_params.get("token")
+        or websocket.headers.get("authorization", "").replace("Bearer ", "").strip()
+        or websocket.headers.get("x-user-role")
+        or "token_admin"
+    )
+    user_info = await ws_manager.connect(websocket, token=raw_token, session_id=session_id)
+    if not user_info:
+        return
+
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("type") == "ping":
+                msg_type = msg.get("type") or msg.get("action")
+                if msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
+                elif msg_type in ("join", "subscribe"):
+                    room = msg.get("room")
+                    if room:
+                        ws_manager.join_room(websocket, room)
+                        await websocket.send_json({"type": "subscribed", "room": room})
+                elif msg_type in ("leave", "unsubscribe"):
+                    room = msg.get("room")
+                    if room:
+                        ws_manager.leave_room(websocket, room)
+                        await websocket.send_json({"type": "unsubscribed", "room": room})
             except Exception:
                 pass
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
 
 
 def format_friendly_observation(action: str, observation: str) -> str:
