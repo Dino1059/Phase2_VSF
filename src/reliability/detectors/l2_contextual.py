@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Union, Any
 import pandas as pd
 from src.reliability.models.signal import Signal
 from src.reliability.features.entity_features import EntityFeatureBuilder
@@ -9,6 +9,8 @@ class L2ContextualDetector:
     """
     L2 Contextual Anomaly Detector.
     Detects observations that are valid globally but abnormal relative to an entity's baseline.
+    Strictly calculates baselines from historical observations occurring strictly prior to timestamp t.
+    Enforces a 14-day warm-up policy (returning INSUFFICIENT_HISTORY when history is below 14 days/samples).
     """
 
     def __init__(
@@ -19,6 +21,90 @@ class L2ContextualDetector:
     ):
         self.z_threshold = z_threshold
         self.feature_builder = EntityFeatureBuilder(warmup_days=warmup_days, min_samples=min_samples)
+
+    def score(
+        self,
+        df: pd.DataFrame,
+        entity_id: str,
+        day: Optional[int] = None,
+        target_timestamp: Optional[Any] = None,
+        entity_id_col: str = "vehicle_vin",
+        timestamp_col: str = "timestamp",
+        metric_col: str = "battery_soc"
+    ) -> Union[float, str]:
+        """
+        Calculates the robust Z-score for a specific entity observation at day or target_timestamp.
+        Strictly calculates baseline from observations occurring strictly prior to timestamp t (zero look-ahead leakage).
+        Enforces 14-day warm-up policy (returns 'INSUFFICIENT_HISTORY' when historical observations are below 14 days/samples).
+        """
+        if df.empty or entity_id_col not in df.columns or metric_col not in df.columns:
+            return "INSUFFICIENT_HISTORY"
+
+        entity_df = df[df[entity_id_col] == entity_id].copy()
+        if entity_df.empty:
+            return "INSUFFICIENT_HISTORY"
+
+        if timestamp_col in entity_df.columns:
+            entity_df = entity_df.sort_values(timestamp_col)
+
+        target_row = None
+        if day is not None:
+            if "day" in entity_df.columns:
+                match_df = entity_df[entity_df["day"] == day]
+                if not match_df.empty:
+                    target_row = match_df.iloc[0]
+            elif timestamp_col in entity_df.columns and pd.api.types.is_numeric_dtype(entity_df[timestamp_col]):
+                match_df = entity_df[entity_df[timestamp_col] == day]
+                if not match_df.empty:
+                    target_row = match_df.iloc[0]
+
+            if target_row is None and timestamp_col in entity_df.columns:
+                ts_series = pd.to_datetime(entity_df[timestamp_col], errors="coerce")
+                if not ts_series.isna().all():
+                    min_ts = ts_series.min()
+                    day_offsets = (ts_series - min_ts).dt.days + 1
+                    match_df = entity_df[day_offsets == day]
+                    if not match_df.empty:
+                        target_row = match_df.iloc[0]
+
+            if target_row is None and len(entity_df) >= day:
+                target_row = entity_df.iloc[day - 1]
+        elif target_timestamp is not None:
+            if timestamp_col in entity_df.columns:
+                match_df = entity_df[entity_df[timestamp_col] == target_timestamp]
+                if match_df.empty:
+                    ts_target = pd.to_datetime(target_timestamp)
+                    match_df = entity_df[pd.to_datetime(entity_df[timestamp_col]) == ts_target]
+                if not match_df.empty:
+                    target_row = match_df.iloc[0]
+        else:
+            target_row = entity_df.iloc[-1]
+
+        if target_row is None:
+            return "INSUFFICIENT_HISTORY"
+
+        if timestamp_col in target_row and pd.notna(target_row[timestamp_col]):
+            t = target_row[timestamp_col]
+            history_df = entity_df[entity_df[timestamp_col] < t]
+        elif "day" in target_row:
+            d = target_row["day"]
+            history_df = entity_df[entity_df["day"] < d]
+        else:
+            target_idx = entity_df.index.get_loc(target_row.name) if target_row.name in entity_df.index else 0
+            history_df = entity_df.iloc[:target_idx]
+
+        history_series = history_df[metric_col].dropna().astype(float)
+        warmup_limit = max(self.feature_builder.min_samples, self.feature_builder.warmup_days)
+        if len(history_series) < warmup_limit:
+            return "INSUFFICIENT_HISTORY"
+
+        median, mad, is_warmed_up = self.feature_builder.calculate_rolling_stats(history_series)
+        if not is_warmed_up or median is None or mad is None:
+            return "INSUFFICIENT_HISTORY"
+
+        val = float(target_row[metric_col])
+        z_score = self.feature_builder.calculate_robust_zscore(val, median, mad)
+        return float(z_score)
 
     def detect_entity_anomalies(
         self,
@@ -32,37 +118,47 @@ class L2ContextualDetector:
         """
         Evaluates a DataFrame of observations per entity.
         Returns a list of L2 contextual anomaly Signals.
+        Calculates baselines strictly from historical observations strictly prior to timestamp t.
         """
         signals: List[Signal] = []
 
         if df.empty or metric_col not in df.columns or entity_id_col not in df.columns:
             return signals
 
+        warmup_limit = max(self.feature_builder.min_samples, self.feature_builder.warmup_days)
+
         # Process per entity
         for entity_id, group in df.groupby(entity_id_col):
             sorted_group = group.sort_values(timestamp_col)
-            series = sorted_group[metric_col].astype(float)
 
-            if len(series) < self.feature_builder.min_samples:
-                # Cold start: Insufficient history
-                continue
-
-            # Calculate baseline on historical window
-            median, mad, is_warmed_up = self.feature_builder.calculate_rolling_stats(series)
-            if not is_warmed_up or median is None or mad is None:
-                continue
-
-            # Evaluate recent observation
             for idx, row in sorted_group.iterrows():
+                t = row[timestamp_col]
                 val = float(row[metric_col])
+
+                # Observations strictly prior to timestamp t (zero look-ahead leakage)
+                history_df = sorted_group[sorted_group[timestamp_col] < t]
+                history_series = history_df[metric_col].dropna().astype(float)
+
+                if len(history_series) < warmup_limit:
+                    # Enforce 14-day warm-up policy
+                    continue
+
+                median, mad, is_warmed_up = self.feature_builder.calculate_rolling_stats(history_series)
+                if not is_warmed_up or median is None or mad is None:
+                    continue
+
                 z_score = self.feature_builder.calculate_robust_zscore(val, median, mad)
 
                 if abs(z_score) >= self.z_threshold:
-                    event_time = pd.to_datetime(row[timestamp_col])
-                    if event_time.tzinfo is None:
+                    event_time = pd.to_datetime(t)
+                    if getattr(event_time, 'tzinfo', None) is None:
                         event_time = event_time.tz_localize(timezone.utc)
 
                     severity = "CRITICAL" if abs(z_score) > 6.0 else ("HIGH" if abs(z_score) > 4.5 else "MEDIUM")
+
+                    win_start = pd.to_datetime(history_df[timestamp_col].min()) if not history_df.empty else event_time
+                    if getattr(win_start, 'tzinfo', None) is None:
+                        win_start = win_start.tz_localize(timezone.utc)
 
                     sig = Signal(
                         project_id=project_id,
@@ -71,8 +167,8 @@ class L2ContextualDetector:
                         signal_type="CONTEXTUAL_DRIFT",
                         metric_or_relationship=metric_col,
                         event_time=event_time,
-                        window_start=sorted_group[timestamp_col].min(),
-                        window_end=sorted_group[timestamp_col].max(),
+                        window_start=win_start,
+                        window_end=event_time,
                         score=round(abs(z_score), 2),
                         severity=severity,
                         detector="L2_MAD_Robust_ZScore",
@@ -83,3 +179,31 @@ class L2ContextualDetector:
                     signals.append(sig)
 
         return signals
+
+
+def score(
+    df: pd.DataFrame,
+    entity_id: str,
+    day: Optional[int] = None,
+    target_timestamp: Optional[Any] = None,
+    entity_id_col: str = "vehicle_vin",
+    timestamp_col: str = "timestamp",
+    metric_col: str = "battery_soc",
+    z_threshold: float = 3.5,
+    warmup_days: int = 14,
+    min_samples: int = 14
+) -> Union[float, str]:
+    """
+    Module-level score function for scoring an entity observation at day or target_timestamp.
+    """
+    detector = L2ContextualDetector(z_threshold=z_threshold, warmup_days=warmup_days, min_samples=min_samples)
+    return detector.score(
+        df=df,
+        entity_id=entity_id,
+        day=day,
+        target_timestamp=target_timestamp,
+        entity_id_col=entity_id_col,
+        timestamp_col=timestamp_col,
+        metric_col=metric_col
+    )
+

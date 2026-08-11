@@ -48,3 +48,50 @@ def test_l2_contextual_detector():
     assert sig.entity_ids == ["VIN-001"]
     assert sig.metric_or_relationship == "battery_soc"
     assert sig.score >= 3.5
+
+
+def test_l2_temporal_leakage_regression():
+    """
+    Verifies that score(entity, day=30) strictly calculates baselines from historical observations
+    prior to day 30 and does NOT change when day 31-60 values are modified.
+    Also verifies 14-day warm-up policy returning INSUFFICIENT_HISTORY for day < 14.
+    """
+    detector = L2ContextualDetector(z_threshold=3.5, warmup_days=14, min_samples=14)
+    start_time = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    # Create 60 days of data for VIN-001
+    dates = [start_time + timedelta(days=i) for i in range(60)]
+    days = list(range(1, 61))
+
+    # Normal values around 90.0 with minor fluctuations for 60 days
+    base_vals = [90.0 + (i % 5) * 0.5 for i in range(60)]
+
+    df = pd.DataFrame({
+        "vehicle_vin": ["VIN-001"] * 60,
+        "timestamp": dates,
+        "day": days,
+        "battery_soc": base_vals.copy()
+    })
+
+    # Warm-up check: Day 10 should return INSUFFICIENT_HISTORY (only 9 prior historical observations < 14)
+    score_day_10 = detector.score(df, entity_id="VIN-001", day=10)
+    assert score_day_10 == "INSUFFICIENT_HISTORY"
+
+    # Score day 30 before modifying future observations (days 31-60)
+    score_day_30_original = detector.score(df, entity_id="VIN-001", day=30)
+    assert isinstance(score_day_30_original, float)
+
+    # Modify day 31-60 values significantly
+    df_modified = df.copy()
+    modified_vals = base_vals.copy()
+    for i in range(30, 60):  # indices 30..59 correspond to days 31..60
+        modified_vals[i] = 10.0 if i % 2 == 0 else 500.0
+    df_modified["battery_soc"] = modified_vals
+
+    # Score day 30 after modifying future values
+    score_day_30_modified = detector.score(df_modified, entity_id="VIN-001", day=30)
+    assert isinstance(score_day_30_modified, float)
+
+    # Verify ZERO temporal look-ahead leakage
+    assert score_day_30_original == score_day_30_modified
+
