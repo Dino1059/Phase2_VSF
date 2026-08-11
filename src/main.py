@@ -17,6 +17,12 @@ from src.api.routes import (
     benchmarks_router,
     schedules_router,
     search_router,
+    projects_router,
+    signals_router,
+    incidents_router,
+    controls_router,
+    authorizations_router,
+    audit_router,
 )
 from src.api.hitl import hitl_router
 from src.api.dashboard import dashboard_router
@@ -105,6 +111,12 @@ app.include_router(executions_router, prefix="/api/v1")
 app.include_router(benchmarks_router, prefix="/api/v1")
 app.include_router(schedules_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
+app.include_router(projects_router, prefix="/api/v1")
+app.include_router(signals_router, prefix="/api/v1")
+app.include_router(incidents_router, prefix="/api/v1")
+app.include_router(controls_router, prefix="/api/v1")
+app.include_router(authorizations_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
 
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(pipeline_router, prefix="/api/v1")

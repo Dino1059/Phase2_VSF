@@ -19,8 +19,23 @@ class IncidentService:
         self._incidents[incident.incident_id] = incident
         return incident
 
+    def create_incident(
+        self, project_id: str, entity_ids: List[str], signal_ids: List[str], admission_reason: str, severity: str = "HIGH"
+    ) -> Incident:
+        inc = Incident(
+            project_id=project_id,
+            entity_ids=entity_ids,
+            signal_ids=signal_ids,
+            admission_reason=admission_reason,
+            severity=severity
+        )
+        return self.save_incident(inc)
+
     def get_incident(self, incident_id: str) -> Optional[Incident]:
         return self._incidents.get(incident_id)
+
+    def get_evidence_for_incident(self, incident_id: str) -> List[Evidence]:
+        return list(self._evidence.values())
 
     def list_incidents(self, project_id: Optional[str] = None) -> List[Incident]:
         if project_id:

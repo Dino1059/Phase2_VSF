@@ -52,6 +52,14 @@ from src.api.routes.rules import router as rules_router
 from src.api.routes.schedules import router as schedules_router
 from src.api.routes.search import router as search_router
 
+# Canonical V5 Routers
+from src.api.routes.projects import router as projects_router
+from src.api.routes.signals import router as signals_router
+from src.api.routes.incidents import router as incidents_router
+from src.api.routes.controls import router as controls_router
+from src.api.routes.authorizations import router as authorizations_router
+from src.api.routes.audit import router as audit_router
+
 from src.tools.algolia_tool import AlgoliaSearchTool
 from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
