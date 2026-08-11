@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-08-11T10:05:27.417726+00:00",
+  "agentic_comparison": {
+    "R0_Deterministic": {
+      "top1_accuracy": 0.5,
+      "evidence_precision": 1.0,
+      "evidence_recall": 0.5,
+      "unsupported_claim_rate": 0.0,
+      "latency_ms": 0.0282,
+      "cost_usd": 0.0,
+      "token_spend": 0,
+      "tool_calls_made": 0
+    },
+    "C1_Fixed_Workflow": {
+      "top1_accuracy": 0.75,
+      "evidence_precision": 1.0,
+      "evidence_recall": 0.6667,
+      "unsupported_claim_rate": 0.0,
+      "latency_ms": 0.4637,
+      "cost_usd": 0.00035,
+      "token_spend": 175,
+      "tool_calls_made": 0
+    },
+    "A1_Bounded_Dynamic": {
+      "top1_accuracy": 1.0,
+      "evidence_precision": 0.6667,
+      "evidence_recall": 1.0,
+      "unsupported_claim_rate": 0.0,
+      "latency_ms": 0.2679,
+      "cost_usd": 0.00056,
+      "token_spend": 280,
+      "tool_calls_made": 3.0
+    }
+  },
+  "safety_guardrails": {
+    "A1_evidence_precision_min_target": 0.9,
+    "A1_evidence_precision_passed": false,
+    "A1_unsupported_claim_rate_max_target": 0.05,
+    "A1_unsupported_claim_rate_passed": true,
+    "A1_safety_guardrails_passed": false
+  }
+}

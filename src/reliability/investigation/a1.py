@@ -8,11 +8,65 @@ from src.reliability.investigation.tools import InvestigationToolRegistry, Inves
 from src.reliability.governance.recommendations import RecommendationRouter, Recommendation
 
 
+# Target Entity Domains
+DOMAIN_EV_TELEMETRY = "EV_TELEMETRY"
+DOMAIN_CHARGING_NETWORK = "CHARGING_NETWORK"
+DOMAIN_RIDE_HAILING = "RIDE_HAILING"
+DOMAIN_CUSTOMER_FEEDBACK = "CUSTOMER_FEEDBACK"
+
+# Domain-scoped tool allowlists based on target entity domain
+DOMAIN_TOOL_ALLOWLIST: Dict[str, Set[str]] = {
+    DOMAIN_EV_TELEMETRY: {
+        "fetch_entity_telemetry",
+        "query_historical_baselines",
+        "inspect_upstream_contracts",
+        "fetch_profile",
+        "fetch_dq_violations",
+        "fetch_recent_changes",
+        "resolve_entity_relationships",
+        "calculate_detector_detail",
+    },
+    DOMAIN_CHARGING_NETWORK: {
+        "fetch_charging_history",
+        "query_historical_baselines",
+        "inspect_upstream_contracts",
+        "fetch_profile",
+        "fetch_dq_violations",
+        "fetch_recent_changes",
+        "resolve_entity_relationships",
+        "calculate_detector_detail",
+        "fetch_entity_telemetry",
+    },
+    DOMAIN_RIDE_HAILING: {
+        "fetch_trip_history",
+        "query_historical_baselines",
+        "inspect_upstream_contracts",
+        "fetch_profile",
+        "fetch_dq_violations",
+        "fetch_recent_changes",
+        "resolve_entity_relationships",
+        "calculate_detector_detail",
+        "fetch_entity_telemetry",
+    },
+    DOMAIN_CUSTOMER_FEEDBACK: {
+        "fetch_dq_violations",
+        "inspect_upstream_contracts",
+        "fetch_profile",
+        "fetch_recent_changes",
+        "query_historical_baselines",
+        "calculate_detector_detail",
+        "resolve_entity_relationships",
+    },
+}
+
+
 class A1BoundedInvestigator:
     """
     A1 Dynamic Bounded Investigator.
     Uses typed read-only tool registry, maintains dynamic competing hypotheses (supporting vs contradicting evidence),
     enforces strict operational bounds (max_tool_calls, max_wall_clock_sec, max_tokens_budget, max_hypothesis_revisions),
+    supports domain-scoped tool allowlisting based on target entity domain (EV_TELEMETRY, CHARGING_NETWORK, RIDE_HAILING, CUSTOMER_FEEDBACK),
+    filters domain-irrelevant tools upfront to reduce token overhead,
     supports explicit abstention for missing or contradictory evidence,
     and returns trace metadata (tokens_spent, tool_calls_made, tool_execution_trace).
     """
@@ -26,6 +80,7 @@ class A1BoundedInvestigator:
         tool_registry: Optional[InvestigationToolRegistry] = None,
         router: Optional[RecommendationRouter] = None,
         max_token_budget: Optional[int] = None,
+        domain_allowlists: Optional[Dict[str, Set[str]]] = None,
     ):
         self.max_tool_calls = max_tool_calls
         if max_token_budget is not None:
@@ -37,14 +92,58 @@ class A1BoundedInvestigator:
         self.max_hypothesis_revisions = max_hypothesis_revisions
         self.tools = tool_registry or InvestigationToolRegistry()
         self.router = router or RecommendationRouter()
+        self.domain_allowlists = domain_allowlists or DOMAIN_TOOL_ALLOWLIST
 
         self.tools.verify_zero_state_mutation()
+
+    def detect_target_entity_domain(
+        self, incident: Incident, initial_evidence: List[Evidence]
+    ) -> str:
+        """
+        Determines target entity domain based on entity IDs, admission reason, signals, and evidence.
+        Returns one of: EV_TELEMETRY, CHARGING_NETWORK, RIDE_HAILING, CUSTOMER_FEEDBACK.
+        """
+        explicit_domain = getattr(incident, "domain", None) or getattr(incident, "entity_domain", None)
+        if explicit_domain and str(explicit_domain).upper() in self.domain_allowlists:
+            return str(explicit_domain).upper()
+
+        entity_str = " ".join(incident.entity_ids or []).upper()
+        admission_text = (incident.admission_reason or "").lower()
+        signals_text = " ".join(incident.signal_ids or []).lower()
+        evidence_text = " ".join([f"{e.source_type} {e.source_id} {e.summary}" for e in (initial_evidence or [])]).lower()
+        project_text = (incident.project_id or "").lower()
+
+        combined = f"{entity_str} {admission_text} {signals_text} {evidence_text} {project_text}"
+
+        # Entity ID prefix / explicit keyword checks
+        if any(prefix in entity_str for prefix in ["FB-", "FEEDBACK-", "REVIEW-", "COMMENT-"]) or any(k in combined for k in ["customer_feedback", "customer feedback", "user_feedback", "teencode", "nlp_aspect", "raw_comment"]):
+            return DOMAIN_CUSTOMER_FEEDBACK
+
+        if any(prefix in entity_str for prefix in ["TRIP-", "RIDE-", "DRIVER-", "PASSENGER-", "XANH_SM"]) or any(k in combined for k in ["ride_hailing", "ride hailing", "trip_history", "aborted_trips", "completed_trips", "trip fare", "driver_id"]):
+            return DOMAIN_RIDE_HAILING
+
+        if any(prefix in entity_str for prefix in ["CS-", "STATION-", "CHARGER-", "VG_STA", "CSESS-"]) or any(k in combined for k in ["charging_network", "charging network", "charging_history", "vgreen", "charging station", "charger", "kwh_delivered", "power delivery"]):
+            return DOMAIN_CHARGING_NETWORK
+
+        if any(prefix in entity_str for prefix in ["VIN-", "VEHICLE-", "EV-", "BMS-"]) or any(k in combined for k in ["ev_telemetry", "ev telemetry", "battery_soc", "bms", "thermal_anomaly", "cell_voltage"]):
+            return DOMAIN_EV_TELEMETRY
+
+        # Secondary keyword matching
+        if any(k in combined for k in ["trip", "ride", "hailing", "fare"]):
+            return DOMAIN_RIDE_HAILING
+        if any(k in combined for k in ["charging", "charger", "station", "station_temp"]):
+            return DOMAIN_CHARGING_NETWORK
+        if any(k in combined for k in ["feedback", "comment", "review"]):
+            return DOMAIN_CUSTOMER_FEEDBACK
+
+        return DOMAIN_EV_TELEMETRY
 
     def investigate_incident_dynamically(
         self, incident: Incident, initial_evidence: List[Evidence]
     ) -> Tuple[Hypothesis, Recommendation, Dict[str, Any]]:
         """
         Executes bounded dynamic tool iterations to produce an evidence-backed hypothesis.
+        Applies domain-scoped tool allowlisting based on target entity domain, excluding domain-irrelevant tools upfront.
         Maintains competing hypothesis tracking, enforces operational bounds, and supports explicit abstention.
         """
         start_time = time.perf_counter()
@@ -57,6 +156,9 @@ class A1BoundedInvestigator:
         gathered_evidence_ids: List[str] = [e.evidence_id for e in gathered_evidence if e.evidence_id]
 
         entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
+        resolved_entity_scope: Set[str] = set(incident.entity_ids or [entity_id])
+        resolved_time_scope: Dict[str, Any] = dict(incident.time_window or {})
+
         admission_text = (incident.admission_reason or "").lower()
         combined_summaries = " ".join([e.summary.lower() for e in gathered_evidence])
 
@@ -73,19 +175,116 @@ class A1BoundedInvestigator:
         is_missing_initial = len(gathered_evidence) == 0 or any("missing" in e.summary.lower() for e in gathered_evidence)
         is_data_focused = any(k in admission_text or k in combined_summaries for k in data_keywords)
 
-        # Observation-dependent tool execution plan
+        # Detect target entity domain
+        target_domain = self.detect_target_entity_domain(incident, initial_evidence)
+        allowlist = self.domain_allowlists.get(target_domain, self.domain_allowlists[DOMAIN_EV_TELEMETRY])
+
+        # Define candidate tool definitions
+        candidate_tool_map = {
+            "fetch_entity_telemetry": (
+                "fetch_entity_telemetry",
+                lambda: self.tools.fetch_entity_telemetry(entity_id=entity_id, metric="battery_soc"),
+                {"entity_id": entity_id, "metric": "battery_soc"}
+            ),
+            "fetch_charging_history": (
+                "fetch_charging_history",
+                lambda: self.tools.fetch_charging_history(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "fetch_trip_history": (
+                "fetch_trip_history",
+                lambda: self.tools.fetch_trip_history(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "inspect_upstream_contracts": (
+                "inspect_upstream_contracts",
+                lambda: self.tools.inspect_upstream_contracts(dataset_key=entity_id),
+                {"dataset_key": entity_id}
+            ),
+            "query_historical_baselines": (
+                "query_historical_baselines",
+                lambda: self.tools.query_historical_baselines(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "fetch_dq_violations": (
+                "fetch_dq_violations",
+                lambda: self.tools.fetch_dq_violations(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "fetch_profile": (
+                "fetch_profile",
+                lambda: self.tools.fetch_profile(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "fetch_recent_changes": (
+                "fetch_recent_changes",
+                lambda: self.tools.fetch_recent_changes(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "resolve_entity_relationships": (
+                "resolve_entity_relationships",
+                lambda: self.tools.resolve_entity_relationships(entity_id=entity_id),
+                {"entity_id": entity_id}
+            ),
+            "calculate_detector_detail": (
+                "calculate_detector_detail",
+                lambda: self.tools.calculate_detector_detail(entity_id=entity_id, layer="L2"),
+                {"entity_id": entity_id, "layer": "L2"}
+            ),
+        }
+
+        # Build candidate priority order based on observation focus and domain
         if is_data_focused:
-            tool_plan = [
-                ("inspect_upstream_contracts", lambda: self.tools.inspect_upstream_contracts(dataset_key=entity_id), {"dataset_key": entity_id}),
-                ("query_historical_baselines", lambda: self.tools.query_historical_baselines(entity_id=entity_id), {"entity_id": entity_id}),
-                ("fetch_entity_telemetry", lambda: self.tools.fetch_entity_telemetry(entity_id=entity_id, metric="battery_soc"), {"entity_id": entity_id, "metric": "battery_soc"}),
+            candidate_order = [
+                "inspect_upstream_contracts",
+                "fetch_dq_violations",
+                "query_historical_baselines",
+                "fetch_profile",
+                "fetch_recent_changes",
+                "resolve_entity_relationships",
+                "calculate_detector_detail",
+                "fetch_entity_telemetry",
+                "fetch_charging_history",
+                "fetch_trip_history",
             ]
         else:
-            tool_plan = [
-                ("fetch_entity_telemetry", lambda: self.tools.fetch_entity_telemetry(entity_id=entity_id, metric="battery_soc"), {"entity_id": entity_id, "metric": "battery_soc"}),
-                ("query_historical_baselines", lambda: self.tools.query_historical_baselines(entity_id=entity_id), {"entity_id": entity_id}),
-                ("inspect_upstream_contracts", lambda: self.tools.inspect_upstream_contracts(dataset_key=entity_id), {"dataset_key": entity_id}),
+            if target_domain == DOMAIN_CHARGING_NETWORK:
+                primary_op = "fetch_charging_history"
+            elif target_domain == DOMAIN_RIDE_HAILING:
+                primary_op = "fetch_trip_history"
+            elif target_domain == DOMAIN_CUSTOMER_FEEDBACK:
+                primary_op = "fetch_dq_violations"
+            else:
+                primary_op = "fetch_entity_telemetry"
+
+            candidate_order = [
+                primary_op,
+                "query_historical_baselines",
+                "inspect_upstream_contracts",
+                "fetch_profile",
+                "fetch_dq_violations",
+                "fetch_recent_changes",
+                "resolve_entity_relationships",
+                "calculate_detector_detail",
+                "fetch_charging_history",
+                "fetch_trip_history",
+                "fetch_entity_telemetry",
             ]
+
+        # Deduplicate while preserving priority order
+        seen_tools = set()
+        deduped_candidates = []
+        for tname in candidate_order:
+            if tname not in seen_tools and tname in candidate_tool_map:
+                seen_tools.add(tname)
+                deduped_candidates.append(tname)
+
+        # Apply domain-scoped allowlist upfront, excluding domain-irrelevant tools
+        tool_plan = [
+            candidate_tool_map[tname]
+            for tname in deduped_candidates
+            if tname in allowlist
+        ]
 
         stop_reason = "completed"
 
@@ -113,6 +312,11 @@ class A1BoundedInvestigator:
             tokens_spent += res.tokens_used
             gathered_evidence_ids.append(res.evidence_ref)
             hypothesis_revisions += 1
+
+            if res.entity_scope:
+                resolved_entity_scope.update(res.entity_scope)
+            if res.time_scope:
+                resolved_time_scope.update(res.time_scope)
 
             tool_execution_trace.append({
                 "tool_name": res.tool_name,
@@ -147,8 +351,21 @@ class A1BoundedInvestigator:
             eid = ev.evidence_id
             summ = (ev.summary or "").lower()
 
-            is_op_ev = any(k in summ for k in op_keywords) or "ev-telemetry" in eid or "ev-baseline" in eid or "bms" in eid
-            is_data_ev = any(k in summ for k in data_keywords) or "ev-contract" in eid or "range_violation" in summ or "null_violation" in summ or "trip" in eid
+            is_op_ev = (
+                any(k in summ for k in op_keywords)
+                or "ev-telemetry" in eid
+                or "ev-baseline" in eid
+                or "bms" in eid
+                or "charging" in summ
+                or "trip" in summ
+            )
+            is_data_ev = (
+                any(k in summ for k in data_keywords)
+                or "ev-contract" in eid
+                or "range_violation" in summ
+                or "null_violation" in summ
+                or "ev-dq" in eid
+            )
 
             if is_op_ev and not is_data_ev:
                 op_supporting.append(eid)
@@ -233,14 +450,17 @@ class A1BoundedInvestigator:
             "tool_execution_trace": tool_execution_trace,
             "hypothesis_revisions": hypothesis_revisions,
             "budget_remaining": self.max_tokens_budget - tokens_spent,
-            "resolved_entity_scope": list(incident.entity_ids or [entity_id]),
-            "resolved_time_scope": dict(incident.time_window or {}),
+            "target_domain": target_domain,
+            "domain_allowlist": sorted(list(allowlist)),
+            "resolved_entity_scope": sorted(list(resolved_entity_scope)),
+            "resolved_time_scope": resolved_time_scope,
             "bounded_stop": True,
             "wall_clock_elapsed_sec": wall_clock_elapsed,
             "stop_reason": stop_reason
         }
 
         return hyp, rec, execution_meta
+
 
 
 

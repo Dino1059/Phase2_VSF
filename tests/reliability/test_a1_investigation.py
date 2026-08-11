@@ -329,3 +329,115 @@ def test_dynamic_entity_and_time_scope_resolution():
     assert meta["bounded_stop"] is True
 
 
+def test_a1_domain_scoped_allowlisting_ev_telemetry():
+    """Verify domain detection and upfront filtering for EV_TELEMETRY domain."""
+    investigator = A1BoundedInvestigator(max_tool_calls=5, max_tokens_budget=2000)
+
+    inc = Incident(
+        project_id="ev-telemetry",
+        entity_ids=["VIN-999"],
+        signal_ids=["SOC_DEGRADATION"],
+        admission_reason="Battery thermal degradation warning",
+        severity="HIGH"
+    )
+    ev = Evidence(
+        source_type="telemetry",
+        source_id="bms-999",
+        entity_ids=["VIN-999"],
+        content_hash="h999",
+        summary="Battery SoC cell voltage degradation"
+    )
+
+    hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
+
+    assert meta["target_domain"] == "EV_TELEMETRY"
+    executed_tools = [t["tool_name"] for t in meta["tool_execution_trace"]]
+    assert "fetch_trip_history" not in executed_tools
+    assert "fetch_charging_history" not in executed_tools
+    assert "fetch_entity_telemetry" in executed_tools
+
+
+def test_a1_domain_scoped_allowlisting_charging_network():
+    """Verify domain detection and upfront filtering for CHARGING_NETWORK domain."""
+    investigator = A1BoundedInvestigator(max_tool_calls=5, max_tokens_budget=2000)
+
+    inc = Incident(
+        project_id="vgreen",
+        entity_ids=["CS-500"],
+        signal_ids=["STATION_OVERHEAT"],
+        admission_reason="V-GREEN charging station thermal fault",
+        severity="CRITICAL"
+    )
+    ev = Evidence(
+        source_type="station_log",
+        source_id="cs-500",
+        entity_ids=["CS-500"],
+        content_hash="h500",
+        summary="Charging station temperature threshold exceeded"
+    )
+
+    hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
+
+    assert meta["target_domain"] == "CHARGING_NETWORK"
+    executed_tools = [t["tool_name"] for t in meta["tool_execution_trace"]]
+    assert executed_tools[0] == "fetch_charging_history"
+    assert "fetch_trip_history" not in executed_tools
+
+
+def test_a1_domain_scoped_allowlisting_ride_hailing():
+    """Verify domain detection and upfront filtering for RIDE_HAILING domain."""
+    investigator = A1BoundedInvestigator(max_tool_calls=5, max_tokens_budget=2000)
+
+    inc = Incident(
+        project_id="xanh_sm",
+        entity_ids=["TRIP-800"],
+        signal_ids=["TRIP_ABORT"],
+        admission_reason="Xanh SM trip aborted driver route delay",
+        severity="MEDIUM"
+    )
+    ev = Evidence(
+        source_type="trip_log",
+        source_id="trip-800",
+        entity_ids=["TRIP-800"],
+        content_hash="h800",
+        summary="Aborted trip history log recorded"
+    )
+
+    hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
+
+    assert meta["target_domain"] == "RIDE_HAILING"
+    executed_tools = [t["tool_name"] for t in meta["tool_execution_trace"]]
+    assert "fetch_trip_history" in executed_tools
+    assert "fetch_charging_history" not in executed_tools
+
+
+
+def test_a1_domain_scoped_allowlisting_customer_feedback():
+    """Verify domain detection and upfront filtering for CUSTOMER_FEEDBACK domain."""
+    investigator = A1BoundedInvestigator(max_tool_calls=5, max_tokens_budget=2000)
+
+    inc = Incident(
+        project_id="feedback",
+        entity_ids=["FB-100"],
+        signal_ids=["FEEDBACK_NEG"],
+        admission_reason="Negative customer feedback regarding charging speed",
+        severity="MEDIUM"
+    )
+    ev = Evidence(
+        source_type="customer_feedback",
+        source_id="fb-100",
+        entity_ids=["FB-100"],
+        content_hash="h100",
+        summary="User feedback comment text extracted via NLP"
+    )
+
+    hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
+
+    assert meta["target_domain"] == "CUSTOMER_FEEDBACK"
+    executed_tools = [t["tool_name"] for t in meta["tool_execution_trace"]]
+    assert "fetch_trip_history" not in executed_tools
+    assert "fetch_charging_history" not in executed_tools
+    assert "fetch_entity_telemetry" not in executed_tools
+
+
+

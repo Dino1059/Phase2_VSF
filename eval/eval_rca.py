@@ -349,6 +349,13 @@ def run_rca_evaluation(
                 "evidence_recall": 0.0,
                 "unsupported_claim_rate": 0.0,
                 "abstention_precision": 0.0
+            },
+            "safety_guardrails": {
+                "evidence_precision_min_target": 0.90,
+                "evidence_precision_passed": False,
+                "unsupported_claim_rate_max_target": 0.05,
+                "unsupported_claim_rate_passed": True,
+                "safety_guardrails_passed": False
             }
         }
         if save_artifact:
@@ -411,7 +418,7 @@ def run_rca_evaluation(
         # Unsupported claim evaluation
         if classification != "UNKNOWN":
             non_abstain_predictions += 1
-            if case.expected_classification == "UNKNOWN" or (gt_ev_set and tp == 0):
+            if case.expected_classification == "UNKNOWN" or len(pred_ev_set) == 0 or (gt_ev_set and tp == 0):
                 unsupported_claims += 1
 
         # Abstention precision evaluation
@@ -429,6 +436,10 @@ def run_rca_evaluation(
     unsup_rate = round(unsupported_claims / non_abstain_predictions, 4) if non_abstain_predictions > 0 else 0.0
     abst_prec = round(correct_abstentions / total_abstain_predictions, 4) if total_abstain_predictions > 0 else 1.0
 
+    ev_prec_pass = bool(ev_prec >= 0.90)
+    unsup_rate_pass = bool(unsup_rate <= 0.05)
+    safety_guardrails_passed = bool(ev_prec_pass and unsup_rate_pass)
+
     res = {
         "rca_evaluation": {
             "top1_cause_accuracy": top1_acc,
@@ -437,6 +448,13 @@ def run_rca_evaluation(
             "evidence_recall": ev_rec,
             "unsupported_claim_rate": unsup_rate,
             "abstention_precision": abst_prec
+        },
+        "safety_guardrails": {
+            "evidence_precision_min_target": 0.90,
+            "evidence_precision_passed": ev_prec_pass,
+            "unsupported_claim_rate_max_target": 0.05,
+            "unsupported_claim_rate_passed": unsup_rate_pass,
+            "safety_guardrails_passed": safety_guardrails_passed
         }
     }
 

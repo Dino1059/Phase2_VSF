@@ -21,6 +21,7 @@ def test_get_hidden_rca_ground_truth_cases():
 def test_run_rca_evaluation_dynamic():
     res = run_rca_evaluation()
     assert "rca_evaluation" in res
+    assert "safety_guardrails" in res
     metrics = res["rca_evaluation"]
 
     required_keys = [
@@ -36,6 +37,11 @@ def test_run_rca_evaluation_dynamic():
         val = metrics[key]
         assert isinstance(val, float)
         assert 0.0 <= val <= 1.0
+
+    sg = res["safety_guardrails"]
+    assert sg["evidence_precision_min_target"] == 0.90
+    assert sg["unsupported_claim_rate_max_target"] == 0.05
+    assert isinstance(sg["safety_guardrails_passed"], bool)
 
 
 def test_run_rca_evaluation_custom_cases():
@@ -56,5 +62,12 @@ def test_run_rca_evaluation_empty_cases():
             "evidence_recall": 0.0,
             "unsupported_claim_rate": 0.0,
             "abstention_precision": 0.0
+        },
+        "safety_guardrails": {
+            "evidence_precision_min_target": 0.90,
+            "evidence_precision_passed": False,
+            "unsupported_claim_rate_max_target": 0.05,
+            "unsupported_claim_rate_passed": True,
+            "safety_guardrails_passed": False
         }
     }
