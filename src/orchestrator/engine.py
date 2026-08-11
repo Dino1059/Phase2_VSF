@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from src.services.llm import GemmaLLMAdapter, LLMResponse
 from src.tools.base import ToolRegistry, ToolCall
 from src.db.connection import get_db
+from src.schemas.evidence import EvidenceLedger, EvidenceItem, EvidenceTier, ConfidenceMethod
 
 
 @dataclass
