@@ -110,30 +110,14 @@ export const ContextualAssistant: React.FC<ContextualAssistantProps> = ({
 
     if (activeHypothesis && prevHypRef.current !== activeHypothesis.hypothesis_id) {
       prevHypRef.current = activeHypothesis.hypothesis_id;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `sys-hyp-${Date.now()}`,
-          sender: 'system',
-          text: `Selected RCA Hypothesis focused: "${activeHypothesis.claim}" (Confidence: ${Math.round(
-            activeHypothesis.confidence * 100
-          )}%).`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
+      const prompt = `Explain RCA hypothesis ${activeHypothesis.hypothesis_id}: "${activeHypothesis.claim}"`;
+      handleSend(prompt);
     }
 
     if (selectedEvidence && prevEvRef.current !== selectedEvidence.evidence_id) {
       prevEvRef.current = selectedEvidence.evidence_id;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `sys-ev-${Date.now()}`,
-          sender: 'system',
-          text: `Evidence Item focused for analysis: [${selectedEvidence.evidence_id}] ${selectedEvidence.summary}`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
+      const prompt = `Analyze evidence item [${selectedEvidence.evidence_id}]: ${selectedEvidence.summary}`;
+      handleSend(prompt);
     }
   }, [investigationMode, isApproved, activeHypothesis, selectedEvidence, approvalHash, userRole]);
 
