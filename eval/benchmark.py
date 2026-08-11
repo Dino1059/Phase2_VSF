@@ -10,7 +10,8 @@ from eval.fault_injector import FaultInjector, InjectedFault
 
 @dataclass
 class BenchmarkMetrics:
-    tier: str  # C0, C1, A1
+    tier: str  # C0, C1, A1, A2
+    provenance: str = "SEMI_SYNTHETIC"  # REAL_OPERATIONAL, PUBLIC_PROXY, SEMI_SYNTHETIC, SYNTHETIC
     precision: float = 0.0
     recall: float = 0.0
     f1: float = 0.0

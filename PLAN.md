@@ -1,965 +1,1714 @@
-# 🚀 DataTrust OS v4.0 — Master Execution Plan
+# DataTrust OS — PLAN.md
+## Team-Aligned Multi-Layer Data Reliability, Incident Fusion, and Conditional Agentic Investigation
 
-> **Branch:** `v4`
-> **Status:** APPROVED — Ready for Agent Execution
-> **Created:** 2026-08-04
-> **Hard Deadline:** 2026-08-24 (DONE before 25th August)
-> **Problem Bank:** DATA-02 — "AI Agent xây dựng & kiểm tra Data Quality và phát hiện bất thường"
-> **Team:** Thanh (orchestrator/eval), Ngân (schema/agent), Dũng (pipeline/NLP), Huyền (UX/deploy)
-> **Executor:** AI Coding Agents (phases delegated to subagents)
-
----
-
-## 🎯 Strategic Problem Statement
-
-### Lecturer Feedback
-> *"Bài toán hơi yếu để xây agent — có thể không cần agent"*
-
-### Response: Cross-Domain Root-Cause Diagnosis (True Agentic Necessity)
-
-A static SQL/regex rule **CANNOT**:
-1. Parse Vietnamese teen-code slang (`"ko sac dc"` → `"không sạc được"`)
-2. Cross-correlate complaint timestamps with V-GREEN hardware logs (85.5°C)
-3. Link VinFast BMS telemetry faults (0x4B) to customer-reported symptoms
-4. Propose executable quarantine rules with HITL approval gate
-5. Dynamically decide which tools to call based on intermediate results
-
-**DataTrust OS v4.0** = Multi-Tool ReAct Agentic Engine solving a problem that deterministic scripts fundamentally cannot.
+> **Status:** TEAM-ALIGNED IMPLEMENTATION PLAN  
+> **Prepared:** 2026-08-11  
+> **Program:** DATA-02 — AI Agent for Data Quality, anomaly detection, and governed investigation  
+> **Current product baseline:** v4.2.x repository  
+> **Feature lock:** 2026-08-26 23:59 (Asia/Ho_Chi_Minh)  
+> **Post-lock:** stabilization, benchmark reruns, deployment, documentation, and demo rehearsal only  
+> **Core principle:** Solve the reliability problem at the cheapest sufficient layer. AI/agents are conditional escalation mechanisms, not the product thesis.
 
 ---
 
-## 📐 Architecture Decisions (Locked)
+# 0. Team Decision Reconciliation
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| **LLM** | Gemma-4 via Google AI Studio (free tier) | Open-weight, free, structured output support |
-| **Backend** | FastAPI (Python) in `/src` | Existing codebase, async, auto OpenAPI |
-| **Frontend** | Next.js + TypeScript + TailwindCSS + Lucide-React in `/frontend` | Production SSR, type-safe, modern |
-| **Database** | DuckDB (embedded) | Zero-config, 10-100x faster analytics than SQLite, Parquet-native |
-| **API Contract** | OpenAPI codegen → React Query (TanStack Query) | Type-safe, auto-generated client, secure |
-| **NLP** | Custom Vietnamese teen-code dictionary (built from scratch) | Domain-specific, no external dependency |
-| **i18n** | Dual language (Vietnamese + English) with toggle | Course requirement |
-| **Testing** | pytest only (backend) | 125+ test gate |
-| **Deployment** | Docker Compose (backend + frontend + DuckDB) | Reproducible demo |
-| **Repo** | Monorepo: `/frontend` (Next.js) + `/src` (FastAPI) | Single repo, shared types |
+This plan replaces the previous “recommended direction” section with actual team responses.
 
----
+## 0.1 Decision matrix
 
-## 📊 5 Lecturer Evaluation Questions — Compliance Matrix
-
-| # | Question | Answer | Evidence Phase |
-|---|---|---|---|
-| 1 | Does the work need language processing? | **YES** — Vietnamese teen-code NLP + EV IoT domain literacy | Phase 3 |
-| 2 | Does the input have enough context for AI? | **YES** — 4 deterministic tools provide dynamic multi-source context | Phase 5 |
-| 3 | Have we set quan-metrics? | **YES** — Precision/Recall, Compile Rate, Cost/Latency, Human Time Saved | Phase 9 |
-| 4 | Are AI mistakes well-considered? | **YES** — HITL gate, Quarantine isolation, Fail-safe abstention | Phase 6 |
-| 5 | Are there alternatives with lower costs? | **YES** — C0/C1/A1 benchmark proves A1 is the only viable architecture | Phase 9 |
+| # | Question | Ngân | Dũng | Thanh | Huyền | Team status | Final decision |
+|---|---|---|---|---|---|---|---|
+| 1 | Data error vs operational anomaly | C | C | C | C | **Unanimous** | Detect an anomalous signal first; do not call it a data error until classification/RCA |
+| 2 | Primary user | Data Steward | Data Steward | Dual persona, Data Steward primary | Data Engineer + Data Steward | **Strong convergence** | **Primary: Data Steward / Data Quality Manager. Secondary: Data Engineer / Analytics Engineer** |
+| 3 | L2-L4 output | RCA + recommendation | RCA + recommendation | RCA + operational recommendation | RCA + preventive DQ rule + operational recommendation | **Shared core, different depth** | Always produce evidence-backed RCA hypothesis + recommendation; preventive control is conditional on cause type |
+| 4 | Product pillars | Implied two-lane direction | Keep both; Monitoring/RCA primary | Keep both | Keep both; Monitoring/RCA primary | **Consensus on both pillars** | Keep both; **Monitoring/RCA is the hero recurring workflow**, rule governance is supporting/preventive capability |
+| 5 | Cross-source linkage | IDs can be constructed; original sources independent | Not truly linked | See repo/README | Partial/unclear | **Important factual disagreement** | Treat original sources as **independent proxies**; any linkage is **semi-synthetic/digital-twin linkage**, never “real causal linkage” |
+| 6 | Causal digital twin | Yes | Yes | Yes | No explicit objection | **Consensus among explicit responses** | Yes; use for research/evaluation/demo with provenance labels |
+| 7 | History horizon | 30d preferred; reduce VIN if longer | 60d, ~20 VIN, 4 stations | 30/60/90 | ~1 month indicated | **Different preferences** | Canonical benchmark: **60 days, 30 VIN, 4 stations**, 14-day warm-up; 30/90-day sensitivity runs |
+| 8 | L1 SLA / L2-L4 cadence | <1s / daily | <1s / configurable | <1s | No full answer | **L1 consensus; cadence differs** | L1 p95 <1s target; L2-L4 **configurable, daily by default** |
+| 9 | Agent boundary | Agree | Agree | Agree | No explicit objection | **Strong consensus** | Detection L1-L4 = deterministic/stat/ML; Fusion = calibrated; RCA = C1/A1; execution = deterministic |
+| 10 | A2 multi-agent | No explicit requirement | Conditional only | Build A2 | No explicit answer | **Real disagreement** | **A2 is optional experimental work only after A1 error analysis**; never critical-path or default product architecture |
+| 11 | Main UX | Contextual assistant | Contextual assistant | Chat-first | No explicit answer | **Real disagreement** | **Workflow-first Incident Workspace; chat is persistent contextual assistant** |
+| 12 | Deadline | — | — | Feature lock 26/08 | — | **Consistent with project governance** | Feature lock 26 Aug; stabilization after lock |
 
 ---
 
-## 🗓️ Sprint ↔ Phase Mapping
+# 0.2 Why these conflict resolutions are chosen
 
-| Sprint | Dates | Phases | Focus |
-|---|---|---|---|
-| **Sprint 1** | 03 Aug – 07 Aug | Phase 1, 2 | Foundation: DuckDB migration, data scraping |
-| **Sprint 2** | 07 Aug – 11 Aug | Phase 3, 4 | NLP Engine + Tool Layer |
-| **Sprint 3** | 11 Aug – 15 Aug | Phase 5, 6 | ReAct Engine + HITL Gate |
-| **Sprint 4** | 15 Aug – 19 Aug | Phase 7, 8 | Frontend Dashboard + i18n |
-| **Sprint 5** | 19 Aug – 23 Aug | Phase 9, 10, 11 | Benchmark + Docker + Demo |
+## Conflict A — Primary user
 
----
+### Final choice
+**Primary:** Data Steward / Data Quality Manager  
+**Secondary:** Data Engineer / Analytics Engineer  
+**Downstream consumer:** Reliability / Operations / Maintenance
 
-# PHASE 1: Database Migration & Schema Foundation
+### Rationale
 
-> **Sprint:** 1 (03 Aug – 07 Aug)
-> **Owner:** Agent-Worker-DB
-> **Files:** `/src/db/`, `/src/models/schemas.py`
-> **Duration:** 1 day
-> **Depends on:** Nothing (first phase)
+The project remains DATA-02. The user who owns data quality policy, anomaly triage, exception review, and evidence-based approval must be the primary workflow owner.
 
-## 1.1 Objective
+A Data Engineer is still important, but should not have to live inside every incident. Reliability/Operations becomes relevant when an incident is classified as operational rather than data-related.
 
-Replace SQLite (`datatrust.db`) with DuckDB for 10-100x analytical query performance. Create the unified schema for all 4 VinGroup data domains.
+This creates a clean responsibility boundary:
 
-## 1.2 Tasks
-
-### T1.1: Install DuckDB dependency
-- **File:** `pyproject.toml`
-- **Action:** Add `duckdb>=1.3.0` to dependencies
-- **Command:** `uv add duckdb`
-- **Verify:** `uv run python -c "import duckdb; print(duckdb.__version__)"`
-
-### T1.2: Create DuckDB connection module
-- **File:** `src/db/__init__.py` [NEW]
-- **File:** `src/db/connection.py` [NEW]
-- **Action:** Implement `DuckDBManager` singleton class
-  - `get_connection() -> duckdb.DuckDBPyConnection`
-  - `init_schema()` — creates all tables on first run
-  - `close()` — graceful shutdown
-  - Database file: `data/datatrust_v4.duckdb`
-- **Contract:**
-  ```python
-  class DuckDBManager:
-      def __init__(self, db_path: str = "data/datatrust_v4.duckdb"): ...
-      def get_connection(self) -> duckdb.DuckDBPyConnection: ...
-      def init_schema(self) -> None: ...
-      def execute(self, query: str, params: list = None) -> list: ...
-      def close(self) -> None: ...
-  ```
-
-### T1.3: Define unified schema DDL
-- **File:** `src/db/schema.sql` [NEW]
-- **Tables:**
-  ```sql
-  -- Raw immutable snapshots
-  CREATE TABLE IF NOT EXISTS raw_snapshots (
-      id VARCHAR PRIMARY KEY,
-      source_name VARCHAR NOT NULL,
-      file_path VARCHAR NOT NULL,
-      sha256_hash VARCHAR(64) NOT NULL,
-      row_count INTEGER,
-      column_count INTEGER,
-      ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-
-  -- Xanh SM customer feedback
-  CREATE TABLE IF NOT EXISTS xanhsm_feedback (
-      id INTEGER PRIMARY KEY,
-      review_text VARCHAR,
-      normalized_text VARCHAR,
-      rating FLOAT,
-      location VARCHAR,
-      timestamp TIMESTAMP,
-      source VARCHAR,  -- 'google_maps', 'play_store', 'shopee', 'csv'
-      aspects JSON,    -- extracted aspects from NLP
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id)
-  );
-
-  -- V-GREEN charging station telemetry
-  CREATE TABLE IF NOT EXISTS vgreen_telemetry (
-      id INTEGER PRIMARY KEY,
-      station_id VARCHAR,
-      station_name VARCHAR,
-      temperature_celsius FLOAT,
-      voltage FLOAT,
-      current_amps FLOAT,
-      duty_cycle FLOAT,
-      status VARCHAR,
-      fault_code VARCHAR,
-      timestamp TIMESTAMP,
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id)
-  );
-
-  -- VinFast EV BMS telemetry
-  CREATE TABLE IF NOT EXISTS vinfast_bms (
-      id INTEGER PRIMARY KEY,
-      vehicle_id VARCHAR,
-      battery_soc FLOAT,
-      battery_voltage FLOAT,
-      cell_temp_max FLOAT,
-      cell_temp_min FLOAT,
-      bms_fault_code VARCHAR,
-      charging_station_id VARCHAR,
-      timestamp TIMESTAMP,
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id)
-  );
-
-  -- Xanh SM ride trips
-  CREATE TABLE IF NOT EXISTS xanhsm_trips (
-      id INTEGER PRIMARY KEY,
-      trip_id VARCHAR,
-      driver_id VARCHAR,
-      pickup_location VARCHAR,
-      dropoff_location VARCHAR,
-      distance_km FLOAT,
-      fare_vnd FLOAT,
-      duration_minutes FLOAT,
-      rating FLOAT,
-      timestamp TIMESTAMP,
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id)
-  );
-
-  -- Profiling results
-  CREATE TABLE IF NOT EXISTS profile_results (
-      id VARCHAR PRIMARY KEY,
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id),
-      column_name VARCHAR,
-      dtype VARCHAR,
-      null_count INTEGER,
-      null_pct FLOAT,
-      unique_count INTEGER,
-      min_val VARCHAR,
-      max_val VARCHAR,
-      mean_val FLOAT,
-      std_val FLOAT,
-      profiled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-
-  -- Quality rules (proposed by agent, approved by HITL)
-  CREATE TABLE IF NOT EXISTS quality_rules (
-      id VARCHAR PRIMARY KEY,
-      snapshot_id VARCHAR REFERENCES raw_snapshots(id),
-      rule_name VARCHAR,
-      rule_type VARCHAR,  -- 'range', 'null_check', 'cross_field', 'semantic', 'anomaly'
-      rule_expression VARCHAR,
-      confidence FLOAT,
-      status VARCHAR DEFAULT 'proposed',  -- 'proposed', 'approved', 'rejected', 'edited'
-      proposed_by VARCHAR,  -- 'agent_a1', 'agent_c1', 'human'
-      approved_by VARCHAR,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      approved_at TIMESTAMP
-  );
-
-  -- Quarantine table
-  CREATE TABLE IF NOT EXISTS quarantine (
-      id VARCHAR PRIMARY KEY,
-      source_table VARCHAR,
-      source_row_id INTEGER,
-      rule_id VARCHAR REFERENCES quality_rules(id),
-      reason VARCHAR,
-      original_data JSON,
-      quarantined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      lineage_hash VARCHAR(64)
-  );
-
-  -- Audit trail
-  CREATE TABLE IF NOT EXISTS audit_log (
-      id VARCHAR PRIMARY KEY,
-      action VARCHAR,
-      actor VARCHAR,
-      target_table VARCHAR,
-      target_id VARCHAR,
-      details JSON,
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-
-  -- Agent execution traces
-  CREATE TABLE IF NOT EXISTS agent_traces (
-      id VARCHAR PRIMARY KEY,
-      session_id VARCHAR,
-      agent_type VARCHAR,
-      step_index INTEGER,
-      thought VARCHAR,
-      action VARCHAR,
-      tool_name VARCHAR,
-      tool_input JSON,
-      tool_output JSON,
-      observation VARCHAR,
-      tokens_used INTEGER,
-      cost_usd FLOAT,
-      duration_ms INTEGER,
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-  ```
-
-### T1.4: Migrate existing CSV data into DuckDB
-- **File:** `src/db/seed.py` [NEW]
-- **Action:** Script to ingest `data/vingroup_real/*.csv` into DuckDB tables
-- **Input files:**
-  - `data/vingroup_real/real_xanh_sm_customer_feedback.csv` → `xanhsm_feedback`
-  - `data/vingroup_real/real_vgreen_charging_stations.csv` → `vgreen_telemetry`
-  - `data/vingroup_real/real_vinfast_ev_telemetry.csv` → `vinfast_bms`
-  - `data/vingroup_real/real_xanh_sm_trips.csv` → `xanhsm_trips`
-- **Each ingestion must:**
-  1. Compute SHA-256 of source CSV
-  2. Insert `raw_snapshots` record
-  3. `COPY` CSV data into target table with `snapshot_id` FK
-- **Command:** `uv run python -m src.db.seed`
-
-### T1.5: Update `src/config.py` for DuckDB
-- **File:** `src/config.py` [MODIFY]
-- **Action:** Add `DUCKDB_PATH` setting, remove SQLite references
-
-### T1.6: Update `src/main.py` lifespan
-- **File:** `src/main.py` [MODIFY]
-- **Action:** Replace SQLite initialization with `DuckDBManager.init_schema()` in lifespan
-
-## 1.3 Verification
-
-```bash
-uv run pytest tests/test_db.py -v  # New test file
-# Expected: All tables created, 4 CSVs ingested, SHA-256 hashes match
+```text
+DataTrust OS detects and investigates
+        ↓
+Data Steward owns trust / classification / governance
+        ↓
+Data Engineer fixes data-system causes
+Reliability/Operations acts on real-world operational causes
 ```
 
-## 1.4 Exit Criteria
+---
 
-- [ ] DuckDB file created at `data/datatrust_v4.duckdb`
-- [ ] All 10 tables created with correct schema
-- [ ] 4 VinGroup CSVs ingested with SHA-256 lineage
-- [ ] `raw_snapshots` table has 4 records
-- [ ] Old SQLite code paths removed or deprecated
+## Conflict B — What happens after RCA?
+
+The team agrees on the shared minimum:
+
+> **RCA hypothesis + recommendation**
+
+The disagreement is whether every incident should then create a DQ rule or operational recommendation.
+
+### Final product behavior
+
+```text
+Incident
+→ evidence-backed RCA hypothesis
+→ classify likely cause
+
+IF DATA / PIPELINE / CONTRACT cause:
+    → preventive Data Quality control proposal
+    → compiler/sandbox/HITL
+
+IF OPERATIONAL / ASSET cause:
+    → maintenance / operational recommendation
+    → no fake DQ rule
+
+IF INSUFFICIENT EVIDENCE:
+    → request context / abstain
+```
+
+### Why
+
+Generating a data rule for a battery that is genuinely degrading is conceptually wrong. Likewise, recommending maintenance for a schema mismatch is wrong.
+
+The system must not force all problems into one action type.
 
 ---
 
-# PHASE 2: Vietnamese Customer Feedback Data Collection
+## Conflict C — Are the datasets actually linked?
 
-> **Sprint:** 1 (03 Aug – 07 Aug)
-> **Owner:** Agent-Worker-Data
-> **Files:** `scripts/scrape_*.py`, `data/scraped/`
-> **Duration:** 2 days
-> **Depends on:** Phase 1 (DuckDB must exist to store results)
+### Final factual position
 
-## 2.1 Objective
+The source datasets are **not naturally causally linked**. They originate independently.
 
-Collect real Vietnamese customer feedback from multiple public sources to train and validate the teen-code NLP engine. Target: 1000+ unique reviews across 3+ sources.
+Some current IDs/time-series relationships are constructed for research purposes.
 
-## 2.2 Tasks
+Therefore:
 
-### T2.1: Google Maps V-GREEN station reviews scraper
-- **File:** `scripts/scrape_google_maps.py` [NEW]
-- **Action:** Scrape Google Maps reviews for V-GREEN / VinFast charging stations in HCMC, Hanoi, Da Nang
-- **Method:** Use `playwright` or `selenium` to extract review text, rating, location, timestamp
-- **Output:** `data/scraped/google_maps_vgreen_reviews.csv`
-- **Columns:** `review_text, rating, location, reviewer_name, timestamp, source`
-- **Target:** 300+ reviews
-- **Dependencies:** `uv add playwright && uv run playwright install chromium`
-
-### T2.2: Google Play Store Xanh SM app reviews scraper
-- **File:** `scripts/scrape_play_store.py` [NEW]
-- **Action:** Scrape Google Play reviews for Xanh SM app (`com.xanhsm.passenger`)
-- **Method:** Use `google-play-scraper` Python library
-- **Output:** `data/scraped/play_store_xanhsm_reviews.csv`
-- **Columns:** `review_text, rating, thumbs_up, reply_text, timestamp, source`
-- **Target:** 500+ reviews
-- **Dependencies:** `uv add google-play-scraper`
-
-### T2.3: Shopee VinFast product reviews scraper
-- **File:** `scripts/scrape_shopee.py` [NEW]
-- **Action:** Scrape Shopee.vn reviews for VinFast accessories/chargers
-- **Method:** Shopee API or browser scraping
-- **Output:** `data/scraped/shopee_vinfast_reviews.csv`
-- **Columns:** `review_text, rating, product_name, timestamp, source`
-- **Target:** 200+ reviews
-
-### T2.4: UIT-VSFC dataset integration
-- **File:** `scripts/integrate_uit_vsfc.py` [NEW]
-- **Action:** Download and integrate UIT-VSFC (Vietnamese Students' Feedback Corpus) as supplementary training data
-- **Source:** Public dataset from UIT (University of Information Technology HCMC)
-- **Output:** `data/scraped/uit_vsfc_feedback.csv`
-- **Purpose:** Provides labeled Vietnamese sentiment data for NLP validation
-
-### T2.5: Unified feedback ingestion into DuckDB
-- **File:** `scripts/ingest_scraped_data.py` [NEW]
-- **Action:** Merge all scraped CSVs → deduplicate → ingest into `xanhsm_feedback` table
-- **Deduplication:** Hash of `review_text + source + timestamp`
-- **Command:** `uv run python scripts/ingest_scraped_data.py`
-
-### T2.6: Data quality report for scraped data
-- **File:** `data/scraped/SCRAPE_REPORT.md` [NEW]
-- **Action:** Auto-generate report with:
-  - Total reviews per source
-  - Language distribution (Vietnamese/English/Mixed)
-  - Teen-code density (% reviews containing slang)
-  - Rating distribution histogram
-  - Sample teen-code examples found
-
-## 2.3 Verification
-
-```bash
-uv run python scripts/ingest_scraped_data.py
-uv run python -c "
-import duckdb
-con = duckdb.connect('data/datatrust_v4.duckdb')
-print(con.execute('SELECT source, COUNT(*) FROM xanhsm_feedback GROUP BY source').fetchall())
-"
-# Expected: Multiple sources, total > 1000 reviews
+```text
+Public/independent source data
+        +
+Causal scenario generator
+        +
+Shared synthetic entity/time keys
+        =
+SEMI-SYNTHETIC CAUSAL DIGITAL TWIN
 ```
 
-## 2.4 Exit Criteria
+This must be stated in:
 
-- [ ] 3+ unique data sources scraped
-- [ ] 1000+ total reviews in `xanhsm_feedback` table
-- [ ] At least 30% of reviews contain Vietnamese teen-code/slang
-- [ ] `SCRAPE_REPORT.md` generated with statistics
-- [ ] All scraped data has `source` field for provenance
+- Data Card;
+- evaluation report;
+- benchmark metadata;
+- demo narration;
+- research limitations.
+
+Do not claim “real VinFast/V-GREEN/Xanh SM linked operational data” unless the team later receives genuinely linked data.
 
 ---
 
-# PHASE 3: Vietnamese NLP Engine — Teen-code Dictionary & Aspect Extractor
+## Conflict D — 30 vs 60 vs 90 days
 
-> **Sprint:** 2 (07 Aug – 11 Aug)
-> **Owner:** Agent-Worker-NLP
-> **Files:** `src/services/vietnamese_nlp.py`, `src/data/teencode_dict.json`
-> **Duration:** 2 days
-> **Depends on:** Phase 2 (needs scraped feedback data for validation)
+### Final benchmark design
 
-## 3.1 Objective
+**Primary corpus**
+- 60 days;
+- 30 VIN;
+- 4 stations;
+- 14-day warm-up period before scored contextual detection;
+- enough trip density per VIN to avoid sparse per-entity baselines.
 
-Build a custom Vietnamese NLP engine that:
-1. Normalizes teen-code/slang to standard Vietnamese
-2. Extracts structured aspects (Location, Component, Severity, Symptom)
-3. Classifies sentiment polarity
-4. Cross-references with EV domain ontology
+**Sensitivity slices**
+- 30-day reduced-history slice;
+- 90-day long-history slice if generator/data density supports it.
 
-## 3.2 Tasks
+### Why 60 days
 
-### T3.1: Build teen-code dictionary
-- **File:** `src/data/teencode_dict.json` [NEW]
-- **Action:** Create comprehensive Vietnamese teen-code → standard Vietnamese mapping
-- **Minimum 200 entries** covering:
-  ```json
-  {
-    "ko": "không", "dc": "được", "nc": "nhưng", "vl": "quá",
-    "cx": "cũng", "tram sac": "trạm sạc", "sac dt": "sạc điện thoại",
-    "app": "ứng dụng", "lag": "chậm", "oke": "tốt", "bt": "bình thường",
-    "nv": "nhân viên", "ship": "giao hàng", "fb": "phản hồi",
-    "dv": "dịch vụ", "sdt": "số điện thoại", "tks": "cảm ơn",
-    "k": "không", "nma": "nhưng mà", "tl": "trả lời",
-    "ntn": "như thế nào", "j": "gì", "r": "rồi", "mk": "mình", "bik": "biết"
-  }
-  ```
-- **Sources:** Analyze scraped feedback from Phase 2 for common patterns
+30 days is enough for an MVP but weak for:
+- stable rolling baselines;
+- gradual drift;
+- pre/post change-point windows;
+- false-positive analysis.
 
-### T3.2: Build EV domain ontology
-- **File:** `src/data/ev_domain_ontology.json` [NEW]
-- **Action:** Create domain-specific keyword → component mapping for EV ecosystem
-  ```json
-  {
-    "components": {
-      "charger": ["trạm sạc", "sạc", "cổng sạc", "bộ sạc", "charger"],
-      "battery": ["pin", "ắc quy", "battery", "BMS", "cell"],
-      "vehicle": ["xe", "ô tô", "VinFast", "VF8", "VF9", "VFe34"],
-      "app": ["ứng dụng", "app", "Xanh SM", "phần mềm"],
-      "driver": ["tài xế", "bác tài", "lái xe", "driver"]
-    },
-    "severity_keywords": {
-      "critical": ["cháy", "nổ", "chết máy", "không hoạt động", "nguy hiểm"],
-      "high": ["nóng", "quá nhiệt", "hỏng", "lỗi", "không sạc được"],
-      "medium": ["chậm", "lag", "đợi lâu", "không ổn định"],
-      "low": ["bình thường", "tạm ổn", "chấp nhận được"]
-    }
-  }
-  ```
+90 days is useful but increases generated data without automatically increasing evidence quality.
 
-### T3.3: Implement VietnameseNLPService
-- **File:** `src/services/vietnamese_nlp.py` [MODIFY — rewrite]
-- **Action:** Complete rewrite with production-quality NLP pipeline
-- **Contract:**
-  ```python
-  @dataclass
-  class NLPResult:
-      original_text: str
-      normalized_text: str
-      language: str  # 'vi', 'en', 'mixed'
-      teencode_found: list[str]
-      aspects: list[Aspect]
-      sentiment: float  # -1.0 to 1.0
-      confidence: float  # 0.0 to 1.0
+60 days is the best primary compromise between:
+- statistical history;
+- density per entity;
+- benchmark size;
+- explainability.
 
-  @dataclass
-  class Aspect:
-      component: str  # 'charger', 'battery', 'vehicle', 'app', 'driver'
-      location: str | None
-      symptom: str
-      severity: str  # 'critical', 'high', 'medium', 'low'
-
-  class VietnameseNLPService:
-      def __init__(self, teencode_path: str, ontology_path: str): ...
-      def normalize(self, text: str) -> str: ...
-      def extract_aspects(self, text: str) -> list[Aspect]: ...
-      def analyze(self, text: str) -> NLPResult: ...
-      def batch_analyze(self, texts: list[str]) -> list[NLPResult]: ...
-  ```
-
-### T3.4: Create NLP test suite
-- **File:** `tests/test_vietnamese_nlp.py` [NEW]
-- **Action:** 30+ test cases covering:
-  ```python
-  assert nlp.normalize("ko sac dc") == "không sạc được"
-  assert nlp.normalize("tram sac vincom nc nóng vl") == "trạm sạc Vincom nhưng nóng quá"
-
-  result = nlp.analyze("trạm sạc vincom nc ko vào điện nóng vl")
-  assert result.aspects[0].component == "charger"
-  assert result.aspects[0].severity == "high"
-  assert result.aspects[0].location == "Vincom"
-  ```
-
-## 3.3 Verification
-
-```bash
-uv run pytest tests/test_vietnamese_nlp.py -v
-# Expected: 30+ tests pass, teen-code normalization accuracy > 95%
-```
-
-## 3.4 Exit Criteria
-
-- [ ] Teen-code dictionary with 200+ entries
-- [ ] EV domain ontology with 5 component categories
-- [ ] `VietnameseNLPService` with `normalize()`, `extract_aspects()`, `analyze()`
-- [ ] 30+ test cases passing
-- [ ] Can process all scraped feedback from Phase 2
+If data density becomes sparse, **reduce entity count before fabricating more unrelated records**.
 
 ---
 
-# PHASE 4: Deterministic Tool Layer
+## Conflict E — Should A2 be built?
 
-> **Sprint:** 2 (07 Aug – 11 Aug)
-> **Owner:** Agent-Worker-Tools
-> **Files:** `src/tools/*.py`
-> **Duration:** 2 days
-> **Depends on:** Phase 1 (DuckDB), Phase 3 (NLP service)
+### Final decision
 
-## 4.1 Objective
+A2 is **not a required product milestone and not a required benchmark baseline**.
 
-Build 6 deterministic tools that the ReAct agent can call. Each tool has a strict JSON input/output schema, no side effects on raw data, and full audit logging.
+It may be built as an isolated experiment only if A1 shows a measurable failure mode.
 
-## 4.2 Tasks
+Examples that can justify A2:
 
-### T4.1: Tool base class and registry
-- **File:** `src/tools/base.py` [NEW]
-- **Contract:**
-  ```python
-  class BaseTool(ABC):
-      name: str
-      description: str
-      input_schema: dict  # JSON Schema
-      output_schema: dict  # JSON Schema
-      @abstractmethod
-      def execute(self, input_data: dict) -> dict: ...
-      def to_function_spec(self) -> dict: ...  # OpenAI-style function calling spec
+1. A1 regularly reaches unsupported conclusions and an independent verifier materially reduces them.
+2. Sequential investigation is too slow but independent hypotheses can be evaluated in parallel.
+3. A specialist domain critic materially improves one difficult benchmark slice.
+4. A planner materially reduces unnecessary tool calls.
 
-  class ToolRegistry:
-      def register(self, tool: BaseTool): ...
-      def get(self, name: str) -> BaseTool: ...
-      def list_tools(self) -> list[dict]: ...
-      def execute(self, name: str, input_data: dict) -> ToolCall: ...
-  ```
+Admission rule:
 
-### T4.2: Tool 1 — Vietnamese NLP Extractor
-- **File:** `src/tools/nlp_extractor.py` [NEW]
-- **Input:** `{"review_text": "string", "review_id": "int?"}`
-- **Output:** `{"normalized_text": "str", "aspects": [...], "sentiment": float, "teencode_found": [...]}`
-
-### T4.3: Tool 2 — Telemetry Query API
-- **File:** `src/tools/telemetry_query.py` [NEW]
-- **Input:** `{"station_id?": "str", "location_keyword?": "str", "start_time": "ISO8601", "end_time": "ISO8601", "fault_only": bool}`
-- **Output:** `{"vgreen_records": [...], "bms_records": [...], "total_faults_found": int}`
-
-### T4.4: Tool 3 — Anomaly Detector (Statistical)
-- **File:** `src/tools/anomaly_detector.py` [NEW]
-- **Input:** `{"table_name": "str", "column_name": "str", "method": "z_score|iqr|isolation_forest", "threshold": float}`
-- **Output:** `{"anomalies_found": int, "anomaly_indices": [...], "statistics": {...}}`
-
-### T4.5: Tool 4 — Quality Rule Proposer
-- **File:** `src/tools/rule_proposer.py` [NEW]
-- **Input:** `{"profile_summary": "str", "nlp_insights": {}, "anomaly_findings": {}, "target_table": "str"}`
-- **Output:** `{"proposed_rules": [{"rule_name": "str", "rule_type": "str", "rule_expression": "str", "confidence": float, "rationale": "str"}]}`
-
-### T4.6: Tool 5 — Data Profiler
-- **File:** `src/tools/profiler.py` [MODIFY — enhance]
-- **Input:** `{"table_name": "str", "sample_size": int}`
-- **Output:** `{"table_name": "str", "row_count": int, "columns": [{"name": "str", "dtype": "str", "null_count": int, ...}]}`
-
-### T4.7: Tool 6 — Rule Executor
-- **File:** `src/tools/rule_executor.py` [NEW]
-- **Input:** `{"rule_id": "str", "dry_run": bool}`
-- **Output:** `{"records_checked": int, "violations_found": int, "quarantined_count": int, "clean_count": int}`
-
-### T4.8: Tool test suite
-- **File:** `tests/test_tools.py` [NEW]
-- **Action:** 40+ tests covering all 6 tools (happy path, empty input, invalid input, schema validation)
-
-## 4.3 Verification
-
-```bash
-uv run pytest tests/test_tools.py -v
+```text
+Observed A1 failure
++ pre-registered A2 intervention
++ measurable expected benefit
+→ permit A2 experiment
 ```
 
-## 4.4 Exit Criteria
+Not:
 
-- [ ] 6 tools implemented with strict JSON schema contracts
-- [ ] `ToolRegistry` can list and execute all tools
-- [ ] Each tool returns structured output, never crashes on bad input
-- [ ] 40+ tool tests passing
+```text
+"We have coding capacity"
+→ build more agents
+```
+
+This preserves Thanh's ambition to test A2 while preventing multi-agent architecture from contaminating the critical path.
 
 ---
 
-# PHASE 5: Multi-Agent ReAct Engine (Orchestrator + Sub-Agents)
+## Conflict F — Chat-first or workflow-first UX?
 
-> **Sprint:** 3 (11 Aug – 15 Aug)
-> **Owner:** Agent-Worker-ReAct
-> **Files:** `src/agents/*.py`, `src/orchestrator/`
-> **Duration:** 3 days
-> **Depends on:** Phase 3 (NLP), Phase 4 (Tools)
+### Final choice
+**Workflow-first. Chat remains a persistent contextual assistant.**
 
-## 5.1 Objective
+### Why
 
-Build the core bounded ReAct loop engine with 6 specialized sub-agents. This is the **heart of the agentic necessity proof**.
+The primary user is a Data Steward. Their work is stateful and governed:
 
-## 5.2 Tasks
+- which incident?
+- which signals?
+- which evidence?
+- which hypothesis?
+- who approved?
+- what changed?
+- what was executed?
 
-### T5.1: Gemma-4 LLM adapter via Google AI Studio
-- **File:** `src/services/llm.py` [MODIFY — rewrite]
-- **Contract:**
-  ```python
-  class GemmaLLMAdapter:
-      def __init__(self, api_key: str, model: str = "gemma-4-27b-it"): ...
-      def chat(self, messages: list[dict], tools: list[dict] = None) -> LLMResponse: ...
-      def structured_output(self, prompt: str, schema: dict) -> dict: ...
-  ```
-- **Dependencies:** `uv add google-genai`
-- **Auth:** `GOOGLE_AI_API_KEY` env var
+A blank chat is poor at representing durable operational state.
 
-### T5.2: ReAct Loop Engine
-- **File:** `src/orchestrator/react_engine.py` [NEW]
-- **Contract:**
-  ```python
-  class ReActEngine:
-      def __init__(self, llm: GemmaLLMAdapter, tools: ToolRegistry, max_steps: int = 10): ...
-      def run(self, task: str, context: dict = None) -> ReActResult: ...
+The assistant remains powerful:
 
-  @dataclass
-  class ReActStep:
-      step_index: int
-      thought: str
-      action: str  # tool name or 'FINISH' or 'ABSTAIN'
-      action_input: dict
-      observation: str
-  ```
-- **Logic:** System prompt → LLM Thought → Action (tool call) → Observation → loop until FINISH/ABSTAIN/max_steps
-
-### T5.3: Sub-Agent — Profiler Agent
-- **File:** `src/agents/profiler_agent.py` [NEW]
-- **Tools:** `data_profiler`
-
-### T5.4: Sub-Agent — Anomaly Detector Agent
-- **File:** `src/agents/anomaly_agent.py` [NEW]
-- **Tools:** `anomaly_detector`, `telemetry_query`
-
-### T5.5: Sub-Agent — Diagnosis Agent
-- **File:** `src/agents/diagnosis_agent.py` [NEW]
-- **Tools:** `vietnamese_nlp_extractor`, `telemetry_query`, `anomaly_detector`
-
-### T5.6: Sub-Agent — Rule Proposer Agent
-- **File:** `src/agents/rule_proposer_agent.py` [NEW]
-- **Tools:** `quality_rule_proposer`
-
-### T5.7: Sub-Agent — Executor Agent
-- **File:** `src/agents/executor_agent.py` [NEW]
-- **Tools:** `rule_executor`
-
-### T5.8: Top-Level Orchestrator
-- **File:** `src/orchestrator/orchestrator.py` [NEW]
-- **Workflow:** Profiler → Anomaly → Diagnosis → Rule Proposer → HITL queue → (after approval) → Executor
-
-### T5.9–T5.10: Baselines C0 and C1
-- **File:** `src/agents/baselines.py` [MODIFY]
-- C0: Pure SQL/Pandas rules, no LLM
-- C1: Single LLM call, no tools
-
-### T5.11: Agent test suite
-- **File:** `tests/test_agents.py` [NEW]
-- **Action:** 30+ tests (loop termination, abstention, tool passing, orchestrator ordering)
-
-## 5.3 Verification
-
-```bash
-uv run pytest tests/test_agents.py -v
+```text
+Incident Workspace
+├── Evidence
+├── Hypotheses
+├── Timeline
+├── Controls
+├── Audit
+└── Contextual Assistant
 ```
 
-## 5.4 Exit Criteria
+Chat may:
+- explain the current incident;
+- summarize evidence;
+- request a deeper investigation;
+- navigate;
+- compare hypotheses;
+- generate a draft control.
 
-- [ ] Gemma-4 adapter connects to Google AI Studio
-- [ ] ReAct engine completes bounded loop with tool calls
-- [ ] 5 sub-agents + orchestrator implemented
-- [ ] C0 and C1 baselines implemented
-- [ ] 30+ agent tests passing
-- [ ] All steps logged to `agent_traces` table
+Chat may not:
+- become the system of record;
+- approve consequential actions by text alone;
+- hide workflow state;
+- directly authorize execution.
 
 ---
 
-# PHASE 6: HITL Permission Gate & Audit System
+# 1. Final Product Thesis
 
-> **Sprint:** 3 (11 Aug – 15 Aug)
-> **Owner:** Agent-Worker-HITL
-> **Files:** `src/api/hitl.py`, `src/services/audit.py`
-> **Duration:** 1 day
-> **Depends on:** Phase 5 (agent proposes rules to HITL queue)
+DataTrust OS is no longer framed as:
 
-## 6.1 Tasks
+> “An AI agent that generates data-quality rules.”
 
-### T6.1: HITL queue data model (`src/models/hitl.py` [NEW])
-```python
-class RuleProposalCard(BaseModel):
-    rule_id: str
-    rule_name: str
-    rule_expression: str
-    confidence: float
-    rationale: str
-    impact_preview: dict
-    status: str = "pending"  # pending, approved, rejected, edited
+The team-aligned product thesis is:
+
+> **DataTrust OS is a data reliability control plane that detects abnormal signals at four technical layers, fuses them into evidence-backed incidents, and conditionally escalates to AI investigation when the cause cannot be resolved by deterministic methods. Human reviewers remain the authority for consequential decisions; deterministic code performs every governed execution.**
+
+The product answers three different questions with three different technical systems:
+
+```text
+1. WHAT IS WRONG?
+   → L1/L2/L3/L4 detection
+
+2. DOES IT MATTER ENOUGH TO INVESTIGATE?
+   → Fusion + incident admission
+
+3. WHY DID IT HAPPEN?
+   → R0 / C1 / A1 investigation
 ```
 
-### T6.2: HITL API endpoints (`src/api/hitl.py` [NEW])
-```
-GET  /api/v1/hitl/queue         — List pending proposals
-POST /api/v1/hitl/approve/{id}  — Approve rule
-POST /api/v1/hitl/reject/{id}   — Reject rule
-POST /api/v1/hitl/edit/{id}     — Edit rule before approval
-GET  /api/v1/hitl/history       — All reviewed proposals
-```
-
-### T6.3: Enhanced audit trail (`src/services/audit.py` [MODIFY])
-- Log every HITL action with actor, action, target, SHA-256 state hash
-
-### T6.4: WebSocket HITL notifications (`src/services/ws_manager.py` [MODIFY])
-- Push events: new proposal, approved, rejected, executed
-
-### T6.5: HITL test suite (`tests/test_hitl.py` [NEW]) — 15+ tests
-
-## 6.2 Exit Criteria
-
-- [ ] HITL queue stores and serves rule proposals
-- [ ] Approve/Reject/Edit endpoints work
-- [ ] Every action logged to audit trail
-- [ ] WebSocket notifications fire on state changes
-- [ ] 15+ tests passing
+This separation is mandatory.
 
 ---
 
-# PHASE 7: Next.js Frontend — Dashboard & HITL UI
+# 2. Product Pillars
 
-> **Sprint:** 4 (15 Aug – 19 Aug)
-> **Owner:** Agent-Worker-Frontend
-> **Files:** `/frontend/**`
-> **Duration:** 3 days
-> **Depends on:** Phase 6 (HITL API ready)
+## Pillar A — Data Contract & Quality Governance
 
-## 7.1 Tasks
+Purpose:
+- define known invariants;
+- profile incoming data;
+- govern source-to-target assumptions;
+- compile reviewed controls;
+- quarantine invalid data;
+- preserve evidence and audit.
 
-### T7.1: Initialize Next.js project
-```bash
-rm -rf frontend-v3
-pnpm dlx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --no-turbopack
-cd frontend && pnpm add lucide-react @tanstack/react-query axios next-intl
+Core flow:
+
+```text
+Source
+→ Snapshot
+→ Profile
+→ Rule / Contract Proposal
+→ Review
+→ Compile
+→ Sandbox
+→ Authorization
+→ Deterministic Execute
+→ Audit
 ```
 
-### T7.2: API client (`frontend/src/lib/api.ts` [NEW])
-- Type-safe Axios client matching FastAPI OpenAPI spec
+This pillar remains part of the product but is not the primary differentiation.
 
-### T7.3: Dashboard page (`frontend/src/app/page.tsx`)
-- KPI cards, data quality gauge, activity timeline, date filters (3d/7d/1mo)
-- Dark theme, glassmorphism, Lucide icons
+---
 
-### T7.4: HITL Queue page (`frontend/src/app/hitl/page.tsx`)
-- Rule review cards with Approve/Edit/Reject buttons
-- Impact preview, agent reasoning trace
+## Pillar B — Continuous Reliability Monitoring
 
-### T7.5: Agent Trace Viewer (`frontend/src/app/traces/page.tsx`)
-- ReAct loop step-by-step: Thought → Action → Observation
-- Token cost per step
+This becomes the hero recurring workflow.
 
-### T7.6: Quarantine Explorer (`frontend/src/app/quarantine/page.tsx`)
-- Table view, lineage hash, originating rule
-
-### T7.7: Data Sources page (`frontend/src/app/sources/page.tsx`)
-- Raw snapshots, SHA-256 hashes, "Run Pipeline" button
-
-### T7.8: i18n (`frontend/src/i18n/`)
-- `vi.json`, `en.json`, `config.ts`
-- Language toggle in navbar
-
-### T7.9: Layout (`frontend/src/app/layout.tsx`)
-- Sidebar nav, top bar, dark/light mode, responsive
-
-## 7.2 Verification
-
-```bash
-cd frontend && pnpm build && pnpm dev
+```text
+Project data streams / history
+→ L1 Point Detection
+→ L2 Contextual Detection
+→ L3 Relational Detection
+→ L4 Change-Point Detection
+→ Fusion
+→ Incident
+→ Conditional Investigation
+→ HITL
+→ Data Control OR Operational Recommendation
+→ Audit
 ```
 
-## 7.3 Exit Criteria
+The multiple datasets belong to **one project context**, not separate unrelated UX silos.
 
-- [ ] Next.js builds successfully
-- [ ] 6 pages functional
-- [ ] i18n toggle works (Vietnamese ↔ English)
-- [ ] HITL approve/reject/edit works
-- [ ] Responsive dark theme
+The UX should present a coherent fleet/project reliability model.
 
 ---
 
-# PHASE 8: API Integration & WebSocket
+# 3. Signal Semantics
 
-> **Sprint:** 4 (15 Aug – 19 Aug)
-> **Owner:** Agent-Worker-API
-> **Files:** `src/api/*.py`
-> **Duration:** 1 day
-> **Depends on:** Phase 6, Phase 7
+The system must use explicit semantics:
 
-## 8.1 Tasks
+## 3.1 Confirmed violation
 
-### T8.1: Dashboard stats (`src/api/dashboard.py` [NEW])
-### T8.2: Pipeline trigger (`src/api/pipeline.py` [NEW])
-### T8.3: Agent traces (`src/api/traces.py` [NEW])
-### T8.4: Quarantine (`src/api/quarantine.py` [NEW])
-### T8.5: Snapshots (`src/api/snapshots.py` [NEW])
-### T8.6: Security (`src/api/middleware.py` [MODIFY]) — tighten CORS, add rate limiting
-### T8.7: API tests (`tests/test_api.py` [NEW]) — 20+ tests
+A known invariant has been violated.
 
-## 8.2 Exit Criteria
-
-- [ ] All endpoints return correct JSON
-- [ ] Frontend can hit all endpoints
-- [ ] 20+ API tests passing
-
----
-
-# PHASE 9: Benchmark & Evaluation — C0 vs C1 vs A1
-
-> **Sprint:** 5 (19 Aug – 23 Aug)
-> **Owner:** Agent-Worker-Benchmark
-> **Files:** `eval/`
-> **Duration:** 1 day
-> **Depends on:** Phase 5 (all 3 baselines)
-
-## 9.1 Tasks
-
-### T9.1: Fault injection (`eval/fault_injector.py` [NEW])
-- 9 fault families, seed=42, ground-truth labels
-
-### T9.2: Benchmark harness (`eval/benchmark.py` [NEW])
-- Measure: Precision, Recall, F1, Compile Rate, Teen-code Accuracy, Cross-system Link Rate, Cost, Latency, Human Time Saved
-
-### T9.3: Report generator (`eval/generate_report.py` [NEW])
-- Output: `docs/planning/EVALUATION_REPORT.md`
-
-### T9.4: Benchmark pytest gate (`tests/test_benchmark.py` [NEW])
-```python
-assert a1.recall >= c1.recall + 0.10
-assert a1.precision >= 0.80
-assert a1.cost <= c1.cost * 2.0
+Example:
+```text
+battery_soc = -4
 ```
 
-## 9.2 Exit Criteria
-
-- [ ] A1 precision ≥ 80%, recall ≥ C1 + 10pp
-- [ ] `EVALUATION_REPORT.md` generated
+Status:
+`CONFIRMED_DATA_VIOLATION`
 
 ---
 
-# PHASE 10: Docker Compose & Deployment
+## 3.2 Suspicious signal
 
-> **Sprint:** 5 (19 Aug – 23 Aug)
-> **Owner:** Agent-Worker-DevOps
-> **Duration:** 1 day
+The observation is legal but abnormal.
 
-## 10.1 Tasks
-
-### T10.1: Backend Dockerfile [NEW]
-### T10.2: Frontend Dockerfile (`frontend/Dockerfile` [NEW])
-### T10.3: Docker Compose (`docker-compose.yml` [NEW])
-### T10.4: Reset script (`scripts/reset.sh` [NEW])
-
-## 10.2 Exit Criteria
-
-- [ ] `docker compose up --build` runs
-- [ ] Frontend at `localhost:3000`, Backend at `localhost:8000`
-
----
-
-# PHASE 11: Final Integration & Demo
-
-> **Sprint:** 5 (19 Aug – 23 Aug)
-> **Owner:** Agent-Worker-Final
-> **Duration:** 1 day
-> **Depends on:** All phases
-
-## 11.1 Tasks
-
-### T11.1: Full test suite
-```bash
-uv run pytest tests/ -v --tb=short
-# Gate: 150+ tests, 100% pass
+Example:
+```text
+VIN-023 discharge rate is still globally valid
+but is +4.1 MAD relative to its own baseline.
 ```
 
-### T11.2: E2E integration test (`tests/test_e2e.py` [NEW])
-- Seed → NLP → Orchestrate → HITL → Execute → Verify
+Status:
+`SUSPICIOUS_SIGNAL`
 
-### T11.3: Update `docs/archive/v2_ARCHITECTURE.md` for v4
-### T11.4: Generate evaluation report
-### T11.5: Demo script (`docs/guide/DEMO_SCRIPT.md` [NEW]) — 15 min max
-### T11.6: Update `README.md`
-
-## 11.2 Exit Criteria
-
-- [ ] 150+ tests pass (100%)
-- [ ] E2E test passes
-- [ ] Demo rehearsal ≤ 15 minutes
-- [ ] **DONE by 24 Aug 2026**
+It is not yet a data error.
 
 ---
 
-# 📋 File Manifest
+## 3.3 Incident
 
-## New Files: 40+
+One or more signals are important enough to require investigation.
 
-| Phase | File | Type |
-|---|---|---|
-| 1 | `src/db/__init__.py`, `connection.py`, `schema.sql`, `seed.py` | Python/SQL |
-| 2 | `scripts/scrape_google_maps.py`, `scrape_play_store.py`, `scrape_shopee.py`, `integrate_uit_vsfc.py`, `ingest_scraped_data.py` | Python |
-| 3 | `src/data/teencode_dict.json`, `ev_domain_ontology.json` | JSON |
-| 4 | `src/tools/base.py`, `nlp_extractor.py`, `telemetry_query.py`, `anomaly_detector.py`, `rule_proposer.py`, `rule_executor.py` | Python |
-| 5 | `src/orchestrator/react_engine.py`, `orchestrator.py`, `src/agents/profiler_agent.py`, `anomaly_agent.py`, `diagnosis_agent.py`, `rule_proposer_agent.py`, `executor_agent.py` | Python |
-| 6 | `src/models/hitl.py`, `src/api/hitl.py` | Python |
-| 7 | `frontend/` (entire Next.js app) | TypeScript |
-| 8 | `src/api/dashboard.py`, `pipeline.py`, `traces.py`, `quarantine.py`, `snapshots.py` | Python |
-| 9 | `eval/fault_injector.py`, `benchmark.py`, `generate_report.py` | Python |
-| 10 | `Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `scripts/reset.sh` | Docker/Shell |
-| 11 | `tests/test_e2e.py`, `docs/guide/DEMO_SCRIPT.md` | Python/MD |
+Status:
+`OPEN_INCIDENT`
 
-## Modified Files: 12
+---
 
-| Phase | File | Changes |
-|---|---|---|
-| 1 | `pyproject.toml` | Add duckdb |
-| 1 | `src/config.py` | DUCKDB_PATH |
-| 1 | `src/main.py` | DuckDB lifespan |
-| 3 | `src/services/vietnamese_nlp.py` | Complete rewrite |
-| 4 | `src/tools/profiler.py` | DuckDB-backed |
-| 5 | `src/services/llm.py` | Gemma-4 adapter |
-| 5 | `src/agents/baselines.py` | C0/C1 |
-| 6 | `src/services/audit.py` | Enhanced |
-| 6 | `src/services/ws_manager.py` | HITL WebSocket |
-| 8 | `src/api/middleware.py` | CORS + security |
-| 11 | `docs/archive/v2_ARCHITECTURE.md` | v4 update |
-| 11 | `README.md` | Quick start |
+## 3.4 Hypothesis
 
-## Test Files: 150+ tests
+A possible cause supported by evidence.
 
-| File | Count |
+Status:
+`HYPOTHESIS`
+
+Never present a hypothesis as a confirmed cause unless sufficient ground truth/evidence exists.
+
+---
+
+# 4. Four-Layer Detection Architecture
+
+# 4.1 L1 — Point / Constraint Detection
+
+### Purpose
+Catch known invalid states.
+
+### Methods
+- schema/type validation;
+- range constraints;
+- nullability;
+- referential rules;
+- arithmetic/business invariants;
+- safety thresholds.
+
+### AI requirement
+None.
+
+### Runtime
+Fast path.
+
+### Target SLA
+**p95 <1 second** from event receipt to persisted critical signal in the benchmark/demo environment.
+
+Important:
+- measure this end-to-end;
+- do not claim production-scale SLA based only on function runtime.
+
+### Output
+Typed `Signal`.
+
+---
+
+# 4.2 L2 — Contextual / Entity-Relative Detection
+
+### Purpose
+
+Detect observations that are valid globally but abnormal relative to the same entity.
+
+### Required dimensions
+- `entity_id`;
+- timestamp;
+- metric;
+- historical window;
+- sufficient observations.
+
+### First implementation
+
+Prefer robust and interpretable detectors:
+
+1. rolling median + MAD;
+2. robust rolling Z-score;
+3. EWMA;
+4. STL residual only for metrics with demonstrated seasonality.
+
+Do not start with deep models.
+
+### Example
+
+```text
+Fleet valid discharge range: 5–20
+VIN-023:
+D1–D14 median = 8.1
+D15–D30 rises gradually to 14.8
+
+No point violates fleet range.
+Entity-relative behavior is abnormal.
+```
+
+### Cold start
+
+The detector must return:
+
+```text
+INSUFFICIENT_HISTORY
+```
+
+rather than scoring entities without a valid baseline.
+
+---
+
+# 4.3 L3 — Collective / Relational Detection
+
+### Purpose
+
+Detect broken relationships where individual variables remain valid.
+
+### Example
+
+```text
+charging_frequency ↑
+trip_count ↓
+energy_consumption ↑
+```
+
+Each feature may individually remain valid.
+
+### Modeling priority
+
+1. domain-defined expected relationship;
+2. interpretable regression residual;
+3. robust covariance / Mahalanobis if assumptions hold;
+4. Isolation Forest / LOF as comparator;
+5. more complex models only after benchmark evidence.
+
+### Why
+
+For the product, this:
+
+```text
+Expected trips = 18
+Observed trips = 8
+Residual = -10
+```
+
+is more actionable than:
+
+```text
+IsolationForest anomaly score = -0.41
+```
+
+Use black-box scores only when they add measurable detection value.
+
+---
+
+# 4.4 L4 — Sequential / Change-Point Detection
+
+### Purpose
+
+Detect a persistent change in behavioral regime.
+
+### Candidate methods
+
+- CUSUM;
+- PELT (`ruptures`);
+- Bayesian online change-point only if required.
+
+### Example
+
+```text
+Days 1–35:
+~1 charging session/day
+
+From day 36:
+~3 charging sessions/day continuously
+```
+
+Each day may still be valid individually.
+
+### Required outputs
+
+- detected change time;
+- pre-period summary;
+- post-period summary;
+- magnitude;
+- persistence;
+- detector confidence/evidence.
+
+---
+
+# 5. Runtime Architecture: Fast and Slow Paths
+
+## 5.1 Fast path
+
+For L1 only.
+
+```text
+Incoming record/event
+→ validate known invariants
+→ persist violation
+→ critical?
+→ immediate alert
+```
+
+Properties:
+- deterministic;
+- no LLM;
+- minimal state;
+- <1s target.
+
+---
+
+## 5.2 Slow intelligence path
+
+Default **daily**, configurable per project/detector.
+
+```text
+Historical data
+→ entity feature builder
+→ L2
+→ L3
+→ L4
+→ normalize signals
+→ Fusion
+→ Incident admission
+```
+
+Why default daily:
+- group preference includes daily and configurable;
+- L2-L4 require historical context;
+- investigation/maintenance is not usually a millisecond decision;
+- reduces unnecessary compute.
+
+Configuration must support:
+- hourly;
+- 6-hourly;
+- daily;
+- manual;
+- cron.
+
+---
+
+# 6. Fusion Layer
+
+Fusion converts signals into incidents.
+
+It must initially be deterministic and explainable.
+
+## 6.1 Inputs
+
+- L1 signals;
+- L2 signals;
+- L3 signals;
+- L4 signals;
+- entity metadata;
+- time overlap;
+- criticality;
+- optional change/deployment context.
+
+## 6.2 Grouping keys
+
+At minimum:
+
+```text
+project_id
+entity_id / related_entity_ids
+time_window
+metric / relationship
+```
+
+## 6.3 Fusion factors
+
+Start with calibrated configurable factors:
+
+- severity;
+- detector strength;
+- persistence;
+- multi-layer agreement;
+- evidence quality;
+- entity/business criticality;
+- recency.
+
+Do not pretend one arbitrary weighted formula is scientifically final.
+
+## 6.4 Fusion output
+
+```yaml
+incident_candidate_id:
+project_id:
+entities:
+time_window:
+signals:
+supporting_layers:
+conflicting_signals:
+severity:
+fusion_score:
+evidence_refs:
+admission_reason:
+```
+
+---
+
+# 7. Incident Admission
+
+Create an Incident when any configured policy holds:
+
+1. critical L1 signal;
+2. persistent L2 anomaly;
+3. high-confidence L3 relationship break;
+4. persistent L4 regime shift;
+5. agreement across >=2 layers;
+6. repeated signals across related entities;
+7. manual promotion by user.
+
+Every admission must store **why** the incident exists.
+
+---
+
+# 8. Incident Investigation
+
+Agent intelligence begins only here.
+
+## 8.1 R0 — deterministic investigation
+
+Resolve with:
+- lookup;
+- known rule;
+- fixed diagnostic mapping;
+- known ownership/action.
+
+If R0 resolves the incident, stop.
+
+---
+
+## 8.2 C1 — fixed AI workflow
+
+Use when semantics are useful but investigation structure is predetermined.
+
+Example:
+
+```text
+Incident facts
+→ fetch relevant profile
+→ fetch recent changes
+→ summarize evidence
+→ one structured LLM analysis
+→ validate
+→ human review
+```
+
+C1 is the strongest baseline.
+
+---
+
+## 8.3 A1 — bounded dynamic investigator
+
+A1 is justified only when next actions cannot be fully known in advance.
+
+Capabilities:
+- choose typed tools dynamically;
+- change entity/time scope;
+- retrieve additional evidence;
+- maintain multiple hypotheses;
+- gather supporting and contradictory evidence;
+- stop/continue;
+- request context;
+- abstain.
+
+Bounds:
+- max tool calls;
+- max hypothesis revisions;
+- token budget;
+- wall-clock timeout;
+- tool allowlist;
+- evidence references required;
+- no mutation.
+
+---
+
+## 8.4 A2 — optional experimental multi-agent
+
+Do not put A2 in the required implementation dependency graph.
+
+Possible architecture:
+
+```text
+Planner
+→ parallel hypothesis investigators
+→ independent verifier
+```
+
+But only implement after an A1 benchmark report states:
+
+```yaml
+failure_mode:
+frequency:
+business_impact:
+proposed_A2_component:
+expected_metric_improvement:
+extra_cost_budget:
+```
+
+A2 is allowed before feature lock only if it does not block R0/C1/A1, UX, security, or benchmark completion.
+
+---
+
+# 9. Investigation Output Contract
+
+Every qualified investigation returns:
+
+```yaml
+incident_id:
+classification:
+  data_quality_probability:
+  operational_probability:
+  unresolved_probability:
+
+confirmed_facts:
+supporting_evidence:
+contradicting_evidence:
+
+hypotheses:
+  - hypothesis:
+    confidence:
+    evidence_refs:
+    counter_evidence_refs:
+    missing_evidence:
+
+recommended_action:
+abstention_reason:
+```
+
+No free-form “root cause” sentence without evidence IDs.
+
+---
+
+# 10. Conditional Outcome Policy
+
+## Data/system cause
+
+Examples:
+- schema drift;
+- unit mismatch;
+- invalid transformation;
+- ingestion lag;
+- broken referential mapping.
+
+Output:
+```text
+RCA
+→ Preventive Data Quality Control
+→ compile
+→ sandbox
+→ HITL
+→ activation
+```
+
+## Operational cause
+
+Examples:
+- battery degradation;
+- charging hardware issue;
+- unusual fleet usage pattern.
+
+Output:
+```text
+RCA
+→ operational / maintenance recommendation
+→ human routing
+```
+
+Do not generate a fake DQ rule merely to demonstrate rule generation.
+
+## Unknown cause
+
+```text
+RCA inconclusive
+→ abstain
+→ specify missing evidence
+```
+
+---
+
+# 11. Data Strategy
+
+## 11.1 Provenance is mandatory
+
+Use:
+
+```text
+REAL_OPERATIONAL
+PUBLIC_PROXY
+SEMI_SYNTHETIC
+SYNTHETIC
+```
+
+for every source/case.
+
+## 11.2 Current truth
+
+The project's underlying sources are independent.
+
+Shared vehicle/station/time relationships used for joint evaluation are constructed.
+
+Therefore the integrated research corpus must be labeled:
+
+> **SEMI_SYNTHETIC CAUSAL DIGITAL TWIN**
+
+## 11.3 Digital twin generation principle
+
+Generate the latent event first.
+
+Example:
+
+```text
+LATENT CAUSE:
+battery degradation begins at D35
+        ↓
+discharge trend increases
+charging frequency rises
+trip efficiency falls
+thermal risk rises
+optional complaint appears
+```
+
+Do not independently inject random anomalies and later invent an RCA story.
+
+Causality must be encoded at generation time.
+
+---
+
+# 12. Benchmark Corpus
+
+## 12.1 Primary corpus
+
+Target:
+- 60-day timeline;
+- 30 VIN;
+- 4 charging stations;
+- coherent trips/charging/telemetry;
+- 14-day warm-up;
+- fixed random seed;
+- versioned generator.
+
+Use fewer entities if necessary to preserve per-entity density.
+
+## 12.2 Sensitivity sets
+
+If time permits:
+
+- 30-day corpus;
+- 90-day corpus.
+
+Purpose:
+- test detector sensitivity to history length;
+- not inflate headline numbers.
+
+---
+
+# 13. Fault and Incident Families
+
+The current benchmark over-represents L1 faults.
+
+The new benchmark must contain balanced slices.
+
+## L1
+- negative value;
+- null;
+- invalid type;
+- arithmetic mismatch;
+- referential failure;
+- hard safety threshold.
+
+## L2
+- gradual per-entity drift;
+- abnormal relative level;
+- entity-specific variance increase;
+- recovery/transient vs persistent drift;
+- cold-start negative cases.
+
+## L3
+- charging vs trip relationship break;
+- energy use vs distance residual;
+- fare vs trip relation break;
+- station utilization vs sessions mismatch.
+
+Crucially:
+**each individual input remains valid in these cases.**
+
+## L4
+- persistent level shift;
+- frequency regime shift;
+- post-change variance shift;
+- behavioral state transition.
+
+## RCA cases
+- data pipeline cause;
+- data contract cause;
+- operational asset cause;
+- ambiguous case;
+- conflicting evidence;
+- insufficient evidence.
+
+---
+
+# 14. Benchmark Design — Research Integrity
+
+The old self-fulfilling benchmark must be retired.
+
+Never:
+- give C1 `ground_truth_faults`;
+- preassign which fault families a model is “allowed” to detect;
+- derive human time from recall;
+- fabricate token cost;
+- fabricate latency;
+- give A1 richer hidden context than C1.
+
+All systems receive equivalent available evidence.
+
+---
+
+# 15. Evaluation Ladder
+
+# 15.1 Detector evaluation
+
+Per layer:
+
+- precision;
+- recall;
+- F1;
+- false positives/entity/day;
+- detection delay;
+- calibration where score exists.
+
+For L4:
+- change-point timing error.
+
+For L3:
+- residual-based ranking quality.
+
+---
+
+# 15.2 Fusion evaluation
+
+Measure:
+- incident precision;
+- incident recall;
+- alert reduction vs raw signals;
+- missed critical incidents;
+- duplicate incident rate.
+
+Fusion must prove it improves signal-to-noise.
+
+---
+
+# 15.3 RCA evaluation
+
+Measure:
+- Top-1 cause accuracy;
+- Top-3 cause recall;
+- evidence precision;
+- evidence recall;
+- unsupported-claim rate;
+- contradictory-evidence coverage;
+- abstention precision/recall;
+- human correction time.
+
+---
+
+# 15.4 Agentic comparison
+
+Compare:
+- R0;
+- C1;
+- A1.
+
+A2 only if admitted.
+
+### A1 value gate
+
+Keep A1 only if all safety guardrails pass and it materially beats C1 on at least one high-value dimension.
+
+Candidate gates:
+
+- Top-1 RCA accuracy >= C1 + 10 percentage points; OR
+- evidence recall >= C1 + 15 percentage points; OR
+- median human correction time <= 75% of C1.
+
+Guardrails:
+- evidence precision >= 90%;
+- unsupported claim rate <= 5%;
+- zero unauthorized execution;
+- bounded cost;
+- bounded latency.
+
+Do not force a winner.
+
+---
+
+# 16. Human Evaluation
+
+At least two evaluators should review a blind subset.
+
+Capture:
+- task completion;
+- time to decision;
+- correction time;
+- confidence in evidence;
+- usability confusion points;
+- false-positive burden.
+
+Where possible, evaluator should not know whether the output came from C1 or A1.
+
+---
+
+# 17. UX Architecture
+
+## 17.1 Primary hierarchy
+
+```text
+Reliability Portfolio
+    ↓
+Project Control Room
+    ↓
+Anomaly Timeline (L1-L4)
+    ↓
+Incident Workspace
+    ↓
+Evidence / Hypotheses / RCA
+    ↓
+HITL Decision
+    ↓
+Preventive Control OR Operational Recommendation
+    ↓
+Audit
+```
+
+Datasets within one project are not represented as isolated products if they jointly describe the same system.
+
+---
+
+## 17.2 Incident Workspace
+
+Must show:
+
+### Header
+- incident ID;
+- status;
+- severity;
+- affected entities;
+- time window;
+- owner.
+
+### Timeline
+- L1-L4 signals;
+- incident admission point;
+- related events.
+
+### Evidence panel
+- supporting evidence;
+- contradicting evidence;
+- provenance.
+
+### Hypothesis panel
+- ranked hypotheses;
+- confidence;
+- missing context.
+
+### Action panel
+- request investigation;
+- ask for evidence;
+- confirm/reject hypothesis;
+- propose preventive control;
+- route operational recommendation.
+
+### Assistant
+Persistent side panel, scoped to current context.
+
+---
+
+# 17.3 Chat migration
+
+Do not delete existing chat.
+
+Refactor it into:
+
+> **Contextual Reliability Assistant**
+
+The assistant receives:
+- project ID;
+- current incident;
+- selected entities;
+- evidence IDs;
+- current user role.
+
+It cannot:
+- independently create authoritative state;
+- approve;
+- issue execution authorization;
+- bypass HITL.
+
+---
+
+# 18. Governance and Execution
+
+Execution must be separated from reasoning.
+
+Required invariant:
+
+```text
+EXECUTE
+⇒ authenticated actor
+∧ approved proposal version
+∧ matching project/snapshot
+∧ validated compiled plan
+∧ successful sandbox result where required
+∧ valid execution authorization
+∧ immutable audit event
+```
+
+Client requests execution using an authorization ID, not arbitrary rule code.
+
+---
+
+# 19. Current Repository Gap Audit
+
+Based on the latest audited v4.2.x structure, do not rewrite the platform.
+
+## Keep/refactor
+
+- existing deterministic profiler;
+- validator;
+- compiler;
+- executor;
+- quarantine;
+- audit foundation;
+- scheduler;
+- anomaly detector infrastructure;
+- ReAct foundations;
+- WebSocket/API foundation;
+- frontend workspaces.
+
+## Missing / incomplete
+
+### Detection
+- true per-entity L2 rolling baseline;
+- interpretable L3 relationship models;
+- L4 change-point service;
+- common typed `Signal` schema.
+
+### Fusion
+- entity/time signal grouping;
+- incident admission;
+- fusion calibration.
+
+### Incident
+- canonical persistent incident model;
+- evidence ledger;
+- hypothesis lifecycle;
+- conditional output routing.
+
+### Evaluation
+- unbiased R0/C1/A1 harness;
+- true L2-L4 injected cases;
+- incident-level metrics;
+- actual tool/latency/cost instrumentation.
+
+### UX
+- 4-layer timeline;
+- Incident Workspace;
+- server-backed evidence and hypotheses;
+- chat sidecar migration.
+
+### Governance
+- one canonical approval path;
+- version-bound execution authorization;
+- persistent state;
+- authenticated scoped WebSocket.
+
+### Integrity
+- remove mock dashboard KPIs from operational views;
+- simulated results must be labeled;
+- remove any claim of natural causal linkage for proxy datasets.
+
+---
+
+# 20. Implementation Architecture
+
+Avoid duplicating modules.
+
+Prefer a dedicated reliability bounded context.
+
+Suggested logical structure; adapt to existing source conventions rather than blindly duplicating files:
+
+```text
+src/
+  reliability/
+    models/
+      signal.py
+      incident.py
+      evidence.py
+      hypothesis.py
+    detectors/
+      l1_rules.py
+      l2_contextual.py
+      l3_relational.py
+      l4_changepoint.py
+    features/
+      entity_features.py
+      relationship_features.py
+    fusion/
+      engine.py
+      policy.py
+      calibration.py
+    incidents/
+      service.py
+      repository.py
+    investigation/
+      r0.py
+      c1.py
+      a1.py
+      tools.py
+    governance/
+      recommendations.py
+      preventive_controls.py
+```
+
+If equivalent modules already exist, extend them; do not create a parallel architecture.
+
+---
+
+# 21. Data Contracts
+
+## Signal
+
+```yaml
+signal_id:
+project_id:
+entity_ids:
+layer: L1|L2|L3|L4
+signal_type:
+metric_or_relationship:
+event_time:
+window_start:
+window_end:
+score:
+severity:
+detector:
+detector_version:
+evidence_refs:
+provenance:
+created_at:
+```
+
+## Incident
+
+```yaml
+incident_id:
+project_id:
+status:
+entity_ids:
+signal_ids:
+admission_reason:
+severity:
+time_window:
+confirmed_facts:
+evidence_refs:
+owner:
+created_at:
+updated_at:
+```
+
+## Evidence
+
+```yaml
+evidence_id:
+source_type:
+source_id:
+time_range:
+entity_ids:
+content_hash:
+summary:
+provenance:
+```
+
+## Hypothesis
+
+```yaml
+hypothesis_id:
+incident_id:
+claim:
+classification: DATA|OPERATIONAL|MIXED|UNKNOWN
+supporting_evidence:
+contradicting_evidence:
+missing_evidence:
+confidence:
+status:
+```
+
+---
+
+# 22. API Direction
+
+Canonical API only:
+
+```text
+/api/v1/projects
+/api/v1/signals
+/api/v1/incidents
+/api/v1/incidents/{id}
+/api/v1/incidents/{id}/investigate
+/api/v1/incidents/{id}/hypotheses
+/api/v1/incidents/{id}/feedback
+/api/v1/incidents/{id}/recommendations
+/api/v1/controls
+/api/v1/authorizations
+/api/v1/audit
+```
+
+Do not create a second set of overlapping HITL/approval routes.
+
+---
+
+# 23. Coding-Agent Work Rules
+
+Every coding agent must:
+
+1. Inspect existing implementation before creating files.
+2. Reuse canonical schemas/services.
+3. Add tests with ground-truth expectations.
+4. Never add a metric that is not computed.
+5. Never silently fall back to mock in production mode.
+6. Preserve immutable raw data.
+7. Preserve governance boundaries.
+8. Produce a completion note:
+   - files changed;
+   - tests;
+   - measured results;
+   - assumptions;
+   - unresolved risks.
+
+---
+
+# 24. Execution Plan from 11 Aug to Feature Lock
+
+## Sprint 2 Closure — 11–12 Aug
+### Goal
+Lock semantics, benchmark integrity, and common signal contracts.
+
+Tasks:
+- replace old PLAN with this plan;
+- add provenance labels;
+- create common Signal/Incident/Evidence/Hypothesis contracts;
+- remove/disable self-fulfilling benchmark;
+- remove mock KPI from default operational UI;
+- finalize causal digital twin schema;
+- define benchmark generator v1.
+
+Exit:
+- architecture has one definition of L1-L4;
+- no old benchmark can be presented as real evidence.
+
+---
+
+## Sprint 3A — 13–15 Aug
+### Goal
+Implement L2 and feature foundation.
+
+Tasks:
+- entity/time feature builder;
+- warm-up policy;
+- rolling median/MAD;
+- robust Z-score;
+- L2 synthetic scenarios;
+- metrics.
+
+Owner emphasis:
+- Ngân: methodology;
+- Dũng: runtime/data contract;
+- Thanh: ground truth;
+- Huyền: timeline UX skeleton.
+
+Exit:
+- L2 independently benchmarked.
+
+---
+
+## Sprint 3B — 15–17 Aug
+### Goal
+Implement L3 and L4.
+
+L3:
+- expected-relationship definitions;
+- regression residual;
+- optional Isolation Forest comparator.
+
+L4:
+- PELT;
+- CUSUM;
+- timing metrics.
+
+Corpus:
+- relation-break scenarios;
+- persistent change scenarios.
+
+Exit:
+- L3 and L4 have real output contracts and benchmark results.
+
+---
+
+## Sprint 3C — 17–19 Aug
+### Goal
+Fusion + Incident creation.
+
+Tasks:
+- signal normalization;
+- entity/time grouping;
+- deterministic fusion;
+- admission policy;
+- persistent incident store;
+- evidence ledger;
+- 4-layer timeline API.
+
+Frontend:
+- project reliability view;
+- incident list;
+- incident timeline.
+
+Exit:
+- digital twin event stream produces reproducible incidents.
+
+---
+
+## Sprint 4A — 19–21 Aug
+### Goal
+C1 fixed investigation + UX.
+
+Backend:
+- context sufficiency;
+- fixed evidence retrieval;
+- structured hypothesis generator;
+- conditional recommendation routing.
+
+Frontend:
+- Incident Workspace;
+- evidence;
+- contradictions;
+- hypotheses;
+- contextual assistant;
+- HITL.
+
+Evaluation:
+- R0 vs C1;
+- human evaluation instrumentation.
+
+Exit:
+- a Data Steward can complete the core journey without needing chat commands.
+
+---
+
+## Sprint 4B — 21–23 Aug
+### Goal
+A1 bounded investigation.
+
+Tasks:
+- dynamic typed tool selection;
+- change time/entity scope;
+- hypothesis challenge;
+- evidence references;
+- stop/continue;
+- request context;
+- abstention;
+- cost/time budgets.
+
+Evaluation:
+- same blind cases as C1.
+
+Exit:
+- demonstrate at least several cases where A1 takes different valid tool paths based on intermediate observations.
+
+---
+
+## Sprint 4C — 23–25 Aug
+### Goal
+Benchmark, red team, and governance hardening.
+
+Run:
+- L1-L4 detector benchmark;
+- Fusion benchmark;
+- R0/C1/A1 benchmark;
+- UX timing subset.
+
+Red team:
+- missing history;
+- ambiguous entity;
+- conflicting signals;
+- noisy/sparse data;
+- false complaint;
+- prompt injection;
+- stale context;
+- excessive agent loop;
+- approval bypass;
+- unauthorized execution.
+
+Governance:
+- bind approval to exact control version;
+- execution authorization only;
+- immutable audit.
+
+Exit:
+- real evaluation report generated from run artifacts.
+
+---
+
+## Feature Freeze — 26 Aug
+
+Use 26 Aug for:
+- P0 fixes;
+- final benchmark rerun;
+- demo data freeze;
+- documentation;
+- architecture reconciliation.
+
+At **23:59 26 Aug**:
+
+No:
+- new detector family;
+- new agent role;
+- new data source;
+- new workspace;
+- contract redesign;
+- new A2 dependency.
+
+---
+
+# 25. A2 Decision Window
+
+If A1 error analysis before 24 Aug reveals a qualifying failure mode, a small team may prototype A2 behind a feature flag.
+
+A2 must not block:
+- A1 benchmark;
+- governance;
+- Incident UX;
+- feature lock.
+
+Possible A2 experiment:
+
+```text
+A1 Planner
+├── Hypothesis Investigator A
+├── Hypothesis Investigator B
+└── Independent Evidence Verifier
+```
+
+Required comparison:
+
+```text
+A1 vs A2
+on the SAME failure subset.
+```
+
+If no measurable benefit:
+- keep A1/C1;
+- document negative result.
+
+---
+
+# 26. Post-Feature-Lock — 27 Aug to 3 Sep
+
+No new features.
+
+Tasks:
+- rerun benchmark with frozen versions;
+- fix P0 demo blockers;
+- Docker/reset;
+- performance tests;
+- 3+ dry runs;
+- documentation;
+- research report;
+- demo rehearsal;
+- backup recording.
+
+---
+
+# 27. Ownership
+
+| Member | Accountable area |
 |---|---|
-| `tests/test_db.py` | 10+ |
-| `tests/test_vietnamese_nlp.py` | 30+ |
-| `tests/test_tools.py` | 40+ |
-| `tests/test_agents.py` | 30+ |
-| `tests/test_hitl.py` | 15+ |
-| `tests/test_api.py` | 20+ |
-| `tests/test_benchmark.py` | 5+ |
-| `tests/test_e2e.py` | 1 |
+| **Thanh** | Product thesis, benchmark integrity, digital-twin corpus, experiment design, business interpretation, decision log |
+| **Ngân** | L2/L3/L4 methodology, Fusion calibration, semantic investigation quality, C1/A1/A2 error analysis |
+| **Dũng** | Data plane, feature pipeline, detector runtime, APIs, persistence, security, authorization, deterministic execution |
+| **Huyền** | Project/Incident UX, contextual assistant, HITL, audit UX, E2E integration, deployment/demo |
+
+Coding agents can produce implementation rapidly; human owners remain responsible for:
+- correctness;
+- experimental validity;
+- source provenance;
+- failure semantics;
+- final merge.
 
 ---
 
-# ⚠️ Risk Register
+# 28. Definition of Done
 
-| # | Risk | Mitigation |
-|---|---|---|
-| 1 | Google AI Studio rate limits | Retry + exponential backoff; cache LLM responses |
-| 2 | Web scraping blocked | Use existing CSVs as fallback |
-| 3 | Gemma-4 tool-calling quality | Fallback to structured JSON output + manual parsing |
-| 4 | 20-day timeline tight | Cut Phase 2 scraping if behind; prioritize P1/P3/P5 |
-| 5 | Vietnamese NLP accuracy | Expand dictionary; LLM normalization fallback |
+## Detection
+- L1-L4 each have a clear semantic definition;
+- L2-L4 include cases impossible to solve with simple point constraints;
+- every signal contains evidence and detector version.
+
+## Fusion
+- reduces raw signals into useful incidents;
+- admission decisions are explainable.
+
+## Investigation
+- R0, C1, A1 run on equivalent evidence;
+- A1 may win or lose;
+- unsupported claims are measured.
+
+## UX
+A Data Steward can:
+
+```text
+Open project
+→ see reliability status
+→ inspect anomaly timeline
+→ open incident
+→ see facts/evidence
+→ inspect/request RCA
+→ make HITL decision
+→ issue data control OR operational recommendation
+→ view audit
+```
+
+without needing to know prompt syntax.
+
+## Data integrity
+- semi-synthetic data is labeled;
+- no false claim of real cross-domain causal data;
+- generator version and seed stored.
+
+## Governance
+- reasoning cannot directly mutate data;
+- control must be approved and authorized;
+- execution is deterministic;
+- every consequential action is auditable.
 
 ---
 
-# 🏁 Hard Gates
+# 29. Final Team Narrative
 
-| Gate | Target | Command |
-|---|---|---|
-| Tests | 150+, 100% pass | `uv run pytest tests/ -v` |
-| A1 Precision | ≥ 80% | `eval/benchmark.py` |
-| A1 vs C1 Recall | ≥ C1 + 10pp | `eval/benchmark.py` |
-| Docker | Both services healthy | `docker compose up` |
-| i18n | VI ↔ EN toggle works | Manual |
-| HITL | Approve/Reject works | E2E test |
-| Demo | ≤ 15 minutes | Rehearsal |
-| Deadline | **24 Aug 2026** | Calendar |
+The team should explain the architecture consistently:
+
+> **DataTrust OS does not use AI to solve errors that simple rules already solve. L1 handles known violations deterministically and quickly. L2 detects deviations from an entity's own history. L3 detects broken relationships between otherwise valid variables. L4 detects persistent behavior changes. Fusion turns these signals into incidents. Only then do we use AI for investigation, and only when semantic reasoning or dynamic tool selection adds measurable value. The Data Steward remains in control, and all execution remains deterministic.**
+
+The answer to “Why Agent?” is therefore:
+
+> **The product does not need an agent everywhere. An agent is justified only in incident investigation when the next evidence source, tool, scope, or hypothesis cannot be fully predetermined. We benchmark that claim against a fixed workflow and remove the agent if it does not create enough value.**
+
+This is the final engineering/product direction through feature lock.

@@ -61,14 +61,14 @@ class Settings(BaseSettings):
         "vietnam_trips": "data/synthetic/vietnam_trips.parquet",
         "vietnam_trips_dirty": "data/synthetic/vietnam_trips_dirty.parquet",
         "vietnam_ecommerce_test": "data/vietnam_ecommerce_test.csv",
-        "vinfast_ev_telemetry_dirty": "data/vingroup/vinfast_ev_telemetry_dirty.csv",
-        "vgreen_charging_stations_dirty": "data/vingroup/vgreen_charging_stations_dirty.csv",
-        "xanh_sm_trips_dirty": "data/vingroup/xanh_sm_trips_dirty.csv",
-        "xanh_sm_customer_feedback_dirty": "data/vingroup/xanh_sm_customer_feedback_dirty.csv",
-        "real_vinfast_ev_telemetry": "data/vingroup_real/real_vinfast_ev_telemetry.csv",
-        "real_vgreen_charging_stations": "data/vingroup_real/real_vgreen_charging_stations.csv",
-        "real_xanh_sm_trips": "data/vingroup_real/real_xanh_sm_trips.csv",
-        "real_xanh_sm_customer_feedback": "data/vingroup_real/real_xanh_sm_customer_feedback.csv",
+        "vinfast_ev_telemetry_dirty": "data/data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "vgreen_charging_stations_dirty": "data/data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
+        "xanh_sm_trips_dirty": "data/data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "xanh_sm_customer_feedback_dirty": "data/data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "real_vinfast_ev_telemetry": "data/data_new/vingroup_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "real_vgreen_charging_stations": "data/data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
+        "real_xanh_sm_trips": "data/data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "real_xanh_sm_customer_feedback": "data/data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
     }
     fault_manifest_path: str = "data/synthetic/fault_manifest.json"
     profile_sample_size: int = 100_000
