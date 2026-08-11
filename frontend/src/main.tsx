@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { HashRouter } from 'react-router-dom';
 import * as Sentry from '@sentry/react';
 import App from './App';
 import './i18n';
@@ -22,7 +23,9 @@ if (sentryDsn) {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Sentry.ErrorBoundary fallback={<p className="p-4 text-red-500 font-semibold">An unexpected error occurred. Sentry has logged this issue.</p>}>
-      <App />
+      <HashRouter>
+        <App />
+      </HashRouter>
     </Sentry.ErrorBoundary>
   </React.StrictMode>,
 );
