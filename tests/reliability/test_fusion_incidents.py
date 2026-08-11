@@ -1,6 +1,12 @@
+import pytest
 from datetime import datetime, timezone, timedelta
+from src.db.connection import get_db
 from src.reliability.models.signal import Signal
 from src.reliability.models.incident import Incident
+from src.reliability.models.evidence import Evidence
+from src.reliability.models.hypothesis import Hypothesis
+from src.reliability.models.decision import Decision
+from src.reliability.governance.recommendations import Recommendation
 from src.reliability.fusion.policy import AdmissionPolicy
 from src.reliability.fusion.engine import FusionEngine
 from src.reliability.incidents.service import IncidentService
@@ -396,4 +402,222 @@ def test_fusion_engine_and_service():
     retrieved = service.get_incident(inc.incident_id)
     assert retrieved is not None
     assert retrieved.incident_id == inc.incident_id
+
+
+def test_incident_service_db_persistence(tmp_path):
+    """
+    Verifies that created/updated Incidents, Evidence, Hypotheses, Decisions,
+    and Recommendations are persisted to DuckDB and successfully restored across backend restarts.
+    """
+    db_file = str(tmp_path / "test_persistence.duckdb")
+    db = get_db(db_file)
+
+    service1 = IncidentService(db=db)
+
+    # 1. Create incident and update status
+    inc = service1.create_incident(
+        project_id="proj-test-persist",
+        entity_ids=["VIN-100"],
+        signal_ids=["sig-100"],
+        admission_reason="Test persistence admission",
+        severity="HIGH"
+    )
+    service1.update_incident_status(inc.incident_id, "RESOLVED")
+
+    # 2. Add evidence
+    ev = Evidence(
+        evidence_id="ev-persist-1",
+        source_type="TELEMETRY",
+        source_id="station-01",
+        entity_ids=["VIN-100"],
+        content_hash="hash123",
+        summary="High voltage anomaly",
+        provenance="REAL_OPERATIONAL"
+    )
+    service1.add_evidence(ev)
+
+    # 3. Add hypothesis
+    hyp = Hypothesis(
+        hypothesis_id="hyp-persist-1",
+        incident_id=inc.incident_id,
+        claim="Overheating caused voltage spike",
+        classification="OPERATIONAL",
+        supporting_evidence=["ev-persist-1"],
+        confidence=0.9,
+        status="CONFIRMED"
+    )
+    service1.add_hypothesis(hyp)
+
+    # 4. Add recommendation
+    rec = Recommendation(
+        recommendation_id="rec-persist-1",
+        incident_id=inc.incident_id,
+        cause_type="OPERATIONAL",
+        action_type="MAINTENANCE_ROUTING",
+        summary="Route vehicle for thermal check",
+        requires_hitl_approval=False
+    )
+    service1.add_recommendation(rec)
+
+    # 5. Add decision
+    dec = Decision(
+        decision_id="dec-persist-1",
+        incident_id=inc.incident_id,
+        hypothesis_id=hyp.hypothesis_id,
+        recommendation_id=rec.recommendation_id,
+        action="APPROVE_MAINTENANCE",
+        actor="OPERATOR_1",
+        rationale="Hypothesis confirmed by thermal logs"
+    )
+    service1.add_decision(dec)
+
+    # Close connection to simulate backend shutdown
+    db.close()
+
+    # Simulate backend restart with a fresh service instance reading from the same DB file
+    db2 = get_db(db_file)
+    service2 = IncidentService(db=db2)
+
+    # Assertions on restored state
+    loaded_inc = service2.get_incident(inc.incident_id)
+    assert loaded_inc is not None
+    assert loaded_inc.incident_id == inc.incident_id
+    assert loaded_inc.status == "RESOLVED"
+    assert loaded_inc.project_id == "proj-test-persist"
+    assert loaded_inc.entity_ids == ["VIN-100"]
+
+    loaded_ev = service2.get_evidence("ev-persist-1")
+    assert loaded_ev is not None
+    assert loaded_ev.summary == "High voltage anomaly"
+    assert loaded_ev.source_type == "TELEMETRY"
+
+    loaded_hyp = service2.get_hypothesis("hyp-persist-1")
+    assert loaded_hyp is not None
+    assert loaded_hyp.claim == "Overheating caused voltage spike"
+    assert loaded_hyp.status == "CONFIRMED"
+    assert loaded_hyp.confidence == pytest.approx(0.9)
+
+    loaded_rec = service2.get_recommendation("rec-persist-1")
+    assert loaded_rec is not None
+    assert loaded_rec.action_type == "MAINTENANCE_ROUTING"
+    assert loaded_rec.cause_type == "OPERATIONAL"
+
+    loaded_dec = service2.get_decision("dec-persist-1")
+    assert loaded_dec is not None
+    assert loaded_dec.action == "APPROVE_MAINTENANCE"
+    assert loaded_dec.actor == "OPERATOR_1"
+
+    db2.close()
+
+
+def test_cross_incident_evidence_isolation():
+    """
+    Verifies strict evidence isolation between incidents so that
+    Incident A evidence ∩ Incident B evidence = ∅ (empty set).
+    Prevents cross-incident evidence leakage during investigation.
+    """
+    service = IncidentService()
+    now = datetime.now(timezone.utc)
+
+    # 1. Create Incident A (proj-1, VIN-001, Window T1)
+    inc_a = Incident(
+        incident_id="inc-iso-001",
+        project_id="proj-1",
+        entity_ids=["VIN-001"],
+        signal_ids=["sig-001"],
+        admission_reason="L1 Voltage violation on VIN-001",
+        severity="HIGH",
+        time_window={"start": now, "end": now + timedelta(minutes=30)}
+    )
+    service.save_incident(inc_a)
+
+    # 2. Create Incident B (proj-1, VIN-002, Window T1)
+    inc_b = Incident(
+        incident_id="inc-iso-002",
+        project_id="proj-1",
+        entity_ids=["VIN-002"],
+        signal_ids=["sig-002"],
+        admission_reason="L2 Thermal anomaly on VIN-002",
+        severity="HIGH",
+        time_window={"start": now, "end": now + timedelta(minutes=30)}
+    )
+    service.save_incident(inc_b)
+
+    # 3. Create Evidence A scoped to VIN-001 / Incident A
+    ev_a = Evidence(
+        evidence_id="ev-iso-a",
+        project_id="proj-1",
+        incident_id="inc-iso-001",
+        source_type="telemetry",
+        source_id="bms-001",
+        entity_ids=["VIN-001"],
+        time_range={"start": now, "end": now + timedelta(minutes=30)},
+        content_hash="hash-a",
+        summary="Voltage drop on VIN-001"
+    )
+    service.add_evidence(ev_a)
+
+    # 4. Create Evidence B scoped to VIN-002 / Incident B
+    ev_b = Evidence(
+        evidence_id="ev-iso-b",
+        project_id="proj-1",
+        incident_id="inc-iso-002",
+        source_type="telemetry",
+        source_id="bms-002",
+        entity_ids=["VIN-002"],
+        time_range={"start": now, "end": now + timedelta(minutes=30)},
+        content_hash="hash-b",
+        summary="Temperature spike on VIN-002"
+    )
+    service.add_evidence(ev_b)
+
+    # 5. Retrieve evidence for Incident A and Incident B
+    evidence_a = service.get_evidence_for_incident(inc_a.incident_id)
+    evidence_b = service.get_evidence_for_incident(inc_b.incident_id)
+
+    set_a = {e.evidence_id for e in evidence_a}
+    set_b = {e.evidence_id for e in evidence_b}
+
+    # Core assertion: Incident A evidence ∩ Incident B evidence = ∅
+    assert set_a.intersection(set_b) == set()
+    assert "ev-iso-a" in set_a
+    assert "ev-iso-a" not in set_b
+    assert "ev-iso-b" in set_b
+    assert "ev-iso-b" not in set_a
+
+    # 6. Test disjoint time windows on the SAME entity (VIN-001)
+    inc_c = Incident(
+        incident_id="inc-iso-003",
+        project_id="proj-1",
+        entity_ids=["VIN-001"],
+        signal_ids=["sig-003"],
+        admission_reason="L4 Degradation on VIN-001 5 hours later",
+        severity="MEDIUM",
+        time_window={"start": now + timedelta(hours=5), "end": now + timedelta(hours=5, minutes=30)}
+    )
+    service.save_incident(inc_c)
+
+    ev_c = Evidence(
+        evidence_id="ev-iso-c",
+        project_id="proj-1",
+        incident_id="inc-iso-003",
+        source_type="telemetry",
+        source_id="bms-001-c",
+        entity_ids=["VIN-001"],
+        time_range={"start": now + timedelta(hours=5), "end": now + timedelta(hours=5, minutes=30)},
+        content_hash="hash-c",
+        summary="Later degradation signal on VIN-001"
+    )
+    service.add_evidence(ev_c)
+
+    evidence_c = service.get_evidence_for_incident(inc_c.incident_id)
+    set_c = {e.evidence_id for e in evidence_c}
+
+    # Verify time-window based isolation on same entity
+    assert set_a.intersection(set_c) == set()
+    assert set_b.intersection(set_c) == set()
+    assert "ev-iso-c" in set_c
+    assert "ev-iso-c" not in set_a
+
+
 

@@ -191,4 +191,67 @@ CREATE TABLE IF NOT EXISTS datasets (
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id VARCHAR PRIMARY KEY,
+    project_id VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    entity_ids JSON,
+    signal_ids JSON,
+    admission_reason VARCHAR,
+    supporting_layers JSON,
+    severity VARCHAR,
+    time_window JSON,
+    confirmed_facts JSON,
+    evidence_refs JSON,
+    owner VARCHAR,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS evidence (
+    evidence_id VARCHAR PRIMARY KEY,
+    source_type VARCHAR,
+    source_id VARCHAR,
+    time_range JSON,
+    entity_ids JSON,
+    content_hash VARCHAR,
+    summary VARCHAR,
+    provenance VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS hypotheses (
+    hypothesis_id VARCHAR PRIMARY KEY,
+    incident_id VARCHAR NOT NULL,
+    claim VARCHAR NOT NULL,
+    classification VARCHAR,
+    supporting_evidence JSON,
+    contradicting_evidence JSON,
+    missing_evidence JSON,
+    confidence DOUBLE,
+    status VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS decisions (
+    decision_id VARCHAR PRIMARY KEY,
+    incident_id VARCHAR NOT NULL,
+    hypothesis_id VARCHAR,
+    recommendation_id VARCHAR,
+    action VARCHAR NOT NULL,
+    actor VARCHAR,
+    rationale VARCHAR,
+    details JSON,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS recommendations (
+    recommendation_id VARCHAR PRIMARY KEY,
+    incident_id VARCHAR NOT NULL,
+    cause_type VARCHAR,
+    action_type VARCHAR,
+    summary VARCHAR,
+    details JSON,
+    requires_hitl_approval BOOLEAN
+);
+
+
 

@@ -3,7 +3,10 @@ from pydantic import BaseModel, Field
 from src.reliability.models.hypothesis import Hypothesis
 
 
+import uuid
+
 class Recommendation(BaseModel):
+    recommendation_id: str = Field(default_factory=lambda: f"rec-{uuid.uuid4().hex[:8]}")
     incident_id: str
     cause_type: Literal["DATA", "OPERATIONAL", "UNKNOWN"]
     action_type: str

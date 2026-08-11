@@ -7,6 +7,8 @@ ProvenanceType = Literal["REAL_OPERATIONAL", "PUBLIC_PROXY", "SEMI_SYNTHETIC", "
 
 class Evidence(BaseModel):
     evidence_id: str = Field(default_factory=lambda: f"ev-{uuid.uuid4().hex[:8]}")
+    project_id: Optional[str] = None
+    incident_id: Optional[str] = None
     source_type: str
     source_id: str
     time_range: Dict[str, datetime] = Field(default_factory=dict)
@@ -14,3 +16,4 @@ class Evidence(BaseModel):
     content_hash: str
     summary: str
     provenance: ProvenanceType = "SEMI_SYNTHETIC"
+
