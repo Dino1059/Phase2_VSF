@@ -35,12 +35,15 @@ async def propose_rules_endpoint(request: ProposeRulesRequest) -> ProposeRulesRe
 
         if variant == "C0":
             runner = C0Baseline()
+            result = runner.run(df)
         elif variant == "C1":
             runner = C1Baseline()
+            result = runner.run(df)
         else:
             runner = A1Agent()
-
-        result = runner.run(df)
+            import inspect
+            res = runner.run(df)
+            result = await res if inspect.isawaitable(res) else res
         rules_out = [
             RuleSchema(
                 rule_id=r.rule_id,

@@ -213,11 +213,11 @@ def test_v3_static_and_ui_endpoints():
     # Test /v3 root and client-side subroute
     resp_v3 = client.get("/v3")
     assert resp_v3.status_code == 200
-    assert "DataTrust OS v3" in resp_v3.text
+    assert "DataTrust OS" in resp_v3.text
 
     resp_v3_sub = client.get("/v3/dashboard")
     assert resp_v3_sub.status_code == 200
-    assert "DataTrust OS v3" in resp_v3_sub.text
+    assert "DataTrust OS" in resp_v3_sub.text
 
     # Test /vite.svg endpoint
     resp_vite = client.get("/vite.svg")

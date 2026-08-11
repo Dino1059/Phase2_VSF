@@ -1,1981 +1,1863 @@
-# DataTrust OS v5 — FINAL IMPLEMENTATION PLAN
-## Multi-Layer Data Reliability, Evidence-Grounded Incident Investigation, and Operational Trust UX
+# DataTrust OS v5.1 — Architecture, Refactor, UX, and Theming Plan
 
-> **Status:** FINAL — team-aligned + current v5 implementation audit + UX decisions locked  
-> **Prepared:** 2026-08-11  
-> **Feature lock:** 2026-08-26 23:59 Asia/Ho_Chi_Minh  
-> **Primary user:** Data Steward / Data Quality Manager  
-> **Secondary user:** Data Engineer / Analytics Engineer  
-> **Primary research question:** At which layer do deterministic rules, statistical/ML detection, fixed AI workflows, and bounded agents add measurable value?  
-> **Core principle:** Use the cheapest sufficient mechanism. Agentic behavior is an escalation path, not the product thesis.
+**Status:** Proposed implementation plan  
+**Date:** 2026-08-12  
+**Primary user:** Data Steward  
+**Source repositories reviewed:** `P-086-5(1)` and `P-086-UI_design`  
+**North-star decision:** Keep the reliability/control architecture of v5, adopt the interaction model of the UI-design branch, and remove the misleading fixed six-agent pipeline from the production path.
 
 ---
 
-# 0. Executive Decision
+## 0. Executive decision
 
-DataTrust OS v5 will be developed as an **Operational Trust Console** for a Data Steward who repeatedly monitors project reliability, investigates evidence-backed incidents, decides what action is appropriate, and preserves a governed audit trail.
+DataTrust OS should become an **event-driven data reliability control plane with a conversational operational workspace**, not a chat application that happens to run data-quality tools and not a theatrical six-agent chain.
 
-The system is not a chatbot that happens to run data-quality tools.
+The target product has five distinct concerns:
 
-The system is not an “AI agent platform” whose success is measured by how many agents it contains.
+1. **Batch configuration plane** — profile historical/batch data and create versioned detection policies.
+2. **Continuous monitoring plane** — evaluate real-time and scheduled batch data with frozen, approved L1-L4 detection artifacts.
+3. **Incident plane** — fuse signals into incidents before spending AI cost.
+4. **Investigation and governance plane** — escalate R0 -> C1 -> A1, optionally A2, then require HITL before any control or execution change.
+5. **Operational UX plane** — dashboard + searchable/filterable operational timeline + scoped assistant + contextual right-side inspector.
 
-The system is:
+The handwritten architecture is valid, but it represents only the **Batch Rule/Policy Authoring subflow**, not all of v5.
 
-> **A project-level data reliability control plane that detects abnormal signals across four technical layers, fuses them into incidents, investigates uncertain causes with the minimum sufficient level of AI autonomy, and routes the result to either a preventive data control, an operational recommendation, or an explicit abstention.**
+---
 
-The final architecture must maintain a strict separation between:
+## 1. Grill: decisions that must be accepted before refactoring
 
-```text
-DETECTION
-What looks wrong?
-        ↓
-L1 deterministic constraints
-L2 entity-relative statistics
-L3 relational models
-L4 change-point detection
+These are stop-ship architecture questions. If the team disagrees with any of them, resolve that disagreement before adding more UI or agents.
 
-FUSION
-Does the evidence justify an incident?
-        ↓
-Calibrated deterministic admission
+### 1.1 Stop calling the production core a fixed “6-agent ReAct loop”
 
-INVESTIGATION
-Why might it have happened?
-        ↓
-R0 deterministic resolution
-C1 fixed AI workflow
-A1 bounded dynamic investigator
-A2 optional experiment only
+The current UI-design branch describes:
 
-DECISION
-What should be done?
-        ↓
-Human-in-the-loop
+`Orchestrator -> Profiler -> Anomaly Detector -> Diagnosis -> Rule Proposer -> Executor`
 
-EXECUTION
-What actually changes?
-        ↓
-Deterministic governed execution
+That is not the strongest v5 architecture. It collapses deterministic/statistical detectors, investigation, governance, and execution into anthropomorphic agents. It also contradicts the v5 ADR direction that autonomy must be earned by benchmark evidence.
+
+**Decision:** Production architecture vocabulary becomes:
+
+- detector/service/system component for deterministic functions;
+- R0 for deterministic investigation;
+- C1 for fixed AI workflow;
+- A1 for bounded dynamic agent;
+- A2 only for an optional multi-agent experiment.
+
+The UI may still feel conversational, but it must label actors truthfully.
+
+### 1.2 “Real-time only checks predefined rules” is too narrow if v5 still claims L1-L4
+
+If real-time processing only checks rules created by Rule Proposer, then real-time monitoring is effectively L1-only. A value can remain inside a legal range while becoming abnormal relative to its entity history, relational model, or recent regime.
+
+**Decision:** Real-time never authors rules and never runs an LLM in the critical path, but it may score against **frozen approved artifacts for L1-L4**:
+
+- L1: deterministic rules/constraints;
+- L2: historical baselines and robust statistics;
+- L3: frozen relational model/version;
+- L4: approved online change-point state/configuration, e.g. CUSUM.
+
+Offline PELT remains a batch calibration/validation mechanism.
+
+### 1.3 Chat cannot be the system of record
+
+The current frontend parses JSON back out of chat text in `frontend/src/stores/chatStore.ts` to reconstruct profile/anomaly/rule state. That is backwards.
+
+**Decision:** Domain state is persisted as typed entities and typed workflow events. The timeline/chat UI is a **projection** of that state.
+
+Authority order:
+
+`Database -> immutable evidence/audit -> REST snapshot -> WebSocket event -> frontend cache -> rendered timeline`
+
+Never:
+
+`chat text -> parse JSON -> infer domain state`.
+
+### 1.4 One session per database is the wrong primary identity
+
+A Data Steward works on projects, incidents, entities, datasets, controls, and time windows. A database is only one scope.
+
+**Decision:** Sessions have explicit scope:
+
+- `PROJECT`
+- `INCIDENT`
+- `DATASET`
+- optionally `ENTITY`
+
+A session can reference a database/dataset, but must not be defined by “one session = one DB”.
+
+### 1.5 “Accept & Execute” in one click violates the governance thesis
+
+The UI-design branch currently presents an attractive one-click action. It is incompatible with the stronger v5 control model.
+
+**Decision:** Separate:
+
+`Review -> Approve -> Compile -> Sandbox Validate -> Authorize exact version -> Execute`
+
+High-risk execution must never be inferred from a chat command.
+
+### 1.6 Do not expose raw chain-of-thought
+
+`src/api/routes/__init__.py` currently saves strings such as `Thought: ...` from ReAct steps and broadcasts them to chat.
+
+**Decision:** Replace raw thoughts with a structured, safe execution summary:
+
+- action selected;
+- tool called;
+- evidence IDs used;
+- result/status;
+- uncertainty/abstention;
+- elapsed time and cost where useful.
+
+The user needs traceability, not hidden reasoning text.
+
+### 1.7 If A1 cannot beat C1, ship C1
+
+This is already one of the strongest ideas in v5 and must remain non-negotiable.
+
+**Decision:** A1 is admitted only if it materially improves the benchmark under safety/cost/latency guardrails. A2 is disabled by default and is never implemented merely to make the architecture look “more multi-agent”.
+
+### 1.8 Do not ship fake operational metrics
+
+The UI-design branch contains simulated metrics such as “98.6% RCA Accuracy” and hard-coded throughput/agent status. The v5 repo also contains sample signals and seeded fallback incidents.
+
+**Decision:** Every production/default metric must be one of:
+
+- measured;
+- explicitly marked demo/synthetic;
+- absent with an honest empty state.
+
+No unlabeled fabricated accuracy, MTTR, cost saving, event rate, incident count, or test-pass claim.
+
+---
+
+## 2. Canonical v5.1 architecture
+
+### 2.1 The paper flow: keep it, but name it correctly
+
+The simplest interpretation of the handwritten flow is the **Batch Policy Authoring Flow**:
+
+```mermaid
+flowchart LR
+    B["Batch / Historical Data"] --> P["Profiler"]
+    P --> PP["Rule / Policy Proposer"]
+    PP --> H["Data Steward Review"]
+    H -->|Approve| C["Compile + Sandbox Validate"]
+    C --> R[("Detection Policy Registry")]
 ```
 
-This separation is a release invariant.
+This is a good, simple v5 subflow. It is not the whole runtime architecture.
+
+### 2.2 Full v5.1 flow
+
+```mermaid
+flowchart TB
+
+    subgraph CONFIG["BATCH CONFIGURATION PLANE"]
+        BD["Historical / Batch Dataset"]
+        PROF["Profiler\nSchema + Statistics"]
+        PROP["Rule / Policy Proposal\nC1 first, A1 only when justified"]
+        HR["Data Steward Review"]
+        TEST["Compile + Sandbox Validate"]
+        REG[("Versioned Detection Policy Registry\nL1 Rules | L2 Baselines | L3 Models | L4 Config")]
+
+        BD --> PROF --> PROP --> HR
+        HR -->|Approved| TEST --> REG
+    end
+
+    subgraph MON["MONITORING PLANE — NO LLM ON CRITICAL PATH"]
+        RT["Real-time Stream"]
+        SB["Scheduled Batch Monitoring"]
+        FEAT["Feature / Window State"]
+        L1["L1\nDeterministic Constraints"]
+        L2["L2\nContextual Statistics"]
+        L3["L3\nRelational Models"]
+        L4["L4\nOnline Change Detection"]
+        SIG["Typed Signals"]
+        FUS["Deterministic Fusion"]
+        INC["Incident"]
+
+        RT --> FEAT
+        SB --> FEAT
+        FEAT --> L1
+        FEAT --> L2
+        FEAT --> L3
+        FEAT --> L4
+        REG --> L1
+        REG --> L2
+        REG --> L3
+        REG --> L4
+        L1 --> SIG
+        L2 --> SIG
+        L3 --> SIG
+        L4 --> SIG
+        SIG --> FUS
+        FUS -->|Admission policy met| INC
+    end
+
+    subgraph INV["INVESTIGATION / AUTONOMY LADDER"]
+        R0["R0\nDeterministic Resolution"]
+        C1["C1\nFixed AI Workflow"]
+        A1["A1\nBounded Observation-dependent Agent"]
+        A2["A2\nOptional Independent Verifier / Multi-agent Experiment"]
+        DEC["Evidence-backed Hypothesis + Recommendation"]
+
+        INC --> R0
+        R0 -->|Resolved| DEC
+        R0 -->|Unresolved| C1
+        C1 -->|Sufficient evidence| DEC
+        C1 -->|Ambiguous| A1
+        A1 -->|Resolved or Abstain| DEC
+        A1 -. "Only if benchmark justifies" .-> A2
+        A2 --> DEC
+    end
+
+    subgraph GOV["GOVERNANCE + ACTION"]
+        HITL["Data Steward HITL"]
+        CLASS{"Cause Classification"}
+        CTRL["Preventive Data Control\nRule / Contract / Quarantine Change"]
+        OPS["Operational Recommendation"]
+        ABST["Abstain / Request More Evidence"]
+        COMP["Compile + Sandbox Validate"]
+        AUTH["Authorize Exact Version"]
+        EXEC["Deterministic Execution"]
+        AUD[("Immutable Audit")]
+
+        DEC --> HITL --> CLASS
+        CLASS -->|DATA / PIPELINE| CTRL
+        CLASS -->|OPERATIONAL| OPS
+        CLASS -->|UNKNOWN / MIXED| ABST
+        CTRL --> COMP --> HITL
+        HITL -->|Authorize| AUTH --> EXEC --> AUD
+        EXEC -->|New approved policy version| REG
+    end
+
+    subgraph UX["OPERATIONAL UX"]
+        DASH["Dashboard\nKPIs + Trends + Attention"]
+        TL["Operational Timeline + Scoped Assistant\nSearch + Time Filters"]
+        INS["Context Inspector\nEvidence / Detector / RCA / Policy / Audit"]
+    end
+
+    SIG -.-> DASH
+    INC -.-> DASH
+    PROF -. event .-> TL
+    SIG -. event .-> TL
+    FUS -. event .-> TL
+    R0 -. event .-> TL
+    C1 -. event .-> TL
+    A1 -. event .-> TL
+    HITL -. event .-> TL
+    EXEC -. event .-> TL
+    TL -. selection .-> INS
+```
+
+### 2.3 Architecture invariants
+
+1. **Batch is the only input to policy authoring.**
+2. **Real-time never creates a new rule inline.** It only evaluates frozen approved detector artifacts.
+3. **A real-time anomaly may create an incident that later proposes a new preventive control**, but this is asynchronous and governed.
+4. **Fusion is deterministic.** LLMs do not decide whether raw signals become incidents.
+5. **R0/C1/A1 are investigation tiers, not a chain of permanent specialist personas.**
+6. **All writes require governance.** AI tools remain read-only until a structured proposal reaches the authorization pipeline.
+7. **Every user-visible AI claim must point to evidence IDs.**
+8. **Every detector result must record detector/policy/model version.**
 
 ---
 
-# 1. Locked Product and UX Decisions
+## 3. Canonical autonomy vocabulary
 
-The following decisions are now locked.
+The repo currently has naming drift around C0/R0. Fix this before more evaluation work.
 
-## 1.1 User and product decisions
+| Tier | Canonical v5.1 meaning | LLM | Dynamic tool choice | Multi-agent | Production default |
+|---|---|---:|---:|---:|---:|
+| **R0** | Deterministic investigation / known-pattern resolution | No | No | No | Yes |
+| **C1** | Fixed evidence bundle -> one structured AI analysis -> schema/evidence validation | Yes | No | No | Yes |
+| **A1** | Bounded investigator choosing the next read-only tool from observations | Yes | Yes | No | Conditional |
+| **A2** | Independent verifier or specialist multi-agent experiment | Yes | Yes | Yes | No |
+| **C0** | Legacy compatibility name only; remove from product vocabulary | N/A | N/A | N/A | No |
 
-| Decision | Final choice |
-|---|---|
-| Primary user | **Data Steward / Data Quality Manager** |
-| Secondary user | Data Engineer / Analytics Engineer |
-| Signal semantics | Detect signal first; do not automatically call it a data error |
-| Product pillars | Data Contract/Governance + Continuous Reliability Monitoring |
-| Hero recurring workflow | **Monitoring → Incident → Evidence → RCA → HITL → Action** |
-| RCA default output | Evidence-backed hypothesis + recommendation |
-| Preventive rule | Only for data/pipeline/contract causes |
-| Operational recommendation | For asset/real-world operational causes |
-| Unknown cause | Explicit abstention / request more evidence |
-| Agent entry point | Incident investigation, not default anomaly detection |
-| A2 | Optional experiment after A1 failure analysis |
-| Chat | Contextual assistant, not system of record |
-| Feature lock | 26 Aug 2026 |
+### Required repo changes
+
+- Update `docs/architecture/decision-log.md` so it no longer defines C0 as a one-shot LLM while `src/agents/baselines.py` defines C0 as an alias of R0.
+- Deprecate `BaselineC0` in `src/agents/baselines.py`.
+- Benchmark reports must use `R0`, `C1`, `A1`, `A2` only.
+- If historical results use `C0`, add a migration/display alias in evaluation code, not a new production tier.
 
 ---
 
-# 1.2 Locked visual / interaction decisions
+## 4. Current repo audit and disposition
 
-User decisions:
+### 4.1 What to keep
 
-- **Daily-use Data Steward UX first**
-- **Light + dark themes, system-aware**
-- Demo environment: **bright classroom/projector**
-- Full visual redesign is permitted
-- Product remains **brand-neutral**
-- L1-L4 use **four stable categorical colors plus labels/icons**
-- UI is **bilingual, Vietnamese default**
-- A dedicated chart library may be added
-- 1920×1080 and 1440p must both work well
-- Executive Dashboard remains a major screen
-
-Implementation consequence:
-
-> Support both themes via semantic tokens. For the classroom demo, explicitly switch to the light theme during rehearsal because projector environments generally reward higher surface brightness and clearer printed-style contrast.
-
-Do not hard-code light mode as the product default; respect system theme in normal use.
-
----
-
-# 2. Current v5 Implementation Audit
-
-The v5 repository has made meaningful architectural progress compared with v4.
-
-The main positive change is the introduction of a real reliability bounded context with:
-
-- L1-L4 detector modules;
-- Fusion concepts;
-- Incident models;
-- R0/C1/A1 investigation classes;
-- recommendation routing;
-- governance primitives;
-- Project/Incident-oriented frontend work.
-
-However, architectural naming is currently ahead of implementation correctness.
-
-The current risk is **false completeness**: classes and pages exist, but some behavior is still static, temporally invalid, duplicated, or demo-only.
-
----
-
-# 2.1 Current implementation status
-
-| Area | Current status | Required action |
+| Area | Keep | Reason |
 |---|---|---|
-| L1 | Mostly usable | Harden metrics, event contracts, SLA instrumentation |
-| L2 | **Statistically incorrect** | Remove look-ahead leakage; implement prior-history baseline |
-| L3 | **Statistically incorrect/incomplete** | Separate train/reference and evaluation windows; model entity scope |
-| L4 | Partial | Add robust lifecycle, PELT comparator, persistence |
-| Signal schema | Partial | Canonicalize across all detectors |
-| Fusion | Partial | Replace threshold grouping with evidence-aware calibrated fusion |
-| Incident | Partial | Persist canonical incident lifecycle |
-| Evidence | Partial | Replace text-like references with typed immutable evidence IDs |
-| R0 | Partial | Replace fragile text matching with typed diagnostic mappings |
-| C1 | Demo-strength | Build a serious fixed AI investigation baseline |
-| A1 | Demo-strength | Implement observation-dependent dynamic tool loop |
-| A2 | Simulated/optional | Remove from headline benchmark unless admitted |
-| Governance | Duplicated | Merge old approvals/HITL/new control authorization |
-| Authentication | Demo-only | Signed identity and server-side role resolution |
-| WebSocket | Unsafe scope | Authenticate and scope tenant/project/session rooms |
-| Frontend | Partly static | Replace hard-coded incidents/evidence/KPIs with APIs |
-| Benchmark | **Invalid for research claims** | Rebuild blind empirical evaluator |
-| Data provenance | Partial | Label all integrated data as real/proxy/semi-synthetic/synthetic |
-| Deployment | Drifted | Reconcile path/version/nginx/frontend build |
-| Documentation | Drifted | Update VERSION, architecture, PRD/PLAN alignment |
+| `src/reliability/detectors/l1_rules.py` | Yes | Correct L1 direction |
+| `src/reliability/detectors/l2_contextual.py` | Yes, verify tests | Core contextual detector |
+| `src/reliability/detectors/l3_relational.py` | Yes, verify frozen-model semantics | Core relational detector |
+| `src/reliability/detectors/l4_changepoint.py` | Yes, separate online/offline roles | CUSUM + PELT are useful but serve different runtime paths |
+| `src/reliability/fusion/*` | Yes | Correct deterministic admission layer |
+| `src/reliability/models/*` | Yes, normalize naming | Strong typed-domain direction |
+| `src/reliability/investigation/r0.py` | Yes | Correct deterministic first tier |
+| `src/reliability/investigation/c1.py` | Yes | Correct fixed baseline |
+| `src/reliability/governance/*` | Yes, persist it | Strong governance model but currently needs storage consolidation |
+| `frontend/src/pages/ExecutiveDashboard.tsx` | Keep concepts/components | Dashboard remains a major product surface |
+| UI-design branch session/time-filter/right-panel concepts | Keep interaction model | Stronger operational UX than the current page split |
+
+### 4.2 What to refactor
+
+| Current | Problem | Target |
+|---|---|---|
+| `frontend/src/App.tsx` manual hash state | React Router is installed but not actually used | Real route tree with URL-addressable project/workspace/filter state |
+| `frontend/src/stores/chatStore.ts` JSON extraction | Domain state inferred from message prose | Typed event + server-state query model |
+| `frontend/src/services/websocket.ts` CoT parsing | Parses reasoning strings and synthesizes confidence | Typed `WorkflowEvent` envelope |
+| `src/api/routes/__init__.py::/chat/send` | Global ReAct engine can trigger workflow tools directly | Scoped assistant endpoint that reads domain state and creates proposals only |
+| `src/services/conversation_store.py` | Message-only model, weak scope | Session + timeline/event store |
+| `src/reliability/investigation/a1.py` | Precomputes a candidate tool plan before observations | True observation-dependent choose/observe/update loop |
+| `src/reliability/governance/preventive_controls.py` | Important state held in process memory | Repository-backed persistent controls/versions/authorizations |
+| WebSocket broadcast model | Session-centric and not sufficiently domain-scoped | Project/incident/user subscriptions with sequence/resync |
+
+### 4.3 What to remove or quarantine as legacy
+
+- `src/orchestrator/orchestrator.py` fixed profiler/anomaly/diagnosis/rule/executor chain from the production path.
+- Duplicate ReAct implementations under `src/agents/*` and `src/orchestrator/*` after the canonical A1 path is complete.
+- “6-Agent ReAct Loop” claims in UI copy and documentation.
+- Agent personality/status colors that imply deterministic engines are autonomous AI agents.
+- Global chat actions that directly clean/execute data.
+- Raw `Thought:` rendering.
+- Static/fake UI metrics and status indicators.
+- Any direct SQL/Python editing path for executable controls.
+
+Do not delete legacy code until replacement paths have regression tests. Move it under an explicit `legacy/` or archive path first if needed.
 
 ---
 
-# 3. P0 Correctness Fixes
+## 5. Backend target structure
 
-No new visible feature should take priority over these items.
-
----
-
-# 3.1 Fix L2 temporal leakage
-
-## Current failure
-
-The existing approach computes statistics from a series that includes observations later than the scored timestamp.
-
-That creates look-ahead leakage.
-
-Invalid:
+A cleaner package boundary should look approximately like this:
 
 ```text
-all 60 days
-→ median/MAD
-→ score day 20
+src/
+  reliability/
+    detection/
+      l1.py
+      l2.py
+      l3.py
+      l4.py
+      runtime.py
+    policy/
+      models.py
+      registry.py
+      compiler.py
+      calibration.py
+    fusion/
+      engine.py
+      policy.py
+    incidents/
+      models.py
+      repository.py
+      service.py
+    investigation/
+      r0.py
+      c1.py
+      a1.py
+      a2.py          # optional/feature-flagged only
+      tools.py
+      models.py
+    governance/
+      controls.py
+      authorizations.py
+      executor.py
+    events/
+      models.py
+      repository.py
+      publisher.py
+  api/
+    v1/
+      projects.py
+      dashboard.py
+      timeline.py
+      sessions.py
+      signals.py
+      incidents.py
+      investigation.py
+      policies.py
+      controls.py
+      audit.py
+      assistant.py
+      evaluation.py
 ```
 
-Valid:
+The exact file moves can be incremental. The important part is the ownership boundary: detection, investigation, governance, and UX events must not be mixed inside one chat route.
+
+---
+
+## 6. Detection Policy Registry
+
+The handwritten `Rule Registry` should become a broader **Detection Policy Registry**.
+
+A policy version is an immutable bundle containing the artifacts needed to score data without LLM calls:
 
 ```text
-for each timestamp t:
-    history = records strictly before t
-    if history < warmup:
-        INSUFFICIENT_HISTORY
-    else:
-        baseline = robust(history)
-        score observation(t)
+PolicyVersion
+├── L1 deterministic RuleSpecs
+├── L2 baseline statistics / window config
+├── L3 frozen model reference + feature schema
+├── L4 online threshold/state configuration
+├── provenance
+├── source snapshot IDs
+├── compiler version
+├── content hash
+├── approval metadata
+└── effective time
 ```
 
-## Canonical first model
-
-Use:
-
-- rolling median;
-- MAD;
-- robust Z score;
-- configurable window;
-- minimum warm-up;
-- no future records.
-
-Do not add complex forecasting until this baseline is correct.
-
-## Mandatory leakage test
-
-Given a fixed dataset:
+### 6.1 Policy lifecycle
 
 ```text
-score(entity, day=30)
+DRAFT
+-> PROPOSED
+-> REVIEW_PENDING
+-> APPROVED
+-> COMPILED
+-> SANDBOX_VALIDATED
+-> AUTHORIZED
+-> ACTIVE
+-> SUPERSEDED | REVOKED
 ```
 
-must not change when day 31-60 values are modified.
+A user edit creates a **new version**. It never mutates an active version in place.
 
-Add this as a regression test.
+### 6.2 Real-time policy update behavior
+
+1. Compile/validate the new version off-path.
+2. Approve and authorize it.
+3. Atomically switch the active policy pointer.
+4. New events use the new `policy_version_id`.
+5. In-flight events finish on the previous version or follow a documented cutover rule.
+6. Every signal records the exact policy/model version used.
 
 ---
 
-# 3.2 Fix L3 train/score leakage
+## 7. Real-time and batch runtime behavior
 
-## Current failure
+### 7.1 Real-time
 
-A relationship model is fitted and evaluated on effectively the same data, and entity structure is insufficiently represented.
+**Critical-path requirement:** no LLM and no Rule Proposer.
 
-## Required design
-
-For each configured relationship:
-
-```text
-reference window
-→ fit expected relationship
-→ freeze model/version
-→ evaluation window
-→ calculate residual
-→ normalize residual
-→ emit L3 signal
+```mermaid
+flowchart LR
+    E["Realtime Event"] --> W["Entity Window / Feature State"]
+    W --> D["L1-L4 Frozen Detectors"]
+    R[("Active Policy Version")] --> D
+    D --> S["Signals"]
+    S --> F["Fusion"]
+    F -->|Admit| I["Incident"]
+    I --> X["Async Investigation R0/C1/A1"]
 ```
 
-Supported scopes:
+Runtime expectations:
 
-```text
-GLOBAL
-ASSET_CLASS
-ENTITY
-```
+- L1 is stateless or near-stateless where possible.
+- L2 uses only observations prior to the scored timestamp.
+- L3 uses a frozen model/version and matching feature schema.
+- L4 online path uses incremental state such as CUSUM.
+- PELT is not run per event; use it in offline/batch validation or recalibration.
+- Signals are idempotent for the same source event + detector version where feasible.
 
-Default selection should depend on sample sufficiency.
+### 7.2 Scheduled batch monitoring
 
-## Initial model priority
+Scheduled batch monitoring may run all L1-L4 detectors and can use offline algorithms such as PELT where appropriate. It still emits the same `Signal` schema and enters the same Fusion -> Incident path.
 
-1. domain-defined equation if available;
-2. linear/robust regression residual;
-3. Mahalanobis/robust covariance when justified;
-4. Isolation Forest as comparator;
-5. no deep model for MVP.
+### 7.3 Policy authoring remains batch-only
 
-Each signal must explain the relationship, not just expose an opaque score.
-
-Example:
-
-```text
-Expected trip count given charging behavior: 17.8
-Observed: 8
-Residual: -9.8
-Residual percentile: 99.4%
-```
+The policy-authoring pipeline may consume historical windows, uploaded files, snapshots, or warehouse extracts. It must not learn a new rule synchronously from a single streaming event.
 
 ---
 
-# 3.3 Harden L4
+## 8. A1 refactor: make it a real bounded investigator
 
-Current CUSUM support is not enough for a convincing sequential layer.
+The current `src/reliability/investigation/a1.py` builds `candidate_order` and `tool_plan` before executing the tools. That is bounded, but it is not strongly observation-dependent.
 
-Implement:
+### 8.1 Target loop
 
-- CUSUM as online/simple detector;
-- PELT as offline daily-batch comparator;
-- minimum segment duration;
-- persistence policy;
-- change magnitude;
-- pre/post summaries;
-- duplicate change suppression.
-
-Output must identify:
-
-```yaml
-change_time:
-pre_window:
-post_window:
-metric:
-pre_summary:
-post_summary:
-magnitude:
-method:
-score:
+```mermaid
+flowchart TD
+    S["Incident + Existing Evidence"] --> H["Initialize competing hypotheses"]
+    H --> Q{"Enough evidence?"}
+    Q -->|Yes| O["Resolve / Recommend / Abstain"]
+    Q -->|No| T["Choose ONE next read-only tool"]
+    T --> R["Receive typed observation"]
+    R --> U["Update support / contradiction / missing evidence"]
+    U --> B{"Budget exhausted?"}
+    B -->|No| Q
+    B -->|Yes| A["ABSTAIN with missing evidence"]
 ```
 
-Evaluation must include change-point timing error.
+### 8.2 Hard bounds
 
----
-
-# 3.4 Replace fake evidence references
-
-Evidence references must be durable typed entities.
-
-Bad:
-
-```text
-evidence_refs = ["high severity", "recent telemetry"]
-```
-
-Required:
-
-```yaml
-evidence_id: ev_...
-incident_id: inc_...
-project_id: project_...
-source_type: TELEMETRY|TRIP|CHARGING|PROFILE|RULE|CHANGE|COMPLAINT
-source_record_ids:
-entity_ids:
-time_window:
-content_hash:
-provenance:
-summary:
-```
-
-Investigation cannot cite evidence that is not retrievable.
-
----
-
-# 3.5 Fix cross-incident evidence leakage
-
-Every retrieval query must be scoped by:
-
-```text
-tenant/project
-+
-incident
-+
-allowed entity/time scope
-```
-
-An A1 tool call must never receive the entire evidence store.
-
-Add isolation tests:
-
-```text
-Incident A evidence
-∩
-Incident B evidence
-=
-∅
-```
-
-unless explicitly linked as shared evidence.
-
----
-
-# 4. Canonical Data Semantics
-
----
-
-# 4.1 Signal
-
-A signal states that a detector observed something noteworthy.
-
-It does **not** necessarily state that a data error exists.
-
-```yaml
-signal_id:
-project_id:
-entity_ids:
-layer: L1|L2|L3|L4
-signal_type:
-metric_or_relationship:
-event_time:
-window_start:
-window_end:
-score:
-severity:
-detector_name:
-detector_version:
-evidence_refs:
-provenance:
-created_at:
-```
-
----
-
-# 4.2 Incident
-
-An Incident means the signal set deserves investigation or human attention.
-
-```yaml
-incident_id:
-project_id:
-status:
-entity_ids:
-signal_ids:
-admission_reason:
-severity:
-time_window:
-evidence_refs:
-classification:
-owner:
-created_at:
-updated_at:
-```
-
----
-
-# 4.3 Hypothesis
-
-```yaml
-hypothesis_id:
-incident_id:
-claim:
-classification: DATA|OPERATIONAL|MIXED|UNKNOWN
-supporting_evidence_ids:
-contradicting_evidence_ids:
-missing_evidence:
-confidence:
-status:
-```
-
-Confidence must be calibrated or explicitly described as model confidence; do not invent values such as `0.95`.
-
----
-
-# 4.4 Decision
-
-```yaml
-decision_id:
-incident_id:
-actor_id:
-decision_type:
-accepted_hypothesis_id:
-reason:
-timestamp:
-```
-
----
-
-# 4.5 Recommendation
-
-Two typed classes:
-
-```text
-PREVENTIVE_DATA_CONTROL
-OPERATIONAL_RECOMMENDATION
-```
-
-They must not be conflated.
-
----
-
-# 5. Fusion v5
-
-Fusion is responsible for deciding whether multiple signals justify an Incident.
-
-It is not an LLM.
-
-## 5.1 Fusion inputs
-
-- severity;
-- detector score;
-- persistence;
-- number of independent layers;
-- time overlap;
-- entity relationship;
-- evidence quality;
-- criticality;
-- recency.
-
-## 5.2 Fusion policies
-
-Start with deterministic policies:
-
-```text
-critical L1
-→ admit immediately
-
-persistent strong single-layer signal
-→ admit
-
-agreement from >=2 independent layers
-→ admit
-
-manual promotion
-→ admit
-```
-
-Do not claim a sophisticated learned Fusion model until enough labeled incidents exist.
-
-## 5.3 Calibration study
-
-Evaluate alternative fusion policies against:
-
-- incident precision;
-- incident recall;
-- missed critical incidents;
-- alerts reduced;
-- duplicate incidents.
-
-Pick the simplest policy on the Pareto frontier.
-
----
-
-# 6. Incident Investigation Architecture
-
----
-
-# 6.1 R0 — deterministic resolution
-
-Use when the incident matches a known diagnostic pattern.
-
-Examples:
-
-```text
-schema changed after deployment
-known mapping mismatch
-known null-producing transformation
-known charger status code
-```
-
-R0 must use typed fields, not fragile substring matching.
-
----
-
-# 6.2 C1 — strongest fixed-workflow baseline
-
-Current C1 is too weak to be a scientifically useful comparator.
-
-Implement:
-
-```text
-incident
-→ deterministic context builder
-→ fixed evidence bundle:
-     signals
-     entity history
-     profile
-     known changes
-     relevant rule violations
-→ one structured LLM call
-→ output schema validation
-→ evidence-ID validation
-→ recommendation routing
-```
-
-The LLM receives no hidden ground truth.
-
-C1 must be good enough that A1 can legitimately lose.
-
----
-
-# 6.3 A1 — real bounded dynamic investigator
-
-A1 becomes legitimate only when tool selection depends on observations.
-
-Required loop:
-
-```text
-initialize incident state
-        ↓
-review known evidence
-        ↓
-form competing hypotheses
-        ↓
-choose next typed tool
-        ↓
-receive observation
-        ↓
-update support / contradiction
-        ↓
-continue / stop / abstain
-```
-
-Minimum tool registry:
-
-- fetch entity history;
-- fetch telemetry window;
-- fetch trip history;
-- fetch charging history;
-- fetch profile;
-- fetch DQ violations;
-- fetch recent changes;
-- resolve entity relationships;
-- calculate detector detail;
-- retrieve domain reference.
-
-Each tool must query real project data.
-
-No constant sample outputs.
-
-## Bounds
+A1 must enforce:
 
 - max tool calls;
-- max wall-clock time;
+- max model calls;
 - max tokens;
+- wall-clock timeout;
 - max hypothesis revisions;
-- explicit tool allowlist;
-- evidence-ID requirement;
-- no mutation tool;
-- stop/abstain behavior.
+- domain-scoped tool allowlist;
+- read-only tool contract;
+- evidence-reference validation;
+- no direct control mutation;
+- explicit abstention.
 
----
+### 8.3 UI trace contract
 
-# 6.4 A2 — optional only
-
-A2 is not part of the required product architecture.
-
-A2 may be implemented behind a feature flag only if an A1 failure report identifies:
-
-```yaml
-failure_mode:
-frequency:
-impact:
-why_A1_fails:
-proposed_specialist_or_verifier:
-expected_metric_gain:
-allowed_cost_increase:
-```
-
-Then compare A1 vs A2 on the same failure subset.
-
-Do not implement multi-agent solely for presentation.
-
----
-
-# 7. Unified Governance
-
-Current approval/control systems must converge.
-
-Canonical lifecycle:
-
-```text
-PROPOSED
-→ REVIEW_PENDING
-→ APPROVED | EDITED | REJECTED
-
-APPROVED
-→ COMPILED
-→ SANDBOX_VALIDATED
-→ AUTHORIZED
-→ EXECUTED
-```
-
-If edited, the new version returns to review.
-
-## Execution invariant
-
-```text
-EXECUTE
-⇒ authenticated actor
-∧ exact approved proposal version
-∧ matching project/data snapshot
-∧ compiled plan
-∧ sandbox validation where required
-∧ valid non-expired authorization
-∧ immutable audit event
-```
-
-Execution API must accept:
+Do not show raw reasoning. Emit events such as:
 
 ```json
 {
-  "authorization_id": "..."
+  "event_type": "INVESTIGATION_TOOL_COMPLETED",
+  "actor_kind": "AI",
+  "actor_id": "A1",
+  "summary": "Checked recent charging history",
+  "tool_name": "fetch_charging_history",
+  "evidence_refs": ["ev_..."],
+  "result_status": "SUPPORTS_OPERATIONAL_CAUSE"
 }
 ```
 
-The client must not re-submit executable logic after authorization.
-
 ---
 
-# 8. Security Remediation
+## 9. Domain event model: foundation of the new UI
 
-For the course/demo, full enterprise SSO is unnecessary, but the security model must be structurally correct.
+Create a canonical `WorkflowEvent` / `TimelineEvent` model.
 
-Implement:
-
-- signed local JWT;
-- seeded users;
-- server-side role lookup;
-- role claims verified server-side;
-- no `X-User-Role` authority;
-- no frontend `Admin` fallback;
-- token-authenticated WebSocket;
-- project/session-scoped WebSocket rooms;
-- endpoint permission checks;
-- execution authorization checks;
-- audit actor identity.
-
-Immediately:
-
-- rotate any real-looking API key in repository/example env;
-- replace with placeholders;
-- scan repository history.
-
----
-
-# 9. Data Strategy and Causal Digital Twin
-
-The underlying source datasets are independent.
-
-Do not present constructed joins as naturally observed cross-domain causal data.
-
-Canonical provenance values:
+### 9.1 Required fields
 
 ```text
-REAL_OPERATIONAL
-PUBLIC_PROXY
-SEMI_SYNTHETIC
-SYNTHETIC
+event_id
+sequence_number
+project_id
+incident_id? 
+session_id?
+entity_ids[]
+phase
+actor_kind
+actor_id
+event_type
+severity?
+summary
+payload_json
+evidence_refs[]
+created_at
+correlation_id
+causation_id?
 ```
 
-The integrated benchmark must be labeled:
-
-> **Semi-Synthetic Causal Digital Twin**
-
----
-
-# 9.1 Primary benchmark corpus
-
-Target:
-
-- 60 days;
-- 30 VIN;
-- 4 stations;
-- 14-day detector warm-up;
-- coherent trip/charging/telemetry timelines;
-- fixed seed;
-- versioned generator.
-
-If density becomes insufficient, reduce VIN count rather than adding unrelated random records.
-
-Sensitivity:
-
-- 30-day slice;
-- 90-day slice if statistically useful.
-
----
-
-# 9.2 Generate causes before symptoms
-
-Correct generator:
+### 9.2 Actor kinds
 
 ```text
-latent cause
-→ downstream correlated effects
-→ detector-visible signals
+HUMAN
+DETECTOR
+SYSTEM
+AI
+EXECUTOR
+INTEGRATION
 ```
+
+### 9.3 Phases
+
+```text
+INGEST
+PROFILE
+DETECT
+FUSE
+INVESTIGATE
+REVIEW
+VALIDATE
+AUTHORIZE
+EXECUTE
+AUDIT
+```
+
+### 9.4 Initial event types
+
+```text
+SNAPSHOT_INGESTED
+PROFILE_COMPLETED
+POLICY_PROPOSED
+POLICY_APPROVED
+POLICY_ACTIVATED
+SIGNAL_CREATED
+INCIDENT_ADMITTED
+INCIDENT_UPDATED
+INVESTIGATION_STARTED
+R0_RESOLVED
+C1_COMPLETED
+A1_TOOL_STARTED
+A1_TOOL_COMPLETED
+HYPOTHESIS_UPDATED
+INVESTIGATION_ABSTAINED
+RECOMMENDATION_CREATED
+CONTROL_PROPOSED
+CONTROL_APPROVED
+SANDBOX_VALIDATED
+AUTHORIZATION_ISSUED
+EXECUTION_STARTED
+EXECUTION_COMPLETED
+EXECUTION_FAILED
+USER_MESSAGE
+ASSISTANT_MESSAGE
+```
+
+This event stream becomes the source for the operational timeline, recent activity, session counts, phase filtering, and live updates.
+
+---
+
+## 10. Persistence changes
+
+`src/db/schema.sql` still declares itself “DataTrust OS v4.0 Schema DDL”. Correct this through a migration, not an unsafe manual reset.
+
+### 10.1 Add or normalize these tables
+
+#### `signals`
+Persist L1-L4 signals; do not return hard-coded values from `src/api/routes/signals.py`.
+
+Key fields:
+
+```text
+signal_id PK
+project_id
+source_event_id / snapshot_id
+entity_ids JSON
+layer
+detector_name
+detector_version
+policy_version_id
+signal_type
+metric_or_relationship
+score
+severity
+time_window JSON
+evidence_refs JSON
+provenance
+created_at
+```
+
+#### `policy_versions`
+
+```text
+policy_version_id PK
+project_id
+version
+status
+source_snapshot_ids JSON
+artifact_manifest_hash
+created_by
+approved_by
+created_at
+approved_at
+effective_at
+supersedes_version_id
+```
+
+#### `detector_artifacts`
+
+```text
+artifact_id PK
+policy_version_id
+layer
+artifact_type
+artifact_version
+config_json
+model_uri_or_blob_ref
+feature_schema_json
+content_hash
+created_at
+```
+
+#### `workflow_events`
+Use the event schema from Section 9 and index:
+
+- `(project_id, sequence_number)`
+- `(incident_id, sequence_number)`
+- `(session_id, created_at)`
+- `(project_id, phase, created_at)`
+- `(project_id, event_type, created_at)`
+
+#### `sessions`
+
+```text
+session_id PK
+project_id
+scope_type
+scope_id
+title
+created_by
+created_at
+last_activity_at
+archived_at?
+```
+
+#### `investigation_runs`
+Persist mode, bounds, outcome, cost/latency, and exact evidence set.
+
+#### controls / versions / authorizations
+Move process-memory authority from `global_control_manager` into persistent repositories. An in-memory cache may remain, but it cannot be authoritative.
+
+### 10.2 Messages
+
+Keep `messages` only if it serves real human/assistant content. System events belong in `workflow_events`.
+
+---
+
+## 11. API refactor
+
+Canonical namespace remains `/api/v1`.
+
+### 11.1 Dashboard
+
+```text
+GET /projects/{project_id}/dashboard?from=&to=&timezone=
+```
+
+Return measured summaries only:
+
+- open incidents;
+- critical incidents;
+- signals by L1-L4;
+- incident statuses;
+- pending approvals;
+- affected entities;
+- monitoring run health;
+- provenance coverage;
+- trend series.
+
+### 11.2 Timeline
+
+```text
+GET /projects/{project_id}/timeline
+    ?from=
+    &to=
+    &cursor=
+    &limit=
+    &phase=
+    &event_type=
+    &layer=
+    &severity=
+    &incident_id=
+    &entity_id=
+    &q=
+```
+
+Use cursor pagination, not a hard 100-message limit for long-running projects.
+
+### 11.3 Sessions
+
+```text
+GET  /projects/{project_id}/sessions?scope_type=&scope_id=&from=&to=&q=
+POST /projects/{project_id}/sessions
+GET  /sessions/{session_id}
+GET  /sessions/{session_id}/timeline
+POST /sessions/{session_id}/messages
+```
+
+### 11.4 Incidents
+
+Keep and strengthen:
+
+```text
+GET  /projects/{project_id}/incidents
+GET  /incidents/{incident_id}
+GET  /incidents/{incident_id}/evidence
+GET  /incidents/{incident_id}/timeline
+POST /incidents/{incident_id}/investigate?mode=R0|C1|A1
+GET  /incidents/{incident_id}/hypotheses
+GET  /incidents/{incident_id}/recommendations
+```
+
+A missing incident returns 404. A project with no incidents returns `[]`. Do not synthesize a fallback incident.
+
+### 11.5 Policies
+
+```text
+POST /projects/{project_id}/policy-proposals
+GET  /projects/{project_id}/policies
+GET  /policies/{policy_version_id}
+POST /policies/{policy_version_id}/review
+POST /policies/{policy_version_id}/compile
+POST /policies/{policy_version_id}/sandbox
+POST /policies/{policy_version_id}/activate
+```
+
+### 11.6 Assistant
+
+Replace the global action-oriented `/chat/send` semantics with a scoped assistant:
+
+```text
+POST /sessions/{session_id}/assistant
+```
+
+Input includes the current explicit scope. Assistant tools are read-only. If the user requests a write, the assistant creates a structured **proposal**, then the governance workflow handles the write.
+
+---
+
+## 12. WebSocket model
+
+Keep WebSocket for live operational updates; do not make it the authoritative state store.
+
+### 12.1 Subscription scopes
+
+A connection must be authenticated and may subscribe to:
+
+```text
+project:{project_id}
+incident:{incident_id}
+session:{session_id}
+user:{user_id}
+```
+
+### 12.2 Envelope
+
+```json
+{
+  "type": "workflow.event",
+  "project_id": "proj_...",
+  "sequence_number": 1842,
+  "event": { "...": "WorkflowEvent" }
+}
+```
+
+### 12.3 Reconnect behavior
+
+On reconnect:
+
+1. client sends/knows last received sequence;
+2. REST fetches missed events after that sequence;
+3. client resumes live subscription;
+4. no event state is reconstructed from prose.
+
+---
+
+## 13. Frontend information architecture
+
+The current three-page split (`Project Control Room`, `Incident Workspace`, `Executive Dashboard`) should be simplified.
+
+### 13.1 Primary navigation
+
+```text
+Overview
+Workspace
+Policies & Controls
+Audit
+Evaluation
+Settings   (optional)
+```
+
+### 13.2 Route tree
+
+Use the already-installed React Router instead of manual `window.location.hash` state.
+
+```text
+/projects/:projectId/overview
+/projects/:projectId/workspace
+/projects/:projectId/workspace?incident=:incidentId&session=:sessionId
+/projects/:projectId/policies
+/projects/:projectId/audit
+/projects/:projectId/evaluation
+```
+
+Encode shareable filters in query parameters where practical:
+
+```text
+?range=7d&layers=L2,L3&severity=HIGH,CRITICAL&phase=INVESTIGATE
+```
+
+### 13.3 Server state versus UI state
+
+Recommended split:
+
+- **TanStack Query** for REST server state, caching, refetch/invalidation, and paginated timeline data.
+- **Zustand** only for local UI state such as selected timeline event, inspector visibility/width, density preference, draft composer state, and theme.
+- **WebSocket** invalidates or incrementally updates relevant query caches.
+
+Delete the need for `autoRepairJson`, `extractObservationJsons`, and `syncWorkspaceFromMessages` from `chatStore.ts`.
+
+---
+
+## 14. New Workspace UX
+
+The UI-design branch has the right interaction idea. Rebuild it in React using real APIs; do not port its mock engine.
+
+### 14.1 Desktop structure
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Project / global filters / time range / search / connection health          │
+├──────────────────────┬───────────────────────────────────┬───────────────────┤
+│ LEFT                 │ CENTER                            │ RIGHT             │
+│                      │                                   │                   │
+│ Scope + sessions     │ Operational Timeline             │ Context Inspector │
+│ Incidents            │ + scoped assistant messages      │                   │
+│ Saved filters        │ + event cards                    │ Evidence          │
+│ Recency groups       │                                   │ Detector detail   │
+│                      │ Composer at bottom                │ RCA / hypothesis  │
+│                      │                                   │ Policy / audit    │
+└──────────────────────┴───────────────────────────────────┴───────────────────┘
+```
+
+Suggested desktop sizing, adjustable after usability testing:
+
+- left rail: 280-320 px;
+- center: flexible, minimum approximately 640 px;
+- right inspector: 380-460 px, resizable/collapsible.
+
+### 14.2 Do not render every event as a chat bubble
+
+Use two visual grammars:
+
+**Human/assistant conversation**
+- conventional message block;
+- citations/evidence references;
+- proposed actions shown as explicit cards.
+
+**System workflow activity**
+- compact typed timeline cell/card;
+- phase badge;
+- actor badge;
+- timestamp;
+- one-line result;
+- expand for evidence, metadata, model/version, tool call summary.
 
 Example:
 
 ```text
-Battery degradation starts D35
-        ↓
-energy efficiency worsens
-charging frequency rises
-trip productivity falls
-thermal behavior changes
-optional complaint appears later
+14:32:08  [L3 DETECTOR] [HIGH]
+Relationship residual exceeded frozen-model threshold
+VIN-123 · model l3-trip-v12 · 3 evidence refs
 ```
 
-Do not inject independent anomalies and retroactively claim they share a root cause.
+This preserves the “multi-actor chat” feel without pretending deterministic detectors are autonomous people.
 
----
+### 14.3 Actor labels
 
-# 10. Research-Valid Benchmark
-
-The legacy benchmark must not be used as project evidence.
-
-Remove all logic that:
-
-- preassigns detector capability to C0/C1/A1;
-- gives ground truth to C1;
-- makes A1 detect all fault families by definition;
-- derives human time from recall;
-- fabricates token counts;
-- fabricates latency;
-- returns fixed precision/recall/RCA accuracy;
-- gives A1 richer evidence than C1.
-
----
-
-# 10.1 Evaluation structure
+Recommended labels:
 
 ```text
-Frozen hidden case
-        ↓
-R0
-C1
-A1
-        ↓
-Persist raw predictions
-        ↓
-Independent evaluator
-        ↓
-Compare to hidden ground truth
+[L1 DETECTOR]
+[L2 DETECTOR]
+[L3 DETECTOR]
+[L4 DETECTOR]
+[FUSION]
+[R0]
+[C1 AI]
+[A1 AI]
+[A2 VERIFIER]    # only when enabled
+[DATA STEWARD]
+[EXECUTOR]
+[SYSTEM]
 ```
 
----
-
-# 10.2 Detection metrics
-
-Per layer:
-
-- precision;
-- recall;
-- F1;
-- false positives per entity/day;
-- detection delay;
-- calibration where applicable.
-
-Additional:
-
-**L2**
-- performance by warm-up/history length.
-
-**L3**
-- relationship residual ranking;
-- performance by model scope.
-
-**L4**
-- change-point timing error.
+Avoid agent avatars and personality colors unless an entity is genuinely an autonomous agent.
 
 ---
 
-# 10.3 Fusion metrics
+## 15. Timeline, history, filters, and search
 
-- incident precision;
-- incident recall;
-- critical incident miss rate;
-- duplicate incident rate;
-- raw-signal-to-incident reduction.
+This is a core product feature, not decoration.
 
-Fusion must prove it reduces operator burden without hiding important cases.
+### 15.1 Quick time controls
 
----
-
-# 10.4 RCA metrics
-
-- Top-1 RCA accuracy;
-- Top-3 RCA recall;
-- MRR;
-- evidence precision;
-- evidence recall;
-- unsupported claim rate;
-- contradictory evidence coverage;
-- abstention precision;
-- abstention recall;
-- unnecessary tool calls;
-- time to diagnosis;
-- token/cost per incident;
-- human correction time.
-
----
-
-# 10.5 Agent admission gate
-
-A1 stays in the product only if:
-
-### Safety guardrails
-
-- evidence precision >= 90%;
-- unsupported claim rate <= 5%;
-- zero unauthorized mutation/execution;
-- complete traceability;
-- bounded latency/cost.
-
-### And at least one meaningful value criterion
-
-- Top-1 RCA >= C1 + 10 percentage points; OR
-- evidence recall >= C1 + 15 percentage points; OR
-- median human correction time <= 75% of C1.
-
-If A1 does not pass:
-
-> Ship C1.
-
-This is a valid research outcome.
-
----
-
-# 11. v5 UX Theme — Operational Trust
-
-The visual system must communicate:
+Keep the UI-design branch concept:
 
 ```text
-trust
-monitoring
-evidence
-uncertainty
-human control
-auditability
+Today | 3d | 7d | This Week | This Month | Custom
 ```
 
-AI must be visible but visually subordinate to operational state.
+Add:
+
+- absolute date/time range;
+- explicit timezone indicator;
+- oldest/newest-first toggle;
+- “Live” mode that pins to incoming events;
+- pause live scrolling without pausing ingestion.
+
+### 15.2 Filters
+
+Support combined filters:
+
+```text
+phase
+actor kind
+L1-L4 layer
+severity
+incident status
+entity/VIN/station
+policy/control ID
+provenance
+event type
+text search
+```
+
+Filter state should be encoded in the URL so a steward can share the exact operational view.
+
+### 15.3 Session list
+
+Group sessions by recency instead of by database identity:
+
+```text
+Updated today
+Yesterday
+This week
+This month
+Older
+```
+
+For each item show:
+
+- title;
+- scope icon/type;
+- scope name/ID;
+- last updated;
+- unread/new-event count where reliable;
+- incident severity/status when incident-scoped.
+
+Allow filtering by project, incident, dataset, entity, and date range.
+
+### 15.4 Search behavior
+
+Search must cover structured identifiers and text:
+
+- incident IDs;
+- evidence IDs;
+- VIN/entity IDs;
+- policy/control IDs;
+- detector names;
+- message/timeline summaries.
+
+Prefer server-side search for history beyond the current loaded page.
 
 ---
 
-# 11.1 Theme strategy
+## 16. Right-side Context Inspector
 
-Implement semantic tokens, not literal page colors.
+This is one of the strongest ideas from the UI-design branch. Make it selection-driven rather than fixed mock tabs.
 
-Token groups:
+### 16.1 Dynamic panels by selected event
+
+#### Signal selected
+
+```text
+Overview
+Detector Detail
+Evidence
+Entity Context
+Provenance
+```
+
+Show:
+
+- layer;
+- severity separately;
+- metric/relationship;
+- observed value;
+- expected/baseline value;
+- threshold/model version;
+- time window;
+- evidence IDs.
+
+#### Incident selected
+
+```text
+Overview
+Signals
+Evidence
+Timeline
+Impact
+```
+
+#### Investigation event selected
+
+```text
+Hypotheses
+Supporting Evidence
+Contradicting Evidence
+Missing Evidence
+Tool Activity
+Bounds / Cost / Latency
+```
+
+#### Policy/control selected
+
+```text
+Rule / Config
+Version Diff
+Compiler Output
+Sandbox Result
+Approval
+Authorization
+Execution / Rollback
+```
+
+### 16.2 Pinning
+
+Allow “Pin inspector” so the user can scroll the timeline while keeping a selected incident/evidence object visible.
+
+---
+
+## 17. Dashboard design
+
+The dashboard remains important and should answer operational questions quickly.
+
+### 17.1 First screen questions
+
+1. Is the project healthy now?
+2. What changed in the selected time range?
+3. What needs human attention?
+4. Which L1-L4 layers are contributing signals?
+5. Which incidents are worsening or unresolved?
+6. Are controls awaiting approval or execution?
+7. What is measured versus demo/synthetic?
+
+### 17.2 Recommended modules
+
+**Top KPI row — limit it**
+
+- Open incidents
+- Critical/high incidents
+- Pending human reviews
+- Affected entities
+- Last successful monitoring run
+
+**Main analysis**
+
+- linked L1-L4 signal trend;
+- incident status/severity trend;
+- top affected entities;
+- incident queue requiring action;
+- monitoring/runtime health;
+- provenance coverage.
+
+**Recent activity**
+
+- compact subset of the same canonical workflow events used by Workspace.
+
+### 17.3 Linked filters
+
+A dashboard time/entity/project filter should update all linked charts and tables. Drilling into an incident should open Workspace with the same filter context.
+
+### 17.4 Evaluation metrics stay separate
+
+Research metrics such as RCA precision/recall, A1-vs-C1 benchmark gain, and cost should live under **Evaluation**, unless a dashboard value is a current measured production metric.
+
+---
+
+## 18. Theming: “Operational Trust”, not “futuristic command center”
+
+The UI-design branch is visually memorable, but neon/glass effects should not define the new product. The target should feel like a modern observability/reliability console: dense, calm, precise, and auditable.
+
+### 18.1 Visual principles
+
+Use:
+
+- quiet graphite/navy or neutral surfaces;
+- thin borders;
+- restrained shadows;
+- strong typographic hierarchy;
+- data-first density;
+- semantic tokens;
+- limited accent color;
+- subtle motion for state change only.
+
+Avoid:
+
+- glowing neon borders;
+- glass blur behind dense text;
+- persistent pulsing animations;
+- gradients with no semantic meaning;
+- excessive agent avatars;
+- “AI thinking” theater;
+- monospaced font for normal prose.
+
+### 18.2 Semantic token groups
 
 ```text
 SURFACE
-canvas
-surface-primary
-surface-secondary
-surface-elevated
-border-subtle
-border-strong
+--canvas
+--surface-primary
+--surface-secondary
+--surface-elevated
+--surface-hover
+
+BORDER
+--border-subtle
+--border-default
+--border-strong
 
 TEXT
-text-primary
-text-secondary
-text-muted
-text-inverse
+--text-primary
+--text-secondary
+--text-muted
+--text-inverse
 
-BRAND
-trust-primary
-trust-primary-hover
-trust-secondary
+BRAND / TRUST
+--trust-primary
+--trust-hover
+--focus-ring
 
 STATUS
-status-info
-status-success
-status-warning
-status-critical
+--status-info
+--status-success
+--status-warning
+--status-critical
 
 AI
-ai-assist
-ai-assist-subtle
+--ai-assist
+--ai-assist-subtle
 
-DATA LAYERS
-layer-l1
-layer-l2
-layer-l3
-layer-l4
+LAYERS
+--layer-l1
+--layer-l2
+--layer-l3
+--layer-l4
 
 PROVENANCE
-provenance-real
-provenance-public
-provenance-semi-synthetic
-provenance-synthetic
+--prov-real
+--prov-public
+--prov-semi-synthetic
+--prov-synthetic
 ```
 
-Both light and dark themes map these semantic tokens independently.
+Do not hard-code feature colors inside components.
 
-Do not place raw hex values inside feature components.
+### 18.3 L1-L4 color rule
 
----
+Layer color is categorical, not severity.
 
-# 11.2 Visual character
+Do not encode:
 
-## Light theme
+`red = L1` while also using red = critical.
 
-Designed to work well on classroom projectors:
+Prefer an accessible categorical sequence and always show the visible `L1/L2/L3/L4` label/icon. Severity gets its own badge and icon.
 
-- neutral/white canvas;
-- graphite primary text;
-- subtle borders;
-- calm blue trust accent;
-- restrained status colors;
-- no translucent glass panels;
-- no low-contrast gray-on-gray text.
-
-## Dark theme
-
-Designed for sustained analytical work:
-
-- graphite/navy surfaces;
-- no pure-black page;
-- calm blue primary actions;
-- restrained violet AI accent;
-- semantic status colors maintain contrast.
-
----
-
-# 11.3 L1-L4 color system
-
-Use four stable categorical colors.
-
-Rules:
-
-1. Every layer also has a visible `L1`, `L2`, `L3`, or `L4` badge/icon.
-2. Layer color never means severity.
-3. Criticality is encoded separately.
-4. Charts must remain interpretable without color.
-5. Tooltip/legend includes layer name and detector type.
-
-Example semantic display:
+Example:
 
 ```text
 [L3] Relationship anomaly       [HIGH]
 ```
 
-not:
+not a color-only meaning.
+
+### 18.4 Light + dark
+
+Support both themes through the same tokens.
+
+Light mode matters for classroom/projector/demo use. Dark mode should be optimized for sustained operational viewing.
+
+### 18.5 Density
+
+Implement at least two density modes through spacing tokens:
+
+- Comfortable
+- Compact
+
+Operational timelines and tables benefit from compact mode; approval forms may remain comfortable.
+
+### 18.6 Motion
+
+Use motion for:
+
+- newly arriving event highlight;
+- inspector transition;
+- status transition;
+- optimistic/confirmed mutation feedback.
+
+Respect `prefers-reduced-motion`. Do not animate “working” continuously when a static status plus elapsed time is clearer.
+
+---
+
+## 19. AI UX rules
+
+### 19.1 Evidence before confidence
+
+Do not lead with a numeric confidence badge unless that confidence is calibrated and the team has tested whether users interpret it correctly.
+
+Prefer:
+
+- supporting evidence;
+- contradictory evidence;
+- missing evidence;
+- data provenance;
+- explanation of why the hypothesis was proposed;
+- explicit abstention.
+
+### 19.2 AI is assistive, not authoritative
+
+Every AI recommendation card must show:
 
 ```text
-purple = severe
+What is being proposed?
+Why?
+Which evidence supports it?
+What evidence contradicts it?
+What will change if approved?
+Can it be rolled back?
+Who must approve it?
+```
+
+### 19.3 High-risk actions
+
+The assistant may create a draft/proposal, but the interface must move the user into a structured governance card for approval. Do not execute from free-form text.
+
+### 19.4 Graceful failure
+
+If evidence is insufficient, show:
+
+```text
+Status: Insufficient evidence
+Missing: charging-session history from 14:00-15:00
+Next safe action: request/fetch this evidence
+```
+
+This is better than a low-quality confident diagnosis.
+
+---
+
+## 20. Specific frontend file plan
+
+### `frontend/src/App.tsx`
+
+- Replace manual hash-switch routing.
+- Create a real route/layout hierarchy.
+- Add persistent navigation and project context.
+
+### `frontend/src/pages/ExecutiveDashboard.tsx`
+
+- Rename/reframe to `OverviewPage` if desired.
+- Connect all metrics to canonical dashboard APIs.
+- Add linked time/entity filters.
+- Remove any non-measured claims.
+
+### `frontend/src/pages/ProjectControlRoom.tsx`
+
+- Decompose useful components.
+- Merge operational detail into new `WorkspacePage` and overview metrics into `OverviewPage`.
+- Deprecate the standalone “Control Room” route to avoid duplicate concepts.
+
+### `frontend/src/pages/IncidentWorkspace.tsx`
+
+- Evolve into incident-scoped mode of the general Workspace.
+- Preserve deep evidence/hypothesis/recommendation functionality.
+
+### `frontend/src/stores/chatStore.ts`
+
+Delete the content-parsing architecture:
+
+- `autoRepairJson`
+- `extractAllValidJsons`
+- `extractObservationJsons`
+- `syncWorkspaceFromMessages`
+
+Replace with small UI stores:
+
+```text
+workspaceUiStore
+- selectedEventId
+- inspectorOpen
+- inspectorWidth
+- liveMode
+- density
+- composerDraft
+```
+
+### `frontend/src/services/websocket.ts`
+
+- Remove chain-of-thought parsing.
+- Accept typed workflow events.
+- Track sequence number.
+- Reconcile on reconnect.
+- Invalidate/update server-state queries.
+
+### New component families
+
+```text
+components/navigation/
+components/dashboard/
+components/workspace/
+  ScopeSidebar
+  SessionList
+  TimelineFilterBar
+  TimelineFeed
+  TimelineEventCard
+  HumanMessage
+  AssistantMessage
+  AssistantComposer
+  ContextInspector
+  EvidencePanel
+  DetectorPanel
+  HypothesisPanel
+  PolicyDiffPanel
+  AuditPanel
+components/shared/
+  LayerBadge
+  SeverityBadge
+  ProvenanceBadge
+  EmptyState
+  ErrorState
+  TimeRangePicker
 ```
 
 ---
 
-# 11.4 AI visual language
+## 21. Specific backend file plan
 
-Remove agent-specific “personality colors” from core architecture.
+### `src/main.py`
 
-Do not assign:
+- Update application/version naming from 4.2.0 to the actual v5.1 target.
+- Ensure all canonical v1 routers are explicit and no old route silently shadows them.
 
-```text
-planner = purple
-validator = orange
-specialist = green
-```
+### `src/api/routes/signals.py`
 
-Use one restrained `ai-assist` token.
+- Remove `sample_signals` from normal operation.
+- Read from `SignalRepository`.
+- Keep demo seed data behind an explicit demo command/flag only.
 
-AI activity UI should emphasize:
+### `src/api/routes/incidents.py`
 
-```text
-action
-evidence used
-result
-uncertainty
-```
+- Remove auto-seeded fallback incident behavior.
+- Persist and retrieve only real/demo-labeled incidents.
+- Investigation endpoints should emit timeline events.
 
-not a theatrical “thinking pulse.”
+### `src/api/routes/__init__.py`
 
----
+- Break up the monolith.
+- Remove global `/chat/send` as workflow orchestrator.
+- Do not register write-capable tools directly into a general chat ReAct engine.
+- Move assistant behavior to scoped `assistant.py`.
 
-# 12. Information Architecture
+### `src/services/conversation_store.py`
 
-Primary navigation:
+- Keep for user/assistant messages or replace with `SessionRepository` + `TimelineRepository`.
+- Add scope-aware session metadata and server-side filters.
 
-```text
-Overview
-Reliability
-Incidents
-Controls
-Audit
-Evaluation
-```
+### `src/reliability/investigation/a1.py`
 
-Optional:
+- Replace precomputed `tool_plan` with iterative selection based on the latest structured hypothesis state.
+- Emit typed tool/evidence events.
 
-```text
-Data / Settings
-```
+### `src/agents/baselines.py`
 
-The assistant is persistent context, not a primary route.
+- Canonicalize R0/C1/A1/A2 vocabulary.
+- Deprecate C0.
+- Keep benchmark adapters separate from production orchestration.
 
----
+### `src/orchestrator/orchestrator.py`
 
-# 12.1 Executive Dashboard — remains major
+- Remove from production imports.
+- Archive as legacy after parity tests pass.
 
-The user explicitly wants the dashboard to remain important.
+### `src/reliability/governance/preventive_controls.py`
 
-Its purpose is not decoration.
+- Replace in-memory authoritative dictionaries with repository persistence.
+- Preserve exact-version authorization invariants.
 
-It answers:
+### `src/db/schema.sql`
 
-1. Is the project reliable right now?
-2. What changed?
-3. What requires human action?
-4. Which incidents are getting worse?
-5. Is the system reducing noise?
-6. Which metrics are measured vs demo/synthetic?
-
-Recommended sections:
-
-```text
-PROJECT HEALTH
-- open incidents
-- critical incidents
-- affected entities
-- last successful monitoring run
-
-SIGNAL TREND
-- L1-L4 over time
-
-INCIDENT STATUS
-- new
-- investigating
-- awaiting review
-- resolved
-
-ATTENTION REQUIRED
-- ranked real incidents
-
-RELIABILITY TREND
-- measured time series
-
-PROVENANCE NOTICE
-- real/proxy/semi-synthetic coverage
-```
-
-Do not show:
-- fabricated “98.6% RCA accuracy”;
-- fabricated MTTR;
-- fabricated cost savings.
-
-Research metrics belong in Evaluation unless measured.
+- Stop labeling schema as v4.
+- Add migration-backed v5.1 tables described above.
 
 ---
 
-# 12.2 Project Reliability Control Room
+## 22. UI-design branch migration policy
 
-Because the datasets operate together in one project, do not force the user to select isolated datasets as if they were unrelated products.
+### Take these concepts
 
-Display:
+- dashboard prominence;
+- three-column operational workspace;
+- left-side session navigation;
+- Today / 3d / 7d / This Week / This Month filters;
+- rich central stream;
+- contextual right-side inspector;
+- visible HITL review cards;
+- clear Clean vs Quarantine outcomes where applicable.
 
-```text
-Project
-├── Fleet entities
-├── Charging network
-├── Telemetry
-├── Trips
-├── Data contracts
-└── Monitoring runs
-```
+### Do not take these semantics
 
-Key views:
+- fixed six-agent production architecture;
+- one session = one database identity;
+- neon/glass as the primary visual language;
+- fake “agent health” for deterministic services;
+- fake 98.6% RCA accuracy;
+- hard-coded request rates;
+- direct SQL/Python edit-and-execute;
+- “Accept & Execute” single-step governance;
+- static 7-step mission flow as the universal backend process.
 
-- entity reliability table;
-- L1-L4 timeline;
-- relationship chart;
-- station/VIN filter;
-- monitoring status;
-- recent incidents.
-
----
-
-# 12.3 Incident Workspace
-
-This is the deepest operational screen.
-
-Desktop layout:
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│ Incident header / status / severity / affected entities    │
-├────────────────────────────┬───────────────────────────────┤
-│ Main investigation area    │ Contextual Assistant          │
-│                            │                               │
-│ Timeline                   │ scoped to incident            │
-│ Evidence                   │                               │
-│ Hypotheses                 │                               │
-│ Recommendations            │                               │
-├────────────────────────────┴───────────────────────────────┤
-│ Decision / Audit                                              │
-└────────────────────────────────────────────────────────────┘
-```
-
-Assistant panel must be collapsible.
+Rebuild the good concepts as React components over v5 APIs instead of transplanting the static HTML/JS runtime.
 
 ---
 
-# 13. Responsive Targets
+## 23. Testing plan
 
-Equal-quality desktop targets:
+### 23.1 Architecture contract tests
 
-- 1920×1080;
-- common 1440p laptop layouts.
+- real-time scoring path makes zero LLM calls;
+- policy authoring accepts batch/historical input only;
+- every signal contains policy/detector version;
+- Fusion is deterministic for identical input signals;
+- no control executes without valid authorization bound to exact version/hash;
+- user edit invalidates prior authorization;
+- missing incident never causes a synthetic production incident to appear.
 
-Do not optimize for mobile during this feature cycle.
+### 23.2 L2/L3/L4 correctness
 
-Recommended layout rules:
+- L2 no future leakage;
+- L3 train/reference window strictly separated from score window;
+- L4 CUSUM online state is reproducible;
+- PELT remains offline/batch path;
+- detector artifacts are immutable/versioned.
 
-- max readable content width for text panels;
-- fluid analytical canvas;
-- collapsible assistant;
-- responsive two-column → one-column degradation at narrower desktop widths;
-- no horizontal scrolling for primary workflow;
-- charts resize without hiding labels.
+### 23.3 A1 tests
 
-Test at minimum:
+- next tool changes based on prior observation;
+- contradictory evidence changes hypothesis state;
+- missing evidence can cause abstention;
+- budget termination is deterministic and visible;
+- tool allowlist is enforced;
+- write tools are unavailable;
+- invalid evidence IDs fail validation.
 
-```text
-1920×1080
-1536×864
-1440×900 or equivalent
-```
+### 23.4 Timeline/event tests
 
----
+- monotonic sequence per project stream;
+- project/incident/session filtering correct;
+- reconnect backfills missed events;
+- duplicate WebSocket deliveries are idempotently rendered;
+- event actor/phase/type validated.
 
-# 14. Bilingual UX
+### 23.5 Frontend tests
 
-Vietnamese is default.
+- URL filters restore the same view;
+- timeline quick filters and custom range agree with server queries;
+- selecting an event updates the inspector without parsing text;
+- dashboard drill-down preserves context;
+- no hidden-reasoning string is shown;
+- empty states work without demo data;
+- light/dark themes pass contrast tests;
+- keyboard navigation and visible focus work;
+- critical actions require confirmation/governance state.
 
-Implement a centralized locale layer.
+### 23.6 Accessibility target
 
-Do not hard-code translated strings in feature components.
+Target **WCAG 2.2 AA** for the app. In particular:
 
-Terminology examples:
-
-```text
-Reliability Overview
-→ Tổng quan độ tin cậy
-
-Incident
-→ Sự cố
-
-Evidence
-→ Bằng chứng
-
-Hypothesis
-→ Giả thuyết
-
-Contradicting Evidence
-→ Bằng chứng phản biện
-
-Preventive Control
-→ Kiểm soát phòng ngừa
-
-Operational Recommendation
-→ Khuyến nghị vận hành
-```
-
-Keep established acronyms where useful:
-
-- RCA;
-- L1-L4;
-- VIN;
-- BMS;
-- HITL.
+- visible keyboard focus;
+- target size/spacing consistent with 2.5.8;
+- no color-only status communication;
+- reflow at narrow widths;
+- accessible names for icon-only controls;
+- charts have table/text alternatives where needed.
 
 ---
 
-# 15. Charting
+## 24. Research benchmark and product claim gate
 
-A dedicated chart library is allowed.
+Keep research evaluation separate from operational monitoring.
 
-Selection criteria:
+### R0/C1/A1 benchmark dimensions
 
-- React compatibility;
-- line/scatter/timeline support;
-- annotation support;
-- accessible labels/tooltips;
-- responsive sizing;
-- theme token integration;
-- reasonable bundle size;
-- active maintenance.
+- root-cause classification precision/recall/F1;
+- evidence precision / evidence grounding rate;
+- abstention quality;
+- missing-evidence identification;
+- correction time;
+- latency;
+- token/API cost;
+- tool calls;
+- unsafe-action rate;
+- unsupported-claim rate.
 
-Required chart patterns:
+### A1 admission
 
-1. L1-L4 event timeline;
-2. entity metric trend + baseline;
-3. L3 relationship scatter + expected relationship/residual;
-4. L4 before/after change view;
-5. project incident trend;
-6. evaluation comparison.
+A1 should be enabled by default only if it beats C1 under the agreed value criterion without violating precision, cost, latency, or safety guardrails.
 
-Do not implement decorative 3D/pie charts.
+### A2 admission
 
-Every chart requires:
-- title with conclusion-oriented wording;
-- units;
-- legend where needed;
-- empty state;
-- loading state;
-- data provenance or source context;
-- accessible table/download where practical.
+Implement A2 only if A1 error analysis reveals a repeatable failure class that an independent verifier/specialist design is expected to fix and the experiment shows that it actually does.
 
 ---
 
-# 16. Frontend Migration Rules
+## 25. Implementation sequence
 
-Current hard-coded frontend data must be removed from normal operation.
+### Wave 0 — Architecture truth reset
 
-Examples of prohibited production/default behavior:
+**Priority: P0**
 
-- seeded incident appears on fresh system;
-- fixed 30 VIN displayed regardless of API;
-- fixed evidence strings;
-- fake activity feed;
-- fake RCA confidence;
-- fixed anomaly counts.
+- freeze canonical v5.1 vocabulary;
+- update ADR/decision log for R0/C1/A1/A2;
+- rename the paper flow as Batch Policy Authoring;
+- remove 6-agent claims from active docs/UI copy;
+- define `WorkflowEvent` schema;
+- define policy registry contract;
+- flag all fake/demo values.
 
-Create an explicit command:
+**Exit:** one architecture diagram and one vocabulary are used across code, README, demo, and mentor presentation.
 
-```text
-seed-demo-data
-```
+### Wave 1 — Persistence and fake-data removal
 
-or equivalent.
+**Priority: P0**
 
-Demo state must be visibly labeled.
+- add `signals`, `workflow_events`, `sessions`, `policy_versions`, `detector_artifacts`, `investigation_runs`;
+- persist controls/authorizations;
+- replace sample signals;
+- remove seeded fallback incidents;
+- explicit demo seed command;
+- version/schema labels updated.
 
-Fresh system state:
+**Exit:** a fresh system honestly renders empty state; demo state is explicitly seeded/labeled.
 
-```text
-No monitoring results yet
-```
+### Wave 2 — Policy registry + runtime split
 
-is correct.
+**Priority: P0**
 
----
+- implement versioned detection policy registry;
+- compile batch-created artifacts;
+- separate authoring from monitoring;
+- real-time path loads frozen L1-L4 artifacts;
+- add policy version to signals.
 
-# 17. Backend/API Consolidation
+**Exit:** a streaming event can be scored without any LLM/Rule Proposer call.
 
-Canonical API namespace:
+### Wave 3 — Investigation cleanup
 
-```text
-/api/v1
-```
+**Priority: P0/P1**
 
-Suggested resources:
+- strengthen R0 and C1 contracts;
+- refactor A1 to observation-dependent loop;
+- remove raw thought broadcasting;
+- emit evidence-backed typed events;
+- deprecate C0;
+- A2 remains off.
 
-```text
-/projects
-/projects/{id}/summary
-/signals
-/incidents
-/incidents/{id}
-/incidents/{id}/evidence
-/incidents/{id}/investigate
-/incidents/{id}/hypotheses
-/incidents/{id}/decisions
-/incidents/{id}/recommendations
-/controls
-/authorizations
-/audit
-/evaluation
-```
+**Exit:** one incident can be traced from signals through R0/C1/A1 with all evidence IDs and bounds visible.
 
-Do not create parallel v5 endpoints if equivalent functionality already exists under v1.
+### Wave 4 — API + event stream
 
-Migrate internally, then deprecate duplicates.
+**Priority: P1**
 
----
+- add dashboard/timeline/session APIs;
+- split monolithic chat route;
+- scoped assistant endpoint;
+- scoped WebSocket subscriptions;
+- cursor pagination and reconnect backfill.
 
-# 18. Persistence
+**Exit:** frontend no longer needs to parse message content to reconstruct domain state.
 
-Replace global/in-memory authoritative stores.
+### Wave 5 — Frontend shell and state refactor
 
-Persist:
+**Priority: P1**
 
-- Signals;
-- Incidents;
-- Evidence;
-- Hypotheses;
-- Decisions;
-- Recommendations;
-- Controls;
-- Authorizations;
-- Agent runs;
-- Evaluation runs.
+- use real React Router;
+- add TanStack Query for server state;
+- reduce Zustand to UI state;
+- create persistent project layout/navigation;
+- implement time/filter URL state.
 
-Browser state is a projection only.
+**Exit:** reload/share URL restores project, page, scope, time range, and filters.
 
-Order of authority:
+### Wave 6 — Operational Workspace
 
-```text
-Database
->
-append-only evidence/audit
->
-API
->
-WebSocket
->
-browser state
-```
+**Priority: P1**
 
----
+- build session/sidebar from UI-design concept;
+- build typed timeline feed;
+- human/assistant messages distinct from system events;
+- build dynamic right inspector;
+- implement live mode + history filters + search.
 
-# 19. WebSocket Model
+**Exit:** the UI-design interaction model is present, but every visible item comes from canonical v5 state/events.
 
-Every connection must resolve:
+### Wave 7 — Dashboard + theming
 
-```text
-user_id
-tenant/project_id
-session/incident scope
-```
+**Priority: P1/P2**
 
-Broadcast topics:
+- dashboard hierarchy cleanup;
+- linked filters/drill-down;
+- semantic theme tokens;
+- light/dark;
+- compact/comfortable density;
+- remove neon/glass/pulse excess;
+- accessibility pass.
 
-```text
-project:{project_id}
-incident:{incident_id}
-user:{user_id}
-```
+**Exit:** dashboard and workspace share one design system and one event/domain model.
 
-Never globally broadcast evidence or chat messages.
+### Wave 8 — Governance UX + evaluation
+
+**Priority: P1**
+
+- policy diff;
+- sandbox result;
+- authorization detail;
+- execution manifest;
+- rollback visibility;
+- measured benchmark page;
+- A1 admission decision;
+- optional A2 experiment only after error analysis.
+
+**Exit:** demo proves safety and evidence, not just visual automation.
 
 ---
 
-# 20. Repository Cleanup
-
-After canonical paths work:
-
-Remove/deprecate:
-
-- obsolete duplicate ReAct engines;
-- simulated benchmark winner logic;
-- duplicate approval/HITL paths;
-- static dashboard mock data;
-- old UI build path if unused;
-- redundant API aliases;
-- stale v4 architecture docs;
-- misleading old agent descriptions.
-
-Do not clean these before tests cover the replacement path.
-
----
-
-# 21. Implementation Waves
-
----
-
-# Wave 0 — Truth Reset
-## Deadline: 11-12 Aug
-
-### Tasks
-
-- update VERSION to v5 development state;
-- replace root PLAN with this plan;
-- mark old benchmark results invalid/simulated;
-- remove fake metrics from default UI;
-- rotate exposed-looking keys;
-- lock provenance definitions;
-- create architecture decision record for v5.
-
-### Exit criteria
-
-No demo or report can accidentally present fabricated performance as measured evidence.
-
----
-
-# Wave 1 — Statistical Correctness
-## Deadline: 12-15 Aug
-
-### L2
-
-- strict prior-history baseline;
-- 14-day warm-up;
-- MAD/robust Z;
-- leakage test;
-- entity-specific scoring.
-
-### L3
-
-- reference/evaluation separation;
-- entity/class/global scope;
-- interpretable residual;
-- Isolation Forest comparator only.
-
-### L4
-
-- CUSUM;
-- PELT;
-- persistence;
-- change timing;
-- pre/post summary.
-
-### Exit criteria
-
-Each layer has:
-- unit tests;
-- positive cases;
-- negative cases;
-- no temporal leakage;
-- measured detector results.
-
----
-
-# Wave 2 — Causal Corpus + Fusion
-## Deadline: 15-18 Aug
-
-### Data
-
-- versioned 60-day digital twin;
-- 30 VIN / 4 stations target;
-- shared causal scenario IDs;
-- provenance;
-- generator seed;
-- 30/90-day slices optional.
-
-### Fusion
-
-- typed signal normalization;
-- project/entity/time grouping;
-- deterministic admission policies;
-- calibration experiment;
-- duplicate suppression.
-
-### Exit criteria
-
-A known latent scenario reproducibly generates L1-L4 signals and one correctly linked Incident.
-
----
-
-# Wave 3 — Persistent Incident Model
-## Deadline: 17-19 Aug
-
-Implement:
-
-- persistent Incident;
-- Evidence;
-- Hypothesis;
-- Recommendation;
-- Decision;
-- audit links;
-- incident-specific retrieval;
-- cross-incident isolation tests.
-
-### Exit criteria
-
-Restarting backend does not destroy incident state.
-
----
-
-# Wave 4 — Strong C1
-## Deadline: 19-20 Aug
-
-Implement:
-
-- deterministic context builder;
-- fixed evidence retrieval;
-- one structured LLM analysis;
-- schema validation;
-- evidence-ID checking;
-- contradiction extraction;
-- abstention;
-- typed recommendation.
-
-### Exit criteria
-
-C1 provides a credible baseline that is not deliberately weakened.
-
----
-
-# Wave 5 — Dynamic A1
-## Deadline: 20-22 Aug
-
-Implement:
-
-- typed tool registry;
-- observation-dependent tool selection;
-- competing hypotheses;
-- contradiction checks;
-- dynamic time/entity scope;
-- stop/continue/abstain;
-- budgets;
-- real trace instrumentation.
-
-### Exit criteria
-
-At least three benchmark cases produce materially different tool paths due to intermediate observations.
-
----
-
-# Wave 6 — Governance + Security
-## Deadline: 21-23 Aug
-
-Unify:
-
-- approval;
-- control;
-- sandbox;
-- execution authorization.
-
-Add:
-
-- signed JWT;
-- server role resolution;
-- authenticated WS;
-- scoped rooms;
-- exact-version authorization;
-- audit identity.
-
-### Exit criteria
-
-Security test demonstrates that an unapproved or modified control cannot execute.
-
----
-
-# Wave 7 — Operational Trust UX
-## Deadline: 20-24 Aug
-
-Parallel frontend stream.
-
-Implement:
-
-1. semantic token system;
-2. light/dark themes;
-3. Vietnamese default i18n;
-4. redesigned Executive Dashboard;
-5. Project Reliability Control Room;
-6. L1-L4 timeline;
-7. Incident Workspace;
-8. evidence/hypothesis panels;
-9. contextual assistant;
-10. HITL decision flow;
-11. audit view;
-12. measured Evaluation view.
-
-Replace static data with APIs.
-
-### Exit criteria
-
-Data Steward completes full flow without knowing prompt syntax.
-
----
-
-# Wave 8 — Blind Benchmark + Human Evaluation
-## Deadline: 23-25 Aug
-
-Run:
-
-- L1-L4 detection benchmark;
-- Fusion benchmark;
-- R0/C1/A1 comparison;
-- human evaluation subset;
-- 30/60/90 sensitivity where useful;
-- red-team cases.
-
-Persist raw outputs.
-
-Generate tables from artifacts, not constants.
-
----
-
-# Wave 9 — Feature Lock
-## 26 Aug
-
-Allowed:
-
-- P0 bug fixes;
-- benchmark rerun;
-- deployment fixes;
-- accessibility fixes;
-- documentation;
-- demo-data freezing.
-
-Not allowed after lock:
-
-- new detector family;
-- new agent role;
-- new data source;
-- new workspace;
-- new major schema;
-- A2 becoming a dependency.
-
----
-
-# 22. Red-Team Matrix
-
-Required test cases:
-
-### Data/statistics
-- insufficient L2 history;
-- sparse VIN;
-- extreme future values do not alter past score;
-- unrelated entity does not alter per-entity baseline;
-- L3 relationship breaks while all individual features remain valid;
-- temporary L4 spike does not become persistent change.
-
-### Fusion
-- duplicate signals;
-- contradictory detectors;
-- one noisy detector;
-- critical L1;
-- multi-layer agreement.
-
-### Investigation
-- ambiguous entity;
-- insufficient evidence;
-- conflicting evidence;
-- misleading complaint;
-- irrelevant telemetry;
-- no valid RCA.
-
-### Agent
-- unnecessary tool loop;
-- tool failure;
-- LLM failure;
-- hallucinated evidence ID;
-- unsupported hypothesis;
-- budget exhaustion.
+## 26. Definition of Done
+
+### Architecture
+
+- [ ] One canonical v5.1 flow used everywhere.
+- [ ] Batch policy authoring separated from monitoring.
+- [ ] No LLM in real-time critical path.
+- [ ] Realtime supports frozen L1-L4 artifacts if v5 claims L1-L4 realtime reliability.
+- [ ] Fusion precedes AI investigation.
+- [ ] R0/C1/A1/A2 taxonomy is consistent.
+
+### Backend
+
+- [ ] No production sample signals/fallback incidents.
+- [ ] Signals persisted.
+- [ ] Policy versions/artifacts persisted.
+- [ ] Controls/authorizations persisted.
+- [ ] Workflow events persisted and scoped.
+- [ ] A1 is observation-dependent and bounded.
+- [ ] No raw chain-of-thought exposed.
+
+### Frontend
+
+- [ ] Dashboard is clear and metric-driven.
+- [ ] Workspace has left session/history rail, center timeline, right inspector.
+- [ ] Today/3d/7d/This Week/This Month/custom filters work server-side.
+- [ ] Sessions filter/search by scope and recency.
+- [ ] Timeline state is typed, not parsed from prose.
+- [ ] Dashboard drill-down opens the correct workspace context.
+- [ ] Light/dark + compact/comfortable supported.
+- [ ] No fake metrics in normal mode.
 
 ### Governance
-- edited rule after approval;
-- expired authorization;
-- wrong snapshot;
-- wrong project;
-- unauthorized actor;
-- direct execution payload tampering.
 
-### Security
-- spoofed role;
-- invalid JWT;
-- WebSocket cross-project subscription;
-- cross-incident evidence access.
+- [ ] No direct “Accept & Execute” shortcut.
+- [ ] No arbitrary executable SQL/Python from the assistant.
+- [ ] Exact-version authorization required.
+- [ ] Every execution creates an auditable manifest/event.
 
----
+### Research
 
-# 23. Definition of Done
-
-v5 is done only when all of the following are true.
-
-## Product
-
-- primary workflow is monitor → incident → investigate → decide → act → audit;
-- Data Steward can use product without prompt knowledge;
-- chat is contextual.
-
-## Detection
-
-- L1-L4 have distinct semantics;
-- L2 has no look-ahead leakage;
-- L3 uses held reference relationship;
-- L4 produces change time and before/after evidence.
-
-## Fusion
-
-- incident admission is explainable;
-- duplicate/noisy signals are controlled;
-- signal reduction is measured.
-
-## Investigation
-
-- R0/C1/A1 use equivalent evidence;
-- C1 is a valid strong baseline;
-- A1 chooses tools dynamically;
-- agent may lose.
-
-## Evidence
-
-- all claims reference retrievable evidence;
-- contradictions are visible;
-- cross-incident leakage tests pass.
-
-## Data
-
-- provenance is explicit;
-- digital twin causality is generated, not narrated afterward.
-
-## Governance
-
-- no AI path can directly mutate production state;
-- exact approved version is required;
-- execution uses authorization;
-- audit is durable.
-
-## UX
-
-- light/dark;
-- Vietnamese default;
-- 1080p/1440p usable;
-- Executive Dashboard uses measured data;
-- L1-L4 colors include labels/icons;
-- no fake KPIs.
-
-## Research
-
-- benchmark uses hidden ground truth;
-- no result constants;
-- raw case-level predictions saved;
-- detector/Fusion/RCA metrics generated reproducibly.
+- [ ] R0/C1/A1 evaluated on the same corpus.
+- [ ] A1 claim is removed if the benchmark gate fails.
+- [ ] A2 is optional and evidence-driven.
 
 ---
 
-# 24. Coding-Agent Protocol
+## 27. Recommended demo story after refactor
 
-Use this block as the default instruction for coding agents.
+A coherent demo should follow one incident end to end:
+
+1. Open **Overview** and show measured project health, L1-L4 trend, and one incident requiring attention.
+2. Click the incident; **Workspace** opens with the same time/entity context.
+3. Timeline shows the causal sequence:
+   - L2/L4 signal;
+   - Fusion admission;
+   - R0 unresolved;
+   - C1 analysis;
+   - A1 tool/evidence event only if needed.
+4. Select each phase; the right inspector shows exact detector/evidence/model details.
+5. Show AI conclusion with supporting, contradictory, and missing evidence.
+6. If cause = operational, show operational recommendation and stop there.
+7. If cause = data/pipeline, show a preventive control proposal.
+8. Data Steward reviews version diff and sandbox result.
+9. Explicitly authorize exact version.
+10. Deterministic executor applies it and creates an audit event.
+11. Return to Overview and show the new active policy version and measured state change.
+
+This story is much stronger than “six agents talked to each other and then cleaned the data.”
+
+---
+
+## 28. Current external UX/architecture research used for this plan
+
+Research checked on 2026-08-12. The goal is not to copy another product; it is to use current, battle-tested interaction principles instead of trend-only visuals.
+
+### Operational timeline and incident workspace
+
+**Datadog Incident Timeline** describes the timeline as the primary source of incident work, with typed cells added chronologically for changes, tasks, notes, integrations, and messages. This strongly supports a typed operational timeline rather than making every system event look like a chat message.  
+https://docs.datadoghq.com/incident_response/incident_management/investigate/timeline/
+
+**PagerDuty Incidents** emphasizes prioritized open incidents plus status/urgency filters and recent activity. This supports a dashboard that ranks attention rather than presenting decorative metrics.  
+https://support.pagerduty.com/main/docs/navigate-the-incidents-page
+
+### Time-range investigation
+
+**Grafana** treats time-range filtering as a core investigation operation and supports presets/absolute ranges, sorting, search, log levels, deduplication, and context. This supports the proposed Today/3d/7d/week/month/custom timeline controls.  
+https://grafana.com/docs/learning-paths/elasticsearch-logs/filter-by-time-range/  
+https://grafana.com/docs/grafana/latest/visualizations/explore/logs-integration/
+
+### Dashboard hierarchy
+
+**IBM Carbon Dashboard guidance** recommends strong hierarchy, limiting nonessential metrics, consistent color assignments, whitespace, and interactive exploration with linked charts/filters.  
+https://carbondesignsystem.com/data-visualization/dashboards/
+
+### Semantic tokens and accessible chart color
+
+**Atlassian Design System** recommends design tokens based on semantic meaning rather than literal color values. Its data-visualization guidance recommends accessible categorical chart tokens and explicitly warns against relying on color alone.  
+https://atlassian.design/tokens/design-tokens  
+https://atlassian.design/foundations/color/data-visualization-color
+
+### Human-AI trust and explanations
+
+**Google PAIR People + AI Guidebook**, third edition updated in 2025, emphasizes appropriate user autonomy, trust/explanations, evolving safety, and control. Its explainability guidance notes that numeric confidence can be difficult for users to interpret, which supports leading with evidence and limitations rather than an uncalibrated “98.6% confidence” badge.  
+https://pair.withgoogle.com/guidebook/  
+https://pair.withgoogle.com/guidebook-v2/chapters/explainability-trust/
+
+**IBM AI Explainability** recommends reviewable decision processes and explanations of recommendations and data used.  
+https://www.ibm.com/design/ai/ethics/explainability/
+
+**Microsoft HAX** provides validated human-AI interaction guidance around making clear why the system acted, allowing correction/dismissal, and helping users recover when AI is wrong.  
+https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/
+
+### Accessibility
+
+**WCAG 2.2** is the accessibility target. In particular, target-size minimum guidance calls for 24 x 24 CSS px targets or sufficient spacing, and focus guidance requires visible focus treatment.  
+https://www.w3.org/TR/WCAG22/  
+https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html
+
+### Frontend architecture
+
+**React Router current documentation** supports Data Mode with loaders/actions/pending states. Since React Router is already installed in the repo, the current manual hash switch should be replaced with the actual router instead of adding another routing library.  
+https://reactrouter.com/start/modes
+
+**TanStack Query current documentation** explicitly separates asynchronous server state from client state and provides caching/invalidation primitives. This fits the target split: TanStack Query for API entities, Zustand for local workspace UI state.  
+https://tanstack.com/query/latest/docs/framework/react/guides/queries  
+https://tanstack.com/query/latest/docs/framework/react/guides/query-invalidation
+
+---
+
+## 29. Final architecture statement
+
+Use this wording consistently in README, mentor material, and demo narration:
+
+> **DataTrust OS v5.1 is an evidence-grounded data reliability control plane. Approved deterministic/statistical L1-L4 detectors continuously create typed signals; deterministic Fusion converts meaningful signal combinations into incidents; investigation escalates from R0 to C1 and only then to bounded A1 when additional evidence gathering is justified. Human approval and exact-version authorization remain mandatory before any preventive data control is executed. The Data Steward works through a dashboard and a filterable operational timeline with a scoped AI assistant and contextual evidence inspector.**
+
+And use this shorter product-level flow when a diagram must stay simple:
 
 ```text
-You are implementing DataTrust OS v5.
-
-Before coding:
-1. Read PLAN_V5_FINAL.md.
-2. Inspect existing modules for equivalent functionality.
-3. Do not create a parallel architecture when one can be migrated.
-4. Identify the exact invariant/metric this change satisfies.
-
-Rules:
-- No fake metrics.
-- No hard-coded benchmark wins.
-- No ground-truth leakage into investigated systems.
-- No temporal leakage.
-- No unauthenticated execution.
-- No client-declared authority.
-- No agent mutation.
-- No unscoped evidence retrieval.
-- No silent production mock fallback.
-- Preserve provenance.
-- Persist authoritative state.
-- Add positive, negative, and failure tests.
-
-When complete, report:
-- files changed;
-- architecture affected;
-- tests added;
-- command/output summary;
-- measured result;
-- assumptions;
-- unresolved risk;
-- next dependency.
-
-Do not claim completion if tests or measurement were not run.
+Batch history -> Profile -> Propose/Approve Detection Policy -> Policy Registry
+                                                       |
+Realtime / Batch monitoring -> L1-L4 -> Signals -> Fusion -> Incident
+                                                       |
+                                              R0 -> C1 -> A1
+                                                       |
+                                                Human Review
+                                               /            \
+                                  Data Control               Operational Action
+                                       |                           |
+                              Validate/Authorize              Recommendation
+                                       |
+                              Deterministic Execute
 ```
 
----
-
-# 25. Team Ownership
-
-| Member | Primary accountability |
-|---|---|
-| **Phạm Quốc Thanh** | Product decisions, benchmark validity, causal corpus, experiment design, decision log, report |
-| **Tạ Kim Ngân** | L2/L3/L4 methodology, Fusion calibration, investigation quality, A1/A2 error analysis |
-| **Trần Tiến Dũng** | Data plane, detector runtime, persistence, API, security, governance, deterministic execution |
-| **Vũ Thu Huyền** | Operational Trust UX, bilingual UI, Incident Workspace, HITL UX, integration, deployment/demo |
-
-Coding agents accelerate implementation, but humans own experimental claims and merge approval.
-
----
-
-# 26. Demo Story
-
-The main demo should be deterministic enough to rehearse but use actual computed results.
-
-```text
-1. Open Executive Dashboard
-   → project has a measurable reliability shift
-
-2. Open Project Reliability Control Room
-   → see L1-L4 signals over the same project context
-
-3. Select a VIN/incident
-   → individual values appear mostly valid
-   → L2/L3/L4 reveal deeper behavior
-
-4. Fusion creates Incident
-   → admission reason is visible
-
-5. Open Incident Workspace
-   → evidence + contradictory evidence
-
-6. Run investigation
-   → show C1 or A1
-   → A1 gathers additional evidence only if needed
-
-7. Human reviews hypothesis
-
-8. If DATA cause
-   → preventive control
-   → sandbox
-   → approval
-   → authorization
-
-   OR
-
-   If OPERATIONAL cause
-   → operational recommendation
-
-9. Open Audit
-   → show complete trace
-
-10. Evaluation
-   → show measured R0/C1/A1 results
-   → explicitly state whether agent won or lost
-```
-
-The presentation should never depend on “look, we have multiple agents.”
-
-The strongest message is:
-
-> **We deliberately use different technical mechanisms for different kinds of uncertainty and empirically test when autonomy is worth its complexity.**
-
----
-
-# 27. External UX Design Evidence Used for v5
-
-The theme direction is informed by current official design-system guidance:
-
-- **IBM Carbon Design System** — dashboard guidance emphasizes reducing distraction and assigning colors consistently; its theme system supports tokenized light/dark themes.
-- **Atlassian Design System** — recommends semantic design tokens and predefined categorical chart colors for consistency/accessibility.
-- **GOV.UK / Government Analysis Function** — emphasizes user-centered dashboard design, accessible visualizations, and not relying on color alone to communicate information.
-
-These references support the implementation choice to use:
-- semantic tokens;
-- light/dark mappings;
-- stable categorical L1-L4 chart colors;
-- status color separate from data-series color;
-- strong hierarchy and low decorative noise;
-- accessible labels in addition to color.
-
----
-
-# 28. Final Architecture
-
-```text
-                     ┌────────────────────────────┐
-                     │        DATA STEWARD        │
-                     └──────────────┬─────────────┘
-                                    │
-                    ┌───────────────▼────────────────┐
-                    │      OPERATIONAL TRUST UX      │
-                    │                                │
-                    │ Executive Dashboard            │
-                    │ Project Reliability            │
-                    │ Incident Workspace             │
-                    │ Contextual Assistant           │
-                    │ Controls / Audit / Evaluation  │
-                    └───────────────┬────────────────┘
-                                    │
-                   Authenticated API / Scoped WebSocket
-                                    │
-                    ┌───────────────▼────────────────┐
-                    │     RELIABILITY DATA PLANE     │
-                    │                                │
-                    │ L1 constraints                 │
-                    │ L2 contextual                  │
-                    │ L3 relational                  │
-                    │ L4 change point                │
-                    └───────────────┬────────────────┘
-                                    │
-                          Typed Signals + Evidence
-                                    │
-                    ┌───────────────▼────────────────┐
-                    │            FUSION              │
-                    │ grouping / admission / dedupe  │
-                    └───────────────┬────────────────┘
-                                    │
-                                 Incident
-                                    │
-              ┌─────────────────────▼─────────────────────┐
-              │               INVESTIGATION               │
-              │                                           │
-              │ R0 deterministic                           │
-              │     ↓ unresolved                           │
-              │ C1 fixed AI workflow                       │
-              │     ↓ agent-worthy                         │
-              │ A1 bounded dynamic investigation           │
-              │                                           │
-              │ A2 only if experimentally admitted         │
-              └─────────────────────┬─────────────────────┘
-                                    │
-                       Evidence-backed hypothesis
-                                    │
-                         ┌──────────▼──────────┐
-                         │       HITL          │
-                         └───────┬───────┬─────┘
-                                 │       │
-                       DATA CAUSE│       │OPERATIONAL CAUSE
-                                 │       │
-                ┌────────────────▼─┐   ┌─▼─────────────────┐
-                │ Preventive       │   │ Operational       │
-                │ Data Control     │   │ Recommendation    │
-                └────────┬─────────┘   └─────────┬─────────┘
-                         │                       │
-                  compile/sandbox               │
-                  authorization                 │
-                         │                       │
-                    deterministic               │
-                     execution                  │
-                         └───────────┬───────────┘
-                                     │
-                              Immutable Audit
-```
-
----
-
-# 29. Final Research Thesis
-
-The project should be evaluated around this falsifiable thesis:
-
-> **Simple rules are sufficient for explicit point violations, but entity-relative, relational, and sequential anomalies require richer statistical context. Once such signals form an incident, bounded agentic investigation is useful only when the next evidence-gathering action cannot be fixed in advance and when the resulting improvement in RCA/evidence quality or human effort outweighs added cost and complexity.**
-
-The project succeeds if it proves this thesis **or disproves the agentic part honestly** while still delivering a useful reliability system.
-
-That is the v5 product and engineering definition through feature lock.
+That is the v5.1 architecture to refactor toward.

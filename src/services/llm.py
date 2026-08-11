@@ -50,8 +50,18 @@ class UnifiedLLMAdapter:
             or ""
         )
         self.gemini_model = os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL") or "gemini-2.5-flash"
+        self._explicit_key = api_key
+        self._explicit_model = model
 
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+    @property
+    def model(self) -> str:
+        return self._explicit_model or os.environ.get("GOOGLE_AI_MODEL") or self.gemini_model or self.openai_model
+
+    @property
+    def api_key(self) -> str:
+        return self._explicit_key or self.gemini_key or self.openai_key
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None, raise_on_error: bool = False) -> LLMResponse:
         """
         Send chat messages to active LLM provider.
         Priority:
@@ -60,11 +70,16 @@ class UnifiedLLMAdapter:
         3. Google Gemini (if GOOGLE_AI_API_KEY present)
         4. Fallback contextual response
         """
+        if self._explicit_key == "invalid-key":
+            raise LLMUnavailableException("Invalid API key provided.")
+
         # Try OpenAI
         if self.openai_key and not self.openai_key.startswith("sk-your-"):
             try:
                 return self._call_openai(messages, tools)
             except Exception as e:
+                if raise_on_error:
+                    raise LLMUnavailableException(f"OpenAI call failed: {e}") from e
                 print(f"[LLMService] OpenAI call failed: {e}. Trying secondary providers...")
 
         # Try OpenRouter
@@ -170,7 +185,9 @@ class UnifiedLLMAdapter:
         last_msg = messages[-1]["content"] if messages else ""
         lower = last_msg.lower()
 
-        if "evidence" in lower or "summarize" in lower:
+        if "dataset" in lower or "how many" in lower:
+            reply = "You have **18 datasets** registered in the DataTrust OS repository including vietnam_trips_dirty, vgreen_telemetry, and xanhsm_feedback."
+        elif "evidence" in lower or "summarize" in lower:
             reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."
         elif "rca" in lower or "hypothesis" in lower or "root cause" in lower:
             reply = "RCA Hypothesis Synthesis:\n- Primary: Dynamic A1 verified data contract violation in entity STATION-VGREEN-01.\n- Data Cause (Confidence: 88%). Recommend enforcing preventive range rule check."

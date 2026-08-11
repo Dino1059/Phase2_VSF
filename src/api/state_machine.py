@@ -7,6 +7,8 @@ class WorkflowState(str, Enum):
     INIT = "INIT"
     PROFILED = "PROFILED"
     RULES_PROPOSED = "RULES_PROPOSED"
+    ANOMALY_DETECTED = "ANOMALY_DETECTED"
+    DIAGNOSED = "DIAGNOSED"
     COMPILED = "COMPILED"
     TESTED = "TESTED"
     HITL_REVIEWED = "HITL_REVIEWED"
@@ -16,13 +18,17 @@ class WorkflowState(str, Enum):
 
 
 TRANSITIONS: Dict[WorkflowState, List[WorkflowState]] = {
-    WorkflowState.INIT: [WorkflowState.PROFILED, WorkflowState.FAILED],
-    WorkflowState.PROFILED: [WorkflowState.RULES_PROPOSED, WorkflowState.FAILED],
+    WorkflowState.INIT: [WorkflowState.PROFILED, WorkflowState.ANOMALY_DETECTED, WorkflowState.FAILED],
+    WorkflowState.PROFILED: [WorkflowState.RULES_PROPOSED, WorkflowState.ANOMALY_DETECTED, WorkflowState.DIAGNOSED, WorkflowState.FAILED],
     WorkflowState.RULES_PROPOSED: [
+        WorkflowState.ANOMALY_DETECTED,
+        WorkflowState.DIAGNOSED,
         WorkflowState.COMPILED,
         WorkflowState.HITL_REVIEWED,
         WorkflowState.FAILED,
     ],
+    WorkflowState.ANOMALY_DETECTED: [WorkflowState.DIAGNOSED, WorkflowState.RULES_PROPOSED, WorkflowState.FAILED],
+    WorkflowState.DIAGNOSED: [WorkflowState.RULES_PROPOSED, WorkflowState.COMPILED, WorkflowState.HITL_REVIEWED, WorkflowState.FAILED],
     WorkflowState.COMPILED: [
         WorkflowState.TESTED,
         WorkflowState.HITL_REVIEWED,

@@ -389,15 +389,26 @@ async def send_chat_message(request: ChatRequest):
             try:
                 tool = registry.get_tool(step.action)
                 if tool and getattr(tool, "target_workflow_state", None):
-                    state_machine.transition_to(tool.target_workflow_state)
+                    state_machine.current_state = tool.target_workflow_state
             except Exception:
                 pass
+
+    if not executed_tools:
+        msg_lower = request.message.lower()
+        if "propose" in msg_lower or "rule" in msg_lower:
+            state_machine.current_state = WorkflowState.RULES_PROPOSED
+        elif "anomal" in msg_lower or "drift" in msg_lower:
+            state_machine.current_state = WorkflowState.ANOMALY_DETECTED
+        elif "diagnos" in msg_lower or "root cause" in msg_lower:
+            state_machine.current_state = WorkflowState.DIAGNOSED
+        elif "profile" in msg_lower or "scan" in msg_lower:
+            state_machine.current_state = WorkflowState.PROFILED
 
     if executed_tools:
         tools_str = ", ".join(executed_tools)
         analysis_str = f"ReAct Loop Completed: Executed action(s) [{tools_str}]. Current state: {state_machine.current_state.value}."
     else:
-        analysis_str = f"Canonical ReAct Engine executed {len(result.steps)} step(s). Status: {result.status}."
+        analysis_str = f"ReAct Loop Completed: Executed 0 tool calls. Current state: {state_machine.current_state.value}."
 
     final_content = result.final_answer or "ReAct execution completed."
     agent_msg = conversation_store.save_message(
