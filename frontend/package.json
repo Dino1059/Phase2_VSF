@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@sentry/react": "^10.69.0",
+    "chart.js": "^4.5.1",
     "framer-motion": "^12.43.0",
     "i18next": "^26.3.6",
     "lucide-react": "^1.28.0",

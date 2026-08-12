@@ -414,3 +414,87 @@ export async function uploadDatasetFile(file: File) {
     body: formData,
   });
 }
+
+// ── Pipeline / HITL / Quarantine / Anomaly clients (ui_temp port) ─────────
+
+export interface HITLProposal {
+  rule_id: string;
+  rule_name: string;
+  rule_type: string;
+  rule_expression: string;
+  confidence?: number;
+  status?: string;
+  proposed_by?: string;
+  proposed_at?: string | null;
+}
+
+export const hitlApi = {
+  queue: () =>
+    request<{ proposals: HITLProposal[] }>('/hitl/queue'),
+  approve: (ruleId: string, approvedBy: string = 'human') =>
+    request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ approved_by: approvedBy }),
+    }),
+  reject: (ruleId: string, rejectedBy: string = 'human', reason: string = '') =>
+    request<{ status: string; rule_id: string }>(`/hitl/reject/${encodeURIComponent(ruleId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ rejected_by: rejectedBy, reason }),
+    }),
+  edit: (ruleId: string, ruleExpression: string, editedBy: string = 'human') =>
+    request<{ status: string; rule_id: string }>(`/hitl/edit/${encodeURIComponent(ruleId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ rule_expression: ruleExpression, edited_by: editedBy }),
+    }),
+  execute: (ruleId: string) =>
+    request<{ status: string; rule_id: string }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
+      method: 'POST',
+    }),
+};
+
+export const pipelineApi = {
+  trigger: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+    request<{ run_id: string; status: string; table: string }>(
+      `/pipeline/trigger?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
+      { method: 'POST' }
+    ),
+  execute: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+    request<{ run_id: string; status: string; table: string }>(
+      `/pipeline/execute?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
+      { method: 'POST' }
+    ),
+  status: (runId: string) =>
+    request<{ run_id: string; status: string; steps: Array<{ agent?: string; step?: number; action?: string; timestamp?: string | null }> }>(
+      `/pipeline/status/${encodeURIComponent(runId)}`
+    ),
+};
+
+export const quarantineApi = {
+  list: (limit: number = 50) =>
+    request<{ quarantine: Array<{
+      id: string;
+      source_table: string;
+      source_row_id: string;
+      rule_id: string;
+      reason: string;
+      quarantined_at?: string | null;
+      lineage_hash?: string | null;
+    }> }>(`/quarantine/?limit=${limit}`),
+  count: () =>
+    request<{ counts: Record<string, number> }>('/quarantine/count'),
+};
+
+export const anomaliesApi = {
+  detect: (payload: { current_profile?: any; historical_profiles?: any[]; detector?: string }) =>
+    request<{
+      report_id: string;
+      dataset_name: string;
+      detected_anomalies: any[];
+      anomaly_score: number;
+      summary: string;
+      status: string;
+    }>('/anomalies/detect', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};

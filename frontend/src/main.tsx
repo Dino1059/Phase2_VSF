@@ -6,6 +6,9 @@ import App from './App';
 import './i18n';
 import './index.css';
 
+import { ThemeProvider } from './contexts/ThemeContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
 if (sentryDsn) {
   Sentry.init({
@@ -22,11 +25,12 @@ if (sentryDsn) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Sentry.ErrorBoundary fallback={<p className="p-4 text-red-500 font-semibold">An unexpected error occurred. Sentry has logged this issue.</p>}>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </Sentry.ErrorBoundary>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </ThemeProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
-

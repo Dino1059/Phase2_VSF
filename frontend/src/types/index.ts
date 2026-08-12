@@ -92,3 +92,84 @@ export interface DecisionRecord {
   status: string;
 }
 
+// ── Pipeline / Mission types (ui_temp port) ──────────────────────────────
+
+export type PipelineStepId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type StepStatus = 'pending' | 'active' | 'completed' | 'waiting' | 'error';
+export type PipelineRunStatus = 'idle' | 'running' | 'paused' | 'awaiting_hitl' | 'complete' | 'failed';
+
+export interface PipelineStepDef {
+  id: PipelineStepId;
+  name: string;
+  agent: 'orchestrator' | 'profiler' | 'anomaly' | 'proposer' | 'human' | 'executor';
+  tab: 'tab-manifest' | 'tab-telemetry' | 'tab-rca' | 'tab-split';
+  isReviewStep?: boolean;
+  desc: string;
+}
+
+export type DomainId = 'ev_telemetry' | 'vgreen_charging' | 'xanhsm_trips' | 'customer_nlp';
+
+export interface DomainInfo {
+  id: DomainId;
+  shortcut: string; // sidebar alias: ev | vgreen | xanhsm | nlp
+  name: string;
+  dbName: string;
+  table: string;
+  rows: string;
+  size: string;
+  engine: string;
+  topic: string;
+  cleanRows: number;
+  quarantineRows: number;
+  anomalySummary: string;
+  defaultRule: string;
+}
+
+export type TimeFilter = 'Today' | '3d' | '7d' | 'This Week' | 'This Month';
+
+export interface TimeFilterSnapshot {
+  date: string;
+  quarantineCount: number;
+  cleanCount: number;
+  hash: string;
+  pytestPass: string;
+}
+
+export interface SplitRow {
+  id: string;
+  timestamp: string;
+  vehicleId: string;
+  battTemp: string;
+  vDelta: string;
+  status: 'CLEAN' | 'QUARANTINED';
+  code: string;
+}
+
+export interface RuleProposalBackend {
+  rule_id: string;
+  rule_name: string;
+  rule_type: string;
+  rule_expression: string;
+  confidence?: number;
+  status?: string;
+  proposed_by?: string;
+  proposed_at?: string | null;
+}
+
+export interface QuarantineRecord {
+  id: string;
+  source_table: string;
+  source_row_id: string;
+  rule_id: string;
+  reason: string;
+  quarantined_at?: string | null;
+  lineage_hash?: string | null;
+}
+
+export interface PipelineRunInfo {
+  run_id: string;
+  status: string;
+  table: string;
+  steps?: Array<{ agent?: string; step?: number; action?: string; timestamp?: string | null }>;
+}
+

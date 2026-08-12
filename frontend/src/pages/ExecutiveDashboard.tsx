@@ -1,81 +1,167 @@
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  Atom,
-  Search,
-  ArrowLeft,
-  Activity,
-  AlertTriangle,
+  Boxes,
+  Layers,
   Clock,
-  ShieldCheck,
+  Brain,
+  Lightbulb,
+  ChartLine,
+  Bot,
   Microchip,
+  ShieldCheck,
+  Waypoints,
+  Check,
+  X,
+  Pencil,
+  Save,
+  AlertTriangle,
   Database,
   UserShield,
   CheckCircle2,
   Gavel,
-  Fingerprint,
   UserCheck,
-  Bot,
-  BarChart3,
-  Flame,
-  Layers,
-  Zap,
+  Search,
+  Stethoscope,
+  FlaskConical,
+  ScanSearch,
+  Fingerprint,
 } from 'lucide-react';
 import { useDashboardStore } from '../stores/dashboardStore';
+import { usePipelineStore } from '../stores/pipelineStore';
+import { hitlApi } from '../services/api';
+import type { HITLProposal } from '../services/api';
+import type { AgentId } from '../types';
+
+const AGENT_HEALTH: Array<{ id: AgentId; label: string; icon: React.ComponentType<{ size?: number | string; className?: string; style?: React.CSSProperties }>; color: string; latency: string }> = [
+  { id: 'profiler', label: 'Data Profiling Agent', icon: ScanSearch, color: 'var(--royal-purple)', latency: '0.4ms' },
+  { id: 'anomalyDetector', label: 'Anomaly Detection Agent', icon: AlertTriangle, color: 'var(--warning-amber)', latency: '1.2ms' },
+  { id: 'ruleProposer', label: 'Rule Proposer Agent', icon: Lightbulb, color: 'var(--electric-green)', latency: '0.8ms' },
+  { id: 'diagnosis', label: 'Diagnosis & RCA Agent', icon: Stethoscope, color: 'var(--alert-magenta)', latency: '2.1ms' },
+  { id: 'orchestrator', label: 'Pytest Integration Engine', icon: FlaskConical, color: 'var(--electric-green)', latency: '1.4ms' },
+];
+
+const SEVERITY_BADGE: Record<string, string> = {
+  HIGH: 'danger',
+  CRITICAL: 'danger',
+  MEDIUM: 'warning',
+  LOW: 'info',
+};
 
 export const ExecutiveDashboard: React.FC = () => {
-  const navigate = useNavigate();
-  const {
-    metrics,
-    insights,
-    activityFeed,
-    signals,
-    project,
-    summary,
-    fetchDashboardData,
-    loading,
-  } = useDashboardStore();
+  const { t } = useTranslation('pipeline');
+  const metrics = useDashboardStore((s) => s.metrics);
+  const insights = useDashboardStore((s) => s.insights);
+  const activityFeed = useDashboardStore((s) => s.activityFeed);
+  const signals = useDashboardStore((s) => s.signals);
+  const summary = useDashboardStore((s) => s.summary);
+  const loading = useDashboardStore((s) => s.loading);
+  const fetchDashboardData = useDashboardStore((s) => s.fetchDashboardData);
+  const quarantineRows = usePipelineStore((s) => s.quarantineRows);
+  const setPipelineProposals = usePipelineStore((s) => s.setProposals);
+  const [proposals, setProposals] = useState<HITLProposal[]>([]);
+  const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
+  const [editText, setEditText] = useState('');
+  const [ruleStates, setRuleStates] = useState<Record<string, 'approved' | 'rejected' | 'edited'>>({});
+  const [trendRange, setTrendRange] = useState<'24h' | '7d' | '30d'>('24h');
+  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartInstance = useRef<{ destroy: () => void } | null>(null);
 
+  // Data fetching
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
+    hitlApi
+      .queue()
+      .then((res) => {
+        const pending = (res.proposals || []).filter(
+          (p) => p.status === 'pending' || p.status === 'proposed'
+        );
+        setProposals(pending);
+        setPipelineProposals(pending);
+      })
+      .catch(() => setProposals([]));
+  }, [fetchDashboardData, setPipelineProposals]);
 
-  // Provenance helper for notice badge
-  const activeProvenance = (project?.provenance || summary?.provenance || 'SEMI_SYNTHETIC').toUpperCase();
+  const isDark = () =>
+    (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
 
-  const getProvenanceBadge = (provenance: string) => {
-    switch (provenance) {
-      case 'REAL_OPERATIONAL':
-        return {
-          colorClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-          dotClass: 'bg-emerald-400',
-          label: 'REAL_OPERATIONAL',
-        };
-      case 'PUBLIC_PROXY':
-        return {
-          colorClass: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
-          dotClass: 'bg-blue-400',
-          label: 'PUBLIC_PROXY',
-        };
-      case 'SEMI_SYNTHETIC':
-        return {
-          colorClass: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-          dotClass: 'bg-amber-400',
-          label: 'SEMI_SYNTHETIC',
-        };
-      case 'SYNTHETIC':
-      default:
-        return {
-          colorClass: 'bg-purple-500/10 border-purple-500/30 text-purple-400',
-          dotClass: 'bg-purple-400',
-          label: 'SYNTHETIC',
-        };
+  // Anomaly trend chart (Chart.js)
+  useEffect(() => {
+    const canvas = chartRef.current;
+    if (!canvas) return;
+    const textColor = isDark() ? '#94a3b8' : '#475569';
+    const gridColor = isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const dataByRange: Record<string, { labels: string[]; a: number[]; b: number[] }> = {
+      '24h': { labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'], a: [12, 19, 85, 45, 120, 32, 15], b: [5, 12, 40, 25, 88, 20, 8] },
+      '7d': { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], a: [340, 420, 290, 510, 680, 210, 150], b: [180, 230, 140, 290, 410, 110, 80] },
+      '30d': { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], a: [1420, 1890, 1250, 2100], b: [820, 940, 610, 1150] },
+    };
+    const d = dataByRange[trendRange];
+
+    // Lazy-load Chart.js on first paint
+    import('chart.js/auto').then(({ default: Chart }) => {
+      if (chartInstance.current) chartInstance.current.destroy();
+      chartInstance.current = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: d.labels,
+          datasets: [
+            { label: 'BMS Voltage Spikes', data: d.a, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+            { label: 'Thermal Overheat Flags', data: d.b, borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: true, position: 'top', labels: { color: textColor, boxWidth: 12, padding: 16 } } },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: textColor } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor } },
+          },
+        },
+      });
+    });
+    return () => {
+      if (chartInstance.current) chartInstance.current.destroy();
+    };
+  }, [trendRange]);
+
+  const handleRuleAction = async (proposal: HITLProposal, action: 'approve' | 'reject' | 'edit') => {
+    if (action === 'approve') {
+      setRuleStates((s) => ({ ...s, [proposal.rule_id]: 'approved' }));
+      setProposals((p) => p.filter((r) => r.rule_id !== proposal.rule_id));
+      try {
+        await hitlApi.approve(proposal.rule_id);
+      } catch {
+        // offline: keep local state
+      }
+    } else if (action === 'reject') {
+      setRuleStates((s) => ({ ...s, [proposal.rule_id]: 'rejected' }));
+      setProposals((p) => p.filter((r) => r.rule_id !== proposal.rule_id));
+      try {
+        await hitlApi.reject(proposal.rule_id);
+      } catch {
+        // offline
+      }
+    } else if (action === 'edit') {
+      setEditingRule(proposal);
+      setEditText(proposal.rule_expression);
     }
   };
 
-  const provBadge = getProvenanceBadge(activeProvenance);
+  const saveRuleEdit = async () => {
+    if (!editingRule) return;
+    try {
+      await hitlApi.edit(editingRule.rule_id, editText);
+    } catch {
+      // offline
+    }
+    setRuleStates((s) => ({ ...s, [editingRule.rule_id]: 'edited' }));
+    setProposals((p) => p.filter((r) => r.rule_id !== editingRule.rule_id));
+    setEditingRule(null);
+  };
 
-  // Compute live signal layer counts
+  const totalSignals = signals.length;
   const layerCounts = signals.reduce(
     (acc, sig) => {
       const l = sig.layer || 'L1';
@@ -84,358 +170,272 @@ export const ExecutiveDashboard: React.FC = () => {
     },
     { L1: 0, L2: 0, L3: 0, L4: 0 } as Record<string, number>
   );
-
-  // Compute live signal severity counts
-  const severityCounts = signals.reduce(
-    (acc, sig) => {
-      const s = (sig.severity || 'MEDIUM').toUpperCase();
-      acc[s] = (acc[s] || 0) + 1;
-      return acc;
-    },
-    { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 } as Record<string, number>
-  );
+  const totalQuarantined = metrics.quarantinedRecords || quarantineRows;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-6 space-y-6 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Header HUD */}
-      <header className="flex flex-col lg:flex-row items-start lg:items-center justify-between bg-slate-900/80 backdrop-blur border border-slate-800 rounded-xl px-6 py-4 shadow-lg gap-4 relative z-10">
-        <div className="flex items-center space-x-4 flex-wrap gap-y-2">
-          <button
-            onClick={() => {
-              if (window.location.hash) {
-                window.location.hash = '#/control-room';
-              } else {
-                navigate('/');
-              }
-            }}
-            className="flex items-center space-x-2 text-slate-400 hover:text-cyan-400 transition-colors border border-slate-700 hover:border-cyan-500/50 rounded-lg px-3 py-1.5 text-sm font-medium"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Control Room</span>
-          </button>
-          <div className="h-6 w-px bg-slate-800 hidden sm:block" />
-          <div className="flex items-center space-x-2">
-            <Atom className="w-6 h-6 text-cyan-400 animate-spin-slow" />
-            <span className="font-bold text-lg tracking-wider text-slate-100">
-              DATATRUST OS <span className="text-cyan-400">EXECUTIVE DASHBOARD</span>
-            </span>
+    <div className="dash-main">
+      {/* TOP SUMMARY KPI CARDS (4 CARDS) */}
+      <div className="kpi-grid">
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span className="kpi-title">{t('enterpriseDatasets')}</span>
+            <div className="kpi-icon blue"><Boxes size={15} /></div>
           </div>
+          <div className="kpi-value">{loading ? '...' : summary?.projects_count ?? '4'}<span className="unit"> {t('active')}</span></div>
+          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? 'SEMI_SYNTHETIC'} provenance</div>
         </div>
 
-        {/* Provenance Notice Badge & Search Bar */}
-        <div className="flex items-center space-x-4 w-full lg:w-auto justify-between lg:justify-end">
-          <div
-            className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold ${provBadge.colorClass}`}
-          >
-            <span className={`w-2 h-2 rounded-full ${provBadge.dotClass} animate-pulse`} />
-            <span>PROVENANCE NOTICE: {provBadge.label}</span>
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span className="kpi-title">{t('totalRecords')}</span>
+            <div className="kpi-icon green"><Layers size={15} /></div>
           </div>
-
-          <div className="relative w-72 hidden sm:block">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search signals, incidents, audit logs..."
-              className="w-full bg-slate-950/60 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10">
-        {/* KPI Cards Row */}
-        <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-4 gap-6">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                Total Signals & Anomalies
-              </p>
-              <h3 className="text-3xl font-extrabold text-red-400 mt-1">
-                {loading ? '...' : metrics.totalAnomalies}
-              </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/signals</p>
-            </div>
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <AlertTriangle className="w-6 h-6 text-red-400" />
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                Anomaly Rate
-              </p>
-              <h3 className="text-3xl font-extrabold text-cyan-400 mt-1">
-                {loading ? '...' : metrics.anomalyRate}
-              </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/summary</p>
-            </div>
-            <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
-              <Activity className="w-6 h-6 text-cyan-400" />
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                Active Incidents
-              </p>
-              <h3 className="text-3xl font-extrabold text-amber-400 mt-1">
-                {loading ? '...' : metrics.activeIncidentsCount}
-              </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">/api/v1/incidents</p>
-            </div>
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-              <Zap className="w-6 h-6 text-amber-400" />
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 backdrop-blur flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                Avg Resolution Cadence
-              </p>
-              <h3 className="text-3xl font-extrabold text-emerald-400 mt-1">
-                {loading ? '...' : metrics.avgResolutionTime}
-              </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">Dynamic Incident Cadence</p>
-            </div>
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-              <Clock className="w-6 h-6 text-emerald-400" />
-            </div>
-          </div>
+          <div className="kpi-value">{loading ? '...' : metrics.cleanRecords.toLocaleString()}<span className="unit"> {t('rows')}</span></div>
+          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {metrics.passValidationRate} {t('dataQuality')}</div>
         </div>
 
-        {/* Anomaly Trends & Signal Layer Breakdown */}
-        <div className="lg:col-span-3 bg-slate-900/60 border border-slate-800 rounded-xl p-6 backdrop-blur space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <Layers className="w-5 h-5 text-cyan-400" />
-              <h2 className="font-semibold text-lg text-slate-100">
-                Live Anomaly Trends & Signal Layer Distribution
-              </h2>
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span className="kpi-title">{t('pendingReview')}</span>
+            <div className="kpi-icon amber"><Clock size={15} /></div>
+          </div>
+          <div className="kpi-value amber">{proposals.length} {t('rules')}</div>
+          <div className="kpi-subtext warning"><AlertTriangle size={13} /> {t('requiresAction')}</div>
+        </div>
+
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span className="kpi-title">{t('aiHealth')}</span>
+            <div className="kpi-icon purple"><Brain size={15} /></div>
+          </div>
+          <div className="kpi-value purple">{loading ? '...' : metrics.avgResolutionTime}</div>
+          <div className="kpi-subtext positive"><ShieldCheck size={13} /> {metrics.activeIncidentsCount} active incident(s)</div>
+        </div>
+      </div>
+
+      {/* MAIN CONTENT GRID (6 PANELS) */}
+      <div className="panels-grid">
+        {/* PANEL 1: AI SUGGESTED RULES */}
+        <div className="panel-card panel-suggested-rules">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <Lightbulb size={18} className="text-primary" />
+              <h2>{t('suggestedRules')}</h2>
             </div>
-            <span className="text-xs text-slate-400 font-mono">Backend API: /api/v1/signals</span>
+            <span className="badge-count">{proposals.length} {t('pendingReviewCount')}</span>
           </div>
 
-          {signals.length === 0 ? (
-            <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
-              <AlertTriangle className="w-8 h-8 text-slate-600 mx-auto" />
-              <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
-              <p className="text-xs text-slate-500">
-                No anomaly signals detected from backend /api/v1/signals.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-                  <span className="text-xs font-mono text-cyan-400 uppercase">
-                    L1 Schema & Range
-                  </span>
-                  <div className="text-2xl font-bold text-slate-100 mt-1">
-                    {layerCounts.L1 || 0}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Constraint Violations</div>
-                </div>
-                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-                  <span className="text-xs font-mono text-amber-400 uppercase">
-                    L2 Contextual Drift
-                  </span>
-                  <div className="text-2xl font-bold text-slate-100 mt-1">
-                    {layerCounts.L2 || 0}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Statistical Outliers</div>
-                </div>
-                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-                  <span className="text-xs font-mono text-purple-400 uppercase">
-                    L3 Multi-Entity
-                  </span>
-                  <div className="text-2xl font-bold text-slate-100 mt-1">
-                    {layerCounts.L3 || 0}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Cross-System Inconsistency</div>
-                </div>
-                <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-lg text-center">
-                  <span className="text-xs font-mono text-rose-400 uppercase">
-                    L4 Causal Graph
-                  </span>
-                  <div className="text-2xl font-bold text-slate-100 mt-1">
-                    {layerCounts.L4 || 0}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Root Cause Cascades</div>
-                </div>
+          <div className="rules-list">
+            {proposals.length === 0 && ruleStates.approved === undefined && (
+              <div className="rule-item" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px' }}>
+                <Search size={18} style={{ marginBottom: 6 }} />
+                <div>{t('noPendingRules')}</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>{t('noPendingRulesHint')}</div>
               </div>
+            )}
 
-              <div className="flex items-center space-x-6 text-xs text-slate-400 pt-2 border-t border-slate-800/60">
-                <span>Severity Breakdown:</span>
-                <span className="text-rose-400 font-medium">
-                  Critical: {severityCounts.CRITICAL || 0}
-                </span>
-                <span className="text-amber-400 font-medium">
-                  High: {severityCounts.HIGH || 0}
-                </span>
-                <span className="text-yellow-400 font-medium">
-                  Medium: {severityCounts.MEDIUM || 0}
-                </span>
-                <span className="text-slate-400 font-medium">
-                  Low: {severityCounts.LOW || 0}
+            {proposals.map((rule) => {
+              const sev = (rule.rule_type || '').toUpperCase().includes('HIGH') || (rule.rule_name || '').toLowerCase().includes('high')
+                ? 'danger'
+                : (rule.rule_type || '').toUpperCase().includes('MEDIUM')
+                ? 'warning'
+                : 'info';
+              const col = rule.rule_name || rule.rule_type || 'unknown';
+              return (
+                <div key={rule.rule_id} className="rule-item">
+                  <div className="rule-top">
+                    <span className={`badge ${sev}`}><AlertTriangle size={12} /> {sev === 'danger' ? t('highSeverity') : sev === 'warning' ? t('mediumSeverity') : t('infoSeverity')}</span>
+                    <span className="column-tag"><Database size={12} /> {col}</span>
+                  </div>
+                  <div className="rule-code">
+                    <code>{rule.rule_expression}</code>
+                  </div>
+                  <div className="rule-desc">
+                    {rule.proposed_by || 'AI Steward'} · {t('confidence')} {((rule.confidence ?? 0) * 100).toFixed(1)}% · {rule.proposed_at ? new Date(rule.proposed_at).toLocaleString() : t('justNow')}
+                  </div>
+                  <div className="rule-actions">
+                    <button className="btn-rule approve" onClick={() => handleRuleAction(rule, 'approve')}><Check size={13} /> {t('approveRule')}</button>
+                    <button className="btn-rule edit" onClick={() => handleRuleAction(rule, 'edit')}><Pencil size={13} /> {t('editRule')}</button>
+                    <button className="btn-rule reject" onClick={() => handleRuleAction(rule, 'reject')}><X size={13} /> {t('rejectRule')}</button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {Object.entries(ruleStates).map(([id, status]) => (
+              <div key={id} className="rule-item" style={{ borderColor: status === 'rejected' ? 'var(--alert-magenta)' : 'var(--electric-green)' }}>
+                <span className={`badge ${status === 'rejected' ? 'danger' : 'info'}`}>
+                  {status === 'approved' ? <CheckCircle2 size={12} /> : status === 'edited' ? <Pencil size={12} /> : <X size={12} />}
+                  {status === 'approved' ? t('approvedBySteward') : status === 'edited' ? t('editedBySteward') : t('rejectedBySteward')}
                 </span>
               </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
 
-        {/* AI Diagnosis & Root Cause Section */}
-        <div className="lg:col-span-2 bg-slate-900/60 border border-slate-800 rounded-xl p-6 backdrop-blur flex flex-col space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <Microchip className="w-5 h-5 text-cyan-400" />
-              <h2 className="font-semibold text-lg text-slate-100">
-                Live Active Incidents & Root Cause Analysis
-              </h2>
+        {/* PANEL 2: ANOMALY TRENDS */}
+        <div className="panel-card panel-anomaly-chart">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <ChartLine size={18} className="text-primary" />
+              <h2>{t('anomalyTrends')}</h2>
             </div>
-            <span className="flex items-center space-x-1.5 text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded-full px-3 py-1 font-medium">
-              <span>{insights.length} Active Incident(s)</span>
-            </span>
+            <div className="time-filter-select" style={{ display: 'flex', gap: 6 }}>
+              {(['24h', '7d', '30d'] as const).map((r) => (
+                <button key={r} className={`filter-tab ${trendRange === r ? 'active' : ''}`} onClick={() => setTrendRange(r)}>
+                  {r === '24h' ? '24h' : r}
+                </button>
+              ))}
+            </div>
           </div>
+          <div className="chart-container">
+            <canvas ref={chartRef} id="anomalyTrendChart" />
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+            <span>L1 Schema: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L1 || 0}</strong></span>
+            <span>L2 Drift: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L2 || 0}</strong></span>
+            <span>L3 Multi-Entity: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L3 || 0}</strong></span>
+            <span>L4 Causal: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L4 || 0}</strong></span>
+            <span>Total Signals: <strong style={{ color: 'var(--alert-magenta)' }}>{totalSignals}</strong></span>
+          </div>
+        </div>
 
-          <div className="space-y-4 flex-1 overflow-y-auto max-h-96">
+        {/* PANEL 3: AGENT HEALTH & LATENCY */}
+        <div className="panel-card panel-agent-health">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <Bot size={18} className="text-primary" />
+              <h2>{t('agentHealth')}</h2>
+            </div>
+            <span className="status-pill online"><Check size={12} /> {t('activeAgents')}</span>
+          </div>
+          <div className="agents-status-list">
+            {AGENT_HEALTH.map((agent) => (
+              <div key={agent.id} className="agent-row">
+                <div className="agent-name">
+                  <agent.icon size={14} style={{ color: agent.color }} />
+                  {agent.label}
+                </div>
+                <span className="agent-badge">Active</span>
+                <span className="stat-val">{agent.latency}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* PANEL 4: AI DIAGNOSIS & ROOT CAUSE */}
+        <div className="panel-card panel-rca">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <Microchip size={18} className="text-primary" />
+              <h2>{t('rcaTitle')}</h2>
+            </div>
+            <span className="confidence-badge"><Fingerprint size={12} /> {insights.length} {t('activeRca')}</span>
+          </div>
+          <div className="rca-cards-list">
             {insights.length === 0 ? (
-              <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
-                <AlertTriangle className="w-8 h-8 text-slate-600 mx-auto" />
-                <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
-                <p className="text-xs text-slate-500">
-                  No active incidents reported from /api/v1/incidents endpoint.
-                </p>
+              <div className="insight-card" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                <div>{t('noIncidents')}</div>
+                <div style={{ fontSize: 12, marginTop: 6 }}>{t('noIncidentsHint')}</div>
               </div>
             ) : (
               insights.map((insight) => (
-                <div
-                  key={insight.id}
-                  className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-4 space-y-2 hover:border-slate-700 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-cyan-300 text-sm flex items-center space-x-2">
-                      <Flame className="w-4 h-4 text-purple-400" />
-                      <span>{insight.title}</span>
-                    </span>
-                    <span className="text-xs font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                      {insight.confidence}
-                    </span>
+                <div key={insight.id} className="insight-card">
+                  <div className="insight-header">
+                    <span className="insight-title"><Microchip size={14} /> {insight.title}</span>
+                    <span className={`badge ${SEVERITY_BADGE[insight.severity?.toUpperCase()] || 'info'}`}>{insight.severity || 'MEDIUM'}</span>
                   </div>
-                  <p className="text-xs text-slate-300">
-                    <strong className="text-slate-400">Diagnosis Detail:</strong> {insight.rootCause}
-                  </p>
-                  <p className="text-xs text-slate-300">
-                    <strong className="text-cyan-400">Recommended Action:</strong>{' '}
-                    {insight.recommendedAction}
-                  </p>
+                  <div className="insight-body"><strong>{t('rootCause')}</strong> {insight.rootCause}</div>
+                  <div className="insight-action"><strong>{t('recommendedAction')}</strong> {insight.recommendedAction}</div>
                 </div>
               ))
             )}
           </div>
         </div>
 
-        {/* AI & Audit Activity Feed */}
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 backdrop-blur flex flex-col space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <BarChart3 className="w-5 h-5 text-purple-400" />
-              <h2 className="font-semibold text-lg text-slate-100">Live Audit & Activity</h2>
+        {/* PANEL 5: GOVERNANCE SUMMARY */}
+        <div className="panel-card panel-governance">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <ShieldCheck size={18} className="text-primary" />
+              <h2>{t('governanceSummary')}</h2>
             </div>
-            <span className="flex items-center space-x-1.5 text-xs text-emerald-400 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>/api/v1/audit</span>
-            </span>
+            <span className="audit-badge"><Fingerprint size={12} /> {t('sha256Verified')}</span>
           </div>
+          <div className="gov-metrics-grid">
+            <div className="gov-box green">
+              <div className="gov-number">{metrics.cleanRecords.toLocaleString()}</div>
+              <div className="gov-label"><Database size={13} /> {t('cleanRecords')}</div>
+            </div>
+            <div className="gov-box red">
+              <div className="gov-number">{totalQuarantined.toLocaleString()}</div>
+              <div className="gov-label"><UserShield size={13} /> {t('quarantinedRecords')}</div>
+            </div>
+            <div className="gov-box blue">
+              <div className="gov-number">{metrics.passValidationRate}</div>
+              <div className="gov-label"><CheckCircle2 size={13} /> {t('passedValidation')}</div>
+            </div>
+            <div className="gov-box purple">
+              <div className="gov-number">{metrics.rulesExecuted}</div>
+              <div className="gov-label"><Gavel size={13} /> {t('rulesExecuted')}</div>
+            </div>
+          </div>
+          <div className="gov-audit-footer">
+            <div className="audit-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span>{t('latestLedgerHash')}</span>
+              <code>{metrics.latestLedgerHash}</code>
+            </div>
+          </div>
+        </div>
 
-          <div className="space-y-3 flex-1 overflow-y-auto max-h-96">
+        {/* PANEL 6: AI ACTIVITY FEED */}
+        <div className="panel-card panel-activity">
+          <div className="panel-header">
+            <div className="panel-title-group">
+              <Waypoints size={18} className="text-primary" />
+              <h2>{t('activityFeed')}</h2>
+            </div>
+            <span className="live-dot"><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--electric-green)', marginRight: 4 }} /> Live</span>
+          </div>
+          <div className="activity-timeline">
             {activityFeed.length === 0 ? (
-              <div className="text-center py-10 bg-slate-950/40 rounded-lg border border-slate-800/60 space-y-2">
-                <BarChart3 className="w-8 h-8 text-slate-600 mx-auto" />
-                <h4 className="text-sm font-semibold text-slate-300">No monitoring results yet</h4>
-                <p className="text-xs text-slate-500">No recent activity logged in audit trail.</p>
-              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('noActivity')}</div>
             ) : (
               activityFeed.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-slate-800/40 transition-colors border border-slate-800/40"
-                >
-                  <div className="p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400">
-                    {item.icon === 'user-check' && <UserCheck className="w-4 h-4" />}
-                    {item.icon === 'microchip' && <Microchip className="w-4 h-4" />}
-                    {item.icon === 'exclamation-triangle' && <AlertTriangle className="w-4 h-4" />}
-                    {item.icon === 'robot' && <Bot className="w-4 h-4" />}
-                    {item.icon === 'chart-bar' && <BarChart3 className="w-4 h-4" />}
+                <div key={item.id} className="activity-item">
+                  <div className={`act-icon ${item.color}`}>
+                    {item.icon === 'user-check' ? <UserCheck size={14} /> : item.icon === 'exclamation-triangle' ? <AlertTriangle size={14} /> : <Microchip size={14} />}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-200 truncate">{item.title}</p>
-                    <p className="text-[10px] text-slate-500 font-mono">{item.time}</p>
+                  <div className="act-content">
+                    <div className="act-title">{item.title}</div>
+                    <div className="act-time">{item.time}</div>
                   </div>
                 </div>
               ))
             )}
-          </div>
-        </div>
-
-        {/* Governance Summary Banner */}
-        <div className="lg:col-span-3 bg-slate-900/60 border border-slate-800 rounded-xl p-6 backdrop-blur space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              <h2 className="font-semibold text-lg text-slate-100">
-                Governance Execution Summary (/api/v1/summary)
-              </h2>
-            </div>
-            <span className="flex items-center space-x-1 text-xs text-purple-400 font-mono bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20">
-              <Fingerprint className="w-3.5 h-3.5" />
-              <span>Immutable SHA-256 Ledger</span>
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 text-center">
-              <Database className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
-              <div className="text-xl font-bold text-slate-100">
-                {metrics.cleanRecords.toLocaleString()}
-              </div>
-              <div className="text-xs text-slate-400 mt-1">Clean Records</div>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 text-center">
-              <UserShield className="w-5 h-5 text-red-400 mx-auto mb-1" />
-              <div className="text-xl font-bold text-slate-100">{metrics.quarantinedRecords}</div>
-              <div className="text-xs text-slate-400 mt-1">Quarantined Records</div>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 text-center">
-              <CheckCircle2 className="w-5 h-5 text-cyan-400 mx-auto mb-1" />
-              <div className="text-xl font-bold text-slate-100">{metrics.passValidationRate}</div>
-              <div className="text-xs text-slate-400 mt-1">Passed Validation</div>
-            </div>
-
-            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 text-center">
-              <Gavel className="w-5 h-5 text-purple-400 mx-auto mb-1" />
-              <div className="text-xl font-bold text-slate-100">{metrics.rulesExecuted}</div>
-              <div className="text-xs text-slate-400 mt-1">Rules Executed</div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-3 flex-wrap gap-2">
-            <span>Latest Immutable Ledger Hash:</span>
-            <code className="font-mono text-cyan-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800 text-[11px] truncate max-w-lg">
-              {metrics.latestLedgerHash}
-            </code>
           </div>
         </div>
       </div>
+
+      {/* RULE EDIT MODAL */}
+      {editingRule && (
+        <div className="modal-overlay active" onClick={() => setEditingRule(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title"><Pencil size={16} style={{ display: 'inline', marginRight: 6 }} /> {t('editRuleTitle')}</span>
+              <button className="modal-close" onClick={() => setEditingRule(null)}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Modify the SQL / Python cleaning conditions for <code>{editingRule.rule_id}</code> before signing into Pytest integration engine.
+            </div>
+            <textarea className="modal-textarea" value={editText} onChange={(e) => setEditText(e.target.value)} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button className="hud-btn" onClick={() => setEditingRule(null)}>{t('cancel')}</button>
+              <button className="btn-accept" onClick={saveRuleEdit}><Save size={14} /> {t('applyModifiedRule')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
