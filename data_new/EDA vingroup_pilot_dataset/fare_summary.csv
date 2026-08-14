@@ -1,0 +1,2 @@
+metric,min,1%,5%,50%,95%,99%,max,trips_total,suspicious_low(<5k/km),suspicious_high(>60k/km)
+fare_per_km_vnd,913.0,1546.0,3130.0,17872.0,123396.0,293446.0,663896.0,10382,1158,1338

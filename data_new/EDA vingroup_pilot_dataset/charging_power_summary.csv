@@ -1,0 +1,2 @@
+power_kw_min,power_kw_max,power_kw_mean,power_kw_median,power_kw_p99,power_kw_q25,power_kw_q75,power_kw_lt2_count,power_kw_gt50_count,power_kw_rec_diff_max,power_kw_rec_diff_median
+0.07,6.95,2.8558076634109693,2.34,6.6770000000000005,1.16,4.395,588,0,0.004998085839465594,0.0025325522809360734
