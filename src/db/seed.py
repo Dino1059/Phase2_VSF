@@ -92,11 +92,16 @@ def map_xanhsm_trips(df: pd.DataFrame, snapshot_id: str, start_id: int = 1) -> p
     """Map ride hailing trips to xanhsm_trips table schema."""
     t_id = "trip_id" if "trip_id" in df.columns else df.columns[0]
     d_id = "driver_id" if "driver_id" in df.columns else "driver_id"
-    dist = "trip_miles" if "trip_miles" in df.columns else "distance_km"
-    mult = 1.60934 if "trip_miles" in df.columns else 1.0
+    # EDA 2026-08-14: dataset da rename + scale sang km => distance_km (Tier R du lieu goc, khong can mult)
+    if "trip_distance_km" in df.columns:
+        dist = "trip_distance_km"; mult = 1.0
+    elif "trip_miles" in df.columns:        # backward-compat cho data cu
+        dist = "trip_miles"; mult = 1.60934
+    else:
+        dist = "distance_km"; mult = 1.0
     fare = "total_fare" if "total_fare" in df.columns else "fare_vnd"
     ts = "pickup_datetime" if "pickup_datetime" in df.columns else "timestamp"
-    
+
     pickup_loc = None
     if "pickup_latitude" in df.columns and "pickup_longitude" in df.columns:
         pickup_loc = df["pickup_latitude"].astype(str) + "," + df["pickup_longitude"].astype(str)
@@ -125,11 +130,20 @@ def seed_database(db_path: str = None) -> None:
 
     project_root = db_manager.project_root
     
-    # Priority 1: data/data_new/vingroup_faulty_pilot_dataset
-    # Priority 2: data/vingroup_real
-    data_dir = os.path.join(project_root, "data", "data_new", "vingroup_faulty_pilot_dataset")
-    if not os.path.exists(data_dir):
-        data_dir = os.path.join(project_root, "data", "vingroup_real")
+    # Candidates for data directory
+    candidates = [
+        os.path.join(project_root, "data_new", "vingroup_faulty_pilot_dataset"),
+        os.path.join(project_root, "data", "vingroup_faulty_pilot_dataset"),
+        os.path.join(project_root, "data_new", "vingroup_pilot_dataset"),
+        os.path.join(project_root, "data", "vingroup_real"),
+    ]
+    data_dir = None
+    for c in candidates:
+        if os.path.exists(c):
+            data_dir = c
+            break
+    if not data_dir:
+        data_dir = os.path.join(project_root, "data_new", "vingroup_faulty_pilot_dataset")
 
     csv_configs = [
         {

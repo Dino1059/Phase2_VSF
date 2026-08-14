@@ -1,231 +1,245 @@
 # Data Pipeline — `data_new/`
 
-## Tổng quan Pipeline 3 Layer
+Hệ thống pipeline dữ liệu đa tầng (Multi-Layer Data Pipeline) phục vụ mô phỏng, mapping, kiểm định chất lượng (EDA), tiêm lỗi có kiểm soát (Fault Injection) và nạp kho dữ liệu DuckDB cho hệ sinh thái xe điện & dịch vụ di chuyển VinGroup (VinFast, V-GREEN, Xanh SM).
+
+---
+
+## 1. Kiến trúc Tổng thể Pipeline
+
+Dữ liệu di chuyển qua **5 tầng kiến trúc liên hoàn**:
 
 ```
-raw_public/          (Layer 1 - Fetch)
-       │
-       ▼
-vingroup_pilot_dataset/          (Layer 2 - Ingest + Mapping + Timeseries)
-       │
-       ▼
-vingroup_faulty_pilot_dataset/   (Layer 3 - Fault Injection)
+[ Layer 1: Data Fetching ]
+  data_new/raw_public/ (VED, ACN-Data, Ride Hailing, UIT-VSFC)
+        │  fetch_real_public_datasets.py
+        ▼
+[ Layer 2: Ingest & Mapping & Timeseries ]
+  data_new/vingroup_pilot_dataset/ (Clean Ground Truth + State Machine + 4-Tier Provenance)
+        │  ingest_vingroup_real_data.py
+        ├───► [ Layer 2.5: Quality Gate & EDA ]
+        │       data_new/EDA vingroup_pilot_dataset/ (Report, Findings, Figures, Per-VIN)
+        │       eda_vingroup_pilot.py
+        ▼
+[ Layer 3: Fault Injection Engine ]
+  data_new/vingroup_faulty_pilot_dataset/ (16 Fault Families L1-L4 + Scenario Feedback)
+        │  inject_vingroup_real_faults.py
+        ▼
+[ Layer 4: Warehouse & Analytics ]
+  data_new/db/vingroup_pilot.db (DuckDB 1:1 Schema Mapping + Views + Snapshots)
+        ingest_vingroup_pilot_to_duckdb.py
 ```
 
 ---
 
-## Layer 1 — Fetch (`raw_public/`)
+## 2. Cấu trúc Thư mục `data_new/`
 
-**Script:** `scripts/Ingestion/fetch_real_public_datasets.py`
+```
+data_new/
+├── Ingestion/                                 # Chứa toàn bộ scripts xử lý pipeline
+│   ├── fetch_real_public_datasets.py          # Layer 1: Fetch/mirror dữ liệu public
+│   ├── ingest_vingroup_real_data.py           # Layer 2: Ingestion, State Machine & Mapping
+│   ├── eda_vingroup_pilot.py                  # Layer 2.5: EDA kiểm định chất lượng & Go/No-Go
+│   ├── inject_vingroup_real_faults.py         # Layer 3: Tiêm 16 họ lỗi L1-L4 & Scenario Feedback
+│   ├── ingest_vingroup_pilot_to_duckdb.py     # Layer 4: Load dữ liệu vào DuckDB
+│   └── sample_fetch_manifest.json             # Manifest mẫu kiểm tra cấu trúc fetch
+├── raw_public/                                # Dữ liệu thô tải từ các nguồn public
+│   ├── ACN/                                   # Phiên sạc thật từ Caltech/JPL/office1 JSON
+│   ├── Ride Hailing/                          # fact_rides.csv & drivers.csv
+│   ├── vehicle_telemetry_raw.csv              # Telemetry CAN-bus thật từ Michigan VED
+│   ├── uit_vsfc_raw.csv                       # Sentiment corpus từ UIT (HuggingFace)
+│   └── fetch_manifest.json                    # Log xuất xứ dữ liệu fetch (Real vs Seed)
+├── vingroup_pilot_dataset/                    # Dữ liệu sạch chuẩn (Clean Ground Truth)
+│   ├── fleet_index.csv / fleet_index.json     # 60 VIN danh mục xe và metadata
+│   ├── synthetic_ev_telemetry_ved_ref.csv     # 86,400 dòng telemetry (15 ngày × 15 phút)
+│   ├── acn_charging_mapped.csv                # ~1,350 phiên sạc phân bổ theo State Machine
+│   ├── ride_hailing_xanh_sm_trips.csv         # Chuyến đi taxi Xanh SM chuẩn hóa cước VN
+│   ├── nlp_benchmark_uit_vsfc.csv             # 500 câu chuẩn đo lường NLP model
+│   ├── ved_calibration.json                   # Cache phân phối thực nghiệm từ VED
+│   └── provenance_manifest.json               # Gán nhãn 4-Tier Provenance cho từng cột
+├── EDA vingroup_pilot_dataset/                # Báo cáo & phân tích chất lượng Layer 2
+│   ├── report.md                              # Báo cáo tổng kết Go/No-Go, phân phối, vi phạm vật lý
+│   ├── findings.json                          # Phát hiện máy đọc (machine-readable metrics)
+│   ├── *.csv                                  # Bảng tổng hợp schema, state, cước, sạc
+│   ├── figures/                               # Biểu đồ phân phối, tương quan vật lý (.png)
+│   └── per_vehicle/                           # Chi tiết kiểm tra drill-down cho từng VIN
+├── vingroup_faulty_pilot_dataset/             # Dữ liệu phục vụ Benchmark (Đã tiêm lỗi)
+│   ├── [Các file CSV tương tự dataset sạch]   # Bản sao có chứa lỗi được kiểm soát
+│   ├── synthetic_feedback_scenario_driven.csv # 20 kịch bản phản hồi khách hàng đối soát chéo
+│   └── fault_manifest.json                    # Ground truth toàn bộ lỗi (Phục vụ đo lường F1)
+└── db/                                        # Kho lưu trữ cơ sở dữ liệu phân tích
+    └── vingroup_pilot.db                      # DuckDB chứa đầy đủ schema raw.* và views
+```
 
-Thuận hoặc nghịch đảo các nguồn dữ liệu thật từ public repositories.
+---
 
-| Nguồn | Source | Grain | Domain | Ghi chú |
+## 3. Chi tiết các Tầng Kiến trúc & Scripts trong `data_new/Ingestion/`
+
+### 3.1. Layer 1 — Fetch Public Data (`fetch_real_public_datasets.py`)
+
+Kéo dữ liệu thật từ các nguồn mở uy tín. Nếu gặp sự cố mạng/404, script tự động fallback về **Seed Mirror** có gắn cờ cảnh báo tường minh `is_seed_mirror = 1`.
+
+| Nguồn dữ liệu | Nguồn gốc | Grain | Domain | Vai trò trong Pipeline |
 |---|---|---|---|---|
-| **VED** | gsoh/VED (GitHub) | CAN-bus timeseries, per-trip | Gần đúng (xe hybrid Mỹ) | 55,169 rows, 3 xe |
-| **ACN-Data** | Caltech/JPL/office1 JSON | Mỗi phiên sạc | Đúng grain (charging session) | 3 site |
-| **Ride Hailing** | Kaggle `archive/fact_rides.csv` | Mỗi chuyến đi | Đúng domain | Có drivers/users/vouchers |
-| **UIT-VSFC** | UIT (Vietnam) | Câu văn tiếng Việt | **Sai domain** | Chỉ dùng đo NLP accuracy |
+| **VED** | gsoh/VED (Univ. of Michigan) | CAN-bus 1Hz theo trip | Telemetry xe HEV/PHEV/EV | Tham số hóa phân phối tốc độ, RPM, SOC, điện áp, dòng điện |
+| **ACN-Data** | Caltech / JPL / office1 | Từng phiên sạc | Trạm sạc EV thông minh | Phân phối năng lượng kWh, thời lượng sạc, công suất kW |
+| **Ride Hailing** | Fact Rides / Chicago TNP | Từng cuốc xe | Dịch vụ taxi công nghệ | Khoảng cách chuyến, thời lượng di chuyển, cuốc xe |
+| **UIT-VSFC** | HuggingFace (`uitnlp`) | Câu tiếng Việt | Feedback sinh viên UIT | Bộ Benchmark chuẩn để đo F1/Accuracy của NLP Pipeline |
 
-**Quyết định 2026-08-08:**
-- UIT-VSFC **loại bỏ** khỏi feedback content chính (feedback sinh viên ≠ taxi feedback).
-- UIT-VSFC giữ lại làm **NLP benchmark set** để đo normalization accuracy / aspect extraction F1.
+- **Output:** `raw_public/fetch_manifest.json` ghi nhận trạng thái thật/seed của từng nguồn.
 
 ---
 
-## Layer 2 — Ingest (`vingroup_pilot_dataset/`)
+### 3.2. Layer 2 — Ingest, Mapping & State Machine (`ingest_vingroup_real_data.py`)
 
-**Script:** `data_new/Ingestion/ingest_vingroup_real_data.py`
+Chuyển đổi dữ liệu thô sang nghiệp vụ VinGroup với **State Machine đơn nguồn sự thật (Single Source of Truth)**.
 
-### 2.1 Fleet Index (`fleet_index.csv` / `fleet_index.json`)
+#### 1. Constructed Fleet Index (`fleet_index.csv`, `fleet_index.json`)
+- **60 VIN**: `VF8VNF_0001` → `VF8VNF_0060`.
+- Cơ cấu đội xe: **50% VF 5 Taxi**, **35% VF e34 Taxi**, **15% Feliz S Bike**.
+- 100% phương tiện được gắn nhãn giám sát hành trình (`telemetry_equipped = True`).
 
-- **60 VIN** giả định: `VF8VNF_0001` … `VF8VNF_0060`
-- 3 loại xe: `VF_5_TAXI` (50%), `VF_e34_TAXI` (35%), `FELIZ_S_BIKE` (15%)
-- **100%** pilot có telemetry (`telemetry_equipped = True`)
-- **Tier S** (khóa join nhân tạo, gắn nhãn tường minh)
+#### 2. Deterministic State Machine (Single Source of Truth)
+Đảm bảo tính nhất quán vật lý giữa Trips, Sạc và Telemetry qua hàm `generate_vin_day_states(vin, day_idx)`:
+- `CHARGING (Overnight)`: 18:00 (hôm trước) – 06:00 (sáng).
+- `CHARGING (Opportunity)`: 10:00 – 15:00 (sạc nhanh giữa ca).
+- `DRIVING_PASSENGER`: Trong khung giờ vận hành 06:00 – 18:00 (có khách).
+- `DEADHEAD`: ~35% thời gian vận hành (chạy không khách tìm điểm đón).
+- `IDLE`: Đỗ chờ giữa các cuốc xe.
+- **Cam kết Disjoint**: Các trạng thái hoàn toàn tách biệt theo thời gian, không xảy ra xung đột vừa sạc vừa chạy.
 
-### 2.2 State Machine — Single Source of Truth (2026-08-08 v4)
+#### 3. Bộ dữ liệu đầu ra chính:
+- **EV Telemetry (`synthetic_ev_telemetry_ved_ref.csv`)**: 60 VIN × 15 ngày × 96 mẫu/ngày = **86,400 dòng** (15 phút/mẫu). VED calibration tham số hóa các dải vật lý (IEC 62660-1).
+- **Charging Sessions (`acn_charging_mapped.csv`)**: ~1,350 phiên sạc, cước điện EVN chuẩn 3,100 VND/kWh, nhiệt độ trạm sạc theo IEC 61851-23.
+- **Trips (`ride_hailing_xanh_sm_trips.csv`)**: Chuyến đi Xanh SM, scale cước taxi chuẩn Hà Nội (`FARE_SCALE_TO_VN_TAXI = 0.22`, ~18,000 VND/km).
+- **NLP Benchmark (`nlp_benchmark_uit_vsfc.csv`)**: 500 câu chuẩn tiếng Việt.
+- **VED Calibration Cache (`ved_calibration.json`)**: Lưu trữ phân phối thực nghiệm.
 
-**Design principle:** Trips / Charging / Telemetry cùng chia sẻ **một schedule** cho mỗi (VIN, day).
+#### 4. Hệ thống 4-Tier Provenance (`provenance_manifest.json`)
+Mỗi cột trong toàn bộ dataset được gán 1 trong 4 nhãn minh bạch:
+- **`R` (Real-Exact)**: Lấy trực tiếp từ nguồn thật (ví dụ `kwh_consumed` từ ACN).
+- **`RD` (Real-Derived)**: Tính toán từ trường thật bằng công thức xác định (ví dụ `power_kw = kwh / duration_hr`, `cost_vnd = kwh × 3,100`).
+- **`RS` (Real-Statistically-Parameterized)**: Sinh tổng hợp tham số hóa theo phân phối thật/tiêu chuẩn (ví dụ `battery_temp_c`, `speed_kmh`).
+- **`S` (Scenario-Construct)**: Thiết kế có chủ đích cho kịch bản (ví dụ `vehicle_vin`, `driver_id`).
+
+---
+
+### 3.3. Layer 2.5 — Exploratory Data Analysis & Quality Gate (`eda_vingroup_pilot.py`)
+
+Kiểm định toàn diện chất lượng dữ liệu sạch trước khi thực hiện tiêm lỗi hoặc đưa vào huấn luyện mô hình:
+- **Kiểm tra Schema & Null Cells**: Đảm bảo không có trường dữ liệu thiếu ngoài ý muốn.
+- **Kiểm định Khóa Join VIN**: 100% khớp nối xuyên suốt giữa Fleet, Telemetry, Sạc và Chuyến đi.
+- **Kiểm định Quy luật Vật lý (Physics Sanity Check)**: Kiểm tra SOC không âm, nhiệt độ trong ngưỡng cho phép, xe đứng yên thì tốc độ bằng 0.
+- **Kiểm định Cước & Năng lượng**: Tỷ lệ cước/km, chi phí sạc/kWh.
+- **Output:** Thư mục `data_new/EDA vingroup_pilot_dataset/` chứa `report.md`, `findings.json`, cùng các biểu đồ trực quan `figures/` và drill-down `per_vehicle/`.
+
+---
+
+### 3.4. Layer 3 — Fault Injection Engine (`inject_vingroup_real_faults.py`)
+
+Hoạt động trên **bản sao dữ liệu**, tuyệt đối không can thiệp vào dataset gốc. Tiêm **16 họ lỗi (Fault Families)** phân theo 4 cấp độ bài toán phát hiện bất thường (L1–L4) + NLP + Scenario Feedback:
 
 ```
-generate_vin_day_states(vin, day_idx)
-  → List[ScheduleEvent]  (4 states MUTUALLY EXCLUSIVE theo thời gian)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       16 FAULT FAMILIES TAXONOMY                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ L1: Point & Deterministic Rules (Rule-based / dbt)                          │
+│   • F1: Negative SOC (BMS error, SOC < 0)                                   │
+│   • F2: Voltage Spike (CAN-bus overvoltage > 1000V)                         │
+│   • F5: Negative Charging Cost (Billing error, cost_vnd < 0)                │
+│   • F7: Negative Trip Fare (fare_amount < 0)                                │
+│   • F8: Ledger Mismatch (total_fare ≠ fare + tip)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ L2: Contextual & Univariate Drift (Rolling z-score / 14-day baseline)       │
+│   • F10: SOC Degradation Drift (Suy giảm dung lượng pin bất thường qua ngày)│
+│   • F11: Battery Temp Drift (Nhiệt độ pin trôi lệch > 2σ so với baseline)  │
+│   • F12: Trip Duration Surge (Khoảng cách/thời gian chuyến tăng đột biến)   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ L3: Relational & Collective Mismatches (IsolationForest / Residuals)        │
+│   • F3: RPM & Speed Mismatch (speed = 0 nhưng rpm > 12,000 do lỗi inverter) │
+│   • F6: GPS Alleyway Drift (Tọa độ đón khách nhảy vọt ra ngoài Hà Nội)      │
+│   • F13: Charging-Trip Mismatch (Sạc nhiều lần nhưng số chuyến đi bằng 0)   │
+│   • F14: Duration-Energy Mismatch (Thời gian cắm sạc tăng nhưng kWh đứng yên│
+├─────────────────────────────────────────────────────────────────────────────┤
+│ L4: Sequential & Regime Change-Point (CUSUM / PELT)                         │
+│   • F15: Charging Frequency Shift (Chuyển đột ngột từ 1 lần/ngày -> 3 lần)  │
+│   • F16: Cost Distribution Regime (Shift phân phối cước của tài xế +30-50%) │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ NLP & Scenario-Driven Corroboration                                         │
+│   • F9: TeenCode Text Corruption (Nhiễu teencode trên benchmark NLP)        │
+│   • Synthetic Feedback (20 kịch bản phản hồi tiêu cực tương ứng với lỗi VIN)│
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| State | Mô tả | Thời gian |
-|---|---|---|
-| `CHARGING` | Overnight deep charge | [18:00 ngày trước, 06:00] + [18:00, 06:00+ ngày sau] |
-| `CHARGING` | Opportunity fast charge (50%) | [10:00, 15:00] |
-| `DRIVING_PASSENGER` | Trip có khách | Trong operating window [06:00, 18:00] |
-| `DEADHEAD` | Chạy không khách | Giữa các trip |
-| `IDLE` | Đỗ chờ | Giữa các trip |
-
-**Disjoint guarantee:** 4 states hoàn toàn tách biệt theo thời gian → không overlap.
-
-**Operating window:** 12 tiếng (06:00–18:00) thay vì 16 tiếng để đảm bảo disjoint với overnight charge.
-
-### 2.3 EV Telemetry (`synthetic_ev_telemetry_ved_ref.csv`)
-
-| Thông số | Chi tiết |
-|---|---|
-| **Rows** | 60 VIN × 15 ngày × 96 samples/ngày = **86,400** |
-| **Interval** | 15 phút/sample |
-| **Nguồn phân phối** | VED 20 xe làm per-vehicle reference (speed, RPM, SOC, voltage, current) |
-| **Physical constraints** | Speed > 0 chỉ khi `DRIVING_PASSENGER/DEADHEAD`; SOC giảm khi driving, tăng khi charging |
-
-**Mapping:**
-- `speed_kmh` ← VED distribution (RS)
-- `motor_rpm` ← VED: `speed * 73.2 + noise` (RD)
-- `battery_soc` ← State machine: giảm 92–98% → 28–42% trong operating hours (RS)
-- `battery_voltage` ← Tương quan nghịch với SOC (RS)
-- `battery_current` ← Discharge (+) khi driving, charge (−) khi charging (RS)
-- `battery_temp_c` ← Normal(32, 5), clip [20, 45]°C (RS, ref: IEC 62660-1)
-- `latitude/longitude` ← Affine transform vào bbox Hà Nội (RS)
-- `state_at_sample` ← State machine lookup (RD)
-
-### 2.4 Charging Sessions (`acn_charging_mapped.csv`)
-
-| Thông số | Chi tiết |
-|---|---|
-| **Rows** | 60 VIN × 15 ngày × 1.5 session ≈ **1,350** (900 overnight + 450 opportunity) |
-| **Pool** | ACN-Caltech / JPL / office1 |
-| **Pattern** | `overnight_deep_charge` (>120 min) hoặc `opportunity_fast_charge` (≤90 min) |
-| **Soft overlap** | Luôn `False` — state machine đảm bảo disjoint |
-
-**Mapping:**
-- `kwh_consumed` ← ACN `kWhDelivered` (R)
-- `power_kw` ← `kWhDelivered / duration_hr` (RD)
-- `cost_vnd` ← `kwh × 3,100 VND/kWh` (EVN tariff) (RD)
-- `station_temp_c` ← Normal(45, 10), clip [20, 65]°C (RS, ref: IEC 61851-23)
-- `start_time` ← State machine schedule anchor
-
-### 2.5 Trips (`ride_hailing_xanh_sm_trips.csv`)
-
-| Thông số | Chi tiết |
-|---|---|
-| **Rows** | Pool 25,003 trips từ fact_rides, phân bổ vào state machine slots |
-| **Per day target** | ~14 trips/VIN/ngày |
-| **pickup/dropoff** | Từ schedule (sequential + 5 min buffer) |
-
-**Mapping:**
-- `trip_miles` ← `fact_rides.ride_distance_miles` (R)
-- `fare_amount` ← USD → VND × 25,400 (RD)
-- `tip_amount` ← Log-normal(loc=10.5, scale=0.8), clip [5k, 200k] VND (RS)
-- `total_fare` ← `fare + tip` (RD)
-- `driver_id` ← `DRV_XANH_<SEQ>` deterministic từ VIN (S)
-- `pickup_lat/lon` ← Synthetic trong bbox Hà Nội (S)
-
-### 2.6 NLP Benchmark (`nlp_benchmark_uit_vsfc.csv`)
-
-- **500 câu** từ UIT-VSFC
-- **CHỈ** dùng để đo NLP normalization accuracy / aspect extraction F1
-- **KHÔNG** dùng làm feedback content chính (sai domain)
+- **Output:**
+  - Bộ file CSV lỗi trong `data_new/vingroup_faulty_pilot_dataset/`.
+  - `synthetic_feedback_scenario_driven.csv`: 20 kịch bản đối soát chéo phản hồi khách hàng.
+  - `fault_manifest.json`: Ground truth lưu chi tiết từng dòng, cột, loại lỗi, phục vụ tính toán chính xác Precision / Recall / F1.
 
 ---
 
-## Layer 3 — Fault Injection (`vingroup_faulty_pilot_dataset/`)
+### 3.5. Layer 4 — DuckDB Warehouse Ingestion (`ingest_vingroup_pilot_to_duckdb.py`)
 
-**Script:** `data_new/Ingestion/inject_vingroup_real_faults.py`
+Nạp toàn bộ dữ liệu vào DuckDB (`data_new/db/vingroup_pilot.db`) với độ chuẩn xác 1:1, hỗ trợ truy vấn phân tích hiệu năng cao.
 
-Hoạt động trên **bản sao** — không chỉnh sửa ground truth Layer 2.
+#### Các Bảng dữ liệu chính (`raw.*`):
+- `raw.ev_telemetry`: Dữ liệu telemetry chi tiết (86,400 dòng).
+- `raw.charging_sessions`: Lịch sử các phiên sạc pin.
+- `raw.trips`: Toàn bộ dữ liệu chuyến đi của Xanh SM.
+- `raw.fleet_index`: Danh mục 60 phương tiện.
+- `raw.nlp_benchmark`: Bộ câu benchmark xử lý ngôn ngữ tự nhiên.
+- `raw.synthetic_feedback`: Phản hồi người dùng theo kịch bản.
+- `raw.fault_manifest`: Toàn bộ metadata ground truth lỗi đã tiêm.
+- `raw.provenance_manifest`: Nguồn gốc xuất xứ từng cột dữ liệu.
+- `raw.raw_snapshots` & `raw.datasets`: Registry quản lý snapshot và phiên bản dữ liệu.
 
-### 9 Fault Families
-
-| ID | Fault Family | Dataset | Mô tả | Tỷ lệ |
-|---|---|---|---|---|
-| **F0** | GSM Underground Blackout | EV Telemetry | `latitude/longitude = NaN` (xe vào tầng hầm) | 30% |
-| **F1** | Negative Sensor Value | EV Telemetry | `battery_soc < 0` (BMS lỗi) | 25% |
-| **F2** | Voltage Overvoltage Outlier | EV Telemetry | `battery_voltage > 7000V` (CAN-bus spike) | 25% |
-| **F3** | Motor RPM Mismatch | EV Telemetry | `speed=0` nhưng `rpm > 12000` (lỗi inverter) | 20% |
-| **F4** | V-GREEN Thermal Power Drop | Charging | `power_kw=0`, `station_temp_c > 80°C`, `status=THERMAL_FAULT` | 55% |
-| **F5** | Negative Cost Anomaly | Charging | `cost_vnd < 0` (lỗi billing) | 45% |
-| **F6** | GPS Alleyway Drift | Trips | `pickup_lat/lon` nhảy ra NYC (ngoài bbox HN) | 35% |
-| **F7** | Negative Fare Defect | Trips | `fare_amount < 0` | 30% |
-| **F8** | Arithmetic Ledger Mismatch | Trips | `total_fare ≠ fare + tip` | 35% |
-| **F9** | TeenCode Text Corruption | NLP Benchmark | Câu bị corrupt teen-code (30% từ) | 0% mặc định |
-
-### Synthetic Feedback Scenario-Driven
-
-**Thay thế UIT-VSFC** (Hướng 2, quyết định 2026-08-08).
-
-- **20 scenarios** × VIN + ngày
-- Topic: `vehicle` (35%) | `charging` (30%) | `app` (20%) | `driver` (15%)
-- Sentiment: 60% negative | 25% neutral | 15% positive
-- Hỗ trợ cross-domain corroboration (fault → negative feedback cùng VIN/ngày)
-
-**Output:** `synthetic_feedback_scenario_driven.csv`
+#### Backwards Compatibility Views:
+- `vinfast_bms`: View chuẩn hóa cho hệ thống quản lý pin VinFast.
+- `vgreen_telemetry`: View phân tích trạng thái trạm sạc & xe V-GREEN.
+- `xanhsm_trips`: View phân tích hoạt động kinh doanh vận tải Xanh SM.
 
 ---
 
-## Provenance Tracking
+## 4. Hướng dẫn Chạy Pipeline
 
-### 4-Tier Provenance System
-
-Mỗi cột trong manifest được gắn **1 trong 4 tier**:
-
-| Tier | Định nghĩa | Ví dụ |
-|---|---|---|
-| **R** | Real-Exact — lấy thẳng từ nguồn, không biến đổi | `kwh_consumed` ← ACN `kWhDelivered` |
-| **RD** | Real-Derived — tính từ ≥1 trường thật bằng công thức xác định | `power_kw` ← `kWh / duration_hr` |
-| **RS** | Real-Statistically-Parameterized — synthetic nhưng tham số hóa từ phân phối thật | `station_temp_c` ← Normal(45, 10) ref IEC 61851-23 |
-| **S** | Scenario-Construct — dựng có chủ đích, không có tương ứng thật | `vehicle_vin` ← khóa join nhân tạo |
-
-### Manifest Files
-
-| File | Layer | Nội dung |
-|---|---|---|
-| `provenance_manifest.json` | Layer 2 | Tier của từng cột trong 4 dataset output |
-| `fault_manifest.json` | Layer 3 | Ground truth tất cả fault đã inject (dataset, row_idx, column, family, description) |
-| `fleet_index.json` | Layer 2 | Metadata fleet: linkage_type, pilot size, design decisions |
-
----
-
-## Chạy Pipeline
+Khuyến nghị chạy tuần tự theo các bước từ thư mục gốc của project:
 
 ```bash
-# Layer 1: Fetch dữ liệu thật
-python scripts/Ingestion/fetch_real_public_datasets.py
+# ----------------------------------------------------------------------------
+# Bước 1: Fetch dữ liệu thô từ public repositories (Layer 1)
+# ----------------------------------------------------------------------------
+python data_new/Ingestion/fetch_real_public_datasets.py
 
-# Layer 2: Ingest + Mapping + Timeseries
+# ----------------------------------------------------------------------------
+# Bước 2: Ingestion, Mapping & sinh dữ liệu sạch chuẩn VinGroup (Layer 2)
+# ----------------------------------------------------------------------------
 python data_new/Ingestion/ingest_vingroup_real_data.py
 
-# Layer 3: Fault Injection
+# ----------------------------------------------------------------------------
+# Bước 3: Chạy kiểm định chất lượng EDA & tạo báo cáo Go/No-Go (Layer 2.5)
+# ----------------------------------------------------------------------------
+python data_new/Ingestion/eda_vingroup_pilot.py
+
+# ----------------------------------------------------------------------------
+# Bước 4: Tiêm 16 họ lỗi L1-L4 & sinh Feedback đối soát chéo (Layer 3)
+# ----------------------------------------------------------------------------
 python data_new/Ingestion/inject_vingroup_real_faults.py
-```
 
-**Output sau Layer 2:**
-```
-data_new/vingroup_pilot_dataset/
-├── fleet_index.csv
-├── fleet_index.json
-├── synthetic_ev_telemetry_ved_ref.csv  (86,400 rows)
-├── acn_charging_mapped.csv             (~1,350 rows)
-├── ride_hailing_xanh_sm_trips.csv       (~18,000 rows)
-├── nlp_benchmark_uit_vsfc.csv           (500 rows)
-└── provenance_manifest.json
-```
+# ----------------------------------------------------------------------------
+# Bước 5: Nạp dữ liệu vào DuckDB Analytics Database (Layer 4)
+# ----------------------------------------------------------------------------
+# Nạp dataset đã tiêm lỗi (mặc định cho benchmark)
+python data_new/Ingestion/ingest_vingroup_pilot_to_duckdb.py
 
-**Output sau Layer 3:**
-```
-data_new/vingroup_faulty_pilot_dataset/
-├── fleet_index.csv
-├── synthetic_ev_telemetry_ved_ref.csv   (+ faults)
-├── acn_charging_mapped.csv             (+ faults)
-├── ride_hailing_xanh_sm_trips.csv       (+ faults)
-├── nlp_benchmark_uit_vsfc.csv
-├── synthetic_feedback_scenario_driven.csv  (20 scenarios)
-├── provenance_manifest.json
-└── fault_manifest.json                  (ground truth faults)
+# Hoặc nạp dataset sạch (Clean ground truth):
+python data_new/Ingestion/ingest_vingroup_pilot_to_duckdb.py --source-dir data_new/vingroup_pilot_dataset
 ```
 
 ---
 
-## Design Decisions (2026-08-08 v4)
+## 5. Nguyên tắc Thiết kế & Quyết định Kỹ thuật (Design Principles)
 
-1. **State machine thống nhất** — trips/charging/telemetry cùng consume `generate_vin_day_states()`, đảm bảo disjoint guarantee.
-2. **VED 20 xe cover 60 VIN** — cycling 20 VED vehicle IDs cho 60 pilot VIN.
-3. **Operating window 06:00–18:00** — tách biệt với overnight charge 18:00–06:00.
-4. **UIT-VSFC loại bỏ** khỏi feedback content → thay bằng synthetic scenario-driven.
-5. **Deterministic seed** (`hash((vin, day_idx)) % 2^31`) — reproducibility cross-function.
-6. **VED calibration cached** trong `ved_calibration.json` — decouple khỏi raw CSV.
+1. **Tính bất biến của Ground Truth**: Layer 2 sinh dữ liệu sạch chuẩn, Layer 3 chỉ tiêm lỗi trên bản sao (`vingroup_faulty_pilot_dataset`), không làm sai lệch ground truth gốc.
+2. **State Machine Đơn nguồn sự thật**: Trips, Sạc và Telemetry tuân thủ chặt chẽ cùng một lịch trình phân bổ thời gian thực, triệt tiêu hiện tượng mâu thuẫn trạng thái.
+3. **Phân cấp Lỗi rõ ràng (L1 → L4)**: Đầy đủ các họ lỗi từ vi phạm luật cứng (L1), trôi dạt phân phối (L2), bất thường quan hệ đa bảng (L3) đến chuyển đổi chế độ vận hành (L4).
+4. **Minh bạch Nguồn gốc (Provenance)**: Mỗi trường dữ liệu đều có metadata xác thực rõ ràng thuộc nhóm `R`, `RD`, `RS` hay `S`.
+5. **Khả năng tái lập (Reproducibility)**: Cố định Random Seed (`RANDOM_SEED = 42`) xuyên suốt toàn bộ pipeline để đảm bảo kết quả nhất quán.
