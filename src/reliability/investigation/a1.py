@@ -81,6 +81,7 @@ class A1BoundedInvestigator:
         router: Optional[RecommendationRouter] = None,
         max_token_budget: Optional[int] = None,
         domain_allowlists: Optional[Dict[str, Set[str]]] = None,
+        llm: Optional[Any] = None,
     ):
         self.max_tool_calls = max_tool_calls
         if max_token_budget is not None:
@@ -93,6 +94,7 @@ class A1BoundedInvestigator:
         self.tools = tool_registry or InvestigationToolRegistry()
         self.router = router or RecommendationRouter()
         self.domain_allowlists = domain_allowlists or DOMAIN_TOOL_ALLOWLIST
+        self.llm = llm
 
         self.tools.verify_zero_state_mutation()
 
@@ -138,26 +140,301 @@ class A1BoundedInvestigator:
 
         return DOMAIN_EV_TELEMETRY
 
+    def _execute_tool_by_name(self, tool_name: str, args: dict, entity_id: str) -> InvestigationToolResult:
+        eid = args.get("entity_id") or args.get("dataset_key") or entity_id
+        if tool_name == "fetch_entity_telemetry":
+            metric = args.get("metric", "battery_soc")
+            return self.tools.fetch_entity_telemetry(entity_id=eid, metric=metric)
+        elif tool_name == "fetch_charging_history":
+            return self.tools.fetch_charging_history(entity_id=eid)
+        elif tool_name == "fetch_trip_history":
+            return self.tools.fetch_trip_history(entity_id=eid)
+        elif tool_name == "inspect_upstream_contracts":
+            return self.tools.inspect_upstream_contracts(dataset_key=eid)
+        elif tool_name == "query_historical_baselines":
+            return self.tools.query_historical_baselines(entity_id=eid)
+        elif tool_name == "fetch_dq_violations":
+            return self.tools.fetch_dq_violations(entity_id=eid)
+        elif tool_name == "fetch_profile":
+            return self.tools.fetch_profile(entity_id=eid)
+        elif tool_name == "fetch_recent_changes":
+            return self.tools.fetch_recent_changes(entity_id=eid)
+        elif tool_name == "resolve_entity_relationships":
+            return self.tools.resolve_entity_relationships(entity_id=eid)
+        elif tool_name == "calculate_detector_detail":
+            layer = args.get("layer", "L2")
+            return self.tools.calculate_detector_detail(entity_id=eid, layer=layer)
+        else:
+            raise ValueError(f"Tool {tool_name} is not available in registry")
+
+    def _execute_llm_react_loop(
+        self,
+        incident: Incident,
+        initial_evidence: List[Evidence],
+        target_domain: str,
+        allowlist: Set[str],
+        start_time: float
+    ) -> Tuple[Hypothesis, Recommendation, Dict[str, Any]]:
+        import re, json
+        tokens_spent = 0
+        tool_calls_made = 0
+        hypothesis_revisions = 0
+        tool_execution_trace: List[Dict[str, Any]] = []
+        gathered_evidence: List[Evidence] = list(initial_evidence or [])
+        entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
+        resolved_entity_scope: Set[str] = set(incident.entity_ids or [entity_id])
+        resolved_time_scope: Dict[str, Any] = dict(incident.time_window or {})
+
+        tool_descriptions = [
+            "- fetch_entity_telemetry(metric: str): Fetches telemetry signals (e.g. 'battery_soc', 'battery_temp_c', 'battery_voltage').",
+            "- fetch_charging_history(): Fetches EV charging station logs, duration, power delivery.",
+            "- fetch_trip_history(): Fetches ride hailing trip logs, fares, distances, aborted trips.",
+            "- inspect_upstream_contracts(dataset_key: str): Checks data schema contracts, NULL / Range constraints.",
+            "- query_historical_baselines(): Queries rolling baseline statistics and drift metrics.",
+            "- fetch_dq_violations(): Fetches active data quality violations.",
+            "- fetch_profile(): Fetches asset entity profile and metadata.",
+            "- fetch_recent_changes(): Checks recent deployments, commits, and pipeline config updates.",
+            "- resolve_entity_relationships(): Maps graph relationships across entities.",
+            "- calculate_detector_detail(layer: str): Fetches detailed anomaly detector metrics for 'L1', 'L2', 'L3', 'L4'."
+        ]
+        active_tools = [desc for desc in tool_descriptions if desc.split()[1].split("(")[0] in allowlist]
+        tools_text = "\n".join(active_tools)
+
+        system_msg = (
+            "You are A1, an autonomous incident investigation ReAct agent for enterprise telemetry and data pipeline systems.\n"
+            "Your objective: Investigate the incident, gather evidence dynamically using diagnostic tools, and formulate an accurate root cause diagnosis.\n\n"
+            f"Allowed Diagnostic Tools for domain {target_domain}:\n{tools_text}\n\n"
+            "Response Format Rules:\n"
+            "1. To call a tool, respond strictly with:\n"
+            "ACTION: <tool_name>\n"
+            "ARGS: {\"arg_name\": \"value\"}\n\n"
+            "2. When you have sufficient evidence to determine root cause (or conclude UNKNOWN if missing/contradictory), respond with:\n"
+            "FINAL_HYPOTHESIS: {\n"
+            '  "claim": "Specific concise root cause statement",\n'
+            '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
+            '  "supporting_evidence_ids": ["<evidence_id_1>", "<evidence_id_2>"],\n'
+            '  "contradicting_evidence_ids": [],\n'
+            '  "missing_evidence": [],\n'
+            '  "confidence": 0.85,\n'
+            '  "reasoning": "Chain of thought explanation"\n'
+            "}"
+        )
+
+        ev_lines = "\n".join([f"[{e.evidence_id}] {e.source_type} ({e.source_id}): {e.summary}" for e in gathered_evidence]) or "None"
+        user_prompt = (
+            f"Incident ID: {incident.incident_id}\n"
+            f"Entity ID: {entity_id}\n"
+            f"Admission Observation: {incident.admission_reason}\n"
+            f"Initial Evidence:\n{ev_lines}\n\n"
+            "Begin your investigation. Choose an ACTION or provide FINAL_HYPOTHESIS."
+        )
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        final_parsed_hypothesis: Optional[Dict[str, Any]] = None
+        stop_reason = "completed"
+
+        while tool_calls_made < self.max_tool_calls:
+            elapsed = time.perf_counter() - start_time
+            if elapsed >= self.max_wall_clock_sec:
+                stop_reason = "max_wall_clock_sec_exceeded"
+                break
+            if tokens_spent >= self.max_tokens_budget:
+                stop_reason = "max_tokens_budget_exceeded"
+                break
+
+            try:
+                resp = self.llm.chat(messages)
+                content = resp.content.strip()
+                tokens_spent += resp.tokens_used or 150
+            except Exception as e:
+                stop_reason = f"llm_error: {str(e)[:50]}"
+                break
+
+            # Check if final hypothesis
+            if "FINAL_HYPOTHESIS:" in content or ('"classification"' in content and '"claim"' in content):
+                match = re.search(r"\{.*\}", content, re.DOTALL)
+                if match:
+                    try:
+                        final_parsed_hypothesis = json.loads(match.group(0))
+                        break
+                    except Exception:
+                        pass
+
+            # Check if action
+            action_match = re.search(r"ACTION:\s*([a-zA-Z0-9_]+)", content)
+            if action_match:
+                tool_name = action_match.group(1).strip()
+                args = {}
+                args_match = re.search(r"ARGS:\s*(\{.*?\})", content, re.DOTALL)
+                if args_match:
+                    try:
+                        args = json.loads(args_match.group(1))
+                    except Exception:
+                        args = {}
+
+                if tool_name in allowlist:
+                    t0 = time.perf_counter()
+                    try:
+                        res = self._execute_tool_by_name(tool_name, args, entity_id)
+                    except Exception as err:
+                        res = InvestigationToolResult(
+                            tool_name=tool_name,
+                            success=False,
+                            data={"error": str(err)},
+                            evidence_ref=f"ev-err-{tool_name}",
+                            tokens_used=20
+                        )
+                    dur = time.perf_counter() - t0
+
+                    tool_calls_made += 1
+                    hypothesis_revisions += 1
+                    tokens_spent += res.tokens_used
+
+                    if res.entity_scope:
+                        resolved_entity_scope.update(res.entity_scope)
+                    if res.time_scope:
+                        resolved_time_scope.update(res.time_scope)
+
+                    tool_execution_trace.append({
+                        "tool_name": res.tool_name,
+                        "args": args,
+                        "success": res.success,
+                        "evidence_ref": res.evidence_ref,
+                        "tokens_used": res.tokens_used,
+                        "wall_clock_sec": round(dur, 6),
+                        "data": res.data
+                    })
+
+                    tool_ev = Evidence(
+                        evidence_id=res.evidence_ref,
+                        source_type="tool_output",
+                        source_id=res.tool_name,
+                        entity_ids=[entity_id],
+                        content_hash=f"hash-{res.evidence_ref}",
+                        summary=f"Tool {res.tool_name} returned: {res.data}"
+                    )
+                    gathered_evidence.append(tool_ev)
+
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": f"Observation from {res.tool_name}:\n{json.dumps(res.data, ensure_ascii=False)}\nEvidence ID: {res.evidence_ref}\n\nProvide next ACTION or FINAL_HYPOTHESIS."
+                    })
+                else:
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": f"Tool '{tool_name}' is not in allowed list for domain {target_domain}. Provide valid ACTION or FINAL_HYPOTHESIS."
+                    })
+            else:
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": "Please provide either an ACTION to call a tool or a FINAL_HYPOTHESIS JSON."})
+
+        # If not parsed yet, prompt for final synthesis
+        if final_parsed_hypothesis is None:
+            synth_prompt = (
+                "Based on all observations and evidence collected above, provide your FINAL_HYPOTHESIS strictly in JSON:\n"
+                "{\n"
+                '  "claim": "Specific concise root cause description",\n'
+                '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
+                '  "supporting_evidence_ids": ["ev_id1", "ev_id2"],\n'
+                '  "contradicting_evidence_ids": [],\n'
+                '  "missing_evidence": [],\n'
+                '  "confidence": 0.85,\n'
+                '  "reasoning": "summary rationale"\n'
+                "}"
+            )
+            messages.append({"role": "user", "content": synth_prompt})
+            try:
+                synth_resp = self.llm.chat(messages)
+                tokens_spent += synth_resp.tokens_used or 100
+                m = re.search(r"\{.*\}", synth_resp.content, re.DOTALL)
+                if m:
+                    final_parsed_hypothesis = json.loads(m.group(0))
+            except Exception:
+                pass
+
+        valid_ev_ids = {e.evidence_id for e in gathered_evidence}
+        if final_parsed_hypothesis:
+            claim = final_parsed_hypothesis.get("claim") or f"A1 root cause for {incident.incident_id}"
+            classification = final_parsed_hypothesis.get("classification") or "UNKNOWN"
+            if classification not in ["DATA", "OPERATIONAL", "MIXED", "UNKNOWN"]:
+                classification = "UNKNOWN"
+            conf = float(final_parsed_hypothesis.get("confidence", 0.85))
+            sup = [eid for eid in final_parsed_hypothesis.get("supporting_evidence_ids", []) if eid in valid_ev_ids]
+            if not sup and gathered_evidence:
+                sup = [gathered_evidence[-1].evidence_id]
+            con = [eid for eid in final_parsed_hypothesis.get("contradicting_evidence_ids", []) if eid in valid_ev_ids]
+            missing = final_parsed_hypothesis.get("missing_evidence", [])
+            hyp = Hypothesis(
+                incident_id=incident.incident_id,
+                claim=claim,
+                classification=classification,
+                supporting_evidence=sup,
+                contradicting_evidence=con,
+                missing_evidence=missing,
+                confidence=conf,
+                status="PROPOSED"
+            )
+        else:
+            hyp, _, _ = self._execute_deterministic_loop(incident, initial_evidence, target_domain, allowlist, start_time)
+
+        rec = self.router.route_hypothesis(incident.incident_id, hyp)
+        wall_clock_elapsed = round(time.perf_counter() - start_time, 6)
+
+        execution_meta = {
+            "tokens_spent": tokens_spent,
+            "tool_calls_made": tool_calls_made,
+            "tool_execution_trace": tool_execution_trace,
+            "hypothesis_revisions": hypothesis_revisions,
+            "budget_remaining": max(0, self.max_tokens_budget - tokens_spent),
+            "target_domain": target_domain,
+            "domain_allowlist": sorted(list(allowlist)),
+            "resolved_entity_scope": sorted(list(resolved_entity_scope)),
+            "resolved_time_scope": resolved_time_scope,
+            "bounded_stop": True,
+            "wall_clock_elapsed_sec": wall_clock_elapsed,
+            "stop_reason": stop_reason
+        }
+        return hyp, rec, execution_meta
+
     def investigate_incident_dynamically(
         self, incident: Incident, initial_evidence: List[Evidence]
     ) -> Tuple[Hypothesis, Recommendation, Dict[str, Any]]:
         """
         Executes bounded dynamic tool iterations to produce an evidence-backed hypothesis.
-        Applies domain-scoped tool allowlisting based on target entity domain, excluding domain-irrelevant tools upfront.
-        Maintains competing hypothesis tracking, enforces operational bounds, and supports explicit abstention.
+        Uses live LLM ReAct agent loop when llm is provided, otherwise falls back to deterministic loop.
         """
         start_time = time.perf_counter()
-        tokens_spent = 0
-        tool_calls_made = 0
-        hypothesis_revisions = 0
-        tool_execution_trace: List[Dict[str, Any]] = []
+        target_domain = self.detect_target_entity_domain(incident, initial_evidence)
+        allowlist = self.domain_allowlists.get(target_domain, self.domain_allowlists[DOMAIN_EV_TELEMETRY])
 
-        gathered_evidence: List[Evidence] = list(initial_evidence or [])
-        gathered_evidence_ids: List[str] = [e.evidence_id for e in gathered_evidence if e.evidence_id]
+        if self.llm is not None:
+            return self._execute_llm_react_loop(incident, initial_evidence, target_domain, allowlist, start_time)
+        return self._execute_deterministic_loop(incident, initial_evidence, target_domain, allowlist, start_time)
+
+    def _execute_deterministic_loop(
+        self,
+        incident: Incident,
+        initial_evidence: List[Evidence],
+        target_domain: str,
+        allowlist: Set[str],
+        start_time: float
+    ) -> Tuple[Hypothesis, Recommendation, Dict[str, Any]]:
 
         entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
         resolved_entity_scope: Set[str] = set(incident.entity_ids or [entity_id])
         resolved_time_scope: Dict[str, Any] = dict(incident.time_window or {})
+        gathered_evidence: List[Evidence] = list(initial_evidence or [])
+        gathered_evidence_ids: List[str] = [e.evidence_id for e in gathered_evidence]
+        tool_execution_trace: List[Dict[str, Any]] = []
+        tokens_spent = 0
+        tool_calls_made = 0
+        hypothesis_revisions = 0
 
         admission_text = (incident.admission_reason or "").lower()
         combined_summaries = " ".join([e.summary.lower() for e in gathered_evidence])

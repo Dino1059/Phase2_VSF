@@ -124,9 +124,7 @@ class ReActEngine:
 
             # Get LLM response
             try:
-                import sentry_sdk
-                with sentry_sdk.start_span(op="llm.chat", description="Gemma LLM Generation"):
-                    llm_response = self.llm.chat(messages, tools=tool_specs)
+                llm_response = self.llm.chat(messages, tools=tool_specs)
             except Exception as e:
                 result.status = "error"
                 result.final_answer = f"LLM error: {e}"
@@ -151,13 +149,18 @@ class ReActEngine:
                 step.action_input = tc.get("arguments", {})
 
                 try:
-                    import sentry_sdk
-                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
+                    try:
+                        import sentry_sdk
+                        with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {step.action}"):
+                            tool_result = self.tools.execute(step.action, step.action_input)
+                    except ImportError:
                         tool_result = self.tools.execute(step.action, step.action_input)
+                except Exception as e:
+                    tool_result = None
+                    step.observation = f"Error: {e}"
+                if tool_result is not None:
                     output_data = getattr(tool_result, "output_data", str(tool_result))
                     step.observation = json.dumps(output_data)
-                except Exception as e:
-                    step.observation = f"Error: {e}"
 
                 decision = DecisionRecord(
                     selected_action=step.action,
@@ -211,13 +214,18 @@ class ReActEngine:
             ):
                 action_name = step.action.replace("default_api:", "")
                 try:
-                    import sentry_sdk
-                    with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {action_name}"):
+                    try:
+                        import sentry_sdk
+                        with sentry_sdk.start_span(op="tool.execute", description=f"Tool: {action_name}"):
+                            tool_result = self.tools.execute(action_name, step.action_input)
+                    except ImportError:
                         tool_result = self.tools.execute(action_name, step.action_input)
+                except Exception as e:
+                    tool_result = None
+                    step.observation = f"Error: {e}"
+                if tool_result is not None:
                     output_data = getattr(tool_result, "output_data", str(tool_result))
                     step.observation = json.dumps(output_data)
-                except Exception as e:
-                    step.observation = f"Error: {e}"
 
                 decision = DecisionRecord(
                     selected_action=action_name,

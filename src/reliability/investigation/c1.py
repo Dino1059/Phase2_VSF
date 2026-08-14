@@ -234,82 +234,139 @@ class C1FixedInvestigator:
 
         if raw_llm_response is not None:
             analysis = LLMAnalysisResult.model_validate(raw_llm_response)
-        else:
-            if not relevant_evidence:
-                analysis = LLMAnalysisResult(
-                    incident_id=incident.incident_id,
-                    claim=f"No relevant evidence found for entities {incident.entity_ids}",
-                    classification="UNKNOWN",
-                    supporting_evidence_ids=[],
-                    missing_evidence=["entity_telemetry", "history_logs"],
-                    confidence=0.0,
-                    reasoning="Fixed evidence retrieval returned empty evidence set."
+        elif self.llm is not None:
+            try:
+                bundle = self.context_builder.compile_evidence_bundle(incident, relevant_evidence)
+                context_str = self.context_builder.build_llm_context(bundle, incident=incident)
+                prompt = (
+                    "You are an expert root cause analysis investigator for enterprise telemetry and data systems.\n"
+                    "Analyze the following evidence bundle and determine the root cause.\n"
+                    "Provide your diagnosis strictly as a JSON object matching this schema:\n"
+                    "{\n"
+                    f'  "incident_id": "{incident.incident_id}",\n'
+                    '  "claim": "concise description of root cause defect",\n'
+                    '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
+                    '  "supporting_evidence_ids": ["ev_id1", "ev_id2"],\n'
+                    '  "contradicting_evidence_ids": [],\n'
+                    '  "missing_evidence": [],\n'
+                    '  "confidence": 0.85,\n'
+                    '  "reasoning": "rationale explaining root cause"\n'
+                    "}\n\n"
+                    f"{context_str}\n\n"
+                    "Return ONLY the valid JSON object with no markdown formatting or commentary."
                 )
-            else:
-                diagnostic_ev = [
-                    e for e in relevant_evidence
-                    if not any(w in e.summary.lower() for w in [
-                        "routine system ping normal response",
-                        "comfortable temperature inside cabin",
-                        "unrelated telemetry for another vehicle",
-                        "routine maintenance inspection logged"
-                    ])
-                ]
-
-                if not diagnostic_ev:
-                    analysis = LLMAnalysisResult(
-                        incident_id=incident.incident_id,
-                        claim=f"Ambiguous cause for incident {incident.incident_id}: evidence lacks actionable defect signals",
-                        classification="UNKNOWN",
-                        supporting_evidence_ids=[],
-                        missing_evidence=["diagnostic_telemetry"],
-                        confidence=0.3,
-                        reasoning="No actionable defect evidence after noise filtering."
-                    )
+                resp = self.llm.chat([{"role": "user", "content": prompt}])
+                import json as _json, re as _re
+                match = _re.search(r"\{.*\}", resp.content, _re.DOTALL)
+                if match:
+                    parsed = _json.loads(match.group(0))
+                    parsed["incident_id"] = incident.incident_id
+                    analysis = LLMAnalysisResult.model_validate(parsed)
                 else:
-                    combined_summary = " ".join([e.summary for e in diagnostic_ev]).lower()
-                    op_keywords = ["soc", "battery", "temp", "thermal", "degradation", "voltage", "cell", "run-away", "collapse"]
-                    data_keywords = ["fare", "negative", "null", "schema", "type", "arithmetic", "casting", "constraint", "non-numeric"]
+                    raise ValueError(f"No JSON in LLM response: {resp.content[:80]}")
+            except Exception as e:
+                # Fallback to heuristic
+                analysis = self._heuristic_analysis(incident, relevant_evidence)
+        else:
+            analysis = self._heuristic_analysis(incident, relevant_evidence)
 
-                    has_op = any(w in combined_summary for w in op_keywords)
-                    has_data = any(w in combined_summary for w in data_keywords)
+        # Validate evidence IDs: filter out any supporting/contradicting evidence IDs not present in retrievable evidence
+        if valid_ev_ids:
+            analysis.supporting_evidence_ids = [
+                eid for eid in analysis.supporting_evidence_ids
+                if eid in valid_ev_ids and (eid.startswith("ev_") or eid.startswith("ev-"))
+            ]
+            analysis.contradicting_evidence_ids = [
+                eid for eid in analysis.contradicting_evidence_ids
+                if eid in valid_ev_ids and (eid.startswith("ev_") or eid.startswith("ev-"))
+            ]
+        else:
+            analysis.supporting_evidence_ids = []
+            analysis.contradicting_evidence_ids = []
 
-                    if has_op and not has_data:
-                        classification = "OPERATIONAL"
-                        supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in op_keywords)]
-                        lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
-                        claim = f"Operational asset defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
-                        conf = 0.85
-                        missing = []
-                    elif has_data and not has_op:
-                        classification = "DATA"
-                        supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in data_keywords)]
-                        lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
-                        claim = f"Data contract / pipeline defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
-                        conf = 0.85
-                        missing = []
-                    elif has_data and has_op:
-                        classification = "DATA" if any(w in incident.admission_reason.lower() for w in data_keywords) else "OPERATIONAL"
-                        supporting_candidates = diagnostic_ev
-                        claim = f"Defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {supporting_candidates[0].summary}"
-                        conf = 0.85
-                        missing = []
-                    else:
-                        classification = "UNKNOWN"
-                        supporting_candidates = []
-                        claim = f"Ambiguous cause for incident {incident.incident_id}"
-                        conf = 0.3
-                        missing = ["entity_telemetry", "history_logs"]
+        return analysis
 
-                    analysis = LLMAnalysisResult(
-                        incident_id=incident.incident_id,
-                        claim=claim,
-                        classification=classification,
-                        supporting_evidence_ids=[e.evidence_id for e in (supporting_candidates if classification != "UNKNOWN" else [])],
-                        missing_evidence=missing,
-                        confidence=conf,
-                        reasoning=f"Analyzed {len(diagnostic_ev)} diagnostic evidence items."
-                    )
+    def _heuristic_analysis(
+        self,
+        incident: Incident,
+        relevant_evidence: List[Evidence]
+    ) -> LLMAnalysisResult:
+        """Deterministic fallback analysis when LLM is unavailable or unconfigured."""
+        if not relevant_evidence:
+            return LLMAnalysisResult(
+                incident_id=incident.incident_id,
+                claim=f"No relevant evidence found for entities {incident.entity_ids}",
+                classification="UNKNOWN",
+                supporting_evidence_ids=[],
+                missing_evidence=["entity_telemetry", "history_logs"],
+                confidence=0.0,
+                reasoning="Fixed evidence retrieval returned empty evidence set."
+            )
+
+        diagnostic_ev = [
+            e for e in relevant_evidence
+            if not any(w in e.summary.lower() for w in [
+                "routine system ping normal response",
+                "comfortable temperature inside cabin",
+                "unrelated telemetry for another vehicle",
+                "routine maintenance inspection logged"
+            ])
+        ]
+
+        if not diagnostic_ev:
+            return LLMAnalysisResult(
+                incident_id=incident.incident_id,
+                claim=f"Ambiguous cause for incident {incident.incident_id}: evidence lacks actionable defect signals",
+                classification="UNKNOWN",
+                supporting_evidence_ids=[],
+                missing_evidence=["diagnostic_telemetry"],
+                confidence=0.3,
+                reasoning="No actionable defect evidence after noise filtering."
+            )
+
+        combined_summary = " ".join([e.summary for e in diagnostic_ev]).lower()
+        op_keywords = ["soc", "battery", "temp", "thermal", "degradation", "voltage", "cell", "run-away", "collapse"]
+        data_keywords = ["fare", "negative", "null", "schema", "type", "arithmetic", "casting", "constraint", "non-numeric"]
+
+        has_op = any(w in combined_summary for w in op_keywords)
+        has_data = any(w in combined_summary for w in data_keywords)
+
+        if has_op and not has_data:
+            classification = "OPERATIONAL"
+            supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in op_keywords)]
+            lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
+            claim = f"Operational asset defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
+            conf = 0.85
+            missing = []
+        elif has_data and not has_op:
+            classification = "DATA"
+            supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in data_keywords)]
+            lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
+            claim = f"Data contract / pipeline defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
+            conf = 0.85
+            missing = []
+        elif has_data and has_op:
+            classification = "DATA" if any(w in incident.admission_reason.lower() for w in data_keywords) else "OPERATIONAL"
+            supporting_candidates = diagnostic_ev
+            claim = f"Defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {supporting_candidates[0].summary}"
+            conf = 0.85
+            missing = []
+        else:
+            classification = "UNKNOWN"
+            supporting_candidates = []
+            claim = f"Ambiguous cause for incident {incident.incident_id}"
+            conf = 0.3
+            missing = ["entity_telemetry", "history_logs"]
+
+        return LLMAnalysisResult(
+            incident_id=incident.incident_id,
+            claim=claim,
+            classification=classification,
+            supporting_evidence_ids=[e.evidence_id for e in (supporting_candidates if classification != "UNKNOWN" else [])],
+            missing_evidence=missing,
+            confidence=conf,
+            reasoning=f"Analyzed {len(diagnostic_ev)} diagnostic evidence items."
+        )
 
         # Validate evidence IDs: filter out any supporting/contradicting evidence IDs not present in retrievable evidence
         if valid_ev_ids:
