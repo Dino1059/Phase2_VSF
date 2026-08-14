@@ -30,17 +30,24 @@ class Settings(BaseSettings):
             return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
         return self.cors_origins
 
-    # LLM
+    # LLM - Multi-provider support
     openai_api_key: str = ""
     ai_studio_api_key: str = Field(default="", validation_alias="AI_STUDIO_API_KEY")
-    ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="AI_MODEL")
-    google_ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="GOOGLE_AI_MODEL")
-    model_name: str = "gemini-3.5-flash-lite"
+    google_ai_api_keys: str = Field(default="", validation_alias="GOOGLE_AI_API_KEYS")
+    google_ai_model: str = Field(default="gemini-2.5-flash", validation_alias="GOOGLE_AI_MODEL")
+    ai_model: str = Field(default="gemini-2.5-flash", validation_alias="AI_MODEL")
+    
+    # Ollama (local Gemma - free, unlimited)
+    ollama_base_url: str = Field(default="http://localhost:11434", validation_alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="gemma3:4b", validation_alias="OLLAMA_MODEL")
+    
+    model_name: str = "gemini-2.5-flash"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    llm_timeout: int = Field(default=60, ge=5, le=300)
 
-    # Database
-    database_url: str = "duckdb:///./data/datatrust_v4.duckdb"
-    duckdb_path: str = Field(default="data/datatrust_v4.duckdb", validation_alias="DUCKDB_PATH")
+    # Database - Official VinGroup Pilot DB (with injected faults)
+    database_url: str = "duckdb:///./data_new/db/vingroup_pilot.db"
+    duckdb_path: str = Field(default="data_new/db/vingroup_pilot.db", validation_alias="DUCKDB_PATH")
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
@@ -63,15 +70,15 @@ class Settings(BaseSettings):
         "vietnam_trips": "data/synthetic/vietnam_trips.parquet",
         "vietnam_trips_dirty": "data/synthetic/vietnam_trips_dirty.parquet",
         "vietnam_ecommerce_test": "data/vietnam_ecommerce_test.csv",
-        "vinfast_ev_telemetry_dirty": "data/data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "vgreen_charging_stations_dirty": "data/data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
-        "xanh_sm_trips_dirty": "data/data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "xanh_sm_customer_feedback_dirty": "data/data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "real_vinfast_ev_telemetry": "data/data_new/vingroup_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "real_vgreen_charging_stations": "data/data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
-        "real_xanh_sm_trips": "data/data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "real_xanh_sm_customer_feedback": "data/data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
-        "integrated_benchmark": "data/data_new/vingroup_faulty_pilot_dataset",
+        "vinfast_ev_telemetry_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "vgreen_charging_stations_dirty": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
+        "xanh_sm_trips_dirty": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "xanh_sm_customer_feedback_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "real_vinfast_ev_telemetry": "data_new/vingroup_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "real_vgreen_charging_stations": "data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
+        "real_xanh_sm_trips": "data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "real_xanh_sm_customer_feedback": "data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
+        "integrated_benchmark": "data_new/vingroup_faulty_pilot_dataset",
     }
 
     dataset_provenance_map: dict = {
