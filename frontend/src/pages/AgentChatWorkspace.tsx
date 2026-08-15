@@ -23,10 +23,10 @@ import {
   Fingerprint,
   Clock,
 } from 'lucide-react';
-import { usePipelineStore, PIPELINE_STEPS, DOMAINS, DOMAIN_LIST, TIME_FILTERS, SPLIT_SAMPLES } from '../stores/pipelineStore';
+import { usePipelineStore, PIPELINE_STEPS, DOMAINS, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
-import { fetchChatHistory } from '../services/api';
+import { fetchChatHistory, pipelineApi } from '../services/api';
 import { useChatStore } from '../stores/chatStore';
 import type { TimeFilter } from '../types';
 
@@ -91,6 +91,7 @@ export function AgentChatWorkspace() {
   const [editOpen, setEditOpen] = useState(false);
   const [editText, setEditText] = useState(currentRuleLogic);
   const [ruleCardState, setRuleCardState] = useState<'pending' | 'accepted' | 'rejected'>('pending');
+  const [pipelineResult, setPipelineResult] = useState<Awaited<ReturnType<typeof pipelineApi.result>> | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
   const telemetryCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -109,6 +110,36 @@ export function AgentChatWorkspace() {
       console.error('Failed to load chat history:', error);
     });
   }, [datasetKey, setChatSessionId]);
+
+  // Poll the persisted backend result so all right-panel tabs share one run_id.
+  useEffect(() => {
+    if (!store.runId) {
+      setPipelineResult(null);
+      return;
+    }
+    let active = true;
+    let timer: number | undefined;
+    const loadResult = async () => {
+      try {
+        const result = await pipelineApi.result(store.runId!);
+        if (!active) return;
+        setPipelineResult(result);
+        if (result.status === 'running') {
+          timer = window.setTimeout(() => void loadResult(), 1500);
+        }
+      } catch (error) {
+        if (active) {
+          console.error('Failed to load pipeline result:', error);
+          timer = window.setTimeout(() => void loadResult(), 2500);
+        }
+      }
+    };
+    void loadResult();
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [store.runId]);
 
   // Sync with sidebar domain selection (shortcut aliases)
   useEffect(() => {
@@ -159,21 +190,29 @@ export function AgentChatWorkspace() {
     canvas.height = height;
     const isDark = (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
     ctx.clearRect(0, 0, width, height);
-    const nodes = [
-      { id: 1, label: 'BMS Firmware 2.4.1', x: width * 0.15, y: height * 0.5, color: isDark ? '#8B5CF6' : '#6366F1' },
-      { id: 2, label: 'CAN Bus Baudrate Desync', x: width * 0.45, y: height * 0.3, color: isDark ? '#F59E0B' : '#D97706' },
-      { id: 3, label: 'Temp Sensor Payload Drift', x: width * 0.45, y: height * 0.7, color: isDark ? '#F43F5E' : '#EF4444' },
-      { id: 4, label: 'Thermal Runaway Alarm Spike', x: width * 0.82, y: height * 0.5, color: isDark ? '#00F0FF' : '#0284C7' },
-    ];
-    const links = [
-      { from: 0, to: 1 }, { from: 0, to: 2 }, { from: 1, to: 3 }, { from: 2, to: 3 },
-    ];
+    const sourceNodes = pipelineResult?.rca?.nodes || [];
+    const sourceEdges = pipelineResult?.rca?.edges || [];
+    const nodes = sourceNodes.map((node: any, index: number) => ({
+      ...node,
+      x: width * (0.16 + (index % 3) * 0.34),
+      y: height * (0.25 + (Math.floor(index / 3) % 2) * 0.5),
+      color: node.type === 'incident'
+        ? (isDark ? '#F59E0B' : '#D97706')
+        : node.type === 'hypothesis'
+          ? (isDark ? '#F43F5E' : '#EF4444')
+          : (isDark ? '#00F0FF' : '#0284C7'),
+      label: String(node.label || node.id),
+    }));
+    const nodeById = new Map(nodes.map((node: any) => [String(node.id), node]));
     ctx.lineWidth = 2;
-    links.forEach((link) => {
+    sourceEdges.forEach((link: any) => {
+      const from = nodeById.get(String(link.source));
+      const to = nodeById.get(String(link.target));
+      if (!from || !to) return;
       ctx.strokeStyle = isDark ? '#1F293D' : '#CBD5E1';
       ctx.beginPath();
-      ctx.moveTo(nodes[link.from].x, nodes[link.from].y);
-      ctx.lineTo(nodes[link.to].x, nodes[link.to].y);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
       ctx.stroke();
     });
     nodes.forEach((n) => {
@@ -193,7 +232,7 @@ export function AgentChatWorkspace() {
       ctx.fillText(n.label, n.x, n.y + 30);
       ctx.restore();
     });
-  }, [rightTab, domainId]);
+  }, [rightTab, domainId, pipelineResult]);
 
   // Telemetry chart render
   useEffect(() => {
@@ -215,16 +254,18 @@ export function AgentChatWorkspace() {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
-    const total = 20;
-    const points: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i < total; i++) {
-      const x = (width / (total - 1)) * i;
-      let y = height * 0.6 + Math.sin(i * 0.5) * 15;
-      if (i >= 12 && i <= 15 && store.currentStepIndex >= 2) y -= 45;
-      points.push({ x, y });
-    }
+    const series = pipelineResult?.telemetry?.series || [];
+    if (series.length < 2) return;
+    const values = series.map((point) => point.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min || 1;
+    const points = series.map((point, index) => ({
+      x: (width / (series.length - 1)) * index,
+      y: height - 20 - ((point.value - min) / span) * (height - 40),
+    }));
     const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, store.currentStepIndex >= 2 ? 'rgba(239,68,68,0.12)' : 'rgba(37,99,235,0.08)');
+    grad.addColorStop(0, 'rgba(37,99,235,0.12)');
     grad.addColorStop(1, 'rgba(255,255,255,0.0)');
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
@@ -235,26 +276,28 @@ export function AgentChatWorkspace() {
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.beginPath();
-    ctx.strokeStyle = store.currentStepIndex >= 2 ? '#EF4444' : '#2563EB';
+    ctx.strokeStyle = '#2563EB';
     ctx.lineWidth = 2;
     ctx.shadowBlur = 0;
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
     ctx.stroke();
-    if (store.currentStepIndex >= 2 && points[13]) {
-      ctx.fillStyle = '#EF4444';
-      ctx.beginPath();
-      ctx.arc(points[13].x, points[13].y, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#1E293B';
-      ctx.font = '600 11px Inter, sans-serif';
-      ctx.fillText('64.8°C SPIKE', points[13].x - 30, points[13].y - 12);
-    }
-  }, [rightTab, currentStepIndex]);
+  }, [rightTab, currentStepIndex, pipelineResult]);
 
   // Split table data
-  const splitSamples = SPLIT_SAMPLES[store.domainId] || SPLIT_SAMPLES.ev_telemetry;
-  const splitRows = splitView === 'clean' ? splitSamples.clean : splitSamples.quarantine;
+  const splitData = pipelineResult?.split;
+  const rawSplitRows = splitView === 'clean' ? (splitData?.clean || []) : (splitData?.quarantine || []);
+  const splitRows = rawSplitRows.map((row: any) => ({
+    id: row.id || row.source_row_id || '—',
+    timestamp: row.timestamp || row.quarantined_at || '—',
+    vehicleId: row.vehicleId || row.vehicle_vin || row.source_row_id || '—',
+    battTemp: row.battTemp ?? row.temp_c ?? '—',
+    vDelta: row.vDelta ?? row.voltage ?? '—',
+    code: row.code || row.reason || 'CLEAN',
+    status: row.status || (splitView === 'clean' ? 'CLEAN' : 'QUARANTINE'),
+  }));
+  const cleanRows = splitData?.clean_rows ?? '—';
+  const quarantineRows = splitData?.quarantine_rows ?? '—';
 
   const handleTimeFilter = (filter: TimeFilter) => {
     store.setTimeFilter(filter);
@@ -475,7 +518,7 @@ export function AgentChatWorkspace() {
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: 4 }}>
               <Info size={12} style={{ color: 'var(--neon-cyan)', display: 'inline', marginRight: 4 }} />
-              Node lineage dynamically traces CAN bus timing jitter to firmware thermal offset algorithm.
+              {pipelineResult?.rca?.nodes?.length ? 'Lineage loaded from the completed pipeline result.' : 'Waiting for pipeline RCA result.'}
             </div>
           </div>
 
@@ -485,7 +528,7 @@ export function AgentChatWorkspace() {
               <div className="chart-title">
                 <span><FlaskConical size={13} /> {t('batteryTemp')}</span>
                 <span style={{ color: 'var(--alert-magenta)', fontFamily: 'var(--font-mono)' }}>
-                  {store.currentStepIndex >= 2 ? t('spikeDetected') : t('stable')}
+                  {pipelineResult ? (pipelineResult.telemetry?.series?.length ? t('stable') : 'NO DATA') : 'WAITING'}
                 </span>
               </div>
               <div className="chart-wrapper">
@@ -499,10 +542,10 @@ export function AgentChatWorkspace() {
             <div className="split-view-container">
               <div className="split-toggle-bar">
                 <button className={`split-tab-btn ${splitView === 'clean' ? 'active-clean' : ''}`} onClick={() => setSplitView('clean')}>
-                  <Database size={13} /> <span>{store.cleanRows.toLocaleString()} {t('clean')}</span>
+                  <Database size={13} /> <span>{typeof cleanRows === 'number' ? cleanRows.toLocaleString() : cleanRows} {t('clean')}</span>
                 </button>
                 <button className={`split-tab-btn ${splitView === 'quarantine' ? 'active-quarantine' : ''}`} onClick={() => setSplitView('quarantine')}>
-                  <UserShield size={13} /> <span>{store.quarantineRows.toLocaleString()} {t('quarantined')}</span>
+                  <UserShield size={13} /> <span>{typeof quarantineRows === 'number' ? quarantineRows.toLocaleString() : quarantineRows} {t('quarantined')}</span>
                 </button>
               </div>
               <div className="data-table-wrapper">
@@ -544,10 +587,10 @@ export function AgentChatWorkspace() {
                 <span style={{ fontFamily: 'var(--font-mono)' }}>SHA-256</span>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Every proposed rule and execution payload is hashed and committed to the immutable operations ledger.
+                SHA-256 hash of the persisted pipeline result for this run.
               </div>
               <div className="audit-hash-code" id="manifestHashText">
-                {store.manifestHash}
+                {pipelineResult?.manifest?.hash || 'WAITING FOR PIPELINE RESULT'}
               </div>
             </div>
           </div>

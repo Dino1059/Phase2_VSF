@@ -471,6 +471,18 @@ export const pipelineApi = {
     request<{ run_id: string; status: string; steps: Array<{ agent?: string; step?: number; action?: string; timestamp?: string | null }> }>(
       `/pipeline/status/${encodeURIComponent(runId)}`
     ),
+  result: (runId: string) =>
+    request<{
+      run_id: string;
+      project_id?: string;
+      dataset_key?: string;
+      status: string;
+      error?: string | null;
+      rca?: { nodes?: any[]; edges?: any[]; incidents?: any[] };
+      telemetry?: { table?: string; metric?: string | null; series?: Array<{ timestamp: string; value: number }> };
+      split?: { clean_rows?: number | null; quarantine_rows?: number | null; clean?: any[]; quarantine?: any[] };
+      manifest?: { hash?: string; algorithm?: string; status?: string };
+    }>(`/pipeline/result/${encodeURIComponent(runId)}`),
 };
 
 export const quarantineApi = {
