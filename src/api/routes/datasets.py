@@ -265,6 +265,7 @@ async def upload_dataset_endpoint(file: UploadFile = File(...)):
 
     msg = conversation_store.save_message(
         {
+            "id": f"upload:{dataset_key}",
             "type": "proposal",
             "agentId": "orchestrator",
             "content": declaration_content,
@@ -286,7 +287,8 @@ async def upload_dataset_endpoint(file: UploadFile = File(...)):
                     }
                 ],
             },
-        }
+        },
+        session_id=f"dataset:{dataset_key}",
     )
 
     await ws_manager.broadcast({"type": "chat.message", "data": msg})

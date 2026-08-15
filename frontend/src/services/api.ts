@@ -357,6 +357,39 @@ export const auditApi = {
     request<AuditEntry[]>(`/audit?limit=${limit}`),
 };
 
+export interface TraceSession {
+  session_id: string;
+  agent_type?: string;
+  steps: number;
+  total_tokens?: number;
+  started?: string | null;
+}
+
+export const tracesApi = {
+  list: (limit: number = 20) =>
+    request<{ sessions: TraceSession[] }>(`/traces/?limit=${limit}`),
+  get: (sessionId: string) =>
+    request<{ session_id: string; steps: Array<Record<string, any>> }>(`/traces/${encodeURIComponent(sessionId)}`),
+};
+
+export const executionsApi = {
+  list: () => request<Array<Record<string, any>>>('/executions'),
+};
+
+export interface SnapshotInfo {
+  id: string;
+  source_file?: string;
+  sha256_hash?: string;
+  row_count?: number;
+  column_count?: number;
+  ingested_at?: string | null;
+}
+
+export const snapshotsApi = {
+  list: () => request<{ snapshots: SnapshotInfo[] }>('/snapshots/'),
+  get: (snapshotId: string) => request<SnapshotInfo>(`/snapshots/${encodeURIComponent(snapshotId)}`),
+};
+
 export interface EvaluationBenchmarkItem {
   baseline: string;
   precision_pct: number;

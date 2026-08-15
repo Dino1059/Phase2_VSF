@@ -775,6 +775,16 @@
 }
 
 /* PANEL 7: AI ACTIVITY FEED */
+.panel-activity {
+  grid-column: 1 / -1;
+  min-height: 360px;
+}
+
+.panel-rca {
+  grid-column: 1 / -1;
+  min-height: 360px;
+}
+
 .live-dot {
   font-size: 12px;
   color: var(--electric-green);

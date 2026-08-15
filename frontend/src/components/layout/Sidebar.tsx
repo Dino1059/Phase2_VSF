@@ -10,6 +10,13 @@ import {
   CarTaxiFront,
   CheckCircle,
   Database,
+  Bell,
+  TriangleAlert,
+  Activity,
+  GitBranch,
+  Shield,
+  ListChecks,
+  Camera,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { datasetsApi } from '../../services/api';
@@ -35,6 +42,16 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
   xanhsm: CarTaxiFront,
   nlp: MessageSquare,
 };
+
+const OPERATIONS = [
+  { key: 'alerts', label: 'Alert Center', icon: Bell, color: '#dc2626' },
+  { key: 'incidents', label: 'Incidents', icon: TriangleAlert, color: '#d97706' },
+  { key: 'signals', label: 'Signal Explorer', icon: Activity, color: '#7c3aed' },
+  { key: 'traces', label: 'Agent Traces', icon: GitBranch, color: '#059669' },
+  { key: 'governance', label: 'Governance & Admin', icon: Shield, color: '#1e293b' },
+  { key: 'executions', label: 'Execution History', icon: ListChecks, color: '#1e293b' },
+  { key: 'snapshots', label: 'Data Snapshots', icon: Camera, color: '#1e293b' },
+];
 
 export function Sidebar() {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
@@ -65,10 +82,13 @@ export function Sidebar() {
       const key = detail?.dataset_key;
       if (!key) return;
 
+      setChatMenuOpen(true);
+      setActiveShortcut(key);
       setUploadedDatasets((current) => [
         ...current.filter((dataset) => dataset.key !== key),
         { key, name: formatDatasetName({ key, filename: detail.filename }) },
       ]);
+      navigate(`/workspace?dataset_key=${encodeURIComponent(key)}`);
     };
 
     void loadUploadedDatasets();
@@ -83,6 +103,11 @@ export function Sidebar() {
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
     navigate('/workspace');
+  };
+
+  const openNewChat = () => {
+    setActiveShortcut('');
+    navigate(`/workspace?new=${Date.now()}`);
   };
 
   return (
@@ -101,7 +126,7 @@ export function Sidebar() {
             className="menu-item"
             onClick={() => {
               setChatMenuOpen((o) => !o);
-              navigate('/workspace');
+              openNewChat();
             }}
           >
             <MessageSquare size={18} color="var(--neon-cyan)" />
@@ -139,11 +164,11 @@ export function Sidebar() {
                   key={dataset.key}
                   href="#/workspace"
                   className={`shortcut-item ${activeShortcut === dataset.key ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setActiveShortcut(dataset.key);
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setActiveShortcut(dataset.key);
                     navigate(`/workspace?dataset_key=${encodeURIComponent(dataset.key)}`);
-                    }}
+                  }}
                 >
                   <div className="ds-icon"><Database size={14} /></div>
                   <span>{dataset.name}</span>
@@ -153,10 +178,22 @@ export function Sidebar() {
           )}
         </div>
 
-        <a href="#/workspace" className="menu-item" onClick={() => navigate('/workspace')}>
+        <a href="#/workspace" className="menu-item" onClick={(event) => { event.preventDefault(); openNewChat(); }}>
           <CheckCircle size={18} />
           <span>{t('recentTasks')}</span>
         </a>
+
+        <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>Operations</div>
+        {OPERATIONS.map(({ key, label, icon: Icon, color }) => (
+          <NavLink
+            key={key}
+            to={`/operations/${key}`}
+            className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
+          >
+            <Icon size={18} color={color} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </div>
 
       <div className="sidebar-footer" style={{ marginTop: '12px' }}>

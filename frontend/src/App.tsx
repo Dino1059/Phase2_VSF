@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
 import { ExecutiveDashboard } from './pages/ExecutiveDashboard';
 import { AgentChatWorkspace } from './pages/AgentChatWorkspace';
+import { OperationsWorkspace } from './pages/OperationsWorkspace';
 
 export const App: React.FC = () => {
   return (
@@ -12,6 +13,7 @@ export const App: React.FC = () => {
         <Route path="/dashboard" element={<ExecutiveDashboard />} />
         <Route path="/workspace" element={<AgentChatWorkspace />} />
         <Route path="/chat/:id" element={<AgentChatWorkspace />} />
+        <Route path="/operations/:view" element={<OperationsWorkspace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

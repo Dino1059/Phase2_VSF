@@ -17,9 +17,7 @@ import {
   Save,
   AlertTriangle,
   Database,
-  UserShield,
   CheckCircle2,
-  Gavel,
   UserCheck,
   Search,
   Stethoscope,
@@ -57,7 +55,6 @@ export const ExecutiveDashboard: React.FC = () => {
   const summary = useDashboardStore((s) => s.summary);
   const loading = useDashboardStore((s) => s.loading);
   const fetchDashboardData = useDashboardStore((s) => s.fetchDashboardData);
-  const quarantineRows = usePipelineStore((s) => s.quarantineRows);
   const setPipelineProposals = usePipelineStore((s) => s.setProposals);
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
@@ -170,8 +167,6 @@ export const ExecutiveDashboard: React.FC = () => {
     },
     { L1: 0, L2: 0, L3: 0, L4: 0 } as Record<string, number>
   );
-  const totalQuarantined = metrics.quarantinedRecords || quarantineRows;
-
   return (
     <div className="dash-main">
       {/* TOP SUMMARY KPI CARDS (4 CARDS) */}
@@ -353,42 +348,7 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* PANEL 5: GOVERNANCE SUMMARY */}
-        <div className="panel-card panel-governance">
-          <div className="panel-header">
-            <div className="panel-title-group">
-              <ShieldCheck size={18} className="text-primary" />
-              <h2>{t('governanceSummary')}</h2>
-            </div>
-            <span className="audit-badge"><Fingerprint size={12} /> {t('sha256Verified')}</span>
-          </div>
-          <div className="gov-metrics-grid">
-            <div className="gov-box green">
-              <div className="gov-number">{metrics.cleanRecords.toLocaleString()}</div>
-              <div className="gov-label"><Database size={13} /> {t('cleanRecords')}</div>
-            </div>
-            <div className="gov-box red">
-              <div className="gov-number">{totalQuarantined.toLocaleString()}</div>
-              <div className="gov-label"><UserShield size={13} /> {t('quarantinedRecords')}</div>
-            </div>
-            <div className="gov-box blue">
-              <div className="gov-number">{metrics.passValidationRate}</div>
-              <div className="gov-label"><CheckCircle2 size={13} /> {t('passedValidation')}</div>
-            </div>
-            <div className="gov-box purple">
-              <div className="gov-number">{metrics.rulesExecuted}</div>
-              <div className="gov-label"><Gavel size={13} /> {t('rulesExecuted')}</div>
-            </div>
-          </div>
-          <div className="gov-audit-footer">
-            <div className="audit-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <span>{t('latestLedgerHash')}</span>
-              <code>{metrics.latestLedgerHash}</code>
-            </div>
-          </div>
-        </div>
-
-        {/* PANEL 6: AI ACTIVITY FEED */}
+        {/* AI ACTIVITY FEED */}
         <div className="panel-card panel-activity">
           <div className="panel-header">
             <div className="panel-title-group">
