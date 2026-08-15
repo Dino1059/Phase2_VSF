@@ -68,6 +68,4 @@ package-lock.json
 .cursor-scratch/
 
 #local-ngan
-.plan
-
-data_new/
+.plan
