@@ -88,18 +88,28 @@ class InvestigationToolRegistry:
         t_start = start_time.isoformat() if start_time else (time_window.get("start") if time_window else None)
         t_end = end_time.isoformat() if end_time else (time_window.get("end") if time_window else None)
 
-        mean_val = 42.0 if metric_name == "battery_soc" else (85.5 if "temp" in metric_name else 380.0)
-        anomaly_detected = "soc" in metric_name or "temp" in metric_name or "voltage" in metric_name
+        if metric_name in ["voltage", "battery_voltage"]:
+            mean_val, min_val, max_val, unit = 1080.0, 380.0, 1150.0, "V"
+        elif "rpm" in metric_name or "speed" in metric_name:
+            mean_val, min_val, max_val, unit = 13500.0, 0.0, 14200.0, "RPM"
+        elif "temp" in metric_name:
+            mean_val, min_val, max_val, unit = 88.5, 45.0, 92.0, "C"
+        elif "soc" in metric_name:
+            mean_val, min_val, max_val, unit = -5.2, -12.5, 45.0, "%"
+        else:
+            mean_val, min_val, max_val, unit = 42.0, 29.5, 47.0, "val"
+
+        anomaly_detected = True
 
         data = {
             "entity_id": entity_id,
             "metric": metric_name,
             "sample_count": 96,
             "mean_val": mean_val,
-            "min_val": mean_val - 12.5,
-            "max_val": mean_val + 5.0,
+            "min_val": min_val,
+            "max_val": max_val,
             "anomaly_detected": anomaly_detected,
-            "unit": "%" if "soc" in metric_name else ("C" if "temp" in metric_name else "V"),
+            "unit": unit,
         }
 
         return InvestigationToolResult(

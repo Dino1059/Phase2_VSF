@@ -121,3 +121,108 @@ class L1ConstraintDetector:
                 signals.append(sig)
 
         return signals
+
+    def detect_arithmetic_violations(
+        self,
+        df: pd.DataFrame,
+        project_id: str,
+        entity_id_col: str,
+        timestamp_col: str,
+        total_col: str,
+        sum_cols: List[str],
+        tolerance: float = 1.0,
+        provenance: str = "SEMI_SYNTHETIC"
+    ) -> List[Signal]:
+        """
+        Detects arithmetic ledger violations (e.g. total_fare != fare_amount + tip_amount).
+        """
+        signals: List[Signal] = []
+        if df.empty or total_col not in df.columns or not all(c in df.columns for c in sum_cols):
+            return signals
+
+        for idx, row in df.iterrows():
+            total_val = float(row[total_col]) if pd.notna(row[total_col]) else None
+            sum_val = sum(float(row[c]) if pd.notna(row[c]) else 0.0 for c in sum_cols)
+
+            if total_val is None:
+                continue
+
+            diff = abs(total_val - sum_val)
+            if diff > tolerance:
+                event_time = pd.to_datetime(row[timestamp_col]) if timestamp_col in row and pd.notna(row[timestamp_col]) else datetime.now(timezone.utc)
+                if hasattr(event_time, 'tzinfo') and event_time.tzinfo is None:
+                    event_time = event_time.tz_localize(timezone.utc)
+
+                entity_id = str(row[entity_id_col]) if entity_id_col in row else "unknown"
+
+                sig = Signal(
+                    project_id=project_id,
+                    entity_ids=[entity_id],
+                    layer="L1",
+                    signal_type="ARITHMETIC_VIOLATION",
+                    metric_or_relationship=total_col,
+                    event_time=event_time,
+                    window_start=event_time,
+                    window_end=event_time,
+                    score=min(10.0, diff / 1000.0) if diff > 10.0 else 1.0,
+                    severity="HIGH",
+                    detector="L1_Arithmetic_Detector",
+                    detector_version="1.0.0",
+                    evidence_refs=[
+                        f"observed_{total_col}={total_val:,.2f}",
+                        f"computed_sum_{'+'.join(sum_cols)}={sum_val:,.2f}",
+                        f"discrepancy_delta={diff:,.2f}"
+                    ],
+                    provenance=provenance
+                )
+                signals.append(sig)
+
+        return signals
+
+    def detect_condition_violations(
+        self,
+        df: pd.DataFrame,
+        project_id: str,
+        entity_id_col: str,
+        timestamp_col: str,
+        condition_mask: pd.Series,
+        metric_name: str,
+        description: str,
+        severity: str = "HIGH",
+        provenance: str = "SEMI_SYNTHETIC"
+    ) -> List[Signal]:
+        """
+        Detects deterministic rule condition violations (e.g. speed_kmh == 0 and motor_rpm > 12000).
+        """
+        signals: List[Signal] = []
+        if df.empty or condition_mask is None or not condition_mask.any():
+            return signals
+
+        violation_df = df[condition_mask]
+        for idx, row in violation_df.iterrows():
+            event_time = pd.to_datetime(row[timestamp_col]) if timestamp_col in row and pd.notna(row[timestamp_col]) else datetime.now(timezone.utc)
+            if hasattr(event_time, 'tzinfo') and event_time.tzinfo is None:
+                event_time = event_time.tz_localize(timezone.utc)
+
+            entity_id = str(row[entity_id_col]) if entity_id_col in row else "unknown"
+
+            sig = Signal(
+                project_id=project_id,
+                entity_ids=[entity_id],
+                layer="L1",
+                signal_type="RANGE_VIOLATION",
+                metric_or_relationship=metric_name,
+                event_time=event_time,
+                window_start=event_time,
+                window_end=event_time,
+                score=1.0,
+                severity=severity,
+                detector="L1_Constraint_Detector",
+                detector_version="1.0.0",
+                evidence_refs=[description],
+                provenance=provenance
+            )
+            signals.append(sig)
+
+        return signals
+

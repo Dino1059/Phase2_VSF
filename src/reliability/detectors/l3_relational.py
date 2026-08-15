@@ -257,3 +257,68 @@ class L3RelationalDetector:
 
         return signals
 
+    def detect_spatial_bounding_box(
+        self,
+        df: pd.DataFrame,
+        project_id: str,
+        entity_id_col: str,
+        timestamp_col: str,
+        lat_col: str,
+        lon_col: str,
+        lat_min: float = 20.95,
+        lat_max: float = 21.10,
+        lon_min: float = 105.75,
+        lon_max: float = 105.90,
+        provenance: str = "SEMI_SYNTHETIC"
+    ) -> List[Signal]:
+        """
+        Detects multivariate spatial anomalies outside expected bounding box (e.g. Hanoi bbox).
+        """
+        signals: List[Signal] = []
+        if df.empty or lat_col not in df.columns or lon_col not in df.columns:
+            return signals
+
+        for idx, row in df.iterrows():
+            lat = float(row[lat_col]) if pd.notna(row[lat_col]) else None
+            lon = float(row[lon_col]) if pd.notna(row[lon_col]) else None
+
+            if lat is None or lon is None:
+                continue
+
+            if not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max):
+                event_time = (
+                    pd.to_datetime(row[timestamp_col])
+                    if timestamp_col in row and pd.notna(row[timestamp_col])
+                    else datetime.now(timezone.utc)
+                )
+                if hasattr(event_time, 'tzinfo') and event_time.tzinfo is None:
+                    event_time = event_time.tz_localize(timezone.utc)
+
+                entity_val = str(row[entity_id_col]) if entity_id_col in row else "fleet"
+
+                sig = Signal(
+                    project_id=project_id,
+                    entity_ids=[entity_val],
+                    layer="L3",
+                    signal_type="RELATIONAL_BREAK",
+                    metric_or_relationship="gps_coordinates_bounding_box",
+                    event_time=event_time,
+                    window_start=event_time,
+                    window_end=event_time,
+                    score=10.0,
+                    severity="CRITICAL",
+                    detector="L3_spatial_bounding_box",
+                    detector_version="1.0.0",
+                    evidence_refs=[
+                        f"observed_lat={lat:.6f}",
+                        f"observed_lon={lon:.6f}",
+                        f"expected_bbox=[{lat_min},{lat_max},{lon_min},{lon_max}]",
+                        "location_outside_operational_geofence"
+                    ],
+                    provenance=provenance
+                )
+                signals.append(sig)
+
+        return signals
+
+

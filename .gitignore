@@ -54,6 +54,7 @@ node_modules/
 .next/
 out/
 .nuxt/
+package-lock.json
 
 # Build
 *.pyc
@@ -62,6 +63,9 @@ out/
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
 .ai-log/archive/
+
+# Cursor & IDE Scratch
+.cursor-scratch/
 
 #local-ngan
 .plan

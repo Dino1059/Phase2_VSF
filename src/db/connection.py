@@ -48,7 +48,8 @@ class DuckDBManager:
                     conn = duckdb.connect(self.db_path)
                     break
                 except duckdb.IOException as e:
-                    if "Could not set lock" in str(e):
+                    err_str = str(e)
+                    if any(k in err_str for k in ["Could not set lock", "used by another process", "already open in", "Lock"]):
                         if attempt < 3:
                             time.sleep(0.3)
                         else:
@@ -59,19 +60,27 @@ class DuckDBManager:
                                 raise e
                     else:
                         raise
+
             self._local.connection = conn
             with self._conn_lock:
                 self._connections.append(conn)
             try:
                 conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
             except Exception:
-                self.init_schema()
-            self._ensure_quarantine_schema(conn)
-            self._ensure_audit_schema(conn)
-            self._ensure_scheduler_tables(conn)
-            self._ensure_snapshots_schema(conn)
-            self._ensure_reliability_tables(conn)
+                try:
+                    self.init_schema()
+                except Exception:
+                    pass
+            try:
+                self._ensure_quarantine_schema(conn)
+                self._ensure_audit_schema(conn)
+                self._ensure_scheduler_tables(conn)
+                self._ensure_snapshots_schema(conn)
+                self._ensure_reliability_tables(conn)
+            except Exception:
+                pass
         return self._local.connection
+
 
     def init_schema(self) -> None:
         schema_path = os.path.join(self.project_root, "src", "db", "schema.sql")

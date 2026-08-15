@@ -56,21 +56,25 @@ class KeyRotator:
 class UnifiedLLMAdapter:
     """
     Unified LLM Adapter with multi-provider support.
-    Priority: Gemini (keys) > Ollama (local Gemma) > OpenAI > OpenRouter > Fallback
+    Priority: OpenAI > OpenRouter > Groq > Gemini (keys) > Ollama (local Gemma) > Fallback
     """
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         load_dotenv()
         
-        # OpenAI
+        # OpenAI (Priority #1)
         self.openai_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-        # OpenRouter
+        # OpenRouter (Priority #2)
         self.openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
-        self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+        self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
-        # Google keys - multi-key rotation
+        # Groq (Priority #3)
+        self.groq_key = os.environ.get("GROQ_API_KEY", "")
+        self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+        # Google keys - multi-key rotation (Priority #4)
         google_keys_raw = (
             os.environ.get("GOOGLE_AI_API_KEYS")
             or os.environ.get("GOOGLE_AI_API_KEY")
@@ -83,11 +87,13 @@ class UnifiedLLMAdapter:
         self._google_keys = KeyRotator(google_keys)
         self.gemini_model = os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL") or "gemini-2.5-flash"
         
-        # Ollama (local Gemma - no keys needed)
+        # Ollama (local Gemma - no keys needed) (Priority #5)
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_model = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
         self._ollama_available = None  # Lazy check
         
+        self.preferred_provider = os.environ.get("LLM_PROVIDER", "auto").lower()
+
         # Explicit overrides
         self._explicit_key = api_key
         self._explicit_model = model
@@ -101,7 +107,7 @@ class UnifiedLLMAdapter:
                 f"{self.ollama_base_url}/api/tags",
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 self._ollama_available = resp.status == 200
         except Exception:
             self._ollama_available = False
@@ -109,58 +115,180 @@ class UnifiedLLMAdapter:
 
     @property
     def api_key(self) -> str:
-        return self._explicit_key or self.openai_key or (self._google_keys._keys[0] if self._google_keys.has_keys else "")
+        return (
+            self._explicit_key
+            or (self.groq_key if self.preferred_provider == "groq" else "")
+            or self.openai_key
+            or self.openrouter_key
+            or self.groq_key
+            or (self._google_keys._keys[0] if self._google_keys.has_keys else "")
+        )
 
     @property
     def model(self) -> str:
-        return self._explicit_model or self.gemini_model or self.openai_model
+        if self._explicit_model:
+            return self._explicit_model
+        if self.preferred_provider == "groq" and self.groq_key:
+            return self.groq_model
+        if self.openai_key and not self.openai_key.startswith("sk-your-"):
+            return self.openai_model
+        if self.groq_key and not self.groq_key.startswith("gsk_your-"):
+            return self.groq_model
+        if self.openrouter_key:
+            return self.openrouter_model
+        if self._google_keys.has_keys:
+            return self.gemini_model
+        return self.openai_model
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None, raise_on_error: bool = False) -> LLMResponse:
         """
-        Send chat messages with provider fallback chain.
-        Priority: Gemini > Ollama (Gemma) > OpenAI > OpenRouter > Fallback
+        Send chat messages with configurable provider fallback chain.
+        Priority: Configured via LLM_PROVIDER or defaults to OpenAI > Groq > OpenRouter > Gemini > Ollama > Fallback
         """
         if self._explicit_key == "invalid-key":
             raise LLMUnavailableException("Invalid API key provided.")
 
-        # 1. Try Gemini first (with key rotation)
-        if self._google_keys.has_keys:
-            for attempt in range(len(self._google_keys._keys)):
-                key = self._google_keys.get_next()
-                if not key:
-                    break
+        # Determine provider order based on LLM_PROVIDER setting or available keys
+        if self.preferred_provider == "groq":
+            provider_order = ["groq", "openai", "openrouter", "gemini", "ollama"]
+        elif self.preferred_provider == "gemini":
+            provider_order = ["gemini", "groq", "openai", "openrouter", "ollama"]
+        elif self.preferred_provider == "openrouter":
+            provider_order = ["openrouter", "groq", "openai", "gemini", "ollama"]
+        elif self.preferred_provider == "ollama":
+            provider_order = ["ollama", "groq", "openai", "gemini"]
+        else:
+            # Auto: If Groq key is populated and OpenAI is empty/dummy, prioritize Groq
+            if self.groq_key and not self.groq_key.startswith("gsk_your-") and (not self.openai_key or self.openai_key.startswith("sk-your-")):
+                provider_order = ["groq", "openai", "openrouter", "gemini", "ollama"]
+            else:
+                provider_order = ["openai", "groq", "openrouter", "gemini", "ollama"]
+
+        for provider in provider_order:
+            if provider == "groq" and self.groq_key and not self.groq_key.startswith("gsk_your-"):
                 try:
-                    return self._call_gemini(messages, tools, key, self.gemini_model)
+                    return self._call_groq(messages, tools)
                 except Exception as e:
                     if raise_on_error:
-                        raise LLMUnavailableException(f"Gemini call failed: {e}") from e
-                    print(f"[LLM] Gemini key rotation attempt {attempt + 1} failed: {e}. Trying next key...")
+                        raise LLMUnavailableException(f"Groq call failed: {e}") from e
+                    print(f"[LLM] Groq call failed: {e}. Falling back to next provider...")
 
-        # 2. Try Ollama (local Gemma - free, unlimited)
-        if self._check_ollama():
-            try:
-                return self._call_ollama(messages, tools)
-            except Exception as e:
-                print(f"[LLM] Ollama/Gemma call failed: {e}.")
+            elif provider == "openai" and self.openai_key and not self.openai_key.startswith("sk-your-"):
+                try:
+                    return self._call_openai(messages, tools)
+                except Exception as e:
+                    if raise_on_error:
+                        raise LLMUnavailableException(f"OpenAI call failed: {e}") from e
+                    print(f"[LLM] OpenAI call failed: {e}. Falling back to next provider...")
 
-        # 3. Try OpenAI
-        if self.openai_key and not self.openai_key.startswith("sk-your-"):
-            try:
-                return self._call_openai(messages, tools)
-            except Exception as e:
-                if raise_on_error:
-                    raise LLMUnavailableException(f"OpenAI call failed: {e}") from e
-                print(f"[LLM] OpenAI call failed: {e}. Trying secondary providers...")
+            elif provider == "openrouter" and self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"):
+                try:
+                    return self._call_openrouter(messages, tools)
+                except Exception as e:
+                    if raise_on_error:
+                        raise LLMUnavailableException(f"OpenRouter call failed: {e}") from e
+                    print(f"[LLM] OpenRouter call failed: {e}. Falling back to next provider...")
 
-        # 4. Try OpenRouter
-        if self.openrouter_key:
-            try:
-                return self._call_openrouter(messages, tools)
-            except Exception as e:
-                print(f"[LLM] OpenRouter call failed: {e}.")
+            elif provider == "gemini" and self._google_keys.has_keys:
+                for attempt in range(len(self._google_keys._keys)):
+                    key = self._google_keys.get_next()
+                    if not key:
+                        break
+                    try:
+                        return self._call_gemini(messages, tools, key, self.gemini_model)
+                    except Exception as e:
+                        if raise_on_error:
+                            raise LLMUnavailableException(f"Gemini call failed: {e}") from e
+                        print(f"[LLM] Gemini key rotation attempt {attempt + 1} failed: {e}. Trying next key...")
 
-        # 5. Heuristic fallback
+            elif provider == "ollama" and self._check_ollama():
+                try:
+                    return self._call_ollama(messages, tools)
+                except Exception as e:
+                    print(f"[LLM] Ollama/Gemma call failed: {e}.")
+
+        # Final heuristic fallback
         return self._heuristic_fallback(messages)
+
+    def _call_openrouter(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        payload: dict[str, Any] = {
+            "model": self.openrouter_model,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://datatrust-os.local",
+            "X-Title": "DataTrust OS",
+        }
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            choice = data["choices"][0]
+            msg = choice.get("message", {})
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls", [])
+            tokens = data.get("usage", {}).get("total_tokens", 0)
+            return LLMResponse(
+                content=content, 
+                tool_calls=tool_calls,
+                finish_reason=choice.get("finish_reason", "stop"), 
+                tokens_used=tokens,
+                model_used=self.openrouter_model,
+            )
+
+    def _call_groq(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        payload: dict[str, Any] = {
+            "model": self.groq_model,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        headers = {
+            "Authorization": f"Bearer {self.groq_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers=headers,
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    choice = data["choices"][0]
+                    msg = choice.get("message", {})
+                    content = msg.get("content") or ""
+                    tool_calls = msg.get("tool_calls", [])
+                    tokens = data.get("usage", {}).get("total_tokens", 0)
+                    return LLMResponse(
+                        content=content,
+                        tool_calls=tool_calls,
+                        finish_reason=choice.get("finish_reason", "stop"),
+                        tokens_used=tokens,
+                        model_used=self.groq_model,
+                    )
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < max_attempts - 1:
+                    backoff = (attempt + 1) * 3.0
+                    print(f"[LLM] Groq 429 rate limit reached. Waiting {backoff}s before retry (attempt {attempt+1}/{max_attempts})...")
+                    time.sleep(backoff)
+                    continue
+                raise
 
     def _call_openai(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         payload: dict[str, Any] = {
@@ -177,6 +305,7 @@ class UnifiedLLMAdapter:
             headers={
                 "Authorization": f"Bearer {self.openai_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             },
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -192,33 +321,6 @@ class UnifiedLLMAdapter:
                 finish_reason=choice.get("finish_reason", "stop"),
                 tokens_used=tokens,
                 model_used=self.openai_model,
-            )
-
-    def _call_openrouter(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
-        payload: dict[str, Any] = {
-            "model": self.openrouter_model,
-            "messages": messages,
-            "temperature": 0.2,
-        }
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.openrouter_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            choice = data["choices"][0]
-            msg = choice.get("message", {})
-            content = msg.get("content") or ""
-            tokens = data.get("usage", {}).get("total_tokens", 0)
-            return LLMResponse(
-                content=content, 
-                finish_reason=choice.get("finish_reason", "stop"), 
-                tokens_used=tokens,
-                model_used=self.openrouter_model,
             )
 
     def _call_gemini(self, messages: list[dict], tools: list[dict] | None = None, api_key: str | None = None, model: str | None = None) -> LLMResponse:

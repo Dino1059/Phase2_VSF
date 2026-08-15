@@ -273,6 +273,16 @@ def create_tables(con: duckdb.DuckDBPyConnection) -> None:
         ORDER BY scenario_date DESC
     """)
 
+    con.execute("""
+        CREATE OR REPLACE VIEW vgreen_charging_sessions AS
+        SELECT vehicle_vin, session_id, station_id, charger_id, start_time,
+               duration_mins, kwh_consumed, power_kw, charging_pattern,
+               assigned_day_index, station_temp_c, cost_vnd, status,
+               soft_overlap_flag, event_sequence_index, snapshot_id
+        FROM raw.charging_sessions
+        ORDER BY vehicle_vin, start_time
+    """)
+
     print("[OK] Schema created")
 
 
