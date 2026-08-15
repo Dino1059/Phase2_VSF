@@ -196,7 +196,7 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
 
 @router.post("/upload")
 async def upload_dataset_endpoint(file: UploadFile = File(...)):
-    """Upload a database or data file (.parquet, .csv, .json)."""
+    """Upload a database or data file (.csv, .db, .json, .parquet)."""
     import shutil
     import uuid
     from src.services.conversation_store import conversation_store
@@ -204,7 +204,7 @@ async def upload_dataset_endpoint(file: UploadFile = File(...)):
     from src.tools.datasource import StructuredSource
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-    ALLOWED_EXTENSIONS = {".csv", ".parquet", ".json"}
+    ALLOWED_EXTENSIONS = {".csv", ".db", ".json", ".parquet"}
 
     raw_filename = file.filename or "uploaded_data.csv"
     filename_base = os.path.basename(raw_filename.replace("\\", "/"))

@@ -380,15 +380,19 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default') {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string) {
   return request('/chat/send', {
     method: 'POST',
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      ...(datasetKey ? { dataset_key: datasetKey } : {}),
+    }),
   });
 }
 
 export async function fetchChatHistory(sessionId: string = 'default') {
-  return request(`/chat/history?session_id=${sessionId}`);
+  return request(`/chat/history?session_id=${encodeURIComponent(sessionId)}`);
 }
 
 export async function fetchChatSessions() {

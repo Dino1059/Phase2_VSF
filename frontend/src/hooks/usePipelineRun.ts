@@ -15,7 +15,7 @@ export type StreamMessage = {
   approvedBy?: string;
 };
 
-export function usePipelineRun() {
+export function usePipelineRun(datasetKey?: string) {
   const store = usePipelineStore();
   const timers = useRef<number[]>([]);
 
@@ -58,7 +58,7 @@ export function usePipelineRun() {
       const step = PIPELINE_STEPS[store.currentStepIndex];
       if (!step) return [];
       const domain = DOMAINS[store.domainId];
-      const backendKey = domainToBackendKey(domain);
+      const backendKey = datasetKey || domainToBackendKey(domain);
       const messages: StreamMessage[] = [];
 
       switch (step.id) {
@@ -150,7 +150,7 @@ export function usePipelineRun() {
 
       return messages;
     },
-    [store, applyBackendSteps]
+    [store, datasetKey, applyBackendSteps]
   );
 
   /** Advance one step. Returns messages to append to the stream. */

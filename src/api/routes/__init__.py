@@ -330,6 +330,7 @@ async def send_chat_message(request: ChatRequest):
         {
             "type": "user",
             "content": request.message,
+            "metadata": {"dataset_key": request.dataset_key} if request.dataset_key else {},
         },
         session_id=session_id,
     )
@@ -354,8 +355,16 @@ async def send_chat_message(request: ChatRequest):
     import sentry_sdk
     sentry_sdk.set_user({"id": session_id})
     sentry_sdk.set_tag("agent.version", "v1.0")
+    task = request.message
+    context = None
+    if request.dataset_key:
+        context = {"dataset_key": request.dataset_key}
+        task = (
+            f"Use dataset_key='{request.dataset_key}' for every dataset tool call.\n"
+            f"User request: {request.message}"
+        )
     with sentry_sdk.start_transaction(op="agent.react", name="ReAct Engine Execution"):
-        result = react_engine.run(request.message)
+        result = react_engine.run(task, context=context)
 
     # Save and broadcast step thoughts/actions
     for step in result.steps:
@@ -466,7 +475,7 @@ async def upload_dataset(file: UploadFile = File(...)):
     from src.config import get_settings
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-    ALLOWED_EXTENSIONS = {".csv", ".parquet", ".json"}
+    ALLOWED_EXTENSIONS = {".csv", ".db", ".json", ".parquet"}
 
     raw_filename = file.filename or "uploaded_data.csv"
     filename_base = os.path.basename(raw_filename.replace("\\", "/"))

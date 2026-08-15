@@ -29,7 +29,7 @@ class DataSource(abc.ABC):
 
 class StructuredSource(DataSource):
     """
-    DataSource implementation for structured tabular formats (CSV, Parquet, JSON, JSONL).
+    DataSource implementation for structured tabular formats (CSV, Parquet, JSON, JSONL, DuckDB).
     Supports automatic format inference based on file extension or explicit format hint.
     """
 
@@ -40,7 +40,9 @@ class StructuredSource(DataSource):
     def _infer_format(self, format_hint: Optional[str] = None) -> str:
         if format_hint:
             fmt = format_hint.lower().strip(".")
-            if fmt in ["csv", "parquet", "pq", "json", "jsonl", "ndjson"]:
+            if fmt in ["csv", "parquet", "pq", "json", "jsonl", "ndjson", "db", "duckdb"]:
+                if fmt in ["db", "duckdb"]:
+                    return "duckdb"
                 return "parquet" if fmt == "pq" else ("jsonl" if fmt == "ndjson" else fmt)
             return fmt
 
@@ -53,6 +55,8 @@ class StructuredSource(DataSource):
             return "json"
         elif ext in [".jsonl", ".ndjson"]:
             return "jsonl"
+        elif ext in [".db", ".duckdb"]:
+            return "duckdb"
         else:
             return "csv"
 
@@ -105,6 +109,21 @@ class StructuredSource(DataSource):
                 return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
         elif fmt == "jsonl":
             return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
+        elif fmt == "duckdb":
+            import duckdb
+
+            conn = duckdb.connect(str(self.file_path), read_only=True)
+            try:
+                tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+                if not tables:
+                    raise ValueError(f"DuckDB file contains no tables: {self.file_path}")
+                table_name = tables[0].replace('"', '""')
+                query = f'SELECT * FROM "{table_name}"'
+                if sample_size:
+                    query += f" LIMIT {int(sample_size)}"
+                return conn.execute(query).fetchdf()
+            finally:
+                conn.close()
         else:
             try:
                 return pd.read_csv(self.file_path, nrows=sample_size) if sample_size else pd.read_csv(self.file_path)

@@ -264,6 +264,21 @@ pnpm dev
 
 ---
 
+### Luồng upload dataset và chat theo dataset (tạm thời)
+
+Frontend lưu dataset upload trong danh sách runtime và mở workspace với query
+`dataset_key`. Mỗi tin nhắn chat gửi kèm `dataset_key`, còn `session_id` được
+đặt theo dạng `dataset:<dataset_key>` để tách lịch sử hội thoại giữa các dataset.
+
+Backend tối thiểu đã thay đổi:
+
+- `ChatRequest` nhận thêm trường tùy chọn `dataset_key`.
+- `/api/v1/chat/send` lưu dataset context trong metadata của user message và
+  truyền context vào ReAct/LLM; prompt cũng yêu cầu các tool dataset dùng đúng key.
+- Dataset upload vẫn là cache runtime trên server; restart server sẽ làm mất cache.
+- Phần nối context chat không thêm fallback/demo data; pipeline stepper hiện hữu
+  vẫn giữ hành vi UI cũ, chỉ thay dataset truyền vào bước trigger.
+
 ## 🧪 7. Hướng Dẫn Chạy Kiểm Thử & Xác Minh (Testing & Verification Guide)
 
 DataTrust OS v5 tích hợp bộ kiểm thử tự động toàn diện với **416+ kịch bản test thành công 100%**:

@@ -55,6 +55,29 @@ def test_datasource_structured_csv_parquet():
             os.remove(csv_path)
 
 
+def test_datasource_duckdb_db_loading():
+    import duckdb
+
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    os.remove(db_path)
+
+    conn = duckdb.connect(db_path)
+    conn.execute("CREATE TABLE uploaded_rows (id INTEGER, status VARCHAR)")
+    conn.execute("INSERT INTO uploaded_rows VALUES (1, 'ok'), (2, 'error')")
+    conn.close()
+
+    try:
+        source = StructuredSource(db_path)
+        assert source.file_format == "duckdb"
+        df = source.load_data()
+        assert len(df) == 2
+        assert list(df.columns) == ["id", "status"]
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
 def test_datasource_json_jsonl_loading():
     # Test JSON array loading
     json_records = [{"id": 1, "val": 10.5}, {"id": 2, "val": 20.0}]

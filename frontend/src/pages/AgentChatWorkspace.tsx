@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import {
   Play,
   Pause,
@@ -26,6 +26,8 @@ import {
 import { usePipelineStore, PIPELINE_STEPS, DOMAINS, DOMAIN_LIST, TIME_FILTERS, SPLIT_SAMPLES } from '../stores/pipelineStore';
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
+import { fetchChatHistory } from '../services/api';
+import { useChatStore } from '../stores/chatStore';
 import type { TimeFilter } from '../types';
 
 const AGENT_AVATAR_CLASS: Record<string, string> = {
@@ -73,12 +75,16 @@ type RightTab = 'tab-rca' | 'tab-telemetry' | 'tab-split' | 'tab-manifest';
 export function AgentChatWorkspace() {
   const { t } = useTranslation('pipeline');
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const datasetKey = searchParams.get('dataset_key') || undefined;
+  const setChatSessionId = useChatStore((s) => s.setSessionId);
+  const chatMessages = useChatStore((s) => s.messages);
   const store = usePipelineStore();
   const domainId = store.domainId;
   const currentStepIndex = store.currentStepIndex;
   const currentRuleLogic = store.currentRuleLogic;
   const setDomain = usePipelineStore((s) => s.setDomain);
-  const { startAutoRun, stepNext, acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun();
+  const { startAutoRun, stepNext, acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
   const [stream, setStream] = useState<StreamMessage[]>([]);
   const [rightTab, setRightTab] = useState<RightTab>('tab-rca');
   const [splitView, setSplitView] = useState<'clean' | 'quarantine'>('clean');
@@ -89,6 +95,20 @@ export function AgentChatWorkspace() {
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
   const telemetryCanvasRef = useRef<HTMLCanvasElement>(null);
   const runStartedRef = useRef(false);
+
+  // Keep the selected dataset scoped to a stable temporary chat session.
+  useEffect(() => {
+    const sessionId = datasetKey ? `dataset:${datasetKey}` : 'default';
+    setChatSessionId(sessionId);
+    useChatStore.getState().clearMessages();
+    void fetchChatHistory(sessionId).then((history) => {
+      if (Array.isArray(history.messages)) {
+        useChatStore.getState().setMessages(history.messages);
+      }
+    }).catch((error) => {
+      console.error('Failed to load chat history:', error);
+    });
+  }, [datasetKey, setChatSessionId]);
 
   // Sync with sidebar domain selection (shortcut aliases)
   useEffect(() => {
@@ -386,6 +406,26 @@ export function AgentChatWorkspace() {
               </div>
             );
           })}
+          {chatMessages.map((msg) => {
+            const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
+            const Icon = AGENT_ICONS[agent] || Brain;
+            return (
+              <div key={`chat-${msg.id}`} className="agent-entry">
+                <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
+                  <Icon size={15} />
+                </div>
+                <div className="agent-content-box">
+                  <div className="agent-header">
+                    <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
+                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR AGENT')}
+                    </span>
+                    <span className="agent-timestamp">{new Date(msg.timestamp).toLocaleTimeString('en-US', { hour12: false })}</span>
+                  </div>
+                  <div className="agent-body">{msg.content}</div>
+                </div>
+              </div>
+            );
+          })}
           {store.runStatus === 'awaiting_hitl' && !stream.some((m) => m.isRule) && (
             <div className="agent-entry">
               <div className="agent-avatar agent-human"><UserShield size={15} /></div>
@@ -403,7 +443,7 @@ export function AgentChatWorkspace() {
         </div>
 
         {/* Chat Input Bar */}
-        <ChatInput />
+        <ChatInput datasetKey={datasetKey} />
       </main>
 
       {/* RIGHT PANEL: VISUAL CONTROL ROOM & INSPECTION (4 TABS) */}

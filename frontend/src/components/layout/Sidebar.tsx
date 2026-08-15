@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -12,6 +12,22 @@ import {
   Database,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
+import { datasetsApi } from '../../services/api';
+
+interface UploadedDataset {
+  key: string;
+  name: string;
+}
+
+interface DatasetUploadedEvent {
+  dataset_key?: string;
+  filename?: string;
+}
+
+function formatDatasetName(dataset: { key: string; filename?: string }) {
+  if (dataset.filename) return dataset.filename;
+  return dataset.key.replace(/^uploaded_/, '').replace(/_/g, ' ');
+}
 
 const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; color?: string }>> = {
   ev: Car,
@@ -25,6 +41,44 @@ export function Sidebar() {
   const [activeShortcut, setActiveShortcut] = useState<string>('ev');
   const { t } = useTranslation('pipeline');
   const navigate = useNavigate();
+  const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadUploadedDatasets = async () => {
+      try {
+        const response = await datasetsApi.list();
+        if (!mounted) return;
+        setUploadedDatasets(
+          response.datasets
+            .filter((dataset) => dataset.key.startsWith('uploaded_'))
+            .map((dataset) => ({ key: dataset.key, name: formatDatasetName(dataset) }))
+        );
+      } catch (error) {
+        console.error('Failed to load uploaded datasets:', error);
+      }
+    };
+
+    const handleDatasetUploaded = (event: Event) => {
+      const detail = (event as CustomEvent<DatasetUploadedEvent>).detail;
+      const key = detail?.dataset_key;
+      if (!key) return;
+
+      setUploadedDatasets((current) => [
+        ...current.filter((dataset) => dataset.key !== key),
+        { key, name: formatDatasetName({ key, filename: detail.filename }) },
+      ]);
+    };
+
+    void loadUploadedDatasets();
+    window.addEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
+    };
+  }, []);
 
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
@@ -79,6 +133,22 @@ export function Sidebar() {
                   </a>
                 );
               })}
+
+              {uploadedDatasets.map((dataset) => (
+                <a
+                  key={dataset.key}
+                  href="#/workspace"
+                  className={`shortcut-item ${activeShortcut === dataset.key ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveShortcut(dataset.key);
+                    navigate(`/workspace?dataset_key=${encodeURIComponent(dataset.key)}`);
+                    }}
+                >
+                  <div className="ds-icon"><Database size={14} /></div>
+                  <span>{dataset.name}</span>
+                </a>
+              ))}
             </div>
           )}
         </div>
