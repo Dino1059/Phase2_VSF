@@ -117,7 +117,31 @@ class StructuredSource(DataSource):
                 tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
                 if not tables:
                     raise ValueError(f"DuckDB file contains no tables: {self.file_path}")
-                table_name = tables[0].replace('"', '""')
+
+                system_tables = {
+                    "agent_traces", "audit_log", "datasets", "decisions",
+                    "evidence", "execution_authorizations", "hypotheses",
+                    "incidents", "job_runs", "messages", "profile_results",
+                    "quality_rules", "quarantine", "raw_snapshots",
+                    "recommendations", "schedules", "sqlite_master",
+                    "sqlite_sequence", "duckdb_tables", "duckdb_columns"
+                }
+                user_tables = [t for t in tables if t.lower() not in system_tables]
+                candidate_tables = user_tables if user_tables else tables
+
+                best_table = candidate_tables[0]
+                max_rows = -1
+                for t in candidate_tables:
+                    try:
+                        safe_name = t.replace('"', '""')
+                        cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+                        if cnt > max_rows:
+                            max_rows = cnt
+                            best_table = t
+                    except Exception:
+                        continue
+
+                table_name = best_table.replace('"', '""')
                 query = f'SELECT * FROM "{table_name}"'
                 if sample_size:
                     query += f" LIMIT {int(sample_size)}"
@@ -143,6 +167,31 @@ class StructuredSource(DataSource):
                 row_count = meta.num_rows
             except Exception:
                 row_count = 0
+        elif self.file_format == "duckdb" and self.file_path.exists():
+            try:
+                import duckdb
+                conn = duckdb.connect(str(self.file_path), read_only=True)
+                try:
+                    tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+                    system_tables = {
+                        "agent_traces", "audit_log", "datasets", "decisions",
+                        "evidence", "execution_authorizations", "hypotheses",
+                        "incidents", "job_runs", "messages", "profile_results",
+                        "quality_rules", "quarantine", "raw_snapshots",
+                        "recommendations", "schedules", "sqlite_master",
+                        "sqlite_sequence", "duckdb_tables", "duckdb_columns"
+                    }
+                    user_tables = [t for t in tables if t.lower() not in system_tables]
+                    candidate_tables = user_tables if user_tables else tables
+                    for t in candidate_tables:
+                        safe_name = t.replace('"', '""')
+                        cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+                        if cnt > row_count:
+                            row_count = cnt
+                finally:
+                    conn.close()
+            except Exception:
+                pass
 
         # Load small sample for schema info
         df_sample = self.load_data(sample_size=100)

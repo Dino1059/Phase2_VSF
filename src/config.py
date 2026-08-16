@@ -91,6 +91,10 @@ class Settings(BaseSettings):
         "real_xanh_sm_trips": "data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
         "real_xanh_sm_customer_feedback": "data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
         "integrated_benchmark": "data_new/vingroup_faulty_pilot_dataset",
+        "vingroup_pilot": "data_new/db/vingroup_pilot.db",
+        "vingroup_pilot_db": "data_new/db/vingroup_pilot.db",
+        "vingroup_pilot.db": "data_new/db/vingroup_pilot.db",
+        "data_new/db/vingroup_pilot.db": "data_new/db/vingroup_pilot.db",
     }
 
     dataset_provenance_map: dict = {

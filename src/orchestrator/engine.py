@@ -242,7 +242,11 @@ class ReActEngine:
                 self._log_trace(result.session_id, step)
             else:
                 # Fallback: treat response content as final answer
-                result.final_answer = llm_response.content or step.thought
+                result.final_answer = (
+                    llm_response.content
+                    if (llm_response.content and llm_response.content.strip())
+                    else (step.thought if step.thought.strip() else "ReAct execution completed.")
+                )
                 result.status = "completed"
                 decision = DecisionRecord(
                     selected_action="FINISH_DEFAULT",
@@ -276,13 +280,31 @@ class ReActEngine:
                 thought = line_str[len("Thought:"):].strip()
             elif line_str.startswith("Action:"):
                 raw_action = line_str[len("Action:"):].strip()
-                action = raw_action.replace("default_api:", "").strip()
+                cleaned = raw_action.replace("default_api:", "").strip()
+                if "FINISH" in cleaned.upper():
+                    action = "FINISH"
+                elif "ABSTAIN" in cleaned.upper():
+                    action = "ABSTAIN"
+                elif cleaned.startswith("{"):
+                    try:
+                        parsed_json = json.loads(cleaned)
+                        if isinstance(parsed_json, dict):
+                            action = parsed_json.get("name", parsed_json.get("action", ""))
+                            if "args" in parsed_json or "input" in parsed_json:
+                                action_input = parsed_json.get("args") or parsed_json.get("input") or {}
+                    except Exception:
+                        action = ""
+                else:
+                    action = cleaned.split()[0] if cleaned.split() else ""
             elif line_str.startswith("Action Input:"):
                 raw = line_str[len("Action Input:"):].strip()
                 try:
                     action_input = json.loads(raw)
                 except json.JSONDecodeError:
                     action_input = {"raw": raw}
+
+        if action and action in ("{}", "{ }"):
+            action = "FINISH"
 
         return ReActStep(
             step_index=step_idx,
@@ -325,3 +347,7 @@ class ReActEngine:
         from src.agents.sub_agents import DiagnosisAgent
         agent = DiagnosisAgent(llm_service=self.llm)
         return agent.run(data_profile=data_profile, anomaly_context=anomaly_context)
+
+
+BoundedReActEngine = ReActEngine
+
