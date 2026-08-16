@@ -1,0 +1,177 @@
+{
+  "timestamp": "2026-08-11T10:05:00.926257+00:00",
+  "target_spec": "PLAN.md \u00a76.4",
+  "summary": {
+    "total_cases_evaluated": 6,
+    "successful_investigations": 2,
+    "failed_investigations": 4,
+    "failure_rate": 0.6667,
+    "existing_results_artifacts_found": 38
+  },
+  "failure_mode_counts": {
+    "INSUFFICIENT_TOOL_DEPTH": 2,
+    "FALSE_CONTRADICTION": 1,
+    "BUDGET_EXHAUSTION": 1,
+    "UNSUPPORTED_CLAIM": 0
+  },
+  "failure_mode_breakdown": [
+    {
+      "failure_mode": "INSUFFICIENT_TOOL_DEPTH",
+      "frequency": 2,
+      "percentage_of_failures": 50.0,
+      "impact": "HIGH",
+      "why_A1_fails": "Single-agent A1 relies on 3 basic inspection tools (upstream contracts, baselines, battery telemetry) and cannot resolve multi-hop entity graph dependencies, cross-service trace topology, or deep domain reference lookups.",
+      "proposed_specialist_or_verifier": "GraphTopologyResolver / TelemetrySpecialist",
+      "expected_metric_gain": "+25% evidence recall, +18% top-1 cause accuracy on complex cross-domain incidents",
+      "allowed_cost_increase": "1.8x token spend multiplier"
+    },
+    {
+      "failure_mode": "FALSE_CONTRADICTION",
+      "frequency": 1,
+      "percentage_of_failures": 25.0,
+      "impact": "MEDIUM-HIGH",
+      "why_A1_fails": "A1's heuristic keyword scanner triggers false positive abstention whenever noisy ambient text contains conflicting terms ('normal' vs 'defect'), causing unwarranted abstentions on valid incidents.",
+      "proposed_specialist_or_verifier": "ContradictionVerifierAgent / SemanticDisambiguator",
+      "expected_metric_gain": "+20% reduction in false abstentions, +12% overall recall",
+      "allowed_cost_increase": "1.3x token spend multiplier"
+    },
+    {
+      "failure_mode": "BUDGET_EXHAUSTION",
+      "frequency": 1,
+      "percentage_of_failures": 25.0,
+      "impact": "MEDIUM",
+      "why_A1_fails": "A1 executes sequential tool calls without adaptive planning, exhausting max_tool_calls (5) or token budget (2000) on redundant basic queries before reaching root cause.",
+      "proposed_specialist_or_verifier": "PlanningOrchestratorAgent / BudgetAwareSubagent",
+      "expected_metric_gain": "+15% completion rate within budget, -35% wall-clock investigation latency",
+      "allowed_cost_increase": "1.2x token spend multiplier"
+    },
+    {
+      "failure_mode": "UNSUPPORTED_CLAIM",
+      "frequency": 0,
+      "percentage_of_failures": 0.0,
+      "impact": "CRITICAL",
+      "why_A1_fails": "A1 lacks a separate verification phase to audit hypothesis evidence links, leading to ungrounded claims or missing supporting evidence IDs.",
+      "proposed_specialist_or_verifier": "IndependentEvidenceVerifier (Read-Only Audit Agent)",
+      "expected_metric_gain": "100% elimination of unsupported claims (0% hallucinated evidence rate)",
+      "allowed_cost_increase": "1.15x token spend multiplier"
+    }
+  ],
+  "a2_justified_per_plan_6_4": true,
+  "justification_summary": "A2 (Multi-Agent Specialist) is JUSTIFIED per PLAN.md \u00a76.4. A1 failure rate is 66.7%, with key failure modes identified: INSUFFICIENT_TOOL_DEPTH (2), FALSE_CONTRADICTION (1), BUDGET_EXHAUSTION (1), UNSUPPORTED_CLAIM (0). Implementing A2 behind feature flag 'ENABLE_A2_MULTI_AGENT' will address these specific failure patterns.",
+  "detailed_case_results": [
+    {
+      "case_id": "FA-CASE-001",
+      "name": "Standard Thermal Degrade",
+      "description": "Standard operational thermal degradation incident.",
+      "expected_classification": "OPERATIONAL",
+      "actual_classification": "OPERATIONAL",
+      "is_failure": false,
+      "failure_mode": null,
+      "explanation": "Investigation succeeded and matches ground truth.",
+      "claim": "Dynamic A1 verified operational defect in entity VIN-010 via multi-tool evidence.",
+      "supporting_evidence": [
+        "ev-fa-001",
+        "ev-telemetry-VIN-010-battery_soc",
+        "ev-baseline-VIN-010"
+      ],
+      "tokens_spent": 290,
+      "tool_calls_made": 3,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "FA-CASE-002",
+      "name": "Trip Fare Schema Defect",
+      "description": "Standard data pipeline contract defect.",
+      "expected_classification": "DATA",
+      "actual_classification": "DATA",
+      "is_failure": false,
+      "failure_mode": null,
+      "explanation": "Investigation succeeded and matches ground truth.",
+      "claim": "Dynamic A1 verified data contract violation in entity TRIP-501.",
+      "supporting_evidence": [
+        "ev-fa-002",
+        "ev-contract-TRIP-501"
+      ],
+      "tokens_spent": 290,
+      "tool_calls_made": 3,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "FA-CASE-003",
+      "name": "Grid Phase Imbalance Multi-Service Cascade",
+      "description": "Requires multi-hop graph topology resolution tool not available in A1's tool registry.",
+      "expected_classification": "OPERATIONAL",
+      "actual_classification": "OPERATIONAL",
+      "is_failure": true,
+      "failure_mode": "INSUFFICIENT_TOOL_DEPTH",
+      "explanation": "A1 tool set lacks depth for case FA-CASE-003 (requires_specialist_tools=True, recall=0.33, expected=OPERATIONAL, actual=OPERATIONAL).",
+      "claim": "Dynamic A1 verified operational defect in entity CHARGER-HUB-99 via multi-tool evidence.",
+      "supporting_evidence": [
+        "ev-fa-003",
+        "ev-telemetry-CHARGER-HUB-99-battery_soc",
+        "ev-baseline-CHARGER-HUB-99"
+      ],
+      "tokens_spent": 290,
+      "tool_calls_made": 3,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "FA-CASE-004",
+      "name": "Noisy Ambient Text False Contradiction",
+      "description": "Ambient log text contains conflicting words causing A1 keyword heuristic to falsely abstain.",
+      "expected_classification": "OPERATIONAL",
+      "actual_classification": "UNKNOWN",
+      "is_failure": true,
+      "failure_mode": "FALSE_CONTRADICTION",
+      "explanation": "A1 falsely abstained due to contradictory signal heuristic on case FA-CASE-004 where ground truth classification is 'OPERATIONAL'.",
+      "claim": "Dynamic A1 abstained: Contradictory evidence detected across telemetry and pipeline logs.",
+      "supporting_evidence": [
+        "ev-fa-004a",
+        "ev-fa-004b",
+        "ev-telemetry-VIN-080-battery_soc",
+        "ev-baseline-VIN-080",
+        "ev-contract-VIN-080"
+      ],
+      "tokens_spent": 290,
+      "tool_calls_made": 3,
+      "stop_reason": "completed"
+    },
+    {
+      "case_id": "FA-CASE-005",
+      "name": "Tight Budget Investigation Exhaustion",
+      "description": "Investigation under tight tool budget exhausts tool budget before hypothesis completion.",
+      "expected_classification": "OPERATIONAL",
+      "actual_classification": "OPERATIONAL",
+      "is_failure": true,
+      "failure_mode": "BUDGET_EXHAUSTION",
+      "explanation": "A1 operational bound exceeded: stop_reason='max_tool_calls_exceeded'. Tool calls made=1, tokens spent=120.",
+      "claim": "Dynamic A1 verified operational defect in entity VIN-090 via multi-tool evidence.",
+      "supporting_evidence": [
+        "ev-fa-005",
+        "ev-telemetry-VIN-090-battery_soc"
+      ],
+      "tokens_spent": 120,
+      "tool_calls_made": 1,
+      "stop_reason": "max_tool_calls_exceeded"
+    },
+    {
+      "case_id": "FA-CASE-006",
+      "name": "Ungrounded Spurious Alert",
+      "description": "Alert lacking grounded evidence records causes unsupported claims.",
+      "expected_classification": "UNKNOWN",
+      "actual_classification": "OPERATIONAL",
+      "is_failure": true,
+      "failure_mode": "INSUFFICIENT_TOOL_DEPTH",
+      "explanation": "A1 tool set lacks depth for case FA-CASE-006 (requires_specialist_tools=False, recall=1.00, expected=UNKNOWN, actual=OPERATIONAL).",
+      "claim": "Dynamic A1 verified operational defect in entity UNGROUNDED-ENTITY via multi-tool evidence.",
+      "supporting_evidence": [
+        "ev-fa-006",
+        "ev-telemetry-UNGROUNDED-ENTITY-battery_soc",
+        "ev-baseline-UNGROUNDED-ENTITY"
+      ],
+      "tokens_spent": 290,
+      "tool_calls_made": 3,
+      "stop_reason": "completed"
+    }
+  ]
+}

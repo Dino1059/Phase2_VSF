@@ -1,0 +1,21 @@
+feedback_id,vehicle_vin,scenario_date,assigned_day_index,topic,sentiment,raw_comment_text
+FB_SCENARIO_0001,VF8VNF_0011,2026-01-08,7,charging,0,"cáp sạc bị lỗi kết nối, sạc mãi không lên pin"
+FB_SCENARIO_0002,VF8VNF_0025,2026-01-11,10,vehicle,0,"điều hòa không hoạt động giữa trưa nắng 40 độ, khách than phiền liên tục"
+FB_SCENARIO_0003,VF8VNF_0026,2026-01-05,4,vehicle,0,"màn hình taplo tắt đột ngột khi đang chạy, không biết tốc độ bao nhiêu"
+FB_SCENARIO_0004,VF8VNF_0012,2026-01-08,7,charging,0,"trạm sạc đầy khách, đợi 45 phút mới có chỗ sạc"
+FB_SCENARIO_0005,VF8VNF_0004,2026-01-04,3,app,0,"map dẫn đường sai lệch, đưa khách đến địa chỉ không đúng"
+FB_SCENARIO_0006,VF8VNF_0034,2026-01-03,2,vehicle,0,"xe lỗi pin giữa đường, gọi cứu hộ 1 tiếng mới có xe thay thế"
+FB_SCENARIO_0007,VF8VNF_0007,2026-01-03,2,app,0,"map dẫn đường sai lệch, đưa khách đến địa chỉ không đúng"
+FB_SCENARIO_0008,VF8VNF_0017,2026-01-11,10,vehicle,0,"xe lỗi pin giữa đường, gọi cứu hộ 1 tiếng mới có xe thay thế"
+FB_SCENARIO_0009,VF8VNF_0056,2026-01-09,8,vehicle,0,"xe lỗi pin giữa đường, gọi cứu hộ 1 tiếng mới có xe thay thế"
+FB_SCENARIO_0010,VF8VNF_0051,2026-01-02,1,charging,0,"trạm sạc bị hỏng không báo trước, phải tìm trạm khác cách 5km"
+FB_SCENARIO_0011,VF8VNF_0014,2026-01-07,6,charging,0,"cáp sạc bị lỗi kết nối, sạc mãi không lên pin"
+FB_SCENARIO_0012,VF8VNF_0005,2026-01-07,6,driver,0,tài xế hút thuốc trong xe dù khách phản đối
+FB_SCENARIO_0013,VF8VNF_0008,2026-01-01,0,vehicle,1,gương chiếu hậu bị rung nhẹ khi chạy tốc độ cao trên cao tốc
+FB_SCENARIO_0014,VF8VNF_0055,2026-01-06,5,vehicle,1,gương chiếu hậu bị rung nhẹ khi chạy tốc độ cao trên cao tốc
+FB_SCENARIO_0015,VF8VNF_0054,2026-01-04,3,app,1,notification hơi chậm so với thực tế vị trí xe
+FB_SCENARIO_0016,VF8VNF_0009,2026-01-11,10,charging,1,"sạc chậm hơn bình thường, có thể do trời nóng nên giảm công suất"
+FB_SCENARIO_0017,VF8VNF_0058,2026-01-15,14,charging,1,"sạc chậm hơn bình thường, có thể do trời nóng nên giảm công suất"
+FB_SCENARIO_0018,VF8VNF_0034,2026-01-05,4,charging,2,"sạc nhanh, đầy pin trong 40 phút, tiện lợi"
+FB_SCENARIO_0019,VF8VNF_0047,2026-01-06,5,vehicle,2,"pin trâu, đi cả ngày không cần sạc thêm"
+FB_SCENARIO_0020,VF8VNF_0003,2026-01-02,1,app,2,"app dễ sử dụng, đặt xe nhanh chỉ 2 phút"

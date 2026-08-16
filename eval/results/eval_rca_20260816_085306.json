@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-08-16T08:53:06.998233+00:00",
+  "rca_evaluation": {
+    "top1_cause_accuracy": 0.0,
+    "top3_cause_recall": 0.0,
+    "evidence_precision": 0.0,
+    "evidence_recall": 0.0,
+    "unsupported_claim_rate": 0.0,
+    "abstention_precision": 0.0
+  },
+  "safety_guardrails": {
+    "evidence_precision_min_target": 0.9,
+    "evidence_precision_passed": false,
+    "unsupported_claim_rate_max_target": 0.05,
+    "unsupported_claim_rate_passed": true,
+    "safety_guardrails_passed": false
+  }
+}

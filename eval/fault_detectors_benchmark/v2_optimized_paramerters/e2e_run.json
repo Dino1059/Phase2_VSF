@@ -1,0 +1,191 @@
+{
+  "execution_timestamp": "2026-08-15T08:18:52.115508+00:00",
+  "database_path": "C:\\Users\\ngant\\P-086\\data_new\\db\\vingroup_pilot.db",
+  "optimized_params": true,
+  "total_incidents_admitted": 116,
+  "rca_evaluated_count": 5,
+  "results": [
+    {
+      "index": 1,
+      "incident_id": "inc-290cacb1",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0006"
+      ],
+      "supporting_layers": [
+        "L1",
+        "L2",
+        "L3",
+        "L4"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L3, L4 layers",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0006.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0006",
+          "ev-dq-violations-VF8VNF_0006"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0006."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.000609,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "incident_id": "inc-5b64259b",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0040"
+      ],
+      "supporting_layers": [
+        "L1",
+        "L2",
+        "L4"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L4 layers",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0040.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0040",
+          "ev-dq-violations-VF8VNF_0040"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0040."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.000245,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "incident_id": "inc-befc2a19",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0045"
+      ],
+      "supporting_layers": [
+        "L1",
+        "L2",
+        "L4"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L4 layers",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0045.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0045",
+          "ev-dq-violations-VF8VNF_0045"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0045."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.00038,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "incident_id": "inc-ad306e18",
+      "severity": "HIGH",
+      "entity_ids": [
+        "VF8VNF_0053"
+      ],
+      "supporting_layers": [
+        "L4"
+      ],
+      "admission_reason": "High severity L4 signal admitted (charging_frequency)",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified operational defect in entity VF8VNF_0053 via multi-tool evidence.",
+        "classification": "OPERATIONAL",
+        "confidence": 0.92,
+        "supporting_evidence": [
+          "ev-charging-history-VF8VNF_0053",
+          "ev-baseline-VF8VNF_0053"
+        ]
+      },
+      "recommendation": {
+        "action_type": "MAINTENANCE_ROUTING",
+        "summary": "Route operational maintenance recommendation: Dynamic A1 verified operational defect in entity VF8VNF_0053 via multi-tool evidence."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 280,
+        "wall_clock_elapsed_sec": 0.0003,
+        "tool_trace": [
+          "fetch_charging_history",
+          "query_historical_baselines",
+          "inspect_upstream_contracts"
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "incident_id": "inc-421057b5",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0050"
+      ],
+      "supporting_layers": [
+        "L1"
+      ],
+      "admission_reason": "Critical L1 signal admitted: cost_vnd",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0050.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0050",
+          "ev-dq-violations-VF8VNF_0050"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0050."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.000253,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    }
+  ]
+}

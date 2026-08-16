@@ -1,0 +1,2 @@
+check,median_abs_diff_vnd,max_abs_diff_vnd,mean_abs_diff_vnd,rows
+cost_vnd vs 3100*kwh_consumed,0.20000000001164153,0.5,0.24919219742419219,1331

@@ -1,0 +1,271 @@
+{
+  "execution_timestamp": "2026-08-15T09:46:30.944699+00:00",
+  "database_path": "C:\\Users\\ngant\\P-086\\data_new\\db\\vingroup_pilot_eval.db",
+  "optimized_params": true,
+  "total_incidents_admitted": 199,
+  "rca_evaluated_count": 2,
+  "ground_truth_metrics": {
+    "evaluation_timestamp": "2026-08-15T09:46:30.944699+00:00",
+    "manifest_path": "C:\\Users\\ngant\\P-086\\data_new\\vingroup_faulty_pilot_dataset\\fault_manifest.json",
+    "total_ground_truth_faults": 693,
+    "overall_metrics": {
+      "total_ground_truth": 693,
+      "total_emitted_signals": 1147,
+      "true_positives": 689,
+      "false_positives": 458,
+      "false_negatives": 4,
+      "precision": 0.6007,
+      "recall": 0.9942,
+      "f1_score": 0.7489
+    },
+    "by_family": {
+      "F2_Voltage_Overvoltage_Spike": {
+        "fault_family": "F2_Voltage_Overvoltage_Spike",
+        "layer": "L1",
+        "dataset": "synthetic_ev_telemetry_ved_ref",
+        "ground_truth_total": 131,
+        "detected_signals_count": 45,
+        "true_positives": 131,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "F3_RPM_Speed_Mismatch": {
+        "fault_family": "F3_RPM_Speed_Mismatch",
+        "layer": "L1",
+        "dataset": "synthetic_ev_telemetry_ved_ref",
+        "ground_truth_total": 129,
+        "detected_signals_count": 129,
+        "true_positives": 129,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "F1_Negative_SOC": {
+        "fault_family": "F1_Negative_SOC",
+        "layer": "L1",
+        "dataset": "synthetic_ev_telemetry_ved_ref",
+        "ground_truth_total": 172,
+        "detected_signals_count": 172,
+        "true_positives": 172,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "F10_SOC_Degradation_Drift": {
+        "fault_family": "F10_SOC_Degradation_Drift",
+        "layer": "L2",
+        "dataset": "synthetic_ev_telemetry_ved_ref",
+        "ground_truth_total": 3,
+        "detected_signals_count": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 3,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0
+      },
+      "F11_BatteryTemp_Drift": {
+        "fault_family": "F11_BatteryTemp_Drift",
+        "layer": "L2",
+        "dataset": "synthetic_ev_telemetry_ved_ref",
+        "ground_truth_total": 3,
+        "detected_signals_count": 498,
+        "true_positives": 3,
+        "false_positives": 495,
+        "false_negatives": 0,
+        "precision": 0.006,
+        "recall": 1.0,
+        "f1_score": 0.0119
+      },
+      "F5_Negative_Cost": {
+        "fault_family": "F5_Negative_Cost",
+        "layer": "L1",
+        "dataset": "acn_charging_mapped",
+        "ground_truth_total": 33,
+        "detected_signals_count": 40,
+        "true_positives": 33,
+        "false_positives": 7,
+        "false_negatives": 0,
+        "precision": 0.825,
+        "recall": 1.0,
+        "f1_score": 0.9041
+      },
+      "F14_DurationEnergy_Mismatch": {
+        "fault_family": "F14_DurationEnergy_Mismatch",
+        "layer": "L3",
+        "dataset": "acn_charging_mapped",
+        "ground_truth_total": 13,
+        "detected_signals_count": 14,
+        "true_positives": 13,
+        "false_positives": 1,
+        "false_negatives": 0,
+        "precision": 0.9286,
+        "recall": 1.0,
+        "f1_score": 0.963
+      },
+      "F15_ChargingFrequency_Shift": {
+        "fault_family": "F15_ChargingFrequency_Shift",
+        "layer": "L4",
+        "dataset": "acn_charging_mapped",
+        "ground_truth_total": 1,
+        "detected_signals_count": 4,
+        "true_positives": 1,
+        "false_positives": 3,
+        "false_negatives": 0,
+        "precision": 0.25,
+        "recall": 1.0,
+        "f1_score": 0.4
+      },
+      "F7_Negative_Fare": {
+        "fault_family": "F7_Negative_Fare",
+        "layer": "L1",
+        "dataset": "ride_hailing_xanh_sm_trips",
+        "ground_truth_total": 52,
+        "detected_signals_count": 103,
+        "true_positives": 52,
+        "false_positives": 51,
+        "false_negatives": 0,
+        "precision": 0.5049,
+        "recall": 1.0,
+        "f1_score": 0.671
+      },
+      "F8_Ledger_Mismatch": {
+        "fault_family": "F8_Ledger_Mismatch",
+        "layer": "L1",
+        "dataset": "ride_hailing_xanh_sm_trips",
+        "ground_truth_total": 51,
+        "detected_signals_count": 51,
+        "true_positives": 51,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "F6_GPS_Alleyway_Drift": {
+        "fault_family": "F6_GPS_Alleyway_Drift",
+        "layer": "L3",
+        "dataset": "ride_hailing_xanh_sm_trips",
+        "ground_truth_total": 103,
+        "detected_signals_count": 103,
+        "true_positives": 103,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "F16_FareDistribution_Regime": {
+        "fault_family": "F16_FareDistribution_Regime",
+        "layer": "L4",
+        "dataset": "ride_hailing_xanh_sm_trips",
+        "ground_truth_total": 1,
+        "detected_signals_count": 4,
+        "true_positives": 1,
+        "false_positives": 3,
+        "false_negatives": 0,
+        "precision": 0.25,
+        "recall": 1.0,
+        "f1_score": 0.4
+      },
+      "F13_ChargingTrip_Mismatch": {
+        "fault_family": "F13_ChargingTrip_Mismatch",
+        "layer": "L3",
+        "dataset": "acn_charging_mapped",
+        "ground_truth_total": 1,
+        "detected_signals_count": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 1,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0
+      }
+    }
+  },
+  "results": [
+    {
+      "index": 1,
+      "incident_id": "inc-a8637bdb",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0006"
+      ],
+      "supporting_layers": [
+        "L1",
+        "L2",
+        "L3",
+        "L4"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L3, L4 layers",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0006.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0006",
+          "ev-dq-violations-VF8VNF_0006"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0006."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.000343,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "incident_id": "inc-1d9a9b08",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0040"
+      ],
+      "supporting_layers": [
+        "L1",
+        "L2",
+        "L3",
+        "L4"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L3, L4 layers",
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0040.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-contract-VF8VNF_0040",
+          "ev-dq-violations-VF8VNF_0040"
+        ]
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0040."
+      },
+      "meta": {
+        "tool_calls_made": 3,
+        "tokens_spent": 270,
+        "wall_clock_elapsed_sec": 0.000209,
+        "tool_trace": [
+          "inspect_upstream_contracts",
+          "fetch_dq_violations",
+          "query_historical_baselines"
+        ]
+      }
+    }
+  ]
+}

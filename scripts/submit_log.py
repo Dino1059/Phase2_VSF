@@ -23,7 +23,17 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass
+    env_file = Path(".env")
+    if env_file.exists():
+        with open(env_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'").strip('"')
+                    if key and key not in os.environ:
+                        os.environ[key] = val
 
 SERVER_URL = os.environ.get("AI_LOG_SERVER", "")
 API_KEY = os.environ.get("AI_LOG_API_KEY", "")
@@ -71,6 +81,10 @@ def main():
     if not SERVER_URL:
         print("[ai-log] AI_LOG_SERVER not set — skipping submission.", file=sys.stderr)
         sys.exit(0)
+
+    # Pick up any existing pending files from previous pushes
+    for pf in list(LOG_DIR.glob("session.pending.*.jsonl")):
+        _restore_pending(pf)
 
     if not LOG_FILE.exists() or LOG_FILE.stat().st_size == 0:
         print("[ai-log] No logs to submit.", file=sys.stderr)
