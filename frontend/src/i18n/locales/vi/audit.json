@@ -1,0 +1,18 @@
+{
+  "title": "Nhật ký Kiểm toán",
+  "executionLog": "Nhật ký Thực thi",
+  "timestamp": "Thời gian",
+  "action": "Hành động",
+  "agent": "Tác tử",
+  "status": "Trạng thái",
+  "details": "Chi tiết",
+  "manifestHash": "Hash Manifest",
+  "rowsProcessed": "Dòng đã xử lý",
+  "rowsCleaned": "Dòng đã làm sạch",
+  "rowsQuarantined": "Dòng cách ly",
+  "executionTime": "Thời gian thực thi",
+  "executionComplete": "Hoàn thành: {{cleaned}} sạch, {{quarantined}} cách ly",
+  "rollback": "Hoàn tác",
+  "rollbackConfirm": "Bạn có chắc muốn hoàn tác thực thi này?",
+  "noAuditEntries": "Chưa có bản ghi kiểm toán"
+}
