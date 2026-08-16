@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentTrace",
+  "description": "v4 agent reasoning trace — records each step of the ReAct loop. Aligned with agent_traces DDL.",
+  "type": "object",
+  "properties": {
+    "trace_id": { "type": "string" },
+    "session_id": { "type": "string", "description": "Groups traces belonging to the same agent session" },
+    "agent_type": {
+      "type": "string",
+      "description": "ProfilerAgent, AnomalyAgent, DiagnosisAgent, RuleProposerAgent, ExecutorAgent"
+    },
+    "step_index": { "type": "integer", "minimum": 0, "description": "Step number within the ReAct loop" },
+    "thought": { "type": ["string", "null"], "description": "What the agent reasoned before acting" },
+    "action": { "type": ["string", "null"], "description": "Decided action (e.g. call_tool, propose_rule)" },
+    "tool_name": { "type": ["string", "null"], "description": "Which tool was invoked" },
+    "tool_input": { "type": ["object", "null"], "description": "Input passed to the tool (JSON)" },
+    "tool_output": { "type": ["object", "null"], "description": "Output received from the tool (JSON)" },
+    "observation": { "type": ["string", "null"], "description": "What the agent observed from the tool output" },
+    "tokens_used": { "type": ["integer", "null"], "minimum": 0 },
+    "cost_usd": { "type": ["number", "null"], "minimum": 0.0 },
+    "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "timestamp": { "type": "string", "format": "date-time" }
+  },
+  "required": ["trace_id", "session_id", "agent_type", "step_index", "timestamp"]
+}

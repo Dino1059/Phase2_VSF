@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunManifest",
+  "description": "v4 job run summary — lightweight, delegates details to agent_traces and raw_snapshots. Aligned with job_runs DDL.",
+  "type": "object",
+  "properties": {
+    "run_id": { "type": "string" },
+    "schedule_id": { "type": ["string", "null"], "description": "FK to schedules — which schedule triggered this run (null if manual)" },
+    "dataset_key": { "type": "string", "description": "Which dataset this run processed" },
+    "status": {
+      "type": "string",
+      "enum": ["running", "completed", "failed", "cancelled"]
+    },
+    "result_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "description": "Consolidated results: total_rows, clean_rows, quarantined_rows, rules_evaluated, rules_passed, rules_failed, errors, etc."
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "required": ["run_id", "dataset_key", "status", "started_at"]
+}
