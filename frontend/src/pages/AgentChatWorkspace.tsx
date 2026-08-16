@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -30,7 +30,7 @@ import {
 import { usePipelineStore, DOMAINS, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
-import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile } from '../services/api';
+import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage } from '../services/api';
 import { useChatStore } from '../stores/chatStore';
 import type { TimeFilter } from '../types';
 
@@ -653,6 +653,42 @@ function NewChatLanding() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const sessionId = useChatStore((s) => s.sessionId);
+
+  const handleSubmit = async (event?: React.FormEvent) => {
+    if (event) event.preventDefault();
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    let targetKey = 'vinfast_ev_telemetry';
+    const lower = trimmed.toLowerCase();
+    if (lower.includes('vgreen') || lower.includes('v-green') || lower.includes('charg')) {
+      targetKey = 'vgreen_charging_stations';
+    } else if (lower.includes('xanh') || lower.includes('trip') || lower.includes('taxi')) {
+      targetKey = 'xanh_sm_trips';
+    } else if (lower.includes('feedback') || lower.includes('review') || lower.includes('nlp')) {
+      targetKey = 'xanh_sm_customer_feedback';
+    }
+
+    try {
+      await sendChatMessage(trimmed, sessionId, targetKey);
+      const history = await fetchChatHistory(sessionId);
+      if (history.messages && Array.isArray(history.messages)) {
+        useChatStore.getState().setMessages(history.messages);
+      }
+    } catch (e) {
+      console.error('Failed to send initial message:', e);
+    }
+    navigate(`/workspace?dataset_key=${targetKey}`);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void handleSubmit();
+    }
+  };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -681,11 +717,12 @@ function NewChatLanding() {
         <div className="panel-title-group new-chat-title">
           <h2>Ta nên bắt đầu việc gì?</h2>
         </div>
-        <form className="new-chat-composer" onSubmit={(event) => event.preventDefault()}>
+        <form className="new-chat-composer" onSubmit={handleSubmit}>
           <textarea
             className="chat-input new-chat-textarea"
             value={message}
             onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Làm với bất kỳ nội dung nào"
             aria-label="Chat message"
             rows={3}

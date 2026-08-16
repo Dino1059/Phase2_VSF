@@ -5,6 +5,7 @@ import urllib.request
 import urllib.error
 import time
 import threading
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 from dotenv import load_dotenv
@@ -33,61 +34,97 @@ class LLMResponse:
 
 
 class KeyRotator:
-    """Thread-safe round-robin key rotator for API keys."""
+    """Thread-safe round-robin key rotator with rate limit cooldown (HTTP 429)."""
     
     def __init__(self, keys: list[str]):
-        self._keys = [k.strip() for k in keys if k.strip()]
+        seen = set()
+        clean_keys = []
+        for k in keys:
+            k_clean = k.strip() if isinstance(k, str) else ""
+            if k_clean and k_clean not in seen:
+                seen.add(k_clean)
+                clean_keys.append(k_clean)
+        self._keys = clean_keys
         self._index = 0
         self._lock = threading.Lock()
+        self._cooldowns: dict[str, float] = {}  # key -> cooldown expiry timestamp
     
     def get_next(self) -> str | None:
         if not self._keys:
             return None
         with self._lock:
-            key = self._keys[self._index % len(self._keys)]
-            self._index += 1
-            return key
-    
+            now = time.time()
+            # Find the next key not on cooldown
+            for _ in range(len(self._keys)):
+                key = self._keys[self._index % len(self._keys)]
+                self._index += 1
+                if self._cooldowns.get(key, 0) <= now:
+                    return key
+            # If all are currently on cooldown, return the one whose cooldown expires earliest
+            earliest_key = min(self._keys, key=lambda k: self._cooldowns.get(k, 0))
+            return earliest_key
+
+    def mark_rate_limited(self, key: str, cooldown_seconds: float = 60.0) -> None:
+        """Mark a specific key as rate limited with a cooldown period."""
+        if not key:
+            return
+        with self._lock:
+            self._cooldowns[key] = time.time() + cooldown_seconds
+
     @property
     def has_keys(self) -> bool:
         return len(self._keys) > 0
+
+    @property
+    def total_keys(self) -> int:
+        return len(self._keys)
 
 
 class UnifiedLLMAdapter:
     """
     Unified LLM Adapter with multi-provider support.
-    Priority: OpenAI > OpenRouter > Groq > Gemini (keys) > Ollama (local Gemma) > Fallback
+    Priority: Gemini (4-key rotation) -> OpenAI (lowest fallback)
     """
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         load_dotenv()
         
-        # OpenAI (Priority #1)
+        # OpenAI (Fallback)
         self.openai_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
 
-        # OpenRouter (Priority #2)
+        # OpenRouter (Optional)
         self.openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
         self.openrouter_model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
-        # Groq (Priority #3)
+        # Groq (Optional)
         self.groq_key = os.environ.get("GROQ_API_KEY", "")
         self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-        # Google keys - multi-key rotation (Priority #4)
-        google_keys_raw = (
-            os.environ.get("GOOGLE_AI_API_KEYS")
-            or os.environ.get("GOOGLE_AI_API_KEY")
-            or os.environ.get("AI_STUDIO_API_KEY")
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
-            or ""
-        )
-        google_keys = [k.strip() for k in google_keys_raw.split(",") if k.strip()]
-        self._google_keys = KeyRotator(google_keys)
-        self.gemini_model = os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL") or "gemini-2.5-flash"
+        # Google keys - multi-key pool for rate-limiting routing (Primary: gemini-3.5-flash-lite)
+        all_gemini_keys: list[str] = []
+        for env_var in ["GOOGLE_AI_API_KEYS", "GEMINI_API_KEYS"]:
+            val = os.environ.get(env_var, "")
+            if val:
+                all_gemini_keys.extend([k.strip() for k in val.split(",") if k.strip()])
+
+        for env_var in [
+            "GOOGLE_AI_API_KEY",
+            "GOOGLE_AI_API_KEY_1",
+            "GOOGLE_AI_API_KEY_2",
+            "GOOGLE_AI_API_KEY_3",
+            "AI_STUDIO_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+        ]:
+            val = os.environ.get(env_var, "").strip()
+            if val:
+                all_gemini_keys.append(val)
+
+        self._google_keys = KeyRotator(all_gemini_keys)
+        self.gemini_model = os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL") or "gemini-3.5-flash-lite"
         
-        # Ollama (local Gemma - no keys needed) (Priority #5)
+        # Ollama (local Gemma - no keys needed)
         self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_model = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
         self._ollama_available = None  # Lazy check
@@ -117,52 +154,36 @@ class UnifiedLLMAdapter:
     def api_key(self) -> str:
         return (
             self._explicit_key
-            or (self.groq_key if self.preferred_provider == "groq" else "")
-            or self.openai_key
-            or self.openrouter_key
-            or self.groq_key
             or (self._google_keys._keys[0] if self._google_keys.has_keys else "")
+            or self.openai_key
+            or self.groq_key
+            or self.openrouter_key
         )
 
     @property
     def model(self) -> str:
         if self._explicit_model:
             return self._explicit_model
-        if self.preferred_provider == "groq" and self.groq_key:
-            return self.groq_model
-        if self.openai_key and not self.openai_key.startswith("sk-your-"):
-            return self.openai_model
-        if self.groq_key and not self.groq_key.startswith("gsk_your-"):
-            return self.groq_model
-        if self.openrouter_key:
-            return self.openrouter_model
-        if self._google_keys.has_keys:
+        if self._google_keys.has_keys or os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL"):
             return self.gemini_model
-        return self.openai_model
+        if self.openai_key and not self.openai_key.startswith("sk-your-") and not self.openai_key.startswith("test-"):
+            return self.openai_model
+        return self.gemini_model
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None, raise_on_error: bool = False) -> LLMResponse:
         """
-        Send chat messages with configurable provider fallback chain.
-        Priority: Configured via LLM_PROVIDER or defaults to OpenAI > Groq > OpenRouter > Gemini > Ollama > Fallback
+        Send chat messages with strictly gemini-3.5-flash-lite primary (with 4-key rate-limit rotation), gpt-5-nano fallback.
         """
         if self._explicit_key == "invalid-key":
             raise LLMUnavailableException("Invalid API key provided.")
 
-        # Determine provider order based on LLM_PROVIDER setting or available keys
-        if self.preferred_provider == "groq":
-            provider_order = ["groq", "openai", "openrouter", "gemini", "ollama"]
-        elif self.preferred_provider == "gemini":
-            provider_order = ["gemini", "groq", "openai", "openrouter", "ollama"]
-        elif self.preferred_provider == "openrouter":
-            provider_order = ["openrouter", "groq", "openai", "gemini", "ollama"]
-        elif self.preferred_provider == "ollama":
-            provider_order = ["ollama", "groq", "openai", "gemini"]
+        # Strict 2-option chain: gemini-3.5-flash-lite -> openai gpt-5-nano
+        if self.preferred_provider == "openai":
+            provider_order = ["openai", "gemini"]
+        elif self.preferred_provider == "groq":
+            provider_order = ["groq", "gemini", "openai"]
         else:
-            # Auto: If Groq key is populated and OpenAI is empty/dummy, prioritize Groq
-            if self.groq_key and not self.groq_key.startswith("gsk_your-") and (not self.openai_key or self.openai_key.startswith("sk-your-")):
-                provider_order = ["groq", "openai", "openrouter", "gemini", "ollama"]
-            else:
-                provider_order = ["openai", "groq", "openrouter", "gemini", "ollama"]
+            provider_order = ["gemini", "openai"]
 
         for provider in provider_order:
             if provider == "groq" and self.groq_key and not self.groq_key.startswith("gsk_your-"):
@@ -190,16 +211,30 @@ class UnifiedLLMAdapter:
                     print(f"[LLM] OpenRouter call failed: {e}. Falling back to next provider...")
 
             elif provider == "gemini" and self._google_keys.has_keys:
-                for attempt in range(len(self._google_keys._keys)):
+                total_attempts = max(1, self._google_keys.total_keys)
+                for attempt in range(total_attempts):
                     key = self._google_keys.get_next()
                     if not key:
                         break
                     try:
                         return self._call_gemini(messages, tools, key, self.gemini_model)
+                    except urllib.error.HTTPError as http_err:
+                        key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
+                        if http_err.code in (429, 503, 500):
+                            self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
+                            print(f"[LLM] Gemini key {key_mask} hit HTTP {http_err.code} rate limit (attempt {attempt + 1}/{total_attempts}). Rotating to next key...")
+                        else:
+                            print(f"[LLM] Gemini key {key_mask} HTTP {http_err.code} error (attempt {attempt + 1}/{total_attempts}). Trying next key...")
+                        if attempt == total_attempts - 1 and raise_on_error:
+                            raise LLMUnavailableException(f"All Gemini keys failed: {http_err}") from http_err
                     except Exception as e:
-                        if raise_on_error:
-                            raise LLMUnavailableException(f"Gemini call failed: {e}") from e
-                        print(f"[LLM] Gemini key rotation attempt {attempt + 1} failed: {e}. Trying next key...")
+                        key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
+                        err_str = str(e).lower()
+                        if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "rate limit" in err_str:
+                            self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
+                        print(f"[LLM] Gemini key {key_mask} rotation attempt {attempt + 1}/{total_attempts} failed: {e}. Trying next key...")
+                        if attempt == total_attempts - 1 and raise_on_error:
+                            raise LLMUnavailableException(f"All Gemini keys failed: {e}") from e
 
             elif provider == "ollama" and self._check_ollama():
                 try:
@@ -342,7 +377,15 @@ class UnifiedLLMAdapter:
         if system_instruction:
             payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
         if tools:
-            payload["tools"] = [{"function_declarations": tools}]
+            func_decls = []
+            for t in tools:
+                if isinstance(t, dict):
+                    if "function" in t:
+                        func_decls.append(t["function"])
+                    elif "name" in t:
+                        func_decls.append(t)
+            if func_decls:
+                payload["tools"] = [{"functionDeclarations": func_decls}]
 
         req = urllib.request.Request(
             url,
@@ -353,8 +396,20 @@ class UnifiedLLMAdapter:
             data = json.loads(resp.read().decode("utf-8"))
             candidate = data.get("candidates", [{}])[0]
             parts = candidate.get("content", {}).get("parts", [])
-            text = "".join([p.get("text", "") for p in parts])
-            return LLMResponse(content=text, finish_reason="stop", model_used=model_name)
+            text = "".join([p.get("text", "") for p in parts if "text" in p])
+            tool_calls = []
+            for p in parts:
+                if "functionCall" in p:
+                    fc = p["functionCall"]
+                    tool_calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": fc.get("name"),
+                            "arguments": json.dumps(fc.get("args", {})),
+                        }
+                    })
+            return LLMResponse(content=text, tool_calls=tool_calls, finish_reason="stop", model_used=model_name)
 
     def _call_ollama(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         """Call Ollama for local Gemma inference (free, unlimited)."""

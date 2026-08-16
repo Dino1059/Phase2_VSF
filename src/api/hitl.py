@@ -39,7 +39,7 @@ async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
     rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
     if not rules:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
-    if rules[0][1] != "proposed":
+    if rules[0][1] not in ("proposed", "pending", "draft"):
         raise HTTPException(status_code=400, detail=f"Rule {rule_id} is '{rules[0][1]}', not 'proposed'")
 
     db.execute("UPDATE quality_rules SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",

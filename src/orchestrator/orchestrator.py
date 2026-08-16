@@ -79,7 +79,14 @@ def _load_table_as_dataframe(table_name: str, project_id: str, db_path: Optional
     candidates = []
     if db_path:
         candidates.append(db_path)
+    try:
+        active_db = get_db().db_path
+        if active_db and active_db not in candidates:
+            candidates.append(active_db)
+    except Exception:
+        pass
     candidates.append(VINGROUP_PILOT_DB)
+    candidates.append("data/datatrust_v4.duckdb")
 
     last_exc: Optional[Exception] = None
     for candidate in candidates:

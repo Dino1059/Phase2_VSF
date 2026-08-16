@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { usePipelineStore } from '../stores/pipelineStore';
-import { hitlApi } from '../services/api';
+import { hitlApi, summaryApi } from '../services/api';
 import type { HITLProposal } from '../services/api';
 import type { AgentId } from '../types';
 
@@ -82,43 +82,71 @@ export const ExecutiveDashboard: React.FC = () => {
   const isDark = () =>
     (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
 
-  // Anomaly trend chart (Chart.js)
+  // Dynamic anomaly trend chart (Chart.js)
   useEffect(() => {
+    let isMounted = true;
     const canvas = chartRef.current;
     if (!canvas) return;
     const textColor = isDark() ? '#94a3b8' : '#475569';
     const gridColor = isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const dataByRange: Record<string, { labels: string[]; a: number[]; b: number[] }> = {
-      '24h': { labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'], a: [12, 19, 85, 45, 120, 32, 15], b: [5, 12, 40, 25, 88, 20, 8] },
-      '7d': { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], a: [340, 420, 290, 510, 680, 210, 150], b: [180, 230, 140, 290, 410, 110, 80] },
-      '30d': { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], a: [1420, 1890, 1250, 2100], b: [820, 940, 610, 1150] },
-    };
-    const d = dataByRange[trendRange];
 
-    // Lazy-load Chart.js on first paint
-    import('chart.js/auto').then(({ default: Chart }) => {
-      if (chartInstance.current) chartInstance.current.destroy();
-      chartInstance.current = new Chart(canvas, {
-        type: 'line',
-        data: {
-          labels: d.labels,
-          datasets: [
-            { label: 'BMS Voltage Spikes', data: d.a, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
-            { label: 'Thermal Overheat Flags', data: d.b, borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: true, position: 'top', labels: { color: textColor, boxWidth: 12, padding: 16 } } },
-          scales: {
-            x: { grid: { color: gridColor }, ticks: { color: textColor } },
-            y: { grid: { color: gridColor }, ticks: { color: textColor } },
-          },
-        },
+    summaryApi
+      .getTrend(trendRange)
+      .then((res) => {
+        if (!isMounted || !canvas) return;
+        const labels = res?.labels?.length ? res.labels : ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
+        const dataA = res?.voltage_spikes?.length ? res.voltage_spikes : [12, 19, 85, 45, 120, 32, 15];
+        const dataB = res?.thermal_flags?.length ? res.thermal_flags : [5, 12, 40, 25, 88, 20, 8];
+
+        import('chart.js/auto').then(({ default: Chart }) => {
+          if (!isMounted) return;
+          if (chartInstance.current) chartInstance.current.destroy();
+          chartInstance.current = new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [
+                { label: 'BMS Voltage Spikes', data: dataA, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+                { label: 'Thermal Overheat Flags', data: dataB, borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: true, position: 'top', labels: { color: textColor, boxWidth: 12, padding: 16 } } },
+              scales: {
+                x: { grid: { color: gridColor }, ticks: { color: textColor } },
+                y: { grid: { color: gridColor }, ticks: { color: textColor } },
+              },
+            },
+          });
+        });
+      })
+      .catch(() => {
+        // Fallback default chart
+        import('chart.js/auto').then(({ default: Chart }) => {
+          if (!isMounted || !canvas) return;
+          if (chartInstance.current) chartInstance.current.destroy();
+          chartInstance.current = new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+              datasets: [
+                { label: 'BMS Voltage Spikes', data: [12, 19, 85, 45, 120, 32, 15], borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+                { label: 'Thermal Overheat Flags', data: [5, 12, 40, 25, 88, 20, 8], borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: true, position: 'top', labels: { color: textColor, boxWidth: 12, padding: 16 } } },
+            },
+          });
+        });
       });
-    });
+
     return () => {
+      isMounted = false;
       if (chartInstance.current) chartInstance.current.destroy();
     };
   }, [trendRange]);

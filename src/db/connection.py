@@ -48,8 +48,8 @@ class DuckDBManager:
                     conn = duckdb.connect(self.db_path)
                     break
                 except duckdb.IOException as e:
-                    err_str = str(e)
-                    if any(k in err_str for k in ["Could not set lock", "used by another process", "already open in", "Lock"]):
+                    err_str = str(e).lower()
+                    if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
                         if attempt < 3:
                             time.sleep(0.3)
                         else:

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -17,6 +17,8 @@ import {
   Shield,
   ListChecks,
   Camera,
+  X,
+  Search,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { datasetsApi } from '../../services/api';
@@ -56,6 +58,7 @@ const OPERATIONS = [
 export function Sidebar() {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [activeShortcut, setActiveShortcut] = useState<string>('ev');
+  const [datasetQuery, setDatasetQuery] = useState('');
   const { t } = useTranslation('pipeline');
   const navigate = useNavigate();
   const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
@@ -102,12 +105,52 @@ export function Sidebar() {
 
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
-    navigate('/workspace');
+    const domain = DOMAIN_LIST.find((d) => d.shortcut === shortcut);
+    const datasetKey = domain ? domain.id : shortcut;
+    navigate(`/workspace?dataset_key=${encodeURIComponent(datasetKey)}`);
   };
 
   const openNewChat = () => {
     setActiveShortcut('');
     navigate(`/workspace?new=${Date.now()}`);
+  };
+
+  // Filtered sample datasets
+  const filteredSampleDatasets = useMemo(() => {
+    const q = datasetQuery.toLowerCase().trim();
+    if (!q) return DOMAIN_LIST;
+    return DOMAIN_LIST.filter(
+      (domain) =>
+        domain.name.toLowerCase().includes(q) ||
+        domain.id.toLowerCase().includes(q) ||
+        domain.shortcut.toLowerCase().includes(q)
+    );
+  }, [datasetQuery]);
+
+  // Filtered uploaded datasets
+  const filteredUploadedDatasets = useMemo(() => {
+    const q = datasetQuery.toLowerCase().trim();
+    if (!q) return uploadedDatasets;
+    return uploadedDatasets.filter(
+      (dataset) =>
+        dataset.name.toLowerCase().includes(q) ||
+        dataset.key.toLowerCase().includes(q)
+    );
+  }, [datasetQuery, uploadedDatasets]);
+
+  const hasAnyMatches = filteredSampleDatasets.length > 0 || filteredUploadedDatasets.length > 0;
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredSampleDatasets.length > 0) {
+        selectDomain(filteredSampleDatasets[0].shortcut);
+      } else if (filteredUploadedDatasets.length > 0) {
+        const key = filteredUploadedDatasets[0].key;
+        setActiveShortcut(key);
+        navigate(`/workspace?dataset_key=${encodeURIComponent(key)}`);
+      }
+    }
   };
 
   return (
@@ -136,44 +179,94 @@ export function Sidebar() {
 
           {chatMenuOpen && (
             <div className="agent-chat-subpanel show" style={{ display: 'block' }}>
-              <div className="subpanel-header">
-                <input type="text" className="search-box" placeholder={t('searchPlaceholder')} />
-              </div>
-              <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '6px', padding: '0 4px' }}>{t('sampleDatasets')}</div>
-
-              {DOMAIN_LIST.map((domain) => {
-                const Icon = DS_ICONS[domain.shortcut] || Database;
-                return (
-                  <a
-                    key={domain.id}
-                    href={`#/workspace`}
-                    className={`shortcut-item ${activeShortcut === domain.shortcut ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      selectDomain(domain.shortcut);
+              <div className="subpanel-header" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Search size={13} style={{ position: 'absolute', left: '10px', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="search-box"
+                  style={{ paddingLeft: '28px', paddingRight: datasetQuery ? '28px' : '10px' }}
+                  placeholder={t('searchPlaceholder') || 'Filter datasets...'}
+                  value={datasetQuery}
+                  onChange={(e) => setDatasetQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  autoFocus
+                />
+                {datasetQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setDatasetQuery('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: 2,
                     }}
+                    title="Clear filter"
                   >
-                    <div className={`ds-icon ${domain.shortcut}`}><Icon size={14} /></div>
-                    <span>{domain.name}</span>
-                  </a>
-                );
-              })}
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
 
-              {uploadedDatasets.map((dataset) => (
-                <a
-                  key={dataset.key}
-                  href="#/workspace"
-                  className={`shortcut-item ${activeShortcut === dataset.key ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setActiveShortcut(dataset.key);
-                    navigate(`/workspace?dataset_key=${encodeURIComponent(dataset.key)}`);
-                  }}
-                >
-                  <div className="ds-icon"><Database size={14} /></div>
-                  <span>{dataset.name}</span>
-                </a>
-              ))}
+              {!hasAnyMatches && (
+                <div style={{ padding: '12px 8px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  No datasets match "{datasetQuery}"
+                </div>
+              )}
+
+              {filteredSampleDatasets.length > 0 && (
+                <>
+                  <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '6px', padding: '0 4px' }}>
+                    {t('sampleDatasets')}
+                  </div>
+
+                  {filteredSampleDatasets.map((domain) => {
+                    const Icon = DS_ICONS[domain.shortcut] || Database;
+                    return (
+                      <a
+                        key={domain.id}
+                        href="#/workspace"
+                        className={`shortcut-item ${activeShortcut === domain.shortcut ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          selectDomain(domain.shortcut);
+                        }}
+                      >
+                        <div className={`ds-icon ${domain.shortcut}`}><Icon size={14} /></div>
+                        <span>{domain.name}</span>
+                      </a>
+                    );
+                  })}
+                </>
+              )}
+
+              {filteredUploadedDatasets.length > 0 && (
+                <>
+                  <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '8px', padding: '0 4px' }}>
+                    UPLOADED DATASETS
+                  </div>
+                  {filteredUploadedDatasets.map((dataset) => (
+                    <a
+                      key={dataset.key}
+                      href="#/workspace"
+                      className={`shortcut-item ${activeShortcut === dataset.key ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveShortcut(dataset.key);
+                        navigate(`/workspace?dataset_key=${encodeURIComponent(dataset.key)}`);
+                      }}
+                    >
+                      <div className="ds-icon"><Database size={14} /></div>
+                      <span>{dataset.name}</span>
+                    </a>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -197,7 +290,7 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-footer" style={{ marginTop: '12px' }}>
-        <div className="dataset-lib-badge">
+        <div className="dataset-lib-badge" onClick={() => navigate('/workspace')} style={{ cursor: 'pointer' }}>
           <Database size={18} />
           <div>
             <div className="lib-title">{t('datasetLibrary')}</div>

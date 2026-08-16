@@ -8,8 +8,10 @@ export function getRoleHeader(): string {
 
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const customHeaders = (options.headers as Record<string, string>) || {};
+  const token = localStorage.getItem('datatrust-token') || 'mock-jwt-token-datatrust-v3';
   const headers: Record<string, string> = {
     'X-User-Role': getRoleHeader(),
+    'Authorization': `Bearer ${token}`,
     ...customHeaders,
   };
 
@@ -184,8 +186,16 @@ export interface SummaryInfo {
   system_status: string;
 }
 
+export interface TrendInfo {
+  range: string;
+  labels: string[];
+  voltage_spikes: number[];
+  thermal_flags: number[];
+}
+
 export const summaryApi = {
   get: () => request<SummaryInfo>('/summary'),
+  getTrend: (range: string = '24h') => request<TrendInfo>(`/summary/trend?range=${encodeURIComponent(range)}`),
 };
 
 export interface IncidentInfo {
@@ -407,6 +417,34 @@ export interface EvaluationMetricsInfo {
   time_saved_vs_c0_pct: number;
   precision_gain_vs_c1_pct: number;
 }
+
+export interface SearchHit {
+  objectID?: string;
+  entity_type?: string;
+  key?: string;
+  name?: string;
+  title?: string;
+  path?: string;
+  description?: string;
+  rule_expression?: string;
+  severity?: string;
+  [key: string]: any;
+}
+
+export interface SearchResponse {
+  status: string;
+  query: string;
+  entity_type?: string | null;
+  count: number;
+  results: SearchHit[];
+}
+
+export const searchApi = {
+  search: (query: string, entityType?: string, limit: number = 10) =>
+    request<SearchResponse>(
+      `/search?q=${encodeURIComponent(query)}${entityType ? `&entity_type=${encodeURIComponent(entityType)}` : ''}&limit=${limit}`
+    ),
+};
 
 export const evaluationApi = {
   get: () => request<EvaluationMetricsInfo>('/evaluation'),

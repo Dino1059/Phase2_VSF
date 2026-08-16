@@ -34,14 +34,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     ai_studio_api_key: str = Field(default="", validation_alias="AI_STUDIO_API_KEY")
     google_ai_api_keys: str = Field(default="", validation_alias="GOOGLE_AI_API_KEYS")
-    google_ai_model: str = Field(default="gemini-2.5-flash", validation_alias="GOOGLE_AI_MODEL")
-    ai_model: str = Field(default="gemini-2.5-flash", validation_alias="AI_MODEL")
+    google_ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="GOOGLE_AI_MODEL")
+    ai_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="AI_MODEL")
     
     # Ollama (local Gemma - free, unlimited)
     ollama_base_url: str = Field(default="http://localhost:11434", validation_alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="gemma3:4b", validation_alias="OLLAMA_MODEL")
     
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-3.5-flash-lite"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_timeout: int = Field(default=60, ge=5, le=300)
 
@@ -61,19 +61,31 @@ class Settings(BaseSettings):
     sentry_dsn: str = Field(default="", validation_alias="SENTRY_DSN")
 
     # Dataset registry
-    raw_data_dir: str = "./data/raw"
-    default_dataset: str = "nyc_fhvhv"
+    raw_data_dir: str = "./data_new/raw_public"
+    default_dataset: str = "vinfast_ev_telemetry"
     dataset_registry: dict = {
-        "nyc_fhvhv": "data/raw/nyc_fhvhv_2024_01.parquet",
-        "grab_sea_demand": "data/raw/grab_sea_demand/GrabAIChallenge2019Dataset/Traffic Management/training.csv",
-        "weather_hcmc": "data/weather/hcmc_weather_2024.parquet",
-        "vietnam_trips": "data/synthetic/vietnam_trips.parquet",
-        "vietnam_trips_dirty": "data/synthetic/vietnam_trips_dirty.parquet",
-        "vietnam_ecommerce_test": "data/vietnam_ecommerce_test.csv",
+        "nyc_fhvhv": "archive/data/raw/nyc_fhvhv_2024_01.parquet",
+        "grab_sea_demand": "archive/data/raw/grab_sea_demand/GrabAIChallenge2019Dataset/Traffic Management/training.csv",
+        "weather_hcmc": "archive/data/weather/hcmc_weather_2024.parquet",
+        "vietnam_trips": "archive/data/synthetic/vietnam_trips.parquet",
+        "vietnam_trips_dirty": "archive/data/synthetic/vietnam_trips_dirty.parquet",
+        "vietnam_ecommerce_test": "archive/data/vietnam_ecommerce_test.csv",
         "vinfast_ev_telemetry_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "vinfast_ev_telemetry": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "ev_telemetry": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
+        "vinfast_bms": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
         "vgreen_charging_stations_dirty": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
+        "vgreen_charging_stations": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
+        "vgreen_charging": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
+        "vgreen_telemetry": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
         "xanh_sm_trips_dirty": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "xanh_sm_trips": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
+        "xanhsm_trips": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
         "xanh_sm_customer_feedback_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "xanh_sm_customer_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "xanhsm_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "customer_nlp": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
+        "nlp_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
         "real_vinfast_ev_telemetry": "data_new/vingroup_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
         "real_vgreen_charging_stations": "data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
         "real_xanh_sm_trips": "data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
@@ -165,7 +177,7 @@ class Settings(BaseSettings):
             "tag": "Synthetic Dataset",
         },
     }
-    fault_manifest_path: str = "data/synthetic/fault_manifest.json"
+    fault_manifest_path: str = "data_new/vingroup_faulty_pilot_dataset/fault_manifest.json"
     profile_sample_size: int = 100_000
 
     def get_dataset_provenance(self, key: str) -> DataProvenance:

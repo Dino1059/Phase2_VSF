@@ -1,8 +1,12 @@
 import uuid
 import datetime
 import logging
+import json
+import hmac
+import hashlib
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
+import httpx
 from pydantic import BaseModel, Field
 from src.services.security import validate_webhook_url
 
@@ -51,9 +55,10 @@ class Alert(BaseModel):
 class AlertService:
     """Alert Service managing in-app notifications and webhook dispatch."""
 
-    def __init__(self, default_webhook_url: Optional[str] = None):
+    def __init__(self, default_webhook_url: Optional[str] = None, webhook_secret: str = "datatrust-secret-key"):
         self._alerts: Dict[str, Alert] = {}
         self.default_webhook_url = default_webhook_url
+        self.webhook_secret = webhook_secret
 
     def create_alert(
         self,
@@ -108,10 +113,18 @@ class AlertService:
             "alert": alert.model_dump(),
             "dispatched_at": datetime.datetime.now().isoformat(),
         }
+        payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+        signature = hmac.new(self.webhook_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-DataTrust-Signature": f"sha256={signature}",
+            "User-Agent": "DataTrust-AlertService/4.2"
+        }
 
         try:
             with httpx.Client(timeout=5.0) as client:
-                resp = client.post(target_url, json=payload)
+                resp = client.post(target_url, content=payload_bytes, headers=headers)
                 if resp.status_code in (200, 201, 202, 204):
                     logger.info(f"Successfully dispatched webhook for alert {alert.alert_id} to {target_url}")
                     return True

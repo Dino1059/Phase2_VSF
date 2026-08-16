@@ -1,10 +1,13 @@
 import os
 import time
+import logging
 from typing import Callable, Optional, Set, Dict, Any, Tuple
 from enum import Enum
 import jwt
 from fastapi import Request, Response, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger(__name__)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "datatrust-secret-key-v6-signed-jwt-authentication-token-secret-key-32bytes")
 JWT_ALGORITHM = "HS256"
@@ -94,35 +97,47 @@ def create_access_token(data: dict, expires_delta: Optional[int] = None) -> str:
 def decode_access_token(token: str) -> Optional[dict]:
     if not token:
         return None
-    if token in MOCK_TOKEN_REGISTRY:
-        role = MOCK_TOKEN_REGISTRY[token]
-        return {
-            "sub": f"{role.value.lower()}@datatrust.os",
-            "user_id": f"usr_{role.value.lower()}_01",
-            "role": role.value,
-        }
 
-    valid_roles = {
-        "Admin": UserRole.ADMIN,
-        "Analyst": UserRole.ANALYST,
-        "Auditor": UserRole.AUDITOR,
-        "Steward": UserRole.STEWARD,
-        "Viewer": UserRole.VIEWER,
-    }
-    cap_token = token.capitalize()
-    if cap_token in valid_roles:
-        role = valid_roles[cap_token]
-        return {
-            "sub": f"{role.value.lower()}@datatrust.os",
-            "user_id": f"usr_{role.value.lower()}_01",
-            "role": role.value,
-        }
-
+    # 1. Primary: Cryptographic JWT verification with expiration check
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
-    except Exception:
+    except jwt.ExpiredSignatureError:
+        logger.warning("Expired JWT token received.")
         return None
+    except jwt.InvalidTokenError:
+        pass
+    except Exception:
+        pass
+
+    # 2. Secondary: Mock token fallback for local dev & automated test suites
+    app_env = os.getenv("APP_ENV", "development").lower()
+    if app_env != "production":
+        if token in MOCK_TOKEN_REGISTRY:
+            role = MOCK_TOKEN_REGISTRY[token]
+            return {
+                "sub": f"{role.value.lower()}@datatrust.os",
+                "user_id": f"usr_{role.value.lower()}_01",
+                "role": role.value,
+            }
+
+        valid_roles = {
+            "Admin": UserRole.ADMIN,
+            "Analyst": UserRole.ANALYST,
+            "Auditor": UserRole.AUDITOR,
+            "Steward": UserRole.STEWARD,
+            "Viewer": UserRole.VIEWER,
+        }
+        cap_token = token.capitalize()
+        if cap_token in valid_roles:
+            role = valid_roles[cap_token]
+            return {
+                "sub": f"{role.value.lower()}@datatrust.os",
+                "user_id": f"usr_{role.value.lower()}_01",
+                "role": role.value,
+            }
+
+    return None
 
 
 def resolve_server_user_role(username_or_id: str) -> UserRole:

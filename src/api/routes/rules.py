@@ -44,26 +44,41 @@ async def propose_rules_endpoint(request: ProposeRulesRequest) -> ProposeRulesRe
             import inspect
             res = runner.run(df)
             result = await res if inspect.isawaitable(res) else res
-        rules_out = [
-            RuleSchema(
-                rule_id=r.rule_id,
-                rule_type=r.rule_type,
-                target_column=r.target_column,
-                action=r.action,
-                parameters=r.parameters,
-                severity=r.severity,
-                description=r.description,
-            )
-            for r in result.rules_proposed
-        ]
+        rules_out = []
+        for r in result.rules_proposed:
+            if hasattr(r, "rule_id"):
+                rules_out.append(
+                    RuleSchema(
+                        rule_id=r.rule_id,
+                        rule_type=r.rule_type,
+                        target_column=r.target_column,
+                        action=r.action,
+                        parameters=r.parameters,
+                        severity=r.severity,
+                        description=r.description or "",
+                    )
+                )
+            elif isinstance(r, dict):
+                rules_out.append(
+                    RuleSchema(
+                        rule_id=r.get("rule_id", f"rule_{uuid.uuid4().hex[:6]}"),
+                        rule_type=r.get("rule_type", "range"),
+                        target_column=r.get("target_column"),
+                        action=r.get("action", "quarantine"),
+                        parameters=r.get("parameters"),
+                        severity=r.get("severity", "warning"),
+                        description=r.get("description", ""),
+                    )
+                )
 
         state_machine.proposed_rules_count = len(rules_out)
         if state_machine.current_state == WorkflowState.PROFILED:
             state_machine.transition_to(WorkflowState.RULES_PROPOSED)
 
+        cost = getattr(result, "cost_usd", getattr(result, "cost_tokens", 0) * 0.00001)
         audit_store.record_event(
             "rule_proposal",
-            {"variant": variant, "rules_count": len(rules_out), "cost_usd": result.cost_usd},
+            {"variant": variant, "rules_count": len(rules_out), "cost_usd": cost},
         )
 
         return ProposeRulesResponse(

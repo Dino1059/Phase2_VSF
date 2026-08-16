@@ -32,6 +32,8 @@ from src.api.pipeline import pipeline_router
 from src.api.traces import traces_router
 from src.api.quarantine_api import quarantine_router
 from src.api.snapshots import snapshots_router
+from src.api.routes.telemetry import telemetry_router
+from src.services.ingestion import streaming_worker
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
 from src.services.scheduler import scheduler_service
@@ -66,8 +68,10 @@ async def lifespan(app: FastAPI):
     db = get_db()
     db.init_schema()
     print(f"DuckDB initialized at {db.db_path}")
+    streaming_worker.start()
     scheduler_service.start()
     yield
+    streaming_worker.stop()
     scheduler_service.shutdown()
     get_db().close()
     print("Shutting down DataTrust OS...")
@@ -128,6 +132,7 @@ app.include_router(traces_router, prefix="/api/v1")
 app.include_router(quarantine_router, prefix="/api/v1")
 app.include_router(snapshots_router, prefix="/api/v1")
 app.include_router(hitl_router, prefix="/api/v1")
+app.include_router(telemetry_router, prefix="/api/v1")
 
 
 @app.get("/health")
@@ -181,54 +186,46 @@ async def serve_favicon_svg():
 
 
 # Mount static assets
+dist_assets_dir = os.path.join(UI_DIR_V3, "assets")
+if os.path.exists(dist_assets_dir):
+    app.mount("/assets", StaticFiles(directory=dist_assets_dir), name="assets")
+elif os.path.exists(os.path.join(UI_DIR_V2, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(UI_DIR_V2, "assets")), name="assets")
+
 if os.path.exists(UI_DIR_V2):
     app.mount("/static", StaticFiles(directory=UI_DIR_V2), name="static")
-    assets_dir = os.path.join(UI_DIR_V2, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-# Mount /v3/assets to frontend-v3/dist/assets (or fallback)
-v3_assets_dir = os.path.join(UI_DIR_V3, "assets")
-if not os.path.exists(v3_assets_dir):
-    v3_src_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "src", "assets")
-    v2_assets_dir = os.path.join(UI_DIR_V2, "assets")
-    if os.path.exists(v3_src_assets):
-        v3_assets_dir = v3_src_assets
-    elif os.path.exists(v2_assets_dir):
-        v3_assets_dir = v2_assets_dir
-
-if os.path.exists(v3_assets_dir):
-    app.mount("/v3/assets", StaticFiles(directory=v3_assets_dir), name="v3_assets")
 
 if os.path.exists(UI_DIR_V3):
-    app.mount("/v3/static", StaticFiles(directory=UI_DIR_V3), name="v3_static")
+    app.mount("/v3/assets", StaticFiles(directory=dist_assets_dir if os.path.exists(dist_assets_dir) else UI_DIR_V3), name="v3_assets")
 
 
-# v3 UI Endpoint (handles /v3, /v3/, and SPA client-side routes under /v3/*)
+# Primary Frontend SPA Endpoint at root /
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    if os.path.exists(INDEX_HTML_V3):
+        return FileResponse(INDEX_HTML_V3)
+    frontend_src_index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    if os.path.exists(frontend_src_index):
+        return FileResponse(frontend_src_index)
+    if os.path.exists(INDEX_HTML_V2):
+        return FileResponse(INDEX_HTML_V2)
+    return HTMLResponse("<html><body><h1>DataTrust OS</h1><p>Frontend loading...</p></body></html>")
+
+
+# Redirect legacy /v3 to /
 @app.get("/v3", response_class=HTMLResponse)
 @app.get("/v3/", response_class=HTMLResponse)
 @app.get("/v3/{full_path:path}", response_class=HTMLResponse)
 async def serve_v3(full_path: str = ""):
     if os.path.exists(INDEX_HTML_V3):
         return FileResponse(INDEX_HTML_V3)
-    frontend_v3_src_index = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
-    if os.path.exists(frontend_v3_src_index):
-        return FileResponse(frontend_v3_src_index)
-    return HTMLResponse("<html><body><h1>DataTrust OS v3</h1><p>v3 build pending. Run <code>pnpm run build</code> in frontend.</p></body></html>")
+    return await serve_index()
 
 
-# v2 Guided Workflow Web UI at GET / and GET /ui
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    target_path = INDEX_HTML_V2 if os.path.exists(INDEX_HTML_V2) else APP_HTML_V2
-    if os.path.exists(target_path):
-        return FileResponse(target_path)
-    return HTMLResponse("<html><body><h1>DataTrust OS Web UI</h1><p>UI loading...</p></body></html>")
-
-
+# Legacy V2 Guided Workflow Web UI at GET /ui
 @app.get("/ui", response_class=HTMLResponse)
 async def serve_ui():
     target_path = APP_HTML_V2 if os.path.exists(APP_HTML_V2) else INDEX_HTML_V2
     if os.path.exists(target_path):
         return FileResponse(target_path)
-    return HTMLResponse("<html><body><h1>DataTrust OS Web UI</h1><p>UI loading...</p></body></html>")
+    return await serve_index()

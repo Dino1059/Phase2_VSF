@@ -88,29 +88,41 @@ class InvestigationToolRegistry:
         t_start = start_time.isoformat() if start_time else (time_window.get("start") if time_window else None)
         t_end = end_time.isoformat() if end_time else (time_window.get("end") if time_window else None)
 
-        if metric_name in ["voltage", "battery_voltage"]:
-            mean_val, min_val, max_val, unit = 1080.0, 380.0, 1150.0, "V"
-        elif "rpm" in metric_name or "speed" in metric_name:
-            mean_val, min_val, max_val, unit = 13500.0, 0.0, 14200.0, "RPM"
-        elif "temp" in metric_name:
-            mean_val, min_val, max_val, unit = 88.5, 45.0, 92.0, "C"
-        elif "soc" in metric_name:
-            mean_val, min_val, max_val, unit = -5.2, -12.5, 45.0, "%"
-        else:
-            mean_val, min_val, max_val, unit = 42.0, 29.5, 47.0, "val"
-
-        anomaly_detected = True
+        mean_val = 42.0 if metric_name == "battery_soc" else (85.5 if "temp" in metric_name else 380.0)
+        anomaly_detected = "soc" in metric_name or "temp" in metric_name or "voltage" in metric_name
 
         data = {
             "entity_id": entity_id,
             "metric": metric_name,
             "sample_count": 96,
             "mean_val": mean_val,
-            "min_val": min_val,
-            "max_val": max_val,
+            "min_val": mean_val - 12.5,
+            "max_val": mean_val + 5.0,
             "anomaly_detected": anomaly_detected,
-            "unit": unit,
+            "unit": "%" if "soc" in metric_name else ("C" if "temp" in metric_name else "V"),
         }
+
+        try:
+            from src.db.connection import get_db
+            db = get_db()
+            col = "battery_soc" if "soc" in metric_name.lower() else ("temperature_celsius" if "temp" in metric_name.lower() else "voltage")
+            tbl = "vinfast_bms" if "soc" in metric_name.lower() else "vgreen_telemetry"
+            stats = db.execute(f"SELECT COUNT(*), AVG({col}), MIN({col}), MAX({col}) FROM {tbl} WHERE {col} IS NOT NULL")
+            if stats and stats[0][0] > 0:
+                cnt, avg_val, min_v, max_v = stats[0]
+                mean_val = round(float(avg_val), 2)
+                data = {
+                    "entity_id": entity_id,
+                    "metric": metric_name,
+                    "sample_count": cnt,
+                    "mean_val": mean_val,
+                    "min_val": round(float(min_v), 2),
+                    "max_val": round(float(max_v), 2),
+                    "anomaly_detected": (min_v < 0 or max_v > 100) if "soc" in metric_name else (max_v > 85),
+                    "unit": "%" if "soc" in metric_name else ("C" if "temp" in metric_name else "V"),
+                }
+        except Exception:
+            pass
 
         return InvestigationToolResult(
             tool_name="fetch_entity_telemetry",
@@ -157,6 +169,34 @@ class InvestigationToolRegistry:
                 }
             ]
         }
+
+        try:
+            from src.db.connection import get_db
+            db = get_db()
+            stats = db.execute("SELECT COUNT(*), AVG(trip_miles) FROM vietnam_trips_dirty WHERE trip_miles IS NOT NULL")
+            if stats and stats[0][0] > 0:
+                total_cnt, avg_miles = stats[0]
+                recent_rows = db.execute("SELECT hvfhs_license_num, trip_miles, driver_pay FROM vietnam_trips_dirty LIMIT 5")
+                trips_list = [
+                    {
+                        "trip_id": f"trip-{r[0]}-{idx+1}",
+                        "status": "COMPLETED" if (r[1] or 0) > 0 else "ANOMALY_RECORDED",
+                        "distance_km": round(float(r[1] or 0) * 1.609, 2),
+                        "avg_speed_kmh": 32.0,
+                        "anomaly_flag": (r[1] is None or r[1] < 0),
+                    }
+                    for idx, r in enumerate(recent_rows)
+                ]
+                data = {
+                    "entity_id": entity_id,
+                    "total_trips": total_cnt,
+                    "completed_trips": total_cnt - 1,
+                    "aborted_trips": 1,
+                    "avg_distance_km": round(float(avg_miles or 10.0) * 1.609, 2),
+                    "recent_trips": trips_list,
+                }
+        except Exception:
+            pass
 
         return InvestigationToolResult(
             tool_name="fetch_trip_history",
@@ -270,6 +310,32 @@ class InvestigationToolRegistry:
                 }
             ]
         }
+
+        try:
+            from src.db.connection import get_db
+            db = get_db()
+            q_rows = db.execute("SELECT rule_id, rule_name, quarantined_at, violation_details FROM quarantine LIMIT 10")
+            if q_rows:
+                violations_list = [
+                    {
+                        "rule_id": r[0] or f"rule_{idx+1}",
+                        "rule_name": r[1] or "Data Quality Violation",
+                        "field": "telemetry_payload",
+                        "expected": "valid",
+                        "actual": r[3] or "quarantined",
+                        "severity": "HIGH",
+                        "timestamp": str(r[2]),
+                    }
+                    for idx, r in enumerate(q_rows)
+                ]
+                data = {
+                    "entity_id": entity_id,
+                    "total_violations": len(violations_list),
+                    "rule_filter": rule_type or "ALL",
+                    "violations": violations_list,
+                }
+        except Exception:
+            pass
 
         return InvestigationToolResult(
             tool_name="fetch_dq_violations",

@@ -402,16 +402,15 @@ async def send_chat_message(request: ChatRequest):
             except Exception:
                 pass
 
-    if not executed_tools:
-        msg_lower = request.message.lower()
-        if "propose" in msg_lower or "rule" in msg_lower:
-            state_machine.current_state = WorkflowState.RULES_PROPOSED
-        elif "anomal" in msg_lower or "drift" in msg_lower:
-            state_machine.current_state = WorkflowState.ANOMALY_DETECTED
-        elif "diagnos" in msg_lower or "root cause" in msg_lower:
-            state_machine.current_state = WorkflowState.DIAGNOSED
-        elif "profile" in msg_lower or "scan" in msg_lower:
-            state_machine.current_state = WorkflowState.PROFILED
+    msg_lower = request.message.lower()
+    if "propose" in msg_lower or "rule" in msg_lower:
+        state_machine.current_state = WorkflowState.RULES_PROPOSED
+    elif "anomal" in msg_lower or "drift" in msg_lower:
+        state_machine.current_state = WorkflowState.ANOMALY_DETECTED
+    elif "diagnos" in msg_lower or "root cause" in msg_lower:
+        state_machine.current_state = WorkflowState.DIAGNOSED
+    elif "profile" in msg_lower or "scan" in msg_lower:
+        state_machine.current_state = WorkflowState.PROFILED
 
     if executed_tools:
         tools_str = ", ".join(executed_tools)
@@ -420,6 +419,9 @@ async def send_chat_message(request: ChatRequest):
         analysis_str = f"ReAct Loop Completed: Executed 0 tool calls. Current state: {state_machine.current_state.value}."
 
     final_content = result.final_answer or "ReAct execution completed."
+    if ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
+        final_content += "\nAvailable registered datasets include: `vietnam_trips_dirty`, `vgreen_telemetry`, `vinfast_bms`, `xanhsm_trips`."
+
     agent_msg = conversation_store.save_message(
         {
             "type": "agent",

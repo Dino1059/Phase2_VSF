@@ -1,1112 +1,442 @@
 [
   {
-    "case_id": "CASE-F10_SOC_Degradation_Drift-1",
-    "case_name": "SOC discharge rate degradation: entity VF8VNF_0016 drifted -30.0% from day 8 to 12 (baseline=58.53)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F10_SOC_Degradation_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 21600,
-    "column": "battery_soc",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "f10",
-        "drift",
-        "soc",
-        "degradation"
-      ],
-      "is_false_positive": false,
-      "notes": "SOC discharge rate degradation: entity VF8VNF_0016 drifted -30.0% from day 8 to 12 (baseline=58.53)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-TYPE-01",
+    "name": "Type Error in VGreen Temperature",
+    "fault_family": "type_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "temperature_celsius",
+    "ground_truth_fault_id": "GT-TYPE-01",
+    "description": "String literal 'HOT' injected into numeric column",
+    "difficulty": "easy",
+    "seed": 42
   },
   {
-    "case_id": "CASE-F10_SOC_Degradation_Drift-2",
-    "case_name": "SOC discharge rate degradation: entity VF8VNF_0050 drifted -30.0% from day 8 to 12 (baseline=58.77)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F10_SOC_Degradation_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 70560,
-    "column": "battery_soc",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "f10",
-        "drift",
-        "soc",
-        "degradation"
-      ],
-      "is_false_positive": false,
-      "notes": "SOC discharge rate degradation: entity VF8VNF_0050 drifted -30.0% from day 8 to 12 (baseline=58.77)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-TYPE-02",
+    "name": "Type Error in VinFast Battery SoC",
+    "fault_family": "type_error",
+    "target_table": "vinfast_bms",
+    "target_column": "battery_soc",
+    "ground_truth_fault_id": "GT-TYPE-02",
+    "description": "Alphabetical characters in battery SoC metric",
+    "difficulty": "easy",
+    "seed": 43
   },
   {
-    "case_id": "CASE-F10_SOC_Degradation_Drift-3",
-    "case_name": "SOC discharge rate degradation: entity VF8VNF_0060 drifted -30.0% from day 8 to 12 (baseline=60.75)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F10_SOC_Degradation_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 84960,
-    "column": "battery_soc",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "f10",
-        "drift",
-        "soc",
-        "degradation"
-      ],
-      "is_false_positive": false,
-      "notes": "SOC discharge rate degradation: entity VF8VNF_0060 drifted -30.0% from day 8 to 12 (baseline=60.75)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-TYPE-03",
+    "name": "Type Error in XanhSM Trip Fare",
+    "fault_family": "type_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "fare",
+    "ground_truth_fault_id": "GT-TYPE-03",
+    "description": "Currency string with symbols injected in numeric float column",
+    "difficulty": "medium",
+    "seed": 44
   },
   {
-    "case_id": "CASE-F11_BatteryTemp_Drift-1",
-    "case_name": "Battery temp drift: entity VF8VNF_0003 drifted 25.0% from day 8 to 12 (baseline=31.88)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F11_BatteryTemp_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 2880,
-    "column": "battery_temp_c",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "OPERATIONAL",
-      "correct_claim_keywords": [
-        "drift",
-        "f11",
-        "batterytemp"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery temp drift: entity VF8VNF_0003 drifted 25.0% from day 8 to 12 (baseline=31.88)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-TYPE-04",
+    "name": "Type Error in Vietnam Trips Miles",
+    "fault_family": "type_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "trip_miles",
+    "ground_truth_fault_id": "GT-TYPE-04",
+    "description": "Non-numeric string value in trip distance",
+    "difficulty": "medium",
+    "seed": 45
   },
   {
-    "case_id": "CASE-F11_BatteryTemp_Drift-2",
-    "case_name": "Battery temp drift: entity VF8VNF_0048 drifted 25.0% from day 8 to 12 (baseline=32.00)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F11_BatteryTemp_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 67680,
-    "column": "battery_temp_c",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "OPERATIONAL",
-      "correct_claim_keywords": [
-        "drift",
-        "f11",
-        "batterytemp"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery temp drift: entity VF8VNF_0048 drifted 25.0% from day 8 to 12 (baseline=32.00)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-TYPE-05",
+    "name": "Type Error in VGreen Voltage",
+    "fault_family": "type_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "voltage",
+    "ground_truth_fault_id": "GT-TYPE-05",
+    "description": "Invalid boolean string in float voltage field",
+    "difficulty": "hard",
+    "seed": 46
   },
   {
-    "case_id": "CASE-F11_BatteryTemp_Drift-3",
-    "case_name": "Battery temp drift: entity VF8VNF_0006 drifted 25.0% from day 8 to 12 (baseline=31.98)",
-    "category": "L2_CONTEXTUAL",
-    "difficulty": "MEDIUM",
-    "layer": "L2",
-    "fault_family": "F11_BatteryTemp_Drift",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 7200,
-    "column": "battery_temp_c",
-    "signal_type": "CONTEXTUAL_DRIFT",
-    "ground_truth": {
-      "correct_classification": "OPERATIONAL",
-      "correct_claim_keywords": [
-        "drift",
-        "f11",
-        "batterytemp"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery temp drift: entity VF8VNF_0006 drifted 25.0% from day 8 to 12 (baseline=31.98)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-RANGE-01",
+    "name": "Range Error in VGreen Temperature",
+    "fault_family": "range_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "temperature_celsius",
+    "ground_truth_fault_id": "GT-RANGE-01",
+    "description": "Sub-zero impossible temperature -999.0C",
+    "difficulty": "easy",
+    "seed": 47
   },
   {
-    "case_id": "CASE-F13_ChargingTrip_Mismatch",
-    "case_name": "Charging sessions duplicated 2× for 5 VINs in day 8-15 but trips count unchanged (L3 relational break)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F13_ChargingTrip_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 0,
-    "column": "session_id",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "chargingtrip",
-        "mismatch",
-        "f13"
-      ],
-      "is_false_positive": false,
-      "notes": "Charging sessions duplicated 2× for 5 VINs in day 8-15 but trips count unchanged (L3 relational break)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-RANGE-02",
+    "name": "Range Error in Battery SoC Over 100",
+    "fault_family": "range_error",
+    "target_table": "vinfast_bms",
+    "target_column": "battery_soc",
+    "ground_truth_fault_id": "GT-RANGE-02",
+    "description": "Battery state of charge exceeding 100% (145.0%)",
+    "difficulty": "easy",
+    "seed": 48
   },
   {
-    "case_id": "CASE-F14_DurationEnergy_Mismatch-1",
-    "case_name": "Duration 65.7→197.1min but kwh 3.7→1.9 (expected kwh ratio should follow duration)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F14_DurationEnergy_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 178,
-    "column": "duration_mins",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "mismatch",
-        "durationenergy",
-        "f14"
-      ],
-      "is_false_positive": false,
-      "notes": "Duration 65.7→197.1min but kwh 3.7→1.9 (expected kwh ratio should follow duration)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-RANGE-03",
+    "name": "Range Error in Negative Fare",
+    "fault_family": "range_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "fare",
+    "ground_truth_fault_id": "GT-RANGE-03",
+    "description": "Negative fare value -50000 VND",
+    "difficulty": "medium",
+    "seed": 49
   },
   {
-    "case_id": "CASE-F14_DurationEnergy_Mismatch-2",
-    "case_name": "Duration 570.4→1711.1min but kwh 2.8→1.4 (expected kwh ratio should follow duration)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F14_DurationEnergy_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 863,
-    "column": "duration_mins",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "mismatch",
-        "durationenergy",
-        "f14"
-      ],
-      "is_false_positive": false,
-      "notes": "Duration 570.4→1711.1min but kwh 2.8→1.4 (expected kwh ratio should follow duration)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-RANGE-04",
+    "name": "Range Error in Duty Cycle",
+    "fault_family": "range_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "duty_cycle",
+    "ground_truth_fault_id": "GT-RANGE-04",
+    "description": "Duty cycle ratio exceeding 100% (250.0%)",
+    "difficulty": "medium",
+    "seed": 50
   },
   {
-    "case_id": "CASE-F14_DurationEnergy_Mismatch-3",
-    "case_name": "Duration 7.0→20.9min but kwh 0.6→0.3 (expected kwh ratio should follow duration)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F14_DurationEnergy_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 325,
-    "column": "duration_mins",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "mismatch",
-        "durationenergy",
-        "f14"
-      ],
-      "is_false_positive": false,
-      "notes": "Duration 7.0→20.9min but kwh 0.6→0.3 (expected kwh ratio should follow duration)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-RANGE-05",
+    "name": "Range Error in Cell Max Temperature",
+    "fault_family": "range_error",
+    "target_table": "vinfast_bms",
+    "target_column": "cell_temp_max",
+    "ground_truth_fault_id": "GT-RANGE-05",
+    "description": "Thermal runaway extreme temp 180.0C",
+    "difficulty": "hard",
+    "seed": 51
   },
   {
-    "case_id": "CASE-F14_DurationEnergy_Mismatch-4",
-    "case_name": "Duration 677.1→2031.4min but kwh 3.4→1.7 (expected kwh ratio should follow duration)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F14_DurationEnergy_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 688,
-    "column": "duration_mins",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "mismatch",
-        "durationenergy",
-        "f14"
-      ],
-      "is_false_positive": false,
-      "notes": "Duration 677.1→2031.4min but kwh 3.4→1.7 (expected kwh ratio should follow duration)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-REF-01",
+    "name": "Referential Error in Station ID",
+    "fault_family": "referential_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "station_id",
+    "ground_truth_fault_id": "GT-REF-01",
+    "description": "Orphaned station ID not existing in charging hub master registry",
+    "difficulty": "easy",
+    "seed": 52
   },
   {
-    "case_id": "CASE-F14_DurationEnergy_Mismatch-5",
-    "case_name": "Duration 76.8→230.3min but kwh 8.1→4.0 (expected kwh ratio should follow duration)",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F14_DurationEnergy_Mismatch",
-    "dataset": "acn_charging_mapped",
-    "original_index": 232,
-    "column": "duration_mins",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "mismatch",
-        "durationenergy",
-        "f14"
-      ],
-      "is_false_positive": false,
-      "notes": "Duration 76.8→230.3min but kwh 8.1→4.0 (expected kwh ratio should follow duration)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-REF-02",
+    "name": "Referential Error in Vehicle VIN",
+    "fault_family": "referential_error",
+    "target_table": "vinfast_bms",
+    "target_column": "vehicle_id",
+    "ground_truth_fault_id": "GT-REF-02",
+    "description": "Vehicle ID not present in active VinFast fleet table",
+    "difficulty": "medium",
+    "seed": 53
   },
   {
-    "case_id": "CASE-F15_ChargingFrequency_Shift",
-    "case_name": "Charging frequency shift: 5 VINs jumped from ~1/day to ~3/day from day 8 onward (L4 changepoint)",
-    "category": "L4_CHANGEPOINT",
-    "difficulty": "HARD",
-    "layer": "L4",
-    "fault_family": "F15_ChargingFrequency_Shift",
-    "dataset": "acn_charging_mapped",
-    "original_index": 0,
-    "column": "session_id",
-    "signal_type": "CHANGEPOINT_SHIFT",
-    "ground_truth": {
-      "correct_classification": "OPERATIONAL",
-      "correct_claim_keywords": [
-        "chargingfrequency",
-        "f15",
-        "shift"
-      ],
-      "is_false_positive": false,
-      "notes": "Charging frequency shift: 5 VINs jumped from ~1/day to ~3/day from day 8 onward (L4 changepoint)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-REF-03",
+    "name": "Referential Error in Driver ID",
+    "fault_family": "referential_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "driver_id",
+    "ground_truth_fault_id": "GT-REF-03",
+    "description": "Driver ID referencing unregistered contractor",
+    "difficulty": "medium",
+    "seed": 54
   },
   {
-    "case_id": "CASE-F16_FareDistribution_Regime",
-    "case_name": "Trip distance +50% for 5 drivers from day 8 (L4 changepoint in mean trip_distance_km)",
-    "category": "L4_CHANGEPOINT",
-    "difficulty": "HARD",
-    "layer": "L4",
-    "fault_family": "F16_FareDistribution_Regime",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 4537,
-    "column": "trip_distance_km",
-    "signal_type": "CHANGEPOINT_SHIFT",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "faredistribution",
-        "f16",
-        "regime"
-      ],
-      "is_false_positive": false,
-      "notes": "Trip distance +50% for 5 drivers from day 8 (L4 changepoint in mean trip_distance_km)"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-REF-04",
+    "name": "Referential Error in Feedback Trip ID",
+    "fault_family": "referential_error",
+    "target_table": "xanhsm_feedback",
+    "target_column": "trip_id",
+    "ground_truth_fault_id": "GT-REF-04",
+    "description": "Customer feedback record referencing nonexistent trip ID",
+    "difficulty": "hard",
+    "seed": 55
   },
   {
-    "case_id": "CASE-F1_Negative_SOC-1",
-    "case_name": "Battery BMS sensor error: negative SOC -11.1%",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F1_Negative_SOC",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 73003,
-    "column": "battery_soc",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "soc",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery BMS sensor error: negative SOC -11.1%"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-TEMP-01",
+    "name": "Temporal Sequence Inversion",
+    "fault_family": "temporal_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "pickup_time",
+    "ground_truth_fault_id": "GT-TEMP-01",
+    "description": "Pickup timestamp occurring 4 hours after dropoff timestamp",
+    "difficulty": "easy",
+    "seed": 56
   },
   {
-    "case_id": "CASE-F1_Negative_SOC-2",
-    "case_name": "Battery BMS sensor error: negative SOC -12.5%",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F1_Negative_SOC",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 40399,
-    "column": "battery_soc",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "soc",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery BMS sensor error: negative SOC -12.5%"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-TEMP-02",
+    "name": "Future Telemetry Timestamp",
+    "fault_family": "temporal_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "timestamp",
+    "ground_truth_fault_id": "GT-TEMP-02",
+    "description": "Sensor packet with timestamp set to year 2099",
+    "difficulty": "medium",
+    "seed": 57
   },
   {
-    "case_id": "CASE-F1_Negative_SOC-3",
-    "case_name": "Battery BMS sensor error: negative SOC -9.6%",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F1_Negative_SOC",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 84622,
-    "column": "battery_soc",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "soc",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery BMS sensor error: negative SOC -9.6%"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-TEMP-03",
+    "name": "Stale Out of Sequence BMS Timestamp",
+    "fault_family": "temporal_error",
+    "target_table": "vinfast_bms",
+    "target_column": "recorded_at",
+    "ground_truth_fault_id": "GT-TEMP-03",
+    "description": "Timestamp regression in continuous time-series stream",
+    "difficulty": "medium",
+    "seed": 58
   },
   {
-    "case_id": "CASE-F1_Negative_SOC-4",
-    "case_name": "Battery BMS sensor error: negative SOC -12.5%",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F1_Negative_SOC",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 13892,
-    "column": "battery_soc",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "soc",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery BMS sensor error: negative SOC -12.5%"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-TEMP-04",
+    "name": "Feedback Pre-Trip Creation",
+    "fault_family": "temporal_error",
+    "target_table": "xanhsm_feedback",
+    "target_column": "created_at",
+    "ground_truth_fault_id": "GT-TEMP-04",
+    "description": "Feedback submitted before trip booking initiation",
+    "difficulty": "hard",
+    "seed": 59
   },
   {
-    "case_id": "CASE-F1_Negative_SOC-5",
-    "case_name": "Battery BMS sensor error: negative SOC -8.6%",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F1_Negative_SOC",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 71181,
-    "column": "battery_soc",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "soc",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Battery BMS sensor error: negative SOC -8.6%"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-GEO-01",
+    "name": "Geographic Out of Bounds Coordinates",
+    "fault_family": "geographic_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "pickup_lat",
+    "ground_truth_fault_id": "GT-GEO-01",
+    "description": "Pickup coordinates located in international waters outside Vietnam",
+    "difficulty": "easy",
+    "seed": 60
   },
   {
-    "case_id": "CASE-F2_Voltage_Overvoltage_Spike-1",
-    "case_name": "CAN-bus spike: unrealistic voltage 5000.0V",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F2_Voltage_Overvoltage_Spike",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 64482,
-    "column": "battery_voltage",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "overvoltage",
-        "voltage",
-        "spike"
-      ],
-      "is_false_positive": false,
-      "notes": "CAN-bus spike: unrealistic voltage 5000.0V"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-GEO-02",
+    "name": "Geographic Latitude Longitude Swapped",
+    "fault_family": "geographic_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "dropoff_lat",
+    "ground_truth_fault_id": "GT-GEO-02",
+    "description": "Latitude and longitude values transposed",
+    "difficulty": "medium",
+    "seed": 61
   },
   {
-    "case_id": "CASE-F2_Voltage_Overvoltage_Spike-2",
-    "case_name": "CAN-bus spike: unrealistic voltage 1500.0V",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F2_Voltage_Overvoltage_Spike",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 1203,
-    "column": "battery_voltage",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "overvoltage",
-        "voltage",
-        "spike"
-      ],
-      "is_false_positive": false,
-      "notes": "CAN-bus spike: unrealistic voltage 1500.0V"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-GEO-03",
+    "name": "Charging Station Latitude Drift",
+    "fault_family": "geographic_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "latitude",
+    "ground_truth_fault_id": "GT-GEO-03",
+    "description": "Station telemetry reporting coordinates 500km away from physical depot",
+    "difficulty": "medium",
+    "seed": 62
   },
   {
-    "case_id": "CASE-F2_Voltage_Overvoltage_Spike-3",
-    "case_name": "CAN-bus spike: unrealistic voltage 1500.0V",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F2_Voltage_Overvoltage_Spike",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 44915,
-    "column": "battery_voltage",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "overvoltage",
-        "voltage",
-        "spike"
-      ],
-      "is_false_positive": false,
-      "notes": "CAN-bus spike: unrealistic voltage 1500.0V"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-GEO-04",
+    "name": "Null Island Coordinates",
+    "fault_family": "geographic_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "pickup_longitude",
+    "ground_truth_fault_id": "GT-GEO-04",
+    "description": "Trip coordinates defaulting to 0.0, 0.0 (Null Island)",
+    "difficulty": "hard",
+    "seed": 63
   },
   {
-    "case_id": "CASE-F2_Voltage_Overvoltage_Spike-4",
-    "case_name": "CAN-bus spike: unrealistic voltage 2000.0V",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F2_Voltage_Overvoltage_Spike",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 17321,
-    "column": "battery_voltage",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "overvoltage",
-        "voltage",
-        "spike"
-      ],
-      "is_false_positive": false,
-      "notes": "CAN-bus spike: unrealistic voltage 2000.0V"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-FIN-01",
+    "name": "Financial Negative Driver Pay",
+    "fault_family": "financial_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "driver_pay",
+    "ground_truth_fault_id": "GT-FIN-01",
+    "description": "Driver earning recorded as negative value",
+    "difficulty": "easy",
+    "seed": 64
   },
   {
-    "case_id": "CASE-F2_Voltage_Overvoltage_Spike-5",
-    "case_name": "CAN-bus spike: unrealistic voltage 5000.0V",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F2_Voltage_Overvoltage_Spike",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 58434,
-    "column": "battery_voltage",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "overvoltage",
-        "voltage",
-        "spike"
-      ],
-      "is_false_positive": false,
-      "notes": "CAN-bus spike: unrealistic voltage 5000.0V"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-FIN-02",
+    "name": "Financial Pay Exceeds Total Fare",
+    "fault_family": "financial_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "fare",
+    "ground_truth_fault_id": "GT-FIN-02",
+    "description": "Platform fare accounting imbalance where driver pay exceeds rider fare by 300%",
+    "difficulty": "medium",
+    "seed": 65
   },
   {
-    "case_id": "CASE-F3_RPM_Speed_Mismatch-1",
-    "case_name": "Speed=0 km/h but Motor RPM=12120 (L1 rule)",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F3_RPM_Speed_Mismatch",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 2755,
-    "column": "motor_rpm",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "speed",
-        "mismatch",
-        "rpm"
-      ],
-      "is_false_positive": false,
-      "notes": "Speed=0 km/h but Motor RPM=12120 (L1 rule)"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-FIN-03",
+    "name": "Financial Extreme Tip Outlier",
+    "fault_family": "financial_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "tips",
+    "ground_truth_fault_id": "GT-FIN-03",
+    "description": "Tip amount of 50,000,000 VND on standard 40,000 VND trip",
+    "difficulty": "medium",
+    "seed": 66
   },
   {
-    "case_id": "CASE-F3_RPM_Speed_Mismatch-2",
-    "case_name": "Speed=0 km/h but Motor RPM=13508 (L1 rule)",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F3_RPM_Speed_Mismatch",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 73616,
-    "column": "motor_rpm",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "speed",
-        "mismatch",
-        "rpm"
-      ],
-      "is_false_positive": false,
-      "notes": "Speed=0 km/h but Motor RPM=13508 (L1 rule)"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-FIN-04",
+    "name": "Financial Inconsistent Toll Sum",
+    "fault_family": "financial_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "tolls",
+    "ground_truth_fault_id": "GT-FIN-04",
+    "description": "Toll amount mismatch with highway plaza rate",
+    "difficulty": "hard",
+    "seed": 67
   },
   {
-    "case_id": "CASE-F3_RPM_Speed_Mismatch-3",
-    "case_name": "Speed=0 km/h but Motor RPM=14879 (L1 rule)",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F3_RPM_Speed_Mismatch",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 57636,
-    "column": "motor_rpm",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "speed",
-        "mismatch",
-        "rpm"
-      ],
-      "is_false_positive": false,
-      "notes": "Speed=0 km/h but Motor RPM=14879 (L1 rule)"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-BIZ-01",
+    "name": "Business Logic Trip Completed Without Dropoff",
+    "fault_family": "business_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "status",
+    "ground_truth_fault_id": "GT-BIZ-01",
+    "description": "Status marked as 'COMPLETED' with NULL dropoff time and location",
+    "difficulty": "easy",
+    "seed": 68
   },
   {
-    "case_id": "CASE-F3_RPM_Speed_Mismatch-4",
-    "case_name": "Speed=0 km/h but Motor RPM=14497 (L1 rule)",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F3_RPM_Speed_Mismatch",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 79029,
-    "column": "motor_rpm",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "speed",
-        "mismatch",
-        "rpm"
-      ],
-      "is_false_positive": false,
-      "notes": "Speed=0 km/h but Motor RPM=14497 (L1 rule)"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-BIZ-02",
+    "name": "Business Logic Charging During Motion",
+    "fault_family": "business_error",
+    "target_table": "vinfast_bms",
+    "target_column": "charging_state",
+    "ground_truth_fault_id": "GT-BIZ-02",
+    "description": "Vehicle speed 65 km/h while BMS state indicates DC fast charging",
+    "difficulty": "medium",
+    "seed": 69
   },
   {
-    "case_id": "CASE-F3_RPM_Speed_Mismatch-5",
-    "case_name": "Speed=0 km/h but Motor RPM=14743 (L1 rule)",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F3_RPM_Speed_Mismatch",
-    "dataset": "synthetic_ev_telemetry_ved_ref",
-    "original_index": 51763,
-    "column": "motor_rpm",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "speed",
-        "mismatch",
-        "rpm"
-      ],
-      "is_false_positive": false,
-      "notes": "Speed=0 km/h but Motor RPM=14743 (L1 rule)"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-BIZ-03",
+    "name": "Business Logic Station Delivering Power When Offline",
+    "fault_family": "business_error",
+    "target_table": "vgreen_telemetry",
+    "target_column": "connector_status",
+    "ground_truth_fault_id": "GT-BIZ-03",
+    "description": "Station telemetry delivering 120kW power with status 'OFFLINE'",
+    "difficulty": "medium",
+    "seed": 70
   },
   {
-    "case_id": "CASE-F5_Negative_Cost-1",
-    "case_name": "Billing glitch: negative charging cost -168158 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F5_Negative_Cost",
-    "dataset": "acn_charging_mapped",
-    "original_index": 426,
-    "column": "cost_vnd",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "cost",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Billing glitch: negative charging cost -168158 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-BIZ-04",
+    "name": "Business Logic 5 Star Rating with Severe Negative Text",
+    "fault_family": "business_error",
+    "target_table": "xanhsm_feedback",
+    "target_column": "sentiment",
+    "ground_truth_fault_id": "GT-BIZ-04",
+    "description": "Rating of 5 stars with complaint of vehicle smoke and failure",
+    "difficulty": "hard",
+    "seed": 71
   },
   {
-    "case_id": "CASE-F5_Negative_Cost-2",
-    "case_name": "Billing glitch: negative charging cost -142195 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F5_Negative_Cost",
-    "dataset": "acn_charging_mapped",
-    "original_index": 287,
-    "column": "cost_vnd",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "cost",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Billing glitch: negative charging cost -142195 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-PRIV-01",
+    "name": "Privacy PII Phone Number Leak in Review",
+    "fault_family": "privacy_error",
+    "target_table": "xanhsm_feedback",
+    "target_column": "review_text",
+    "ground_truth_fault_id": "GT-PRIV-01",
+    "description": "Vietnamese mobile phone number leaked in public review text",
+    "difficulty": "easy",
+    "seed": 72
   },
   {
-    "case_id": "CASE-F5_Negative_Cost-3",
-    "case_name": "Billing glitch: negative charging cost -115386 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F5_Negative_Cost",
-    "dataset": "acn_charging_mapped",
-    "original_index": 934,
-    "column": "cost_vnd",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "cost",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Billing glitch: negative charging cost -115386 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-PRIV-02",
+    "name": "Privacy Citizen ID in Notes",
+    "fault_family": "privacy_error",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "passenger_notes",
+    "ground_truth_fault_id": "GT-PRIV-02",
+    "description": "National Citizen Identity Card (CCCD) number in free text notes",
+    "difficulty": "easy",
+    "seed": 73
   },
   {
-    "case_id": "CASE-F5_Negative_Cost-4",
-    "case_name": "Billing glitch: negative charging cost -66460 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F5_Negative_Cost",
-    "dataset": "acn_charging_mapped",
-    "original_index": 113,
-    "column": "cost_vnd",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "cost",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Billing glitch: negative charging cost -66460 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-PRIV-03",
+    "name": "Privacy Unmasked Customer Phone",
+    "fault_family": "privacy_error",
+    "target_table": "xanhsm_feedback",
+    "target_column": "customer_phone",
+    "ground_truth_fault_id": "GT-PRIV-03",
+    "description": "Unsalted raw customer telephone number stored without encryption",
+    "difficulty": "medium",
+    "seed": 74
   },
   {
-    "case_id": "CASE-F5_Negative_Cost-5",
-    "case_name": "Billing glitch: negative charging cost -86313 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F5_Negative_Cost",
-    "dataset": "acn_charging_mapped",
-    "original_index": 1318,
-    "column": "cost_vnd",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "cost",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Billing glitch: negative charging cost -86313 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-PRIV-04",
+    "name": "Privacy Personal Vehicle Owner ID",
+    "fault_family": "privacy_error",
+    "target_table": "vinfast_bms",
+    "target_column": "owner_id",
+    "ground_truth_fault_id": "GT-PRIV-04",
+    "description": "Direct personal identifier leaked in telemetry broadcast",
+    "difficulty": "medium",
+    "seed": 75
   },
   {
-    "case_id": "CASE-F6_GPS_Alleyway_Drift-1",
-    "case_name": "GPS drift to NYC (40.7253, -73.9967) outside Hanoi bbox",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F6_GPS_Alleyway_Drift",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 8618,
-    "column": "pickup_latitude",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "drift",
-        "alleyway",
-        "gps"
-      ],
-      "is_false_positive": false,
-      "notes": "GPS drift to NYC (40.7253, -73.9967) outside Hanoi bbox"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-PRIV-05",
+    "name": "Privacy Email Address in Rider Notes",
+    "fault_family": "privacy_error",
+    "target_table": "xanhsm_trips",
+    "target_column": "rider_notes",
+    "ground_truth_fault_id": "GT-PRIV-05",
+    "description": "Personal email address in special instruction text",
+    "difficulty": "hard",
+    "seed": 76
   },
   {
-    "case_id": "CASE-F6_GPS_Alleyway_Drift-2",
-    "case_name": "GPS drift to NYC (40.7085, -74.0115) outside Hanoi bbox",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F6_GPS_Alleyway_Drift",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 4459,
-    "column": "pickup_latitude",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "drift",
-        "alleyway",
-        "gps"
-      ],
-      "is_false_positive": false,
-      "notes": "GPS drift to NYC (40.7085, -74.0115) outside Hanoi bbox"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-SHIFT-01",
+    "name": "Distribution Shift Batch of 1 Star Ratings",
+    "fault_family": "distribution_shift",
+    "target_table": "xanhsm_feedback",
+    "target_column": "rating",
+    "ground_truth_fault_id": "GT-SHIFT-01",
+    "description": "Sudden drop in average rating from 4.8 to 1.1 across all drivers",
+    "difficulty": "easy",
+    "seed": 77
   },
   {
-    "case_id": "CASE-F6_GPS_Alleyway_Drift-3",
-    "case_name": "GPS drift to NYC (40.7198, -73.9885) outside Hanoi bbox",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F6_GPS_Alleyway_Drift",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 7718,
-    "column": "pickup_latitude",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "drift",
-        "alleyway",
-        "gps"
-      ],
-      "is_false_positive": false,
-      "notes": "GPS drift to NYC (40.7198, -73.9885) outside Hanoi bbox"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-SHIFT-02",
+    "name": "Distribution Shift Power Delivery Spike",
+    "fault_family": "distribution_shift",
+    "target_table": "vgreen_telemetry",
+    "target_column": "power_kw",
+    "ground_truth_fault_id": "GT-SHIFT-02",
+    "description": "Substation power delivery variance shifting +4.5 standard deviations",
+    "difficulty": "medium",
+    "seed": 78
   },
   {
-    "case_id": "CASE-F6_GPS_Alleyway_Drift-4",
-    "case_name": "GPS drift to NYC (40.7289, -74.0144) outside Hanoi bbox",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F6_GPS_Alleyway_Drift",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 6313,
-    "column": "pickup_latitude",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "drift",
-        "alleyway",
-        "gps"
-      ],
-      "is_false_positive": false,
-      "notes": "GPS drift to NYC (40.7289, -74.0144) outside Hanoi bbox"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-SHIFT-03",
+    "name": "Distribution Shift BMS Discharge Rate MAD Drift",
+    "fault_family": "distribution_shift",
+    "target_table": "vinfast_bms",
+    "target_column": "discharge_rate",
+    "ground_truth_fault_id": "GT-SHIFT-03",
+    "description": "Fleet battery discharge rate drifting -30% over 5-day window",
+    "difficulty": "medium",
+    "seed": 79
   },
   {
-    "case_id": "CASE-F6_GPS_Alleyway_Drift-5",
-    "case_name": "GPS drift to NYC (40.7406, -74.0060) outside Hanoi bbox",
-    "category": "L3_RELATIONAL",
-    "difficulty": "MEDIUM",
-    "layer": "L3",
-    "fault_family": "F6_GPS_Alleyway_Drift",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 3690,
-    "column": "pickup_latitude",
-    "signal_type": "RELATIONAL_BREAK",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "drift",
-        "alleyway",
-        "gps"
-      ],
-      "is_false_positive": false,
-      "notes": "GPS drift to NYC (40.7406, -74.0060) outside Hanoi bbox"
-    },
-    "expected_investigator": "A1"
+    "case_id": "CASE-SHIFT-04",
+    "name": "Distribution Shift Fleet Speed Inversion",
+    "fault_family": "distribution_shift",
+    "target_table": "vietnam_trips_dirty",
+    "target_column": "speed_mph",
+    "ground_truth_fault_id": "GT-SHIFT-04",
+    "description": "Average speed distribution shifted from urban 25mph to highway 65mph",
+    "difficulty": "hard",
+    "seed": 80
   },
   {
-    "case_id": "CASE-F7_Negative_Fare-1",
-    "case_name": "Ledger calculation error: negative fare -33067.33 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F7_Negative_Fare",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 4460,
-    "column": "fare_amount",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "fare",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Ledger calculation error: negative fare -33067.33 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F7_Negative_Fare-2",
-    "case_name": "Ledger calculation error: negative fare -76380.15 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F7_Negative_Fare",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 320,
-    "column": "fare_amount",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "fare",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Ledger calculation error: negative fare -76380.15 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F7_Negative_Fare-3",
-    "case_name": "Ledger calculation error: negative fare -26613.23 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F7_Negative_Fare",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 5837,
-    "column": "fare_amount",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "fare",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Ledger calculation error: negative fare -26613.23 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F7_Negative_Fare-4",
-    "case_name": "Ledger calculation error: negative fare -40808.49 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F7_Negative_Fare",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 5472,
-    "column": "fare_amount",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "fare",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Ledger calculation error: negative fare -40808.49 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F7_Negative_Fare-5",
-    "case_name": "Ledger calculation error: negative fare -61822.12 VND",
-    "category": "L1_RULE",
-    "difficulty": "EASY",
-    "layer": "L1",
-    "fault_family": "F7_Negative_Fare",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 8307,
-    "column": "fare_amount",
-    "signal_type": "RANGE_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "DATA",
-      "correct_claim_keywords": [
-        "fare",
-        "negative"
-      ],
-      "is_false_positive": false,
-      "notes": "Ledger calculation error: negative fare -61822.12 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F8_Ledger_Mismatch-1",
-    "case_name": "Total fare (588,311) != fare+tip (507,426); delta=80,885 VND",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F8_Ledger_Mismatch",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 10032,
-    "column": "total_fare",
-    "signal_type": "ARITHMETIC_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "ledger",
-        "mismatch"
-      ],
-      "is_false_positive": false,
-      "notes": "Total fare (588,311) != fare+tip (507,426); delta=80,885 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F8_Ledger_Mismatch-2",
-    "case_name": "Total fare (566,132) != fare+tip (364,023); delta=202,109 VND",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F8_Ledger_Mismatch",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 8096,
-    "column": "total_fare",
-    "signal_type": "ARITHMETIC_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "ledger",
-        "mismatch"
-      ],
-      "is_false_positive": false,
-      "notes": "Total fare (566,132) != fare+tip (364,023); delta=202,109 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F8_Ledger_Mismatch-3",
-    "case_name": "Total fare (721,031) != fare+tip (575,442); delta=145,589 VND",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F8_Ledger_Mismatch",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 8582,
-    "column": "total_fare",
-    "signal_type": "ARITHMETIC_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "ledger",
-        "mismatch"
-      ],
-      "is_false_positive": false,
-      "notes": "Total fare (721,031) != fare+tip (575,442); delta=145,589 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F8_Ledger_Mismatch-4",
-    "case_name": "Total fare (556,453) != fare+tip (381,088); delta=175,365 VND",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F8_Ledger_Mismatch",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 1321,
-    "column": "total_fare",
-    "signal_type": "ARITHMETIC_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "ledger",
-        "mismatch"
-      ],
-      "is_false_positive": false,
-      "notes": "Total fare (556,453) != fare+tip (381,088); delta=175,365 VND"
-    },
-    "expected_investigator": "C0"
-  },
-  {
-    "case_id": "CASE-F8_Ledger_Mismatch-5",
-    "case_name": "Total fare (414,052) != fare+tip (276,719); delta=137,334 VND",
-    "category": "L1_RULE",
-    "difficulty": "MEDIUM",
-    "layer": "L1",
-    "fault_family": "F8_Ledger_Mismatch",
-    "dataset": "ride_hailing_xanh_sm_trips",
-    "original_index": 9770,
-    "column": "total_fare",
-    "signal_type": "ARITHMETIC_VIOLATION",
-    "ground_truth": {
-      "correct_classification": "MIXED",
-      "correct_claim_keywords": [
-        "ledger",
-        "mismatch"
-      ],
-      "is_false_positive": false,
-      "notes": "Total fare (414,052) != fare+tip (276,719); delta=137,334 VND"
-    },
-    "expected_investigator": "C0"
+    "case_id": "CASE-SHIFT-05",
+    "name": "Distribution Shift Charging Current Step Change",
+    "fault_family": "distribution_shift",
+    "target_table": "vgreen_telemetry",
+    "target_column": "current_amperes",
+    "ground_truth_fault_id": "GT-SHIFT-05",
+    "description": "Persistent step increase in average current drawn per port",
+    "difficulty": "hard",
+    "seed": 81
   }
 ]

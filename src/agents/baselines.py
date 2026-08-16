@@ -59,7 +59,12 @@ class BaselineR0:
     def __init__(self, nlp: VietnameseNLPService | None = None):
         self.nlp = nlp or VietnameseNLPService()
 
-    async def run(self, case: BenchmarkCase) -> BaselineResult:
+    async def run(self, case: Any) -> BaselineResult:
+        if not isinstance(case, BenchmarkCase):
+            table_name = getattr(case, "dataset_key", "dataset") if hasattr(case, "dataset_key") else "dataset"
+            res = self.analyze(table_name)
+            return res
+
         t0 = time.perf_counter()
         predictions: set[str] = set()
         evidence_refs: list[str] = []
@@ -168,7 +173,13 @@ class BaselineC1:
     def __init__(self, llm: Any = None):
         self.llm = llm
 
-    async def run(self, case: BenchmarkCase) -> BaselineResult:
+    async def run(self, case: Any) -> BaselineResult:
+        if not isinstance(case, BenchmarkCase):
+            table_name = getattr(case, "dataset_key", "dataset") if hasattr(case, "dataset_key") else "dataset"
+            sample_str = str(case.head(10).to_dict() if hasattr(case, "to_dict") else str(case))
+            res = self.analyze(table_name, sample_data=sample_str)
+            return res
+
         t0 = time.perf_counter()
         predictions: set[str] = set()
         evidence_refs: list[str] = []
@@ -270,7 +281,19 @@ class BaselineA1:
         self.llm = llm
         self.tools = tools
 
-    async def run(self, case: BenchmarkCase) -> BaselineResult:
+    async def run(self, case: Any) -> BaselineResult:
+        if not isinstance(case, BenchmarkCase):
+            from src.agents.llm_adapter import LLMAdapter
+            adapter = LLMAdapter()
+            ctx = str(case.head(10).to_dict() if hasattr(case, "to_dict") else str(case))
+            res = adapter.propose_rules(ctx)
+            return BaselineResult(
+                tier="A1",
+                rules_proposed=res.rules,
+                cost_tokens=res.prompt_tokens + res.completion_tokens,
+                latency_ms=50,
+            )
+
         t0 = time.perf_counter()
         predictions: set[str] = set()
         evidence_refs: list[str] = []
