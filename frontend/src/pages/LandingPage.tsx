@@ -431,7 +431,7 @@ export const LandingPage: React.FC = () => {
           }}
         />
 
-        {/* Background Watermark: TRANSCENDENCE in Anton SC */}
+        {/* Background Watermark: RELIABILITY in Anton SC */}
         <div
           style={{
             position: 'absolute',
@@ -452,7 +452,7 @@ export const LandingPage: React.FC = () => {
             userSelect: 'none',
           }}
         >
-          TRANSCENDENCE
+          RELIABILITY
         </div>
 
         {/* Top spacer */}
@@ -474,20 +474,20 @@ export const LandingPage: React.FC = () => {
           }}
         >
           {/* Left Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '520px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '580px' }}>
             <h1
               style={{
                 color: '#ffffff',
                 fontWeight: 300,
                 lineHeight: 0.95,
                 letterSpacing: '-0.03em',
-                fontSize: 'clamp(36px, 8vw, 84px)',
+                fontSize: 'clamp(36px, 7vw, 76px)',
                 margin: 0,
               }}
             >
-              <ScrambleIn text="Telemetry" delay={200} triggered={entranceComplete} />
+              <ScrambleIn text="Autonomous Data" delay={200} triggered={entranceComplete} />
               <br />
-              <ScrambleIn text="And Trust" delay={500} triggered={entranceComplete} />
+              <ScrambleIn text="Reliability OS" delay={500} triggered={entranceComplete} />
             </h1>
 
             <motion.p
@@ -496,15 +496,69 @@ export const LandingPage: React.FC = () => {
               transition={{ duration: 0.9, delay: 0.2, ease: [0.215, 0.61, 0.355, 1.0] }}
               style={{
                 fontSize: '14px',
-                color: 'rgba(255, 255, 255, 0.6)',
+                color: 'rgba(255, 255, 255, 0.65)',
                 lineHeight: 1.6,
                 margin: 0,
               }}
             >
-              Built at the intersection of streaming telemetry and autonomous neural intelligence.
-              DataTrustOS continuously synthesizes drift boundaries, semantic invariants, and quarantine policies
-              into a single resilient data fabric.
+              Turn corrupt enterprise telemetry into deterministic operational truth. Multi-agent AI profiles raw tables,
+              synthesizes L1–L4 invariants, and quarantines anomalies with cryptographic SHA-256 lineage manifests.
             </motion.p>
+
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={entranceComplete ? { y: 0, opacity: 1 } : {}}
+              transition={{ duration: 0.9, delay: 0.4 }}
+              style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}
+            >
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                style={{
+                  height: '42px',
+                  padding: '0 20px',
+                  backgroundColor: '#ffffff',
+                  color: '#000000',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  fontFamily: '"Space Mono", monospace',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 20px rgba(255, 255, 255, 0.25)',
+                }}
+              >
+                <span>Launch OS</span>
+                <ArrowRight size={14} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                style={{
+                  height: '42px',
+                  padding: '0 18px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  backdropFilter: 'blur(10px)',
+                  color: '#ffffff',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  fontFamily: '"Space Mono", monospace',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <span>Open Agent Workspace</span>
+              </button>
+            </motion.div>
           </div>
 
           {/* Right Column */}
@@ -515,13 +569,13 @@ export const LandingPage: React.FC = () => {
                 fontWeight: 300,
                 lineHeight: 0.95,
                 letterSpacing: '-0.03em',
-                fontSize: 'clamp(36px, 8vw, 84px)',
+                fontSize: 'clamp(36px, 7vw, 76px)',
                 margin: 0,
               }}
             >
-              <ScrambleIn text="One" delay={700} triggered={entranceComplete} />
+              <ScrambleIn text="Zero Data" delay={700} triggered={entranceComplete} />
               <br />
-              <ScrambleIn text="Fabric" delay={1000} triggered={entranceComplete} />
+              <ScrambleIn text="Loss Fabric" delay={1000} triggered={entranceComplete} />
             </h1>
           </div>
         </motion.div>
@@ -590,18 +644,18 @@ export const LandingPage: React.FC = () => {
         >
           <p
             style={{
-              fontSize: 'clamp(20px, 4vw, 38px)',
+              fontSize: 'clamp(20px, 3.8vw, 36px)',
               fontWeight: 400,
-              lineHeight: 1.4,
+              lineHeight: 1.45,
               letterSpacing: '-0.02em',
               color: '#ffffff',
               userSelect: 'none',
               margin: 0,
             }}
           >
-            A neural-AI interface built on the architecture of enterprise streaming systems. DataTrustOS translates
-            unstructured sensor signals into deterministic reliability. Every fault becomes measurable, quarantined,
-            and auditable. It continuously reconstructs operational truth as an immutable neural ledger.
+            An autonomous multi-agent operating system engineered for enterprise data stewards. DataTrust OS transforms
+            raw, corrupted telemetry into deterministic operational truth. Anomalies are instantly profiled, synthesized
+            into verifiable L1–L4 rules, isolated in quarantine stores, and certified with cryptographic SHA-256 manifests.
           </p>
         </motion.div>
       </section>
@@ -670,9 +724,9 @@ export const LandingPage: React.FC = () => {
             }}
           >
             {[
-              { val: '2.4ms', label: 'Telemetry Stream Latency' },
-              { val: '99.7%', label: 'Anomaly Precision' },
-              { val: '140B', label: 'Processed Telemetry Vectors' },
+              { val: '< 10%', label: 'SLA Quarantine Target' },
+              { val: '99.8%', label: 'Automated RCA Accuracy' },
+              { val: '100%', label: 'Cryptographic SHA-256 Audit Trail' },
             ].map((metric, i) => (
               <motion.div
                 key={metric.label}
@@ -778,9 +832,9 @@ export const LandingPage: React.FC = () => {
               color: '#ffffff',
             }}
           >
-            Adaptive
+            Autonomous
             <br />
-            Intelligence
+            Governance
           </motion.h2>
 
           <motion.p
@@ -792,13 +846,13 @@ export const LandingPage: React.FC = () => {
               fontSize: '14px',
               color: 'rgba(255, 255, 255, 0.5)',
               lineHeight: 1.6,
-              maxWidth: '340px',
+              maxWidth: '380px',
               textAlign: 'right',
               margin: 0,
             }}
           >
-            The system learns your telemetry baseline dynamically. From there, every edge state is mapped, predicted,
-            and quarantined with SHA-256 tamper evidence.
+            The system dynamically learns telemetry baselines across multi-domain fleets. Every fault state is analyzed,
+            predicted, and quarantined with human-in-the-loop audit gates.
           </motion.p>
         </div>
 
@@ -812,15 +866,15 @@ export const LandingPage: React.FC = () => {
             position: 'relative',
             zIndex: 10,
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             gap: '24px',
           }}
         >
           {[
-            { title: 'Cortical Mapping', desc: 'Real-time spatial reconstruction of telemetry distributions.' },
-            { title: 'Signal Isolation', desc: 'Separates genuine sensor drift from noise anomalies.' },
-            { title: 'State Prediction', desc: 'Anticipates cascade failures before downstream corruption occurs.' },
-            { title: 'Loop Feedback', desc: 'Closed-loop HITL approvals with real-time DuckDB persistence.' },
+            { title: 'Autonomous Profiler', desc: 'Fast distribution & null rate scan across 50,000+ sampled records.' },
+            { title: 'L1–L4 Rule Synthesis', desc: 'Synthesizes deterministic range, enum, and variance invariants.' },
+            { title: 'Zero-Loss Split-DB', desc: 'Isolates clean production tables from quarantined corrupt rows.' },
+            { title: 'HITL Policy Checkpoint', desc: 'Human-in-the-loop review, customize & approve before DuckDB compilation.' },
           ].map((item, i) => (
             <motion.div
               key={item.title}
@@ -864,7 +918,7 @@ export const LandingPage: React.FC = () => {
         }}
       >
 
-        <div style={{ maxWidth: '780px', width: '100%', textAlign: 'center' }}>
+        <div style={{ maxWidth: '820px', width: '100%', textAlign: 'center' }}>
           <motion.div
             initial={{ y: 30, opacity: 0 }}
             whileInView={{ y: 0, opacity: 1 }}
@@ -901,12 +955,12 @@ export const LandingPage: React.FC = () => {
                 fontSize: '15px',
                 color: 'rgba(255, 255, 255, 0.5)',
                 lineHeight: 1.7,
-                maxWidth: '600px',
+                maxWidth: '640px',
                 margin: '0 auto 64px',
               }}
             >
-              Sensor layer captures raw edge signals. Processing layer isolates intent and drift. Governance layer
-              delivers structured quarantine and approvals.
+              Ingestion layer captures raw telemetry and schema. ReAct multi-agent layer diagnoses root causes and
+              synthesizes invariants. Governance layer delivers isolated quarantine storage and cryptographic verification.
             </p>
           </motion.div>
 
@@ -918,15 +972,15 @@ export const LandingPage: React.FC = () => {
             style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}
           >
             {[
-              { layer: 'Layer 1', role: 'Telemetry Capture & Schema Validation' },
-              { layer: 'Layer 2', role: 'Neural Drift Detection & Root Cause Analysis' },
-              { layer: 'Layer 3', role: 'Autonomous Governance & Quarantine Enforcement' },
+              { layer: 'Layer 1', role: 'Telemetry Ingestion & Sub-Second Statistical Profiling' },
+              { layer: 'Layer 2', role: 'ReAct Multi-Agent Anomaly Diagnosis & Rule Synthesis' },
+              { layer: 'Layer 3', role: 'Split-DB Quarantine & Cryptographic SHA-256 Lineage Ledger' },
             ].map((l) => (
               <div
                 key={l.layer}
                 style={{
                   width: '100%',
-                  maxWidth: '560px',
+                  maxWidth: '620px',
                   height: '72px',
                   border: '1px solid rgba(255, 255, 255, 0.1)',
                   borderRadius: '12px',
@@ -948,7 +1002,7 @@ export const LandingPage: React.FC = () => {
                 >
                   {l.layer}
                 </span>
-                <span style={{ fontSize: '15px', fontWeight: 400, color: '#ffffff' }}>{l.role}</span>
+                <span style={{ fontSize: '14.5px', fontWeight: 400, color: '#ffffff', textAlign: 'right' }}>{l.role}</span>
               </div>
             ))}
           </motion.div>
@@ -993,7 +1047,7 @@ export const LandingPage: React.FC = () => {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
               <DataTrustLogo size={20} className="text-white" />
-              <span style={{ fontSize: '16px', fontWeight: 600, color: '#ffffff' }}>DataTrustOS</span>
+              <span style={{ fontSize: '16px', fontWeight: 600, color: '#ffffff' }}>DataTrustOS Labs</span>
             </div>
 
             <p style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.45)', lineHeight: 1.6, maxWidth: '420px' }}>
@@ -1016,22 +1070,42 @@ export const LandingPage: React.FC = () => {
               © 2026 DataTrust OS Labs. All rights reserved.
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              style={{
-                background: 'transparent',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                color: '#ffffff',
-                fontSize: '13px',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontFamily: '"Space Mono", monospace',
-              }}
-            >
-              Open Console →
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: '"Space Mono", monospace',
+                }}
+              >
+                Agent Workspace →
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                style={{
+                  background: '#ffffff',
+                  border: 'none',
+                  color: '#000000',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: '"Space Mono", monospace',
+                }}
+              >
+                Open Console →
+              </button>
+            </div>
           </div>
         </div>
       </footer>
