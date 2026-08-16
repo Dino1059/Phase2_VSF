@@ -634,7 +634,7 @@ export const LandingPage: React.FC = () => {
         {/* 3D Perspective Paragraph */}
         <motion.div
           style={{
-            style: transformStyle,
+            transform: transformStyle,
             opacity: s2Opacity,
             zIndex: 20,
             maxWidth: '1000px',

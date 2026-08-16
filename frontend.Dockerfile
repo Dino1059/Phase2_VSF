@@ -2,7 +2,7 @@ FROM node:20-slim AS builder
 WORKDIR /app
 RUN npm i -g pnpm
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
