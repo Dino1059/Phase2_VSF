@@ -94,6 +94,6 @@
   "auditManifest": "AUDIT MANIFEST",
   "manifestDesc": "Every proposed rule and execution payload is hashed and committed to the immutable operations ledger.",
   "uploadTitle": "UPLOAD DATABASE PAYLOAD",
-  "uploadDesc": "Supported formats: Parquet, CSV, ClickHouse Dump, Kafka Schema. Status: Enterprise Storage Vault Ready.",
+  "uploadDesc": "Supported formats: CSV, DB, JSON. Status: Enterprise Storage Vault Ready.",
   "selectPayload": "SELECT PAYLOAD"
 }

@@ -4,33 +4,42 @@ import { Send } from 'lucide-react';
 import { sendChatMessage, fetchChatHistory } from '../../services/api';
 import { useChatStore } from '../../stores/chatStore';
 
-export function ChatInput() {
+interface ChatInputProps {
+  datasetKey?: string;
+}
+
+export function ChatInput({ datasetKey }: ChatInputProps) {
   const { t } = useTranslation('chat');
   const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionId = useChatStore((s) => s.sessionId);
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isSending) return;
 
     setInput('');
+    setIsSending(true);
     inputRef.current?.focus();
 
     try {
-      await sendChatMessage(trimmed, sessionId);
+      await sendChatMessage(trimmed, sessionId, datasetKey);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
       }
     } catch (e) {
-      console.error('Failed to send message:', e);
+      console.error('Failed to send message:', e instanceof Error ? e.message : 'Unable to reach the assistant.');
+      setInput(trimmed);
+    } finally {
+      setIsSending(false);
+      inputRef.current?.focus();
     }
   };
 
-
   return (
-    <form className="chat-input-bar" onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
+    <form className="chat-input-bar" onSubmit={(e) => { e.preventDefault(); void handleSend(); }}>
       <input
         type="text"
         className="chat-input"

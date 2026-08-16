@@ -94,6 +94,6 @@
   "auditManifest": "MANIFEST KIỂM TOÁN",
   "manifestDesc": "Mọi luật đề xuất và payload thực thi đều được băm và cam kết vào sổ cái vận hành bất biến.",
   "uploadTitle": "TẢI LÊN PAYLOAD CƠ SỞ DỮ LIỆU",
-  "uploadDesc": "Định dạng hỗ trợ: Parquet, CSV, ClickHouse Dump, Kafka Schema. Trạng thái: Kho lưu trữ doanh nghiệp đã sẵn sàng.",
+  "uploadDesc": "Định dạng hỗ trợ: CSV, DB, JSON. Trạng thái: Kho lưu trữ doanh nghiệp đã sẵn sàng.",
   "selectPayload": "CHỌN PAYLOAD"
 }

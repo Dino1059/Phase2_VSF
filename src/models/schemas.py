@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000, description="User message")
     session_id: str = Field(default="default", description="Chat session ID")
+    dataset_key: Optional[str] = Field(default=None, description="Dataset context for this chat message")
 
 
 class ChatResponse(BaseModel):
@@ -591,5 +592,4 @@ class AnomalyDetectRequest(BaseModel):
     current_profile: Dict[str, Any]
     historical_profiles: List[Dict[str, Any]] = Field(default_factory=list)
     detector: str = "all"
-
 

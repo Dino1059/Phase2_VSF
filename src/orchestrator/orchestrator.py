@@ -33,6 +33,16 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_max": 100.0,
         "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
     },
+    "vinfast_bms": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "timestamp",
+        "metric_col": "temp_c",
+        "relational_x": "voltage",
+        "relational_y": "charging_rate_kw",
+        "l1_min": -20.0,
+        "l1_max": 100.0,
+        "l1_required_cols": ["voltage", "temp_c"],
+    },
     "vgreen_charging_sessions": {
         "entity_id_col": "station_id",
         "timestamp_col": "start_time",

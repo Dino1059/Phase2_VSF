@@ -75,6 +75,7 @@ class DuckDBManager:
                 self._ensure_quarantine_schema(conn)
                 self._ensure_audit_schema(conn)
                 self._ensure_scheduler_tables(conn)
+                self._ensure_pipeline_runs_schema(conn)
                 self._ensure_snapshots_schema(conn)
                 self._ensure_reliability_tables(conn)
             except Exception:
@@ -91,6 +92,7 @@ class DuckDBManager:
         self._ensure_quarantine_schema(conn)
         self._ensure_audit_schema(conn)
         self._ensure_scheduler_tables(conn)
+        self._ensure_pipeline_runs_schema(conn)
         self._ensure_snapshots_schema(conn)
         self._ensure_reliability_tables(conn)
 
@@ -224,6 +226,23 @@ class DuckDBManager:
                 );
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);")
+        except Exception:
+            pass
+
+    def _ensure_pipeline_runs_schema(self, conn) -> None:
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pipeline_runs (
+                    run_id VARCHAR PRIMARY KEY,
+                    project_id VARCHAR NOT NULL,
+                    dataset_key VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL,
+                    result_json JSON,
+                    error_message VARCHAR,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
+            """)
         except Exception:
             pass
 

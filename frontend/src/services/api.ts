@@ -357,6 +357,39 @@ export const auditApi = {
     request<AuditEntry[]>(`/audit?limit=${limit}`),
 };
 
+export interface TraceSession {
+  session_id: string;
+  agent_type?: string;
+  steps: number;
+  total_tokens?: number;
+  started?: string | null;
+}
+
+export const tracesApi = {
+  list: (limit: number = 20) =>
+    request<{ sessions: TraceSession[] }>(`/traces/?limit=${limit}`),
+  get: (sessionId: string) =>
+    request<{ session_id: string; steps: Array<Record<string, any>> }>(`/traces/${encodeURIComponent(sessionId)}`),
+};
+
+export const executionsApi = {
+  list: () => request<Array<Record<string, any>>>('/executions'),
+};
+
+export interface SnapshotInfo {
+  id: string;
+  source_file?: string;
+  sha256_hash?: string;
+  row_count?: number;
+  column_count?: number;
+  ingested_at?: string | null;
+}
+
+export const snapshotsApi = {
+  list: () => request<{ snapshots: SnapshotInfo[] }>('/snapshots/'),
+  get: (snapshotId: string) => request<SnapshotInfo>(`/snapshots/${encodeURIComponent(snapshotId)}`),
+};
+
 export interface EvaluationBenchmarkItem {
   baseline: string;
   precision_pct: number;
@@ -380,15 +413,19 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default') {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string) {
   return request('/chat/send', {
     method: 'POST',
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      ...(datasetKey ? { dataset_key: datasetKey } : {}),
+    }),
   });
 }
 
 export async function fetchChatHistory(sessionId: string = 'default') {
-  return request(`/chat/history?session_id=${sessionId}`);
+  return request(`/chat/history?session_id=${encodeURIComponent(sessionId)}`);
 }
 
 export async function fetchChatSessions() {
@@ -467,6 +504,18 @@ export const pipelineApi = {
     request<{ run_id: string; status: string; steps: Array<{ agent?: string; step?: number; action?: string; timestamp?: string | null }> }>(
       `/pipeline/status/${encodeURIComponent(runId)}`
     ),
+  result: (runId: string) =>
+    request<{
+      run_id: string;
+      project_id?: string;
+      dataset_key?: string;
+      status: string;
+      error?: string | null;
+      rca?: { nodes?: any[]; edges?: any[]; incidents?: any[] };
+      telemetry?: { table?: string; metric?: string | null; series?: Array<{ timestamp: string; value: number }> };
+      split?: { clean_rows?: number | null; quarantine_rows?: number | null; clean?: any[]; quarantine?: any[] };
+      manifest?: { hash?: string; algorithm?: string; status?: string };
+    }>(`/pipeline/result/${encodeURIComponent(runId)}`),
 };
 
 export const quarantineApi = {
