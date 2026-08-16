@@ -8,15 +8,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./data_new:/app/data_new
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
-      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
-      - GOOGLE_AI_MODEL=${GOOGLE_AI_MODEL:-gemini-2.0-flash}
-    restart: unless-stopped
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - DUCKDB_PATH=data_new/db/vingroup_pilot.db
+      - CORS_ORIGINS=*
+    restart: always
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
       retries: 3
 
   frontend:
@@ -27,4 +32,15 @@ services:
       - "3000:80"
     depends_on:
       - backend
-    restart: unless-stopped
+    restart: always
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: datatrust-cloudflared
+    restart: always
+    network_mode: host
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_KEY}
+    depends_on:
+      - backend
+      - frontend
+

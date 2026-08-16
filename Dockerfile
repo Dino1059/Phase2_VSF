@@ -15,6 +15,7 @@ RUN uv sync --frozen --no-dev
 COPY src/ ./src/
 COPY eval/ ./eval/
 COPY data/ ./data/
+COPY data_new/ ./data_new/
 COPY scripts/ ./scripts/
 
 # Expose port
