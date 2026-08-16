@@ -221,6 +221,13 @@ class Settings(BaseSettings):
 
         path = self.dataset_registry.get(key)
         if not path:
+            # Handle path variations like data_new/db/vingroup_pilot or uploaded_...
+            bare_key = os.path.splitext(os.path.basename(key))[0]
+            if bare_key in self.dataset_registry:
+                path = self.dataset_registry[bare_key]
+                self.dataset_registry[key] = path
+
+        if not path:
             # Handle uploaded_ prefix alias or file name variations
             cleaned_key = key
             if key.startswith("uploaded_"):

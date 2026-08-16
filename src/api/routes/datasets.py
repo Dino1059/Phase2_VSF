@@ -34,29 +34,8 @@ async def list_datasets():
 
 
 
-@router.get("/{dataset_key}", summary="Get dataset metadata")
-async def get_dataset(dataset_key: str):
-    """Get metadata for a specific registered dataset."""
-    settings = get_settings()
-    try:
-        full_path = settings.get_dataset_path(dataset_key)
-    except ValueError:
-        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_key}' not found")
-
-    exists = os.path.exists(full_path)
-    size_mb = os.path.getsize(full_path) / 1024**2 if exists else 0
-    rel_path = os.path.relpath(full_path, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    return {
-        "key": dataset_key,
-        "path": settings.dataset_registry.get(dataset_key, rel_path),
-        "exists": exists,
-        "size_mb": round(size_mb, 2),
-    }
-
-
-
-@router.get("/{dataset_key}/profile")
-@router.post("/{dataset_key}/profile")
+@router.get("/{dataset_key:path}/profile")
+@router.post("/{dataset_key:path}/profile")
 async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
     """Profile a registered dataset with server-side file loading."""
     try:
@@ -78,7 +57,7 @@ async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{dataset_key}/sample")
+@router.get("/{dataset_key:path}/sample")
 async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
     """Sample records from a registered dataset."""
     try:
@@ -88,16 +67,35 @@ async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
         subset = df.iloc[offset : offset + limit]
         return {
             "dataset": dataset_key,
-            "total_rows": total,
+            "total": total,
             "limit": limit,
             "offset": offset,
-            "columns": list(df.columns),
-            "rows": _sanitize_nans(subset.to_dict("records")),
+            "records": _sanitize_nans(subset.to_dict(orient="records")),
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{dataset_key:path}", summary="Get dataset metadata")
+async def get_dataset(dataset_key: str):
+    """Get metadata for a specific registered dataset."""
+    settings = get_settings()
+    try:
+        full_path = settings.get_dataset_path(dataset_key)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_key}' not found")
+
+    exists = os.path.exists(full_path)
+    size_mb = os.path.getsize(full_path) / 1024**2 if exists else 0
+    rel_path = os.path.relpath(full_path, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    return {
+        "key": dataset_key,
+        "path": settings.dataset_registry.get(dataset_key, rel_path),
+        "exists": exists,
+        "size_mb": round(size_mb, 2),
+    }
 
 
 

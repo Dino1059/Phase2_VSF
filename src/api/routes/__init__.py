@@ -484,9 +484,14 @@ async def send_chat_message(request: ChatRequest):
     llm_service = LLMService()
     react_engine = BoundedReActEngine(llm_service=llm_service, tools=registry)
     
-    import sentry_sdk
-    sentry_sdk.set_user({"id": session_id})
-    sentry_sdk.set_tag("agent.version", "v1.0")
+    try:
+        import sentry_sdk
+        sentry_sdk.set_user({"id": session_id})
+        sentry_sdk.set_tag("agent.version", "v1.0")
+        sentry_ctx = sentry_sdk.start_transaction(op="agent.react", name="ReAct Engine Execution")
+    except ImportError:
+        from contextlib import nullcontext
+        sentry_ctx = nullcontext()
     
     lang_pref = request.lang or "vi"
     if lang_pref == "vi":
@@ -505,7 +510,7 @@ async def send_chat_message(request: ChatRequest):
     else:
         task = f"{lang_instruction}\nUser request: {request.message}"
 
-    with sentry_sdk.start_transaction(op="agent.react", name="ReAct Engine Execution"):
+    with sentry_ctx:
         result = react_engine.run(task, context=context)
 
     # Broadcast step thoughts as traces for the right panel; save only action observations & final response
