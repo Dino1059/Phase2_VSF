@@ -111,8 +111,23 @@ class StructuredSource(DataSource):
             return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
         elif fmt == "duckdb":
             import duckdb
+            import os
+            from src.db.connection import get_db
 
-            conn = duckdb.connect(str(self.file_path), read_only=True)
+            db_mgr = get_db()
+            is_same_db = os.path.abspath(str(self.file_path)) == os.path.abspath(str(db_mgr.db_path))
+            should_close = False
+
+            if is_same_db:
+                conn = db_mgr._get_master_conn()
+            else:
+                try:
+                    conn = duckdb.connect(str(self.file_path), read_only=True)
+                    should_close = True
+                except Exception:
+                    conn = duckdb.connect(str(self.file_path))
+                    should_close = True
+
             try:
                 tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
                 if not tables:
@@ -147,7 +162,11 @@ class StructuredSource(DataSource):
                     query += f" LIMIT {int(sample_size)}"
                 return conn.execute(query).fetchdf()
             finally:
-                conn.close()
+                if should_close:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
         else:
             try:
                 return pd.read_csv(self.file_path, nrows=sample_size) if sample_size else pd.read_csv(self.file_path)
@@ -170,7 +189,23 @@ class StructuredSource(DataSource):
         elif self.file_format == "duckdb" and self.file_path.exists():
             try:
                 import duckdb
-                conn = duckdb.connect(str(self.file_path), read_only=True)
+                import os
+                from src.db.connection import get_db
+
+                db_mgr = get_db()
+                is_same_db = os.path.abspath(str(self.file_path)) == os.path.abspath(str(db_mgr.db_path))
+                should_close = False
+
+                if is_same_db:
+                    conn = db_mgr._get_master_conn()
+                else:
+                    try:
+                        conn = duckdb.connect(str(self.file_path), read_only=True)
+                        should_close = True
+                    except Exception:
+                        conn = duckdb.connect(str(self.file_path))
+                        should_close = True
+
                 try:
                     tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
                     system_tables = {

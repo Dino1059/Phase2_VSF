@@ -1,140 +1,157 @@
+import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
+
 from src.middleware.auth import (
-    check_user_role,
+    UserRole,
+    SERVER_USERS,
     create_access_token,
     decode_access_token,
-    resolve_server_user_role,
-    ROLE_PERMISSIONS,
-    SERVER_USERS,
-    UserRole,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
+    role: Optional[str] = None
 
 
-class LoginResponse(BaseModel):
+class SwitchRoleRequest(BaseModel):
+    role: str  # admin, steward, viewer, analyst, auditor
+
+
+class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    role: str
-    user: str
+    user: dict
 
 
-@router.get("", summary="Auth status")
-@router.get("/", summary="Auth status")
-async def auth_status(request: Request):
-    auth_header = request.headers.get("Authorization")
-    raw_token = auth_header.replace("Bearer ", "").strip() if auth_header else None
-    if raw_token:
-        payload = decode_access_token(raw_token)
-        if payload:
-            role = payload.get("role", "Admin")
-            return {
-                "status": "ok",
-                "service": "auth",
-                "current_role": role,
-            }
-    x_user_role = request.headers.get("X-User-Role")
-    if x_user_role:
-        return {
-            "status": "ok",
-            "service": "auth",
-            "current_role": x_user_role.capitalize(),
-        }
-    return {
-        "status": "ok",
-        "service": "auth",
-        "current_role": "Viewer",
-    }
+@router.get("")
+@router.get("/")
+async def auth_status():
+    return {"status": "ok", "service": "auth"}
 
 
-@router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
-    if not request.username or not request.password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username and password required",
-        )
+@router.post("/login")
+async def login(req: LoginRequest):
+    username = req.username.strip().lower()
+    user_info = None
 
-    user_entry = SERVER_USERS.get(request.username.lower())
-    if user_entry:
-        user_id = user_entry["user_id"]
-        username = user_entry["username"]
-        role = user_entry["role"]
+    # Check direct lookup by username/email
+    if username in SERVER_USERS:
+        user_info = SERVER_USERS[username]
     else:
-        user_id = f"usr_{request.username.lower()}"
-        username = request.username
-        role = resolve_server_user_role(request.username)
+        # Fallback to role matching
+        target_role = (req.role or username).capitalize()
+        for u, data in SERVER_USERS.items():
+            if data["role"].value.lower() == target_role.lower():
+                user_info = data
+                break
 
-    token_data = {
-        "sub": username,
-        "user_id": user_id,
-        "role": role.value,
+    if not user_info:
+        # Default to Viewer if unknown
+        user_info = {
+            "user_id": f"usr_{username}",
+            "username": username,
+            "role": UserRole.VIEWER,
+        }
+
+    token = create_access_token({
+        "sub": user_info["username"],
+        "user_id": user_info["user_id"],
+        "role": user_info["role"].value,
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_info["username"],
+        "role": user_info["role"].value,
+        "user_profile": {
+            "user_id": user_info["user_id"],
+            "username": user_info["username"],
+            "role": user_info["role"].value,
+        },
     }
-    access_token = create_access_token(token_data)
 
-    return LoginResponse(
-        access_token=access_token,
-        token_type="bearer",
-        role=role.value,
-        user=username,
-    )
+
+@router.post("/quick-switch")
+async def quick_switch(req: SwitchRoleRequest):
+    target_role_str = req.role.strip().capitalize()
+    matched_role = None
+    for r in UserRole:
+        if r.value.lower() == target_role_str.lower():
+            matched_role = r
+            break
+
+    if not matched_role:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {req.role}")
+
+    user_info = None
+    for u, data in SERVER_USERS.items():
+        if data["role"] == matched_role:
+            user_info = data
+            break
+
+    if not user_info:
+        user_info = {
+            "user_id": f"usr_{matched_role.value.lower()}_01",
+            "username": f"{matched_role.value.lower()}@datatrust.os",
+            "role": matched_role,
+        }
+
+    token = create_access_token({
+        "sub": user_info["username"],
+        "user_id": user_info["user_id"],
+        "role": matched_role.value,
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "user_id": user_info["user_id"],
+            "username": user_info["username"],
+            "role": matched_role.value,
+        },
+    }
 
 
 @router.get("/me")
-async def get_current_user(request: Request):
-    auth_header = request.headers.get("Authorization")
-    x_user_role = request.headers.get("X-User-Role")
-    raw_token = auth_header.replace("Bearer ", "").strip() if auth_header else (x_user_role or None)
+async def get_me(
+    authorization: Optional[str] = Header(None),
+    x_user_role: Optional[str] = Header("Admin"),
+):
+    if authorization:
+        token = authorization
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
 
-    if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Missing Authorization Bearer token",
-        )
+        payload = decode_access_token(token)
+        if payload:
+            role = payload.get("role", "Viewer")
+            return {
+                "user_id": payload.get("user_id", "usr_01"),
+                "username": payload.get("sub", "user@datatrust.os"),
+                "role": role,
+                "permissions": ["all", "read", "write"] if role == "Admin" else ["read"],
+            }
 
-    payload = decode_access_token(raw_token)
-    if not payload and x_user_role:
-        role_str = x_user_role.strip().capitalize()
-        try:
-            user_role = UserRole(role_str)
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Forbidden: Unknown role {x_user_role}",
-            )
-        user_id = f"usr_{user_role.value.lower()}_01"
-        sub = f"{user_role.value.lower()}@datatrust.os"
-    elif not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Invalid or expired signed JWT token",
-        )
-    else:
-        role_str = payload.get("role")
-        sub = payload.get("sub", "user")
-        user_id = payload.get("user_id", f"usr_{sub}")
-        try:
-            user_role = UserRole(role_str)
-        except Exception:
-            user_role = resolve_server_user_role(sub)
-
-    permissions = list(ROLE_PERMISSIONS.get(user_role, set()))
-
+    role = x_user_role or "Admin"
     return {
-        "user_id": user_id,
-        "username": sub,
-        "role": user_role.value,
-        "permissions": sorted(permissions),
+        "user_id": f"usr_{role.lower()}_01",
+        "username": f"{role.lower()}@datatrust.os",
+        "role": role,
+        "permissions": ["all", "read", "write"] if role == "Admin" else ["read"],
     }
 
 
 @router.post("/logout")
 async def logout():
-    return {"status": "success", "message": "Successfully logged out"}
+    return {"status": "success", "message": "Logged out successfully"}
+

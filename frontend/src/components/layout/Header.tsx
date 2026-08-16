@@ -2,34 +2,36 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
-  Atom, Search, Moon, Sun, ShieldAlert, ChevronDown,
-  IdCard, SlidersHorizontal, LogOut, X, Database,
-  AlertTriangle, Radio, GitBranch, ShieldCheck,
+  Atom, Search, Moon, Sun, ChevronDown,
+  IdCard, LogOut, X, Database,
+  AlertTriangle, GitBranch, ShieldCheck,
   History, Camera, LayoutDashboard, MessageSquare, ArrowRight,
+  RotateCcw, Globe, Sparkles, Shield,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { searchApi, SearchHit } from '../../services/api';
+import { searchApi, SearchHit, systemApi, datasetsApi } from '../../services/api';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
+import { useAuthStore } from '../../stores/authStore';
+import { AuthModal } from '../auth/AuthModal';
+import { changeLanguage } from '../../i18n';
 
 interface StaticSearchResult {
   id: string;
-  title: string;
+  title: { en: string; vi: string };
   category: 'dataset' | 'operation' | 'action';
-  description: string;
+  description: { en: string; vi: string };
   path: string;
   icon: typeof Database;
 }
 
 const STATIC_OPERATIONS: StaticSearchResult[] = [
-  { id: 'op-dashboard', title: 'Executive Homepage', category: 'operation', description: 'Real-time KPI metrics, anomaly trends, and HITL governance', path: '/dashboard', icon: LayoutDashboard },
-  { id: 'op-new-chat', title: 'New Agent Chat Session', category: 'action', description: 'Start AI Steward interactive analysis session', path: '/workspace', icon: MessageSquare },
-  { id: 'op-alerts', title: 'Alert Center', category: 'operation', description: 'Real-time threshold alerts and webhook dispatchers', path: '/operations/alerts', icon: AlertTriangle },
-  { id: 'op-incidents', title: 'Incident Command', category: 'operation', description: 'Multi-layer anomaly incidents and causal hypotheses', path: '/operations/incidents', icon: ShieldAlert },
-  { id: 'op-signals', title: 'Signal Explorer', category: 'operation', description: 'L1-L4 anomaly detection signals and statistical drift', path: '/operations/signals', icon: Radio },
-  { id: 'op-traces', title: 'Agent Traces', category: 'operation', description: 'ReAct agent execution trajectories and tool logs', path: '/operations/traces', icon: GitBranch },
-  { id: 'op-governance', title: 'Governance & Admin', category: 'operation', description: 'Data quality rule policies and audit controls', path: '/operations/governance', icon: ShieldCheck },
-  { id: 'op-executions', title: 'Execution History', category: 'operation', description: 'Quarantine and clean split transformation executions', path: '/operations/executions', icon: History },
-  { id: 'op-snapshots', title: 'Data Snapshots', category: 'operation', description: 'Cryptographic schema state and row count manifests', path: '/operations/snapshots', icon: Camera },
+  { id: 'op-dashboard', title: { en: 'Executive Homepage', vi: 'Trang Chủ Điều Hành' }, category: 'operation', description: { en: 'Real-time KPI metrics, anomaly trends, and HITL governance', vi: 'Chỉ số KPI thời gian thực, xu hướng bất thường và quản trị HITL' }, path: '/dashboard', icon: LayoutDashboard },
+  { id: 'op-new-chat', title: { en: 'New Agent Session', vi: 'Phiên Trò Chuyện Agent Mới' }, category: 'action', description: { en: 'Start AI Steward interactive analysis session', vi: 'Bắt đầu phiên phân tích tương tác với AI Steward' }, path: '/workspace', icon: MessageSquare },
+  { id: 'op-alerts', title: { en: 'Alert Dashboard', vi: 'Bảng Cảnh Báo Điều Hành' }, category: 'operation', description: { en: 'Real-time threshold alerts and multi-layer triage', vi: 'Cảnh báo ngưỡng thời gian thực và phân loại đa tầng' }, path: '/operations/alerts', icon: AlertTriangle },
+  { id: 'op-traces', title: { en: 'Agent Traces', vi: 'Dấu Vết Thực Thi Agent' }, category: 'operation', description: { en: 'ReAct agent execution trajectories and tool logs', vi: 'Quỹ đạo thực thi agent ReAct và nhật ký công cụ' }, path: '/operations/traces', icon: GitBranch },
+  { id: 'op-governance', title: { en: 'Governance & Rules', vi: 'Quản Trị & Bộ Luật' }, category: 'operation', description: { en: 'Data quality rule policies and audit controls', vi: 'Chính sách luật chất lượng dữ liệu và kiểm toán' }, path: '/operations/governance', icon: ShieldCheck },
+  { id: 'op-executions', title: { en: 'Execution History', vi: 'Lịch Sử Thực Thi' }, category: 'operation', description: { en: 'Quarantine and clean split transformation executions', vi: 'Lịch sử phân tách tập sạch và vùng cách ly' }, path: '/operations/executions', icon: History },
+  { id: 'op-snapshots', title: { en: 'Data Snapshots', vi: 'Ảnh Chụp Dữ Liệu' }, category: 'operation', description: { en: 'Cryptographic schema state and row count manifests', vi: 'Trạng thái schema mã hóa và bản kê số hàng' }, path: '/operations/snapshots', icon: Camera },
 ];
 
 export function Header() {
@@ -37,14 +39,81 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [backendHits, setBackendHits] = useState<SearchHit[]>([]);
+  const [uploadedDatasets, setUploadedDatasets] = useState<Array<{ key: string; name: string; path?: string }>>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
-  const { t } = useTranslation('pipeline');
+  const { user, isAuthenticated, isAdmin, setAuthModalOpen, logout } = useAuthStore();
+  const { t, i18n } = useTranslation('pipeline');
+  const isVi = i18n.language === 'vi';
   const { theme, toggleTheme } = useTheme();
+
   const modalInputRef = useRef<HTMLInputElement>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  // Load registered & uploaded datasets for Ctrl+K search index
+  useEffect(() => {
+    async function fetchUploaded() {
+      try {
+        const res = await datasetsApi.list();
+        if (res && Array.isArray(res.datasets)) {
+          const dynamic = res.datasets.map((d: { key: string; filename?: string; path?: string }) => {
+            const fileName = d.filename || (d.path ? d.path.split('/').pop() : '') || d.key;
+            return {
+              key: d.key,
+              name: fileName || d.key.replace(/^uploaded_/, '').replace(/_/g, ' '),
+              path: d.path || '',
+            };
+          });
+          setUploadedDatasets(dynamic);
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+    fetchUploaded();
+
+    const handleUploaded = () => {
+      fetchUploaded();
+    };
+    window.addEventListener('datatrust:dataset-uploaded', handleUploaded as EventListener);
+    window.addEventListener('datasetUploaded', handleUploaded as EventListener);
+    window.addEventListener('datatrust:db-reset', handleUploaded as EventListener);
+    return () => {
+      window.removeEventListener('datatrust:dataset-uploaded', handleUploaded as EventListener);
+      window.removeEventListener('datasetUploaded', handleUploaded as EventListener);
+      window.removeEventListener('datatrust:db-reset', handleUploaded as EventListener);
+    };
+  }, []);
+
+  const handleResetAll = async () => {
+    const confirmMsg = isVi
+      ? 'Đặt lại toàn bộ bảng DB, luật, vùng cách ly và bộ nhớ phiên về trạng thái ban đầu của VinGroup?'
+      : 'Reset all DB tables, rules, quarantine, and conversation memory back to clean VinGroup baseline?';
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await systemApi.resetAll();
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 3500);
+      window.dispatchEvent(new CustomEvent('datatrust:db-reset'));
+    } catch (err: any) {
+      alert(isVi ? `Đặt lại thất bại: ${err.message}` : `Reset failed: ${err.message}`);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleToggleLang = () => {
+    const next = i18n.language === 'vi' ? 'en' : 'vi';
+    changeLanguage(next);
+  };
+
 
   // ⌘K / Ctrl-K opens the centered search modal
   useEffect(() => {
@@ -101,59 +170,113 @@ export function Header() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Filter local operations & sample datasets
+  // Filter local operations & sample datasets (including dynamic uploaded datasets)
   const localResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return STATIC_OPERATIONS.slice(0, 6);
+    const curLang = isVi ? 'vi' : 'en';
+    if (!q) {
+      return STATIC_OPERATIONS.slice(0, 6).map((op) => ({
+        id: op.id,
+        title: op.title[curLang],
+        category: op.category,
+        description: op.description[curLang],
+        path: op.path,
+        icon: op.icon,
+      }));
+    }
 
     const matchedOps = STATIC_OPERATIONS.filter(
-      (op) => op.title.toLowerCase().includes(q) || op.description.toLowerCase().includes(q)
-    );
+      (op) =>
+        op.title.en.toLowerCase().includes(q) ||
+        op.title.vi.toLowerCase().includes(q) ||
+        op.description.en.toLowerCase().includes(q) ||
+        op.description.vi.toLowerCase().includes(q)
+    ).map((op) => ({
+      id: op.id,
+      title: op.title[curLang],
+      category: op.category,
+      description: op.description[curLang],
+      path: op.path,
+      icon: op.icon,
+    }));
 
-    const matchedDatasets: StaticSearchResult[] = DOMAIN_LIST.filter(
+    const matchedDatasets = DOMAIN_LIST.filter(
       (d) => d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q) || d.shortcut.toLowerCase().includes(q)
     ).map((d) => ({
       id: `dataset-${d.id}`,
       title: d.name,
-      category: 'dataset',
-      description: `Pilot dataset · ${d.shortcut}`,
+      category: 'dataset' as const,
+      description: isVi ? `Bộ dữ liệu thử nghiệm · ${d.shortcut}` : `Pilot dataset · ${d.shortcut}`,
       path: `/workspace?dataset_key=${encodeURIComponent(d.id)}`,
       icon: Database,
     }));
 
-    return [...matchedDatasets, ...matchedOps];
-  }, [searchQuery]);
+    const sampleIds = new Set<string>(DOMAIN_LIST.map((d) => d.id as string));
+    const matchedUploaded = uploadedDatasets
+      .filter((d) => !sampleIds.has(d.key))
+      .filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.key.toLowerCase().includes(q) ||
+          (d.path && d.path.toLowerCase().includes(q))
+      )
+      .map((d) => ({
+        id: `uploaded-${d.key}`,
+        title: d.name,
+        category: 'dataset' as const,
+        description: isVi ? `Tập dữ liệu đã đăng ký / tải lên · ${d.key}` : `Registered / Uploaded Dataset · ${d.key}`,
+        path: `/workspace?dataset_key=${encodeURIComponent(d.key)}`,
+        icon: Database,
+      }));
+
+    return [...matchedUploaded, ...matchedDatasets, ...matchedOps];
+  }, [searchQuery, uploadedDatasets, isVi]);
+
+
 
   // Combined flattened items for keyboard navigation
   const allNavigableItems = useMemo(() => {
     const items: Array<{ id: string; title: string; subtitle?: string; path: string; category: string }> = [];
+    const seenPaths = new Set<string>();
+    const seenTitles = new Set<string>();
 
     localResults.forEach((item) => {
-      items.push({
-        id: item.id,
-        title: item.title,
-        subtitle: item.description,
-        path: item.path,
-        category: item.category,
-      });
+      const tLower = item.title.toLowerCase().trim();
+      if (!seenPaths.has(item.path) && !seenTitles.has(tLower)) {
+        seenPaths.add(item.path);
+        seenTitles.add(tLower);
+        items.push({
+          id: item.id,
+          title: item.title,
+          subtitle: item.description,
+          path: item.path,
+          category: item.category,
+        });
+      }
     });
 
     backendHits.forEach((hit, idx) => {
       const path = hit.entity_type === 'dataset' && hit.key
         ? `/workspace?dataset_key=${encodeURIComponent(hit.key)}`
         : hit.entity_type === 'alert'
-        ? '/operations/alerts'
-        : hit.entity_type === 'rule'
-        ? '/operations/governance'
-        : '/dashboard';
+          ? '/operations/alerts'
+          : hit.entity_type === 'rule'
+            ? '/operations/governance'
+            : '/dashboard';
 
-      items.push({
-        id: hit.objectID || `backend-${idx}`,
-        title: hit.name || hit.title || hit.key || 'Entity',
-        subtitle: hit.description || hit.rule_expression || hit.path || hit.entity_type,
-        path,
-        category: hit.entity_type || 'result',
-      });
+      const title = hit.name || hit.title || hit.key || 'Entity';
+      const tLower = title.toLowerCase().trim();
+      if (!seenPaths.has(path) && !seenTitles.has(tLower)) {
+        seenPaths.add(path);
+        seenTitles.add(tLower);
+        items.push({
+          id: hit.objectID || `backend-${idx}`,
+          title,
+          subtitle: hit.description || hit.rule_expression || hit.path || hit.entity_type,
+          path,
+          category: hit.entity_type || 'result',
+        });
+      }
     });
 
     return items;
@@ -220,40 +343,186 @@ export function Header() {
         </div>
 
         <div className="hud-actions">
-          <button className="theme-toggle-btn" title="Toggle Dark/White Mode" onClick={toggleTheme}>
+          {/* Landing Page Link (Only shown when logged out) */}
+          {!isAuthenticated && (
+            <button
+              type="button"
+              className="hud-action-pill"
+              onClick={() => navigate('/landing')}
+              title={isVi ? 'Xem Trang Giới Thiệu DataTrustOS' : 'View DataTrustOS Futuristic Landing Page'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0 12px',
+                height: '32px',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--glass-border)',
+                color: 'var(--text-main)',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <Globe size={13} style={{ color: 'var(--warning-amber)' }} />
+              <span>{isVi ? 'Trang Giới Thiệu' : 'Landing Page'}</span>
+            </button>
+          )}
+
+          {/* Language Switcher Button */}
+          <button
+            type="button"
+            className="hud-action-pill"
+            onClick={handleToggleLang}
+            title={isVi ? 'Chuyển đổi Tiếng Việt / Tiếng Anh' : 'Toggle Vietnamese / English Language'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '0 12px',
+              height: '32px',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid var(--glass-border)',
+              color: 'var(--text-main)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <Globe size={13} style={{ color: 'var(--neon-cyan)' }} />
+            <span>{isVi ? 'VI' : 'EN'}</span>
+          </button>
+
+          {/* Admin-Only DB & Baseline Reset Button */}
+          {isAuthenticated && isAdmin() && (
+            <button
+              type="button"
+              className="hud-action-pill danger"
+              onClick={handleResetAll}
+              disabled={resetLoading}
+              title={isVi ? 'Quản trị viên: Đặt lại trạng thái runtime & khôi phục dữ liệu gốc VinGroup' : 'Admin Quick Reset: Wipe runtime state & restore VinGroup baseline'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0 12px',
+                height: '32px',
+                borderRadius: '9999px',
+                backgroundColor: resetSuccess ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+                border: `1px solid ${resetSuccess ? 'var(--electric-green)' : 'rgba(239, 68, 68, 0.35)'}`,
+                color: resetSuccess ? 'var(--electric-green)' : '#f87171',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+            >
+              <RotateCcw size={13} className={resetLoading ? 'spinning' : ''} />
+              <span>{resetSuccess ? (isVi ? 'Đã Đặt Lại!' : 'Reset OK!') : (isVi ? 'Đặt Lại DB' : 'Reset DB')}</span>
+            </button>
+          )}
+
+          {/* Theme Toggle */}
+          <button className="theme-toggle-btn" title={isVi ? 'Chuyển Đổi Sáng/Tối' : 'Toggle Dark/White Mode'} onClick={toggleTheme}>
             {theme === 'tech-dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <div className="user-profile-wrapper" onClick={() => setUserDropdownOpen(!userDropdownOpen)}>
-            <div className="user-profile-btn">
-              <div className="user-avatar-box"><ShieldAlert size={16} /></div>
-              <div className="user-info-text">
-                <span className="user-name-str">Huyen Vu</span>
-                <span className="user-role-str">Steward Admin</span>
-              </div>
-              <ChevronDown className="dropdown-arrow" size={12} />
-            </div>
-            {userDropdownOpen && (
-              <div className="user-dropdown-menu show" style={{ display: 'block' }}>
-                <div className="dropdown-user-header">
-                  <div className="dropdown-user-name">Huyen Vu</div>
-                  <div className="dropdown-user-email">vuthuhuyen@enterprise.ai</div>
+
+          {/* User Profile & Persona Switcher */}
+          {!isAuthenticated ? (
+            <button
+              type="button"
+              className="hud-action-pill"
+              onClick={() => setAuthModalOpen(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0 14px',
+                height: '32px',
+                borderRadius: '9999px',
+                backgroundColor: 'var(--neon-cyan)',
+                color: '#ffffff',
+                border: 'none',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {isVi ? 'Đăng Nhập' : 'Sign In'}
+            </button>
+          ) : (
+            <div className="user-profile-wrapper" onClick={() => setUserDropdownOpen(!userDropdownOpen)}>
+              <div className="user-profile-btn">
+                <div
+                  className="user-avatar-box"
+                  style={{
+                    backgroundColor: isAdmin() ? 'rgba(244, 63, 94, 0.15)' : 'rgba(14, 165, 233, 0.15)',
+                    color: isAdmin() ? 'var(--alert-magenta)' : 'var(--neon-cyan)',
+                  }}
+                >
+                  <Shield size={16} />
                 </div>
-                <div className="dropdown-divider"></div>
-                <a href="#/operations/governance" className="dropdown-item" onClick={() => navigate('/operations/governance')}>
-                  <IdCard size={14} /> {t('profileInfo')}
-                </a>
-                <a href="#/operations/governance" className="dropdown-item" onClick={() => navigate('/operations/governance')}>
-                  <SlidersHorizontal size={14} /> {t('settings')}
-                </a>
-                <div className="dropdown-divider"></div>
-                <a href="#" className="dropdown-item danger" onClick={(e) => { e.preventDefault(); setUserDropdownOpen(false); }}>
-                  <LogOut size={14} /> {t('signOut')}
-                </a>
+                <div className="user-info-text">
+                  <span className="user-name-str">{user?.username?.split('@')[0] || 'Admin'}</span>
+                  <span
+                    className="user-role-str"
+                    style={{
+                      color: isAdmin() ? 'var(--alert-magenta)' : 'var(--neon-cyan)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {user?.role || 'Admin'}
+                  </span>
+                </div>
+                <ChevronDown className="dropdown-arrow" size={12} />
               </div>
-            )}
-          </div>
+
+              {userDropdownOpen && (
+                <div className="user-dropdown-menu show" style={{ display: 'block' }}>
+                  <div className="dropdown-user-header">
+                    <div className="dropdown-user-name">{user?.username}</div>
+                    <div className="dropdown-user-email">{isVi ? 'Vai trò' : 'Role'}: {user?.role}</div>
+                  </div>
+                  <div className="dropdown-divider"></div>
+                  <div
+                    className="dropdown-item"
+                    style={{ cursor: 'pointer', color: 'var(--neon-cyan)', fontWeight: 600 }}
+                    onClick={() => {
+                      setUserDropdownOpen(false);
+                      setAuthModalOpen(true);
+                    }}
+                  >
+                    <Sparkles size={14} /> {isVi ? 'Chuyển Đổi Vai Trò' : 'Switch Persona / Role'}
+                  </div>
+                  <a href="#/operations/governance" className="dropdown-item" onClick={() => navigate('/operations/governance')}>
+                    <IdCard size={14} /> {t('profileInfo')}
+                  </a>
+                  <div className="dropdown-divider"></div>
+                  <a
+                    href="#"
+                    className="dropdown-item danger"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setUserDropdownOpen(false);
+                      logout();
+                      navigate('/landing');
+                    }}
+                  >
+                    <LogOut size={14} /> {t('signOut')}
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
+
+
+      {/* Auth & Persona Switcher Modal */}
+      <AuthModal />
+
 
       {/* Centered Command Palette Modal */}
       {searchOpen && (
@@ -355,10 +624,10 @@ export function Header() {
                     const path = hit.entity_type === 'dataset' && hit.key
                       ? `/workspace?dataset_key=${encodeURIComponent(hit.key)}`
                       : hit.entity_type === 'alert'
-                      ? '/operations/alerts'
-                      : hit.entity_type === 'rule'
-                      ? '/operations/governance'
-                      : '/dashboard';
+                        ? '/operations/alerts'
+                        : hit.entity_type === 'rule'
+                          ? '/operations/governance'
+                          : '/dashboard';
 
                     return (
                       <div

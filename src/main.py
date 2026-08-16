@@ -25,6 +25,7 @@ from src.api.routes import (
     audit_router,
     summary_router,
     evaluation_router,
+    system_router,
 )
 from src.api.hitl import hitl_router
 from src.api.dashboard import dashboard_router
@@ -133,6 +134,8 @@ app.include_router(quarantine_router, prefix="/api/v1")
 app.include_router(snapshots_router, prefix="/api/v1")
 app.include_router(hitl_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
+app.include_router(system_router, prefix="/api/v1")
+
 
 
 @app.get("/health")

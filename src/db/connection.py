@@ -27,60 +27,68 @@ class DuckDBManager:
             if env_db:
                 db_path = env_db if os.path.isabs(env_db) else os.path.join(project_root, env_db)
             else:
-                db_path = os.path.join(project_root, "data", "datatrust_v4.duckdb")
+                pilot_db = os.path.join(project_root, "data_new", "db", "vingroup_pilot.db")
+                if os.path.exists(pilot_db):
+                    db_path = pilot_db
+                else:
+                    db_path = os.path.join(project_root, "data", "datatrust_v4.duckdb")
+
 
         self.db_path = db_path
         self.project_root = project_root
-        self._local = threading.local()
-        self._connections = []
+        self._master_conn = None
         self._conn_lock = threading.Lock()
         self._initialized = True
 
-    def get_connection(self) -> duckdb.DuckDBPyConnection:
-        if not hasattr(self._local, "connection") or self._local.connection is None:
-            dir_name = os.path.dirname(self.db_path)
-            if dir_name:
-                os.makedirs(dir_name, exist_ok=True)
-            import time
-            conn = None
-            for attempt in range(4):
-                try:
-                    conn = duckdb.connect(self.db_path)
-                    break
-                except duckdb.IOException as e:
-                    err_str = str(e).lower()
-                    if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
-                        if attempt < 3:
-                            time.sleep(0.3)
+    def _get_master_conn(self) -> duckdb.DuckDBPyConnection:
+        with self._conn_lock:
+            if self._master_conn is None:
+                dir_name = os.path.dirname(self.db_path)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
+                import time
+                for attempt in range(5):
+                    try:
+                        self._master_conn = duckdb.connect(self.db_path)
+                        break
+                    except duckdb.IOException as e:
+                        err_str = str(e).lower()
+                        if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
+                            if attempt < 4:
+                                time.sleep(0.3)
+                            else:
+                                try:
+                                    self._master_conn = duckdb.connect(self.db_path, read_only=True)
+                                    break
+                                except Exception:
+                                    raise e
                         else:
-                            try:
-                                conn = duckdb.connect(self.db_path, read_only=True)
-                                break
-                            except Exception:
-                                raise e
-                    else:
-                        raise
+                            raise
 
-            self._local.connection = conn
-            with self._conn_lock:
-                self._connections.append(conn)
-            try:
-                conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
-            except Exception:
                 try:
-                    self.init_schema()
+                    self._master_conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
+                except Exception:
+                    try:
+                        self.init_schema()
+                    except Exception:
+                        pass
+                try:
+                    self._ensure_quarantine_schema(self._master_conn)
+                    self._ensure_audit_schema(self._master_conn)
+                    self._ensure_scheduler_tables(self._master_conn)
+                    self._ensure_pipeline_runs_schema(self._master_conn)
+                    self._ensure_snapshots_schema(self._master_conn)
+                    self._ensure_reliability_tables(self._master_conn)
                 except Exception:
                     pass
-            try:
-                self._ensure_quarantine_schema(conn)
-                self._ensure_audit_schema(conn)
-                self._ensure_scheduler_tables(conn)
-                self._ensure_pipeline_runs_schema(conn)
-                self._ensure_snapshots_schema(conn)
-                self._ensure_reliability_tables(conn)
-            except Exception:
-                pass
-        return self._local.connection
+            return self._master_conn
+
+    def get_connection(self) -> duckdb.DuckDBPyConnection:
+        master = self._get_master_conn()
+        try:
+            return master.cursor()
+        except Exception:
+            return master
 
 
     def init_schema(self) -> None:
@@ -318,14 +326,12 @@ class DuckDBManager:
 
     def close(self) -> None:
         with self._conn_lock:
-            for conn in self._connections:
+            if self._master_conn is not None:
                 try:
-                    conn.close()
+                    self._master_conn.close()
                 except Exception:
                     pass
-            self._connections.clear()
-        if hasattr(self._local, "connection"):
-            self._local.connection = None
+                self._master_conn = None
 
 
 _db_manager = None

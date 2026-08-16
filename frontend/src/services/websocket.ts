@@ -183,7 +183,11 @@ export class AgentWebSocket {
           const summary = formatDecisionRecordSummary(record);
           store.appendStreamThought(event.id, summary);
         }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('datatrust:agent-trace', { detail: event.data || event }));
+        }
         break;
+
 
       case 'agent.proposal':
         if (Array.isArray(event.proposals || event.data)) {

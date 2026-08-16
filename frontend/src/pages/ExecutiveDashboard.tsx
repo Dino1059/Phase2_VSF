@@ -31,12 +31,12 @@ import { hitlApi, summaryApi } from '../services/api';
 import type { HITLProposal } from '../services/api';
 import type { AgentId } from '../types';
 
-const AGENT_HEALTH: Array<{ id: AgentId; label: string; icon: React.ComponentType<{ size?: number | string; className?: string; style?: React.CSSProperties }>; color: string; latency: string }> = [
-  { id: 'profiler', label: 'Data Profiling Agent', icon: ScanSearch, color: 'var(--royal-purple)', latency: '0.4ms' },
-  { id: 'anomalyDetector', label: 'Anomaly Detection Agent', icon: AlertTriangle, color: 'var(--warning-amber)', latency: '1.2ms' },
-  { id: 'ruleProposer', label: 'Rule Proposer Agent', icon: Lightbulb, color: 'var(--electric-green)', latency: '0.8ms' },
-  { id: 'diagnosis', label: 'Diagnosis & RCA Agent', icon: Stethoscope, color: 'var(--alert-magenta)', latency: '2.1ms' },
-  { id: 'orchestrator', label: 'Pytest Integration Engine', icon: FlaskConical, color: 'var(--electric-green)', latency: '1.4ms' },
+const AGENT_HEALTH: Array<{ id: AgentId; label: { en: string; vi: string }; icon: React.ComponentType<{ size?: number | string; className?: string; style?: React.CSSProperties }>; color: string; latency: string }> = [
+  { id: 'profiler', label: { en: 'Data Profiling Agent', vi: 'Agent Khảo Sát Dữ Liệu' }, icon: ScanSearch, color: 'var(--royal-purple)', latency: '0.4ms' },
+  { id: 'anomalyDetector', label: { en: 'Anomaly Detection Agent', vi: 'Agent Phát Hiện Bất Thường' }, icon: AlertTriangle, color: 'var(--warning-amber)', latency: '1.2ms' },
+  { id: 'ruleProposer', label: { en: 'Rule Proposer Agent', vi: 'Agent Đề Xuất Bộ Luật' }, icon: Lightbulb, color: 'var(--electric-green)', latency: '0.8ms' },
+  { id: 'diagnosis', label: { en: 'Diagnosis & RCA Agent', vi: 'Agent Chẩn Đoán & RCA' }, icon: Stethoscope, color: 'var(--alert-magenta)', latency: '2.1ms' },
+  { id: 'orchestrator', label: { en: 'Pytest Integration Engine', vi: 'Động Cơ Tích Hợp Pytest' }, icon: FlaskConical, color: 'var(--electric-green)', latency: '1.4ms' },
 ];
 
 const SEVERITY_BADGE: Record<string, string> = {
@@ -47,7 +47,8 @@ const SEVERITY_BADGE: Record<string, string> = {
 };
 
 export const ExecutiveDashboard: React.FC = () => {
-  const { t } = useTranslation('pipeline');
+  const { t, i18n } = useTranslation('pipeline');
+  const isVi = i18n.language === 'vi';
   const metrics = useDashboardStore((s) => s.metrics);
   const insights = useDashboardStore((s) => s.insights);
   const activityFeed = useDashboardStore((s) => s.activityFeed);
@@ -205,7 +206,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <div className="kpi-icon blue"><Boxes size={15} /></div>
           </div>
           <div className="kpi-value">{loading ? '...' : summary?.projects_count ?? '4'}<span className="unit"> {t('active')}</span></div>
-          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? 'SEMI_SYNTHETIC'} provenance</div>
+          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? 'SEMI_SYNTHETIC'} {isVi ? 'nguồn gốc' : 'provenance'}</div>
         </div>
 
         <div className="kpi-card">
@@ -232,7 +233,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <div className="kpi-icon purple"><Brain size={15} /></div>
           </div>
           <div className="kpi-value purple">{loading ? '...' : metrics.avgResolutionTime}</div>
-          <div className="kpi-subtext positive"><ShieldCheck size={13} /> {metrics.activeIncidentsCount} active incident(s)</div>
+          <div className="kpi-subtext positive"><ShieldCheck size={13} /> {metrics.activeIncidentsCount} {isVi ? 'sự cố đang xử lý' : 'active incident(s)'}</div>
         </div>
       </div>
 
@@ -315,11 +316,11 @@ export const ExecutiveDashboard: React.FC = () => {
             <canvas ref={chartRef} id="anomalyTrendChart" />
           </div>
           <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-            <span>L1 Schema: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L1 || 0}</strong></span>
-            <span>L2 Drift: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L2 || 0}</strong></span>
-            <span>L3 Multi-Entity: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L3 || 0}</strong></span>
-            <span>L4 Causal: <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L4 || 0}</strong></span>
-            <span>Total Signals: <strong style={{ color: 'var(--alert-magenta)' }}>{totalSignals}</strong></span>
+            <span>{isVi ? 'L1 Schema:' : 'L1 Schema:'} <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L1 || 0}</strong></span>
+            <span>{isVi ? 'L2 Độ Lệch:' : 'L2 Drift:'} <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L2 || 0}</strong></span>
+            <span>{isVi ? 'L3 Liên Thực Thể:' : 'L3 Multi-Entity:'} <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L3 || 0}</strong></span>
+            <span>{isVi ? 'L4 Nguyên Nhân Gốc:' : 'L4 Causal:'} <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L4 || 0}</strong></span>
+            <span>{isVi ? 'Tổng Tín Hiệu:' : 'Total Signals:'} <strong style={{ color: 'var(--alert-magenta)' }}>{totalSignals}</strong></span>
           </div>
         </div>
 
@@ -337,9 +338,9 @@ export const ExecutiveDashboard: React.FC = () => {
               <div key={agent.id} className="agent-row">
                 <div className="agent-name">
                   <agent.icon size={14} style={{ color: agent.color }} />
-                  {agent.label}
+                  {agent.label[isVi ? 'vi' : 'en']}
                 </div>
-                <span className="agent-badge">Active</span>
+                <span className="agent-badge">{isVi ? 'Hoạt Động' : 'Active'}</span>
                 <span className="stat-val">{agent.latency}</span>
               </div>
             ))}
@@ -383,7 +384,7 @@ export const ExecutiveDashboard: React.FC = () => {
               <Waypoints size={18} className="text-primary" />
               <h2>{t('activityFeed')}</h2>
             </div>
-            <span className="live-dot"><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--electric-green)', marginRight: 4 }} /> Live</span>
+            <span className="live-dot"><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--electric-green)', marginRight: 4 }} /> {isVi ? 'Trực Tiếp' : 'Live'}</span>
           </div>
           <div className="activity-timeline">
             {activityFeed.length === 0 ? (
@@ -414,7 +415,9 @@ export const ExecutiveDashboard: React.FC = () => {
               <button className="modal-close" onClick={() => setEditingRule(null)}><X size={16} /></button>
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-              Modify the SQL / Python cleaning conditions for <code>{editingRule.rule_id}</code> before signing into Pytest integration engine.
+              {isVi
+                ? `Chỉnh sửa điều kiện làm sạch SQL / Python cho ${editingRule.rule_id} trước khi ký số nạp vào động cơ Pytest.`
+                : `Modify the SQL / Python cleaning conditions for ${editingRule.rule_id} before signing into Pytest integration engine.`}
             </div>
             <textarea className="modal-textarea" value={editText} onChange={(e) => setEditText(e.target.value)} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>

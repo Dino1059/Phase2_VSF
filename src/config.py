@@ -221,6 +221,32 @@ class Settings(BaseSettings):
 
         path = self.dataset_registry.get(key)
         if not path:
+            # Handle uploaded_ prefix alias or file name variations
+            cleaned_key = key
+            if key.startswith("uploaded_"):
+                cleaned_key = key[len("uploaded_"):]
+            elif key.startswith("upload_"):
+                cleaned_key = key[len("upload_"):]
+            
+            path = self.dataset_registry.get(cleaned_key)
+
+            if not path:
+                # Check directly in data_new/db/ or data_new/raw/
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                candidates = [
+                    f"data_new/db/{cleaned_key}.db",
+                    f"data_new/db/{cleaned_key}",
+                    f"data_new/raw/{cleaned_key}.csv",
+                    f"data_new/raw/{cleaned_key}.json",
+                ]
+                for cand in candidates:
+                    if os.path.exists(os.path.join(base, cand)):
+                        path = cand
+                        self.dataset_registry[key] = cand
+                        self.dataset_registry[cleaned_key] = cand
+                        break
+
+        if not path:
             try:
                 db = get_db()
                 rows = db.execute("SELECT file_path FROM datasets WHERE dataset_key = ?", [key])

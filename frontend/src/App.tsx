@@ -5,9 +5,12 @@ import { ExecutiveDashboard } from './pages/ExecutiveDashboard';
 import { AgentChatWorkspace } from './pages/AgentChatWorkspace';
 import { OperationsWorkspace } from './pages/OperationsWorkspace';
 
+import { LandingPage } from './pages/LandingPage';
+
 export const App: React.FC = () => {
   return (
     <Routes>
+      <Route path="/landing" element={<LandingPage />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<ExecutiveDashboard />} />
         <Route path="/dashboard" element={<ExecutiveDashboard />} />
@@ -19,5 +22,6 @@ export const App: React.FC = () => {
     </Routes>
   );
 };
+
 
 export default App;

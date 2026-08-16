@@ -39,7 +39,7 @@ export function AgentMessage({ message }: { message: ChatMessage }) {
   const proposals: RuleProposal[] = Array.isArray(message.metadata?.proposals) ? message.metadata.proposals : [];
 
   return (
-    <div className="flex gap-2.5 my-1.5">
+    <div id={`chat-msg-${message.id}`} className="chat-msg-entry flex gap-2.5 my-1.5 transition-all duration-500 rounded-xl">
       <AgentAvatar agentId={agentId} size="sm" />
       <div className="max-w-[88%] flex-1">
         {/* Header */}

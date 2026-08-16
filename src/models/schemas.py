@@ -9,6 +9,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000, description="User message")
     session_id: str = Field(default="default", description="Chat session ID")
     dataset_key: Optional[str] = Field(default=None, description="Dataset context for this chat message")
+    lang: Optional[str] = Field(default="vi", description="Language preference: 'vi' (Vietnamese) or 'en' (English)")
+
 
 
 class ChatResponse(BaseModel):

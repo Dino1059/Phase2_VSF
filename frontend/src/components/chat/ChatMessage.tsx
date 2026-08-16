@@ -8,6 +8,11 @@ interface Props {
 }
 
 export function ChatMessage({ message }: Props) {
+  // Filter out internal ReAct thoughts from main chat (they are rendered in the Traces panel)
+  if (message.content?.trim().startsWith('Thought:')) {
+    return null;
+  }
+
   switch (message.type) {
     case 'user':
       return <UserMessage message={message} />;
@@ -21,3 +26,4 @@ export function ChatMessage({ message }: Props) {
       return null;
   }
 }
+

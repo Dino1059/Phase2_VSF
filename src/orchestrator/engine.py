@@ -94,10 +94,15 @@ class ReActEngine:
         self.max_steps = min(max_steps, 10)
         self.token_budget = token_budget
 
-    def run(self, task: str, context: dict | None = None) -> ReActResult:
+    def run(self, task: str, context: dict | None = None, session_id: str | None = None) -> ReActResult:
         """Execute a bounded dynamic ReAct loop."""
         start_time = time.time()
         result = ReActResult(task=task)
+        if session_id:
+            result.session_id = session_id
+        elif context and "session_id" in context:
+            result.session_id = context["session_id"]
+
 
         # Build system prompt with available tools
         tool_specs = self.tools.list_tools() if hasattr(self.tools, "list_tools") else []

@@ -1,7 +1,7 @@
 import math
 import os
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from src.api.middleware import check_user_role
 from src.config import get_settings
 
@@ -22,17 +22,10 @@ def _sanitize_nans(val: Any) -> Any:
 @router.get("", summary="List all registered datasets")
 @router.get("/", summary="List all registered datasets")
 async def list_datasets():
-    """List all registered datasets."""
+    """List all registered datasets (built-ins + dynamically uploaded)."""
     try:
         settings = get_settings()
-        result = []
-        for key, path in settings.dataset_registry.items():
-            full_path = settings.get_dataset_path(key)
-            exists = os.path.exists(full_path)
-            size_mb = os.path.getsize(full_path) / 1024**2 if exists else 0
-            result.append(
-                {"key": key, "path": path, "exists": exists, "size_mb": round(size_mb, 1)}
-            )
+        result = settings.list_available_datasets()
         return {"datasets": result}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -40,23 +33,29 @@ async def list_datasets():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
 @router.get("/{dataset_key}", summary="Get dataset metadata")
 async def get_dataset(dataset_key: str):
     """Get metadata for a specific registered dataset."""
     settings = get_settings()
-    if dataset_key not in settings.dataset_registry:
+    try:
+        full_path = settings.get_dataset_path(dataset_key)
+    except ValueError:
         raise HTTPException(status_code=404, detail=f"Dataset '{dataset_key}' not found")
-    full_path = settings.get_dataset_path(dataset_key)
+
     exists = os.path.exists(full_path)
     size_mb = os.path.getsize(full_path) / 1024**2 if exists else 0
+    rel_path = os.path.relpath(full_path, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     return {
         "key": dataset_key,
-        "path": settings.dataset_registry[dataset_key],
+        "path": settings.dataset_registry.get(dataset_key, rel_path),
         "exists": exists,
         "size_mb": round(size_mb, 2),
     }
 
 
+
+@router.get("/{dataset_key}/profile")
 @router.post("/{dataset_key}/profile")
 async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
     """Profile a registered dataset with server-side file loading."""
@@ -77,6 +76,29 @@ async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{dataset_key}/sample")
+async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
+    """Sample records from a registered dataset."""
+    try:
+        from src.services.dataset_engine import load_dataset
+        df = load_dataset(dataset_key=dataset_key, sample_size=50_000)
+        total = len(df)
+        subset = df.iloc[offset : offset + limit]
+        return {
+            "dataset": dataset_key,
+            "total_rows": total,
+            "limit": limit,
+            "offset": offset,
+            "columns": list(df.columns),
+            "rows": _sanitize_nans(subset.to_dict("records")),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/{dataset_key}/propose")
@@ -195,7 +217,10 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
 
 
 @router.post("/upload")
-async def upload_dataset_endpoint(file: UploadFile = File(...)):
+async def upload_dataset_endpoint(
+    file: UploadFile = File(...),
+    lang: Optional[str] = Query("vi"),
+):
     """Upload a database or data file (.csv, .db, .json, .parquet)."""
     import shutil
     import uuid
@@ -255,13 +280,23 @@ async def upload_dataset_endpoint(file: UploadFile = File(...)):
         {"type": "agent.status", "agent": "orchestrator", "status": "working"}
     )
 
-    declaration_content = (
-        f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
-        f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
-        f"⚖️ **Declaration & Permission Gate**:\n"
-        f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
-        f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
-    )
+    is_vi = (lang == "vi")
+    if is_vi:
+        declaration_content = (
+            f"📥 **Đã Nạp & Đăng Ký Tập Dữ Liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
+            f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n\n"
+            f"⚖️ **Cổng Tuyên Bố & Phê Duyệt Quản Trị**:\n"
+            f"Agent Điều Phối Orchestrator yêu cầu quyền khởi chạy **Quy Trình Quản Trị Tự Động** "
+            f"(Khảo Sát ➔ Phát Hiện Bất Thường ➔ Chẩn Đoán ➔ Tổng Hợp Luật ➔ Tạo DB Sạch)."
+        )
+    else:
+        declaration_content = (
+            f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
+            f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
+            f"⚖️ **Declaration & Permission Gate**:\n"
+            f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
+            f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+        )
 
     msg = conversation_store.save_message(
         {

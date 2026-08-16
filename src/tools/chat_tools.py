@@ -100,12 +100,28 @@ class ProposeQualityRulesTool(BaseTool):
                     "status": "pending"
                 })
             
+            # Persist proposals into DuckDB quality_rules table for HITL review
+            try:
+                from src.db.connection import get_db
+                db = get_db()
+                for p in proposals:
+                    existing = db.execute("SELECT id FROM quality_rules WHERE id = ?", [p["id"]])
+                    if not existing:
+                        db.execute(
+                            """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                               VALUES (?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                            [p["id"], f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
+                        )
+            except Exception as dbe:
+                print(f"[WARN] Could not persist quality_rules to DuckDB: {dbe}")
+
             return ToolResult(
                 status="success",
                 output_data={"dataset_key": dataset_key, "proposals": proposals, "count": len(proposals)}
             )
         except Exception as e:
             return ToolResult(status="error", error_message=str(e))
+
 
 
 class CleanDatabaseInput(BaseModel):

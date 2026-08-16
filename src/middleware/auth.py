@@ -156,14 +156,20 @@ PUBLIC_EXACT_PATHS = {
     "/favicon.svg",
     "/",
     "/ui",
+    "/api/v1/auth",
+    "/api/v1/auth/",
     "/api/v1/auth/login",
     "/auth/login",
+    "/api/v1/auth/quick-switch",
+    "/auth/quick-switch",
+    "/api/v1/auth/logout",
+    "/auth/logout",
 }
 
 
 def is_public_path(path: str) -> bool:
     norm = path.rstrip("/")
-    if norm in PUBLIC_EXACT_PATHS or norm.endswith("/auth/login") or norm.endswith("/login"):
+    if norm in PUBLIC_EXACT_PATHS or norm.endswith("/auth/login") or norm.endswith("/login") or norm.endswith("/auth/quick-switch") or norm.endswith("/auth"):
         return True
     if (
         norm.startswith("/v3")
@@ -172,6 +178,7 @@ def is_public_path(path: str) -> bool:
     ):
         return True
     return False
+
 
 
 def check_role_permission(role: UserRole, action: str) -> bool:

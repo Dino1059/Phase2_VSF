@@ -144,6 +144,8 @@ def seed_dataset(file_path: str = CSV_PATH, db_path: str = DB_PATH, count: int =
 
 
 
+
+
 def load_dataset_rows(file_path: str = CSV_PATH) -> List[Dict[str, Any]]:
     if not os.path.exists(file_path):
         seed_dataset(file_path)
@@ -416,13 +418,14 @@ def generate_rules_for_baseline(baseline: str, profile_data: Dict[str, Any]) -> 
             # b) Constant column
             if unique_count == 1:
                 candidate_rules.append({
-                    "rule_type": "semantic",
+                    "rule_type": "variance",
                     "column": col_name,
-                    "expression": f"{col_name} IS NOT NULL",
-                    "description": f"Flag constant column {col_name}",
+                    "expression": f"LENGTH({col_name}) > 0",
+                    "description": f"Validate constant non-empty invariant for {col_name}",
                     "confidence": 0.80,
                     "risk_level": "LOW",
                 })
+
 
         # 3. Datetime columns
         elif data_type == "DATETIME":

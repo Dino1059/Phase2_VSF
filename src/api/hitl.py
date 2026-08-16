@@ -98,3 +98,21 @@ async def execute_hitl_rules(payload: Optional[dict] = None):
 @hitl_router.get("/history")
 async def get_history():
     return {"history": AuditService.get_history(limit=100)}
+
+
+@hitl_router.post("/reset")
+async def reset_hitl_and_rules():
+    db = get_db()
+    deleted_counts = {}
+    for tbl in ["quality_rules", "audit_log", "quarantine", "execution_authorizations", "decisions", "evidence"]:
+        try:
+            db.execute(f"DELETE FROM {tbl}")
+            deleted_counts[tbl] = "cleared"
+        except Exception as e:
+            deleted_counts[tbl] = str(e)
+    return {
+        "status": "success",
+        "message": "DB rule history and audit log reset successfully",
+        "details": deleted_counts
+    }
+

@@ -40,44 +40,71 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
 
 // Typed API clients
 export const authApi = {
-  login: (credentials: { username: string; password: string }) =>
-    request<{ access_token: string; token_type: string; role: string; user: string }>('/auth/login', {
+  login: (credentials: { username: string; password?: string; role?: string }) =>
+    request<{ access_token: string; token_type: string; user: { user_id: string; username: string; role: string } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     }),
+  quickSwitch: (role: string) =>
+    request<{ access_token: string; token_type: string; user: { user_id: string; username: string; role: string } }>('/auth/quick-switch', {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
   getMe: () =>
-    request<{ user_id: string; username: string; role: string; permissions: string[] }>('/auth/me'),
+    request<{ user_id: string; username: string; role: string }>('/auth/me'),
   logout: () =>
     request<{ status: string; message: string }>('/auth/logout', {
       method: 'POST',
     }),
 };
 
+export const systemApi = {
+  resetAll: () =>
+    request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all', {
+      method: 'POST',
+    }),
+};
+
+
+function normalizeDatasetKey(k: string): string {
+  if (!k) return 'vingroup_pilot';
+  let cleaned = k.trim();
+  if (cleaned.startsWith('uploaded_')) cleaned = cleaned.slice('uploaded_'.length);
+  if (cleaned.startsWith('upload_')) cleaned = cleaned.slice('upload_'.length);
+  if (cleaned.endsWith('.db')) cleaned = cleaned.slice(0, -3);
+  return cleaned || 'vingroup_pilot';
+}
+
 export const datasetsApi = {
   list: () =>
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
-    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${key}`),
+    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${normalizeDatasetKey(key)}`),
   profile: (key: string, sampleSize: number = 100000) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${key}/profile?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${normalizeDatasetKey(key)}/profile?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   proposeRules: (key: string, variant: string = 'A1', sampleSize: number = 100000) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
-      `/datasets/${key}/propose?variant=${variant}&sample_size=${sampleSize}`,
+      `/datasets/${normalizeDatasetKey(key)}/propose?variant=${variant}&sample_size=${sampleSize}`,
       { method: 'POST' }
     ),
   executeRules: (key: string, sampleSize?: number) =>
     request<{ dataset: string; input_rows: number; clean_rows: number; quarantine_rows: number; rules_applied: number; execution_result: any }>(
-      `/datasets/${key}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
+      `/datasets/${normalizeDatasetKey(key)}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
       { method: 'POST' }
     ),
+  sample: (key: string, limit: number = 50, offset: number = 0) =>
+    request<{ dataset: string; total_rows: number; limit: number; offset: number; columns: string[]; rows: any[] }>(
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/sample?limit=${limit}&offset=${offset}`
+    ),
   benchmark: (key: string, sampleSize: number = 50000) =>
-    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${key}/benchmark?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${normalizeDatasetKey(key)}/benchmark?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   upload: (file: File) => uploadDatasetFile(file),
 };
+
 
 export const approvalsApi = {
   list: () =>
@@ -451,16 +478,19 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string) {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string) {
+  const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   return request('/chat/send', {
     method: 'POST',
     body: JSON.stringify({
       message,
       session_id: sessionId,
+      lang: currentLang,
       ...(datasetKey ? { dataset_key: datasetKey } : {}),
     }),
   });
 }
+
 
 export async function fetchChatHistory(sessionId: string = 'default') {
   return request(`/chat/history?session_id=${encodeURIComponent(sessionId)}`);
@@ -481,10 +511,11 @@ export async function clearChatDatabase(sessionId?: string) {
   });
 }
 
-export async function uploadDatasetFile(file: File) {
+export async function uploadDatasetFile(file: File, lang?: string) {
+  const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const formData = new FormData();
   formData.append('file', file);
-  return request('/datasets/upload', {
+  return request(`/datasets/upload?lang=${encodeURIComponent(currentLang)}`, {
     method: 'POST',
     body: formData,
   });

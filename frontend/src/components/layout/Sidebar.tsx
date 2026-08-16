@@ -11,17 +11,12 @@ import {
   CheckCircle,
   Database,
   Bell,
-  TriangleAlert,
-  Activity,
-  GitBranch,
-  Shield,
-  ListChecks,
-  Camera,
   X,
   Search,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { datasetsApi } from '../../services/api';
+
 
 interface UploadedDataset {
   key: string;
@@ -33,8 +28,12 @@ interface DatasetUploadedEvent {
   filename?: string;
 }
 
-function formatDatasetName(dataset: { key: string; filename?: string }) {
+function formatDatasetName(dataset: { key: string; filename?: string; path?: string }) {
   if (dataset.filename) return dataset.filename;
+  if (dataset.path) {
+    const fn = dataset.path.split('/').pop();
+    if (fn) return fn;
+  }
   return dataset.key.replace(/^uploaded_/, '').replace(/_/g, ' ');
 }
 
@@ -45,21 +44,12 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
   nlp: MessageSquare,
 };
 
-const OPERATIONS = [
-  { key: 'alerts', label: 'Alert Center', icon: Bell, color: '#dc2626' },
-  { key: 'incidents', label: 'Incidents', icon: TriangleAlert, color: '#d97706' },
-  { key: 'signals', label: 'Signal Explorer', icon: Activity, color: '#7c3aed' },
-  { key: 'traces', label: 'Agent Traces', icon: GitBranch, color: '#059669' },
-  { key: 'governance', label: 'Governance & Admin', icon: Shield, color: '#1e293b' },
-  { key: 'executions', label: 'Execution History', icon: ListChecks, color: '#1e293b' },
-  { key: 'snapshots', label: 'Data Snapshots', icon: Camera, color: '#1e293b' },
-];
-
 export function Sidebar() {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [activeShortcut, setActiveShortcut] = useState<string>('ev');
   const [datasetQuery, setDatasetQuery] = useState('');
-  const { t } = useTranslation('pipeline');
+  const { t, i18n } = useTranslation('pipeline');
+  const isVi = i18n.language === 'vi';
   const navigate = useNavigate();
   const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
 
@@ -70,9 +60,10 @@ export function Sidebar() {
       try {
         const response = await datasetsApi.list();
         if (!mounted) return;
+        const builtinKeys = new Set(['vietnam_trips', 'vietnam_trips_dirty', 'vietnam_ecommerce_test']);
         setUploadedDatasets(
           response.datasets
-            .filter((dataset) => dataset.key.startsWith('uploaded_'))
+            .filter((dataset) => !builtinKeys.has(dataset.key))
             .map((dataset) => ({ key: dataset.key, name: formatDatasetName(dataset) }))
         );
       } catch (error) {
@@ -164,6 +155,8 @@ export function Sidebar() {
           <span>{t('execHome')}</span>
         </NavLink>
 
+
+
         <div className="agent-chat-menu-wrapper">
           <div
             className="menu-item"
@@ -185,7 +178,7 @@ export function Sidebar() {
                   type="text"
                   className="search-box"
                   style={{ paddingLeft: '28px', paddingRight: datasetQuery ? '28px' : '10px' }}
-                  placeholder={t('searchPlaceholder') || 'Filter datasets...'}
+                  placeholder={isVi ? 'Lọc tập dữ liệu...' : (t('searchPlaceholder') || 'Filter datasets...')}
                   value={datasetQuery}
                   onChange={(e) => setDatasetQuery(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
@@ -206,7 +199,7 @@ export function Sidebar() {
                       alignItems: 'center',
                       padding: 2,
                     }}
-                    title="Clear filter"
+                    title={isVi ? 'Xóa bộ lọc' : 'Clear filter'}
                   >
                     <X size={12} />
                   </button>
@@ -215,7 +208,7 @@ export function Sidebar() {
 
               {!hasAnyMatches && (
                 <div style={{ padding: '12px 8px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                  No datasets match "{datasetQuery}"
+                  {isVi ? `Không tìm thấy tập dữ liệu "${datasetQuery}"` : `No datasets match "${datasetQuery}"`}
                 </div>
               )}
 
@@ -248,7 +241,7 @@ export function Sidebar() {
               {filteredUploadedDatasets.length > 0 && (
                 <>
                   <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '8px', padding: '0 4px' }}>
-                    UPLOADED DATASETS
+                    {isVi ? 'TẬP DỮ LIỆU TẢI LÊN' : 'UPLOADED DATASETS'}
                   </div>
                   {filteredUploadedDatasets.map((dataset) => (
                     <a
@@ -276,8 +269,13 @@ export function Sidebar() {
           <span>{t('recentTasks')}</span>
         </a>
 
-        <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>Operations</div>
-        {OPERATIONS.map(({ key, label, icon: Icon, color }) => (
+        <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>
+          {isVi ? 'VẬN HÀNH' : 'OPERATIONS'}
+        </div>
+        {[
+          { key: 'alerts', label: isVi ? 'Bảng Cảnh Báo' : 'Alert Dashboard', icon: Bell, color: '#f43f5e' },
+          { key: 'governance', label: isVi ? 'Quản Trị & Bộ Luật' : 'Governance & Rules', icon: CheckCircle, color: '#10b981' },
+        ].map(({ key, label, icon: Icon, color }) => (
           <NavLink
             key={key}
             to={`/operations/${key}`}
