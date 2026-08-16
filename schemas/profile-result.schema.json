@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProfileResult",
+  "description": "v4 column-level statistical profiling result. Aligned with profile_results DDL.",
+  "type": "object",
+  "properties": {
+    "profile_id": { "type": "string" },
+    "snapshot_id": { "type": "string", "description": "FK to raw_snapshots — which data snapshot was profiled" },
+    "column_name": { "type": "string" },
+    "dtype": { "type": "string", "description": "Column data type" },
+    "null_count": { "type": "integer", "minimum": 0 },
+    "null_pct": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+    "unique_count": { "type": "integer", "minimum": 0 },
+    "min_val": { "type": ["string", "number", "null"], "description": "Minimum value (VARCHAR in DDL for type flexibility)" },
+    "max_val": { "type": ["string", "number", "null"], "description": "Maximum value" },
+    "mean_val": { "type": ["number", "null"] },
+    "std_val": { "type": ["number", "null"] },
+    "profiled_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["profile_id", "snapshot_id", "column_name", "dtype"]
+}
