@@ -1,32 +1,66 @@
-name: CI
+name: CI Quality Gate
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, v5]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-
+  backend-quality:
+    name: Backend Lint & Pytest Gate
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: pip
+          python-version: "3.13"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
-      - name: Lint with ruff
-        run: ruff check src/ tests/
+      - name: Install Python Dependencies
+        run: |
+          uv sync --frozen
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
+      - name: Lint with Ruff
+        run: |
+          uv run ruff check src/ tests/
+
+      - name: Run Pytest Test Suite
+        run: |
+          uv run pytest tests/ -v --tb=short
         env:
           APP_ENV: test
-          OPENAI_API_KEY: test-key
+          GOOGLE_AI_API_KEY: test-dummy-key
+          OPENAI_API_KEY: test-dummy-key
+
+  frontend-quality:
+    name: Frontend Typecheck & Build Gate
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Frontend Dependencies
+        run: |
+          pnpm --dir frontend install
+
+      - name: Typecheck and Build Frontend
+        run: |
+          pnpm --dir frontend run build
