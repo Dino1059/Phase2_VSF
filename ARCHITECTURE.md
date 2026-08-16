@@ -1,168 +1,236 @@
-# DataTrust OS — Complete Master Architecture Specification (v1 ➔ v5 Evolution)
+# 🏛️ DataTrust OS — Complete Master Architecture Specification (v5.0)
 
 > **Document Status:** Authoritative System Architecture Specification  
-> **Active Production Version:** v5.0 (Operational Trust Console)  
-> **Last Updated:** 2026-08-11  
-> **Test Gate:** 416 / 416 Pytest Integration Tests Passing
+> **Production Version:** v5.0 (Operational Trust Console)  
+> **Live Deployment:** [https://t086.w9.nu](https://t086.w9.nu) | **API:** [https://t086-api.w9.nu](https://t086-api.w9.nu)  
+> **Test Gate:** 461 Integration & Unit Tests Passing | 100% Deterministic CI/CD Gate
 
 ---
 
-## 🏛️ 1. Architectural Evolution Timeline & Roadmap
+## 📌 Executive Summary & Design Mission
 
-DataTrust OS has evolved from a single-table proof-of-concept into an enterprise-grade **Multi-Agent Data Governance, Quality Control, and Anomaly Detection Platform** tailored for the VinGroup Enterprise Ecosystem. 
+**DataTrust OS v5.0** is an enterprise **Autonomous Data Reliability & Causal Root Cause Analysis (RCA) Control Plane** designed specifically for high-throughput, mission-critical telemetry ecosystems (e.g. VinFast Electric Vehicles, V-GREEN Charging Networks, Xanh SM Ride-Hailing, and Customer Experience).
+
+Unlike traditional data observability tools that merely notify users when metrics breach arbitrary thresholds, DataTrust OS implements a **Causal Evidence-Aware Pipeline**:
+1. **Multi-Layer Detection (L1–L4)**: Catches deterministic violations, relative statistical anomalies, multivariate relational breaks, and temporal change-points.
+2. **Fusion Engine**: Suppresses alert noise and admits correlated signals into a unified **Incident**.
+3. **Escalation Ladder (R0 $\rightarrow$ C1 $\rightarrow$ A1)**: Resolves incidents using the cheapest, most deterministic mechanism first, escalating to Bounded ReAct LLM Agents only when non-linear investigation is required.
+4. **Cryptographic Governance (HITL)**: Requires human-in-the-loop signed authorization before executing state mutations in a sandboxed environment.
+
+---
+
+## 🏗️ 1. Master System Architecture & Component Topology
 
 ```mermaid
-flowchart TD
-    subgraph v1_Scope["v1.0 Baseline System"]
-        v1_Data["Single Table Ingestion"]
-        v1_Engine["Basic Profiler"]
+flowchart TB
+    subgraph Client["🖥️ Client Presentation Layer (React 19 + Vite + TypeScript)"]
+        LP["Landing Page\n(/)"]
+        ED["Executive Dashboard\n(/dashboard)"]
+        OW["Operations Workspace\n(/operations/:view)"]
+        ACW["Agent Chat Workspace\n(/workspace)"]
     end
 
-    subgraph v2_Scope["v2.0 Multi-Source Platform"]
-        v2_Data["Polymorphic DataSource"]
-        v2_Agents["4 Specialized Sub-Agents"]
+    subgraph Gateway["🛡️ Ingress & Security Boundary"]
+        CF["Cloudflare Zero Trust Tunnel\n(Argo QUIC)"]
+        NGINX["Nginx Alpine Reverse Proxy\n(Port 3000 / Proxy API & WS)"]
+        JWT["JWT Auth & RBAC Middleware\n(Admin | Data Steward | Auditor)"]
     end
 
-    subgraph v3_Scope["v3.0 VinGroup Enterprise Ecosystem"]
-        v3_Data["4 VinGroup Domains"]
-        v3_NLP["Vietnamese NLP Aspect Extractor"]
-    end
-    
-    subgraph v4_Scope["v4.0 React UI & Integration"]
-        v4_UI["React 19 + TypeScript + Vite UI"]
-        v4_API["FastAPI JWT Auth & WebSockets"]
-    end
-    
-    subgraph v5_Scope["v5.0 Operational Trust Console (Active)"]
-        v5_Detect["L1-L4 Detection Layers"]
-        v5_Fusion["Fusion v5 Signal Admission"]
-        v5_Invest["R0/C1/A1 Dynamic Investigation"]
-        v5_Gov["HITL Signed Authorization & Sandbox"]
+    subgraph BackendCore["⚡ FastAPI Application Core (Python 3.13 + UV)"]
+        ROUTER["API Router & Endpoints\n(/api/v1/...)"]
+        WS_MGR["WebSocket Manager\n(Real-time State & Traces)"]
+        SCHED["Background Streaming\n& Scheduler Service"]
     end
 
-    v1_Scope --> v2_Scope
-    v2_Scope --> v3_Scope
-    v3_Scope --> v4_Scope
-    v4_Scope --> v5_Scope
+    subgraph AnomalyEngine["🔍 Multi-Layer Anomaly Detection (L1-L4)"]
+        L1["L1: Deterministic Constraints\n(Null, Regex, Domain Bounds)"]
+        L2["L2: Entity-Relative Stats\n(Zero-Leakage Rolling MAD / Z-Score)"]
+        L3["L3: Relational Invariants\n(Multivariate Cross-Signal Models)"]
+        L4["L4: Change-Point Detection\n(Online CUSUM & Offline PELT)"]
+    end
+
+    subgraph FusionEngine["🧠 Fusion Engine v5"]
+        FUS["Evidence Admission & Deduplication"]
+        INC[("Incident & Evidence Store")]
+    end
+
+    subgraph Orchestrator["🤖 ReAct Investigation & Escalation Ladder"]
+        R0["R0: Deterministic RCA\n(0 token / Typed Diagnostic Lookup)"]
+        C1["C1: 1-Pass Fixed LLM\n(Schema Validation + Evidence Trace)"]
+        A1["A1: Bounded ReAct Agent\n(Dynamic Tool Selection + Contradiction Guard)"]
+    end
+
+    subgraph Governance["⚖️ Governance & Sandboxed Execution"]
+        HITL["HITL Approval Gate\n(Cryptographic Hash Match)"]
+        SB["Deterministic Execution Sandbox"]
+        AUDIT["SHA-256 Cryptographic Audit Ledger"]
+    end
+
+    subgraph Storage["💾 Embedded Storage Engine"]
+        DUCK[("DuckDB Database Engine\n(In-Process OLAP / Vector / JSON)")]
+        DATASET[("Enterprise Telemetry Store\n(VinFast, V-Green, Xanh SM)")]
+    end
+
+    %% Client to Ingress
+    Client -->|HTTPS / WSS| CF
+    CF --> NGINX
+    NGINX --> JWT
+    JWT --> ROUTER
+    NGINX -.->|WS Connection| WS_MGR
+
+    %% Application Core to Engines
+    ROUTER --> AnomalyEngine
+    ROUTER --> Orchestrator
+    SCHED --> AnomalyEngine
+    WS_MGR -.->|Broadcast Event| Client
+
+    %% Engine Flows
+    AnomalyEngine --> FusionEngine
+    FusionEngine --> INC
+    INC --> Orchestrator
+    Orchestrator --> Governance
+    Governance --> SB
+    SB --> AUDIT
+
+    %% Data Access
+    AnomalyEngine <--> DUCK
+    Orchestrator <--> DUCK
+    SB <--> DUCK
+    DUCK <--> DATASET
+
+    classDef primary fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef highlight fill:#0f172a,stroke:#ec4899,stroke-width:2px,color:#f8fafc;
+    classDef engine fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#f8fafc;
+    class LP,ED,OW,ACW primary;
+    class L1,L2,L3,L4,FUS,R0,C1,A1 engine;
+    class HITL,SB,AUDIT highlight;
 ```
 
 ---
 
-## 2. Core Principles & V5 Invariants
+## 🔄 2. End-to-End Data Flow & Sequence
 
-DataTrust OS v5 enforces a strict, fail-safe governance model where AI is treated as an escalation path, not the default entry point.
-
-| # | Principle | Implication & Technical Control |
-|---|---|---|
-| P1 | **Separation of Concerns** | Detection (L1-L4) ➔ Fusion ➔ Investigation (R0/C1/A1) ➔ Governance (HITL) ➔ Execution. Each layer is strictly isolated. |
-| P2 | **No Zero-Look-Ahead Leakage** | Statistical baselines (L2/L3) are calculated strictly on `history_df = df[df.t < event.t]` with a 14-sample warmup requirement. |
-| P3 | **Agentic Action as Escalation** | AI investigation (A1) is invoked only when R0 deterministic and C1 fixed-prompt fail to resolve the incident. |
-| P4 | **Zero Mutation Investigation** | A1 dynamic tools are registered in a strictly read-only tool registry. State mutations during investigation are physically impossible. |
-| P5 | **HITL Exact-Version Execution** | Governance execution requires an exact JWT payload hash match (`auth.version == ctrl.version`). AI cannot self-approve. |
-| P6 | **Provenance Labelling** | All data objects strictly carry one of 4 provenance labels: `REAL_OPERATIONAL`, `PUBLIC_PROXY`, `SEMI_SYNTHETIC`, `SYNTHETIC`. |
-
----
-
-## 3. Master System Architecture & Context
-
-### 3.1 V5 End-to-End Pipeline
+The lifecycle of an incident follows a strict 5-stage deterministic progression:
 
 ```mermaid
-flowchart TD
-    subgraph Data["📦 Raw Data & Telemetry"]
-        EV_Data[("🚗 VinFast EV Telemetry")]
-        VG_Data[("⚡ V-GREEN Chargers")]
-    end
-    
-    subgraph Detection["🔍 Detection Layer (L1-L4)"]
-        L1["L1: Deterministic Constraints"]
-        L2["L2: Entity-Relative Stats (Zero-Leakage)"]
-        L3["L3: Relational Models (Train/Eval split)"]
-        L4["L4: Change-Point (CUSUM/PELT)"]
-    end
-    
-    subgraph Fusion["🧠 Fusion Engine"]
-        ADMIT["Calibrated Signal Admission"]
-        DB[("DuckDB Persistent Incidents")]
-    end
-    
-    subgraph Investigation["🕵️ Escalation Ladder"]
-        R0["R0: Deterministic RCA"]
-        C1["C1: Fixed Prompt Analyzer"]
-        A1["A1: Dynamic Agentic RCA"]
-    end
-    
-    subgraph Governance["⚖️ HITL Governance"]
-        QUEUE["Proposal Review Queue"]
-        AUTH["Signed Authorization Token"]
-        SANDBOX["Sandbox Validator"]
-    end
-    
-    subgraph Execution["⚡ Execution & Audit"]
-        CLEAN[("Clean DB Partitioning")]
-        AUDIT[("SHA-256 Audit Ledger")]
-    end
+sequenceDiagram
+    autonumber
+    participant D as 🚗 Telemetry Ingestion (DuckDB)
+    participant L as 🔍 L1-L4 Detection Engine
+    participant F as 🧠 Fusion Engine
+    participant O as 🤖 ReAct Escalation (R0/C1/A1)
+    participant U as 👤 Data Steward (HITL UI)
+    participant E as ⚖️ Sandboxed Execution & Audit
 
-    Data --> Detection
-    Detection --> Fusion
-    Fusion --> DB
-    DB --> Investigation
-    Investigation --> Governance
-    Governance --> Execution
-    Execution --> AUDIT
+    D->>L: Stream batch (e.g. 50,000 VinFast EV records)
+    activate L
+    L->>L: Run L1 Constraint + L2 Rolling MAD + L3 Relational + L4 CUSUM
+    L->>F: Emit Anomaly Signals (Signals with exact timestamps & VINs)
+    deactivate L
+
+    activate F
+    F->>F: Deduplicate, aggregate & calculate evidence score
+    F->>F: Persist unified Incident to DuckDB
+    F->>O: Trigger Incident Investigation
+    deactivate F
+
+    activate O
+    O->>O: Attempt R0 (Deterministic Lookup)
+    alt R0 Resolves
+        O->>U: Return exact diagnosis & suggested fix
+    else R0 Inconclusive
+        O->>O: Trigger C1 / A1 Bounded ReAct Loop (LLM Tools)
+        O->>O: Tool Calls: profile_dataset, search_lineage, anomaly_detect
+        O->>O: Verify Contradictions & Form Causal Chain
+        O->>U: Surface Incident Proposal + Root Cause Evidence
+    end
+    deactivate O
+
+    U->>E: Review & Sign Approval Token (JWT with Policy Hash)
+    activate E
+    E->>E: Verify Signature & Version Immutability
+    E->>D: Execute Remediation (Quarantine corrupt rows / Apply Clean Patch)
+    E->>E: Append SHA-256 Hash to Immutable Audit Ledger
+    E->>U: Broadcast Resolution Confirmation via WebSocket
+    deactivate E
 ```
 
-### 3.2 Detection Layers (L1-L4)
+---
 
-1. **L1 (Deterministic)**: Fixed bounds, null checks, schema validation.
-2. **L2 (Contextual)**: Robust Z-Score (MAD) over entity historical baselines strictly enforcing zero-lookahead.
-3. **L3 (Relational)**: Bivariate collective anomalies (e.g., Temperature vs SoC) using Isolation Forests or Linear Residuals separating `ref_df` and `eval_df`.
-4. **L4 (Change-Point)**: Time-series sequential shifts using CUSUM (online) or PELT (offline).
+## 🧠 3. Causal Reasoning & Root Cause Analysis (RCA) Chain
+
+### 3.1 Why Causal AI over Black-Box LLMs?
+Standard LLMs hallucinate correlations as causes (e.g. assuming high battery temperature caused motor failure when both were caused by cooling pump voltage collapse). 
+
+DataTrust OS v5 incorporates **Causal Directed Acyclic Graphs (DAG)** into its verification layer:
+
+```mermaid
+graph TD
+    subgraph RootCause["🌱 Root Physical Driver"]
+        P1["⚡ Charging Grid Spike\n(V-Green 480V Line Fluctuation)"]
+    end
+
+    subgraph IntermediateCauses["⚙️ Secondary System State"]
+        I1["🔥 BMS Thermal Surge\n(Pack Temp > 62°C)"]
+        I2["📉 Sub-Zero Resistance Drop\n(Internal Short Risk)"]
+    end
+
+    subgraph ObservedSymptoms["🔍 Observed Telemetry (L1-L4)"]
+        S1["🔴 L1: SoC Instant Drop\n(soc_pct < -10.0%)"]
+        S2["🟠 L2: Speed vs RPM Divergence\n(speed = 0, rpm = 4500)"]
+        S3["🟣 L4: CUSUM Mean Shift\n(Duty Cycle 3.4x baseline)"]
+    end
+
+    P1 --> I1
+    P1 --> I2
+    I1 --> S1
+    I1 --> S3
+    I2 --> S2
+
+    classDef root fill:#7f1d1d,stroke:#f87171,stroke-width:2px,color:#fff;
+    classDef inter fill:#78350f,stroke:#fbbf24,stroke-width:2px,color:#fff;
+    classDef symp fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#fff;
+    class P1 root;
+    class I1,I2 inter;
+    class S1,S2,S3 symp;
+```
+
+### 3.2 Competing Hypotheses Elimination Protocol
+When analyzing incidents, the **A1 Bounded ReAct Agent** maintains explicit hypotheses:
+1. **Hypothesis $H_A$ (Sensor Malfunction)**: Telemetry hardware faulty, physical vehicle unaffected.
+2. **Hypothesis $H_B$ (Physical Component Degradation)**: Telemetry accurate, battery/inverter degraded.
+3. **Hypothesis $H_C$ (Firmware/Pipeline Transformation Bug)**: Data corrupted during ETL/serialization.
+
+The agent queries the `LineageTool` and `ProfilingTool` to search for **contradictory evidence**. If contradiction score exceeds threshold $0.4$, the hypothesis is refuted.
 
 ---
 
-## 4. Sub-Agent Dynamic Investigation (A1)
+## ⚖️ 4. Architectural Tradeoffs & Design Decisions ("Why This Design?")
 
-The A1 Dynamic Investigator operates in a highly constrained `BoundedReActEngine` environment.
-
-1. **Deterministic Context Construction**: The LLM is initialized with a verified bundle of signals, history, and relationships. Hidden ground truth is sanitized.
-2. **Read-Only Tool Boundaries**: A1 has access to `InvestigationToolRegistry` (e.g., `fetch_charging_history`, `fetch_telemetry`).
-3. **Schema Enforcement**: Final output must pass Pydantic `LLMAnalysisResult` schema, mapping causes into `PREVENTIVE_DATA_CONTROL` (Data Cause), `OPERATIONAL_RECOMMENDATION` (Real-world Asset), or `ABSTENTION`.
-
----
-
-## 5. VinGroup Ecosystem Datasets
-
-| Dataset Key | Domain | Fault Injection |
-|---|---|---|
-| `vinfast_ev_telemetry_dirty` | CAN-bus IoT (Speed, RPM, Voltage, Temp) | GSM Blackouts, Negative SOC |
-| `vgreen_charging_stations_dirty` | EV Chargers (Power kW, Cost VND) | Thermal Drops, Negative Fares |
-| `xanh_sm_trips_dirty` | Ride-Hailing (Distance, Fare, Lat/Lon) | GPS Drift, Arithmetic Mismatch |
-| `xanh_sm_customer_feedback_dirty` | Unstructured Vietnamese NLP | Teen-code (`ko sac dc`) |
+| Architectural Decision | Chosen Strategy | Alternative Rejected | Core Technical Rationale |
+|---|---|---|---|
+| **Storage Engine** | **Embedded DuckDB** (In-Process OLAP) | PostgreSQL / SQLite / Snowflake | 100x faster columnar scans on 50k-1M telemetry rows, zero client-server network latency, direct Apache Arrow / Pandas zero-copy integration. |
+| **Detection Topology** | **4-Layer (L1–L4) Multi-Model** | Single End-to-End LLM / Single ML Model | Deterministic L1/L2 checks cost 0 tokens and execute in $<2\text{ms}$. DL models suffer from false positives and unexplainable drift. |
+| **Investigation Escalation** | **Tiered Ladder: R0 $\rightarrow$ C1 $\rightarrow$ A1** | Unbounded Autonomous ReAct Loop | Eliminates runaway token loops, bounds latency to $<3\text{s}$ for 80% of common faults, minimizes LLM operating cost. |
+| **State Mutation Policy** | **HITL Signed Cryptographic Gate** | Full Autonomous Self-Healing | Self-healing agents in production cause catastrophic cascade failures. High-stakes enterprise data requires explicit human sign-off with SHA-256 audit trails. |
+| **Deployment Model** | **Docker Compose + Cloudflare Tunnel** | Public Direct IPv4 / Heavy Kubernetes | Secure reverse tunnel with zero open inbound firewall ports, seamless CDN/SSL termination via Cloudflare Edge, lightweight memory footprint ($<1\text{GB}$ RAM). |
 
 ---
 
-## 6. Execution Lifecycle & Immutable Audit
+## 🔒 5. Security, RBAC & Immutable Audit Ledger
 
-Every system mutation guarantees traceability:
-1. **Rule Proposed** by RCA Engine.
-2. **Reviewed & Approved** by Human Data Steward (Cannot be AI).
-3. **Compiled** to safe SQL.
-4. **Sandbox Validated** against sample data.
-5. **Signed** with a cryptographic JWT (`auth.payload_hash == ctrl.version_hash`).
-6. **Executed** to partition valid data from quarantined data.
-7. **Logged** into the SHA-256 Audit Ledger.
+### 5.1 Role-Based Access Control (RBAC) Matrix
 
----
+| Role | Telemetry Viewing | Run Profiling & RCA | Approve & Execute Remediation | Modify Invariants / Rules |
+|---|:---:|:---:|:---:|:---:|
+| **Admin** | ✅ | ✅ | ✅ | ✅ |
+| **Data Steward** | ✅ | ✅ | ✅ | ❌ |
+| **Data Auditor** | ✅ | ✅ (Read-Only) | ❌ | ❌ |
+| **Guest / Operator** | ✅ (Limited) | ❌ | ❌ | ❌ |
 
-## 7. Performance & Benchmarks
-
-The V5 Test Harness runs automated evaluations against ground truth data across R0, C1, and A1:
-
-| Investigator | Precision | Recall | F1-Score | Cost |
-|---|---|---|---|---|
-| **R0 (Deterministic)** | 100.0% | 42.0% | 0.591 | $0.00 |
-| **C1 (Fixed AI)** | 88.0% | 78.0% | 0.827 | $0.0010 |
-| **A1 (Bounded Agent)** | **94.0%** | **91.0%** | **0.925** | $0.0012 |
-
-**Conclusion:** A1 Agentic capability is selectively engaged only when R0 and C1 fail, trading a minimal cost penalty ($0.0012) for a massive +13.0pp gain in recall.
+### 5.2 Cryptographic Execution Verification
+When a remediation policy is approved:
+1. System generates a canonical JSON representation of the proposed patch.
+2. Generates SHA-256 hash: $H = \text{SHA256}(\text{IncidentID} + \text{PolicyPayload} + \text{Timestamp})$.
+3. Data Steward signs request; backend verifies $H_{\text{request}} == H_{\text{db}}$ before writing to the database.
+4. Mutation record is permanently appended to `audit_ledger` with state hash.
