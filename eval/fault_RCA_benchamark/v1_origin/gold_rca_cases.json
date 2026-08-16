@@ -1,0 +1,62 @@
+[
+  {
+    "incident_id": "inc-92af6ec7",
+    "fault_family": "F1_Negative_SOC",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "severity": "CRITICAL",
+    "entity_ids": [
+      "VF8VNF_0006"
+    ],
+    "admission_reason": "Multi-layer agreement across L1, L2, L3, L4 layers",
+    "supporting_layers": [
+      "L1",
+      "L2",
+      "L3",
+      "L4"
+    ],
+    "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0).",
+    "expected_classification": "DATA",
+    "expected_keywords": [
+      "soc",
+      "negative",
+      "bms",
+      "sensor",
+      "range",
+      "telemetry",
+      "data",
+      "glitch",
+      "bound"
+    ],
+    "expected_action": "QUARANTINE_DATA"
+  },
+  {
+    "incident_id": "inc-9dc3301f",
+    "fault_family": "F2_Voltage_Overvoltage_Spike",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "severity": "CRITICAL",
+    "entity_ids": [
+      "VF8VNF_0053"
+    ],
+    "admission_reason": "Multi-layer agreement across L1, L3, L4 layers",
+    "supporting_layers": [
+      "L1",
+      "L3",
+      "L4"
+    ],
+    "ground_truth_cause": "CAN-bus electrical noise or sensor surge causing unrealistic voltage spike (> 1000V).",
+    "expected_classification": "DATA",
+    "expected_keywords": [
+      "voltage",
+      "overvoltage",
+      "spike",
+      "can",
+      "sensor",
+      "telemetry",
+      "surge",
+      "range"
+    ],
+    "expected_action": "QUARANTINE_DATA"
+  }
+]

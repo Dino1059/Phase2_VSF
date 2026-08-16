@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-08-08T09:00:45.843374Z",
+  "linkage_type": "constructed_subset_with_partial_coverage",
+  "fleet_size": 60,
+  "pilot_size": 60,
+  "vehicle_type_distribution": {
+    "VF_5_TAXI": 30,
+    "VF_e34_TAXI": 24,
+    "FELIZ_S_BIKE": 6
+  },
+  "design_decisions": {
+    "v4_2026_08_08_redesign": "STATE MACHINE (Huong 2) - single source of truth cho trips/charging/telemetry. 4 states MUTUALLY EXCLUSIVE theo thoi gian -> disjoint by construction (overlap = 0 ve mat logic).",
+    "state_machine": "DRIVING_PASSENGER (trip co khach) | DEADHEAD (chay khong khach) | IDLE (do cho) | CHARGING (sac). generate_vin_day_states() deterministic per (vin, day_idx) - dam bao telemetry/charging/trips cung share 1 schedule.",
+    "telemetry": "FULL FLEET (PILOT_SIZE=60): synthetic 15-min/sample cho 60 VIN x 15 days x 96 samples/day = 86,400 rows. VED 20 xe lam per-vehicle distribution reference cho speed/RPM/SOC/voltage/current (cache qua ved_calibration.json). Speed > 0 CHI trong DRIVING_PASSENGER/DEADHEAD, = 0 trong IDLE/CHARGING. SOC physical: giam khi DRIVING*, tang khi CHARGING, stable khi IDLE. Cot state_at_sample cho bi state tai moi sample timestamp. Operating window cap 18:00 (truoc next overnight 18:00+) -> disjoint guarantee.",
+    "trips": "Tier S: driver_id deterministic DRV_XANH_<SEQ> tu VIN. Pool 25,003 trips tu fact_rides phan bo vao state machine's DRIVING_PASSENGER slots. TRIPS_PER_VIN_PER_DAY=14 (~12h operating window, target 14 trip, actual mean ~11.4 do DEADHEAD/IDLE chen). pickup/dropoff lay tu schedule, sequential + 5min buffer enforced boi state machine.",
+    "charging": "State machine place: overnight (priority 1, [18:00 prior_day, 06:00 day_idx]) + next_overnight (priority 1, [18:00 day_idx, 06:00 next_day]) + 0-1 opportunity (priority 2, [10:00, 15:00]). 1,290-1,350 sessions/15days (900 overnight + 390-450 opportunity). ACN pool subset theo duration tier. soft_overlap_flag luon False (state machine guarantees disjoint).",
+    "cross_domain_consistency": "All 3 datasets (trips/charging/telemetry) consume SAME generate_vin_day_states() output. Deterministic seed = hash((vin, day_idx)) % 2^31 -> reproducible cross-function.",
+    "fare_currency": "Da xac minh USD (Kaggle Ride Hailing Transaction), da quy doi sang VND (x 25400). Tier RD.",
+    "feedback": "2026-08-08: UIT-VSFC loai bo (sai domain: sinh vien danh gia giang vien). Thay bang synthetic feedback scenario-driven trong inject_vingroup_real_faults.py."
+  },
+  "references_pending": [
+    "station_temp_c (charging) — IEC 61851-23 thermal management standard (da co gia tri)",
+    "battery_temp_c (telemetry) — IEC 62660-1 Li-ion BMS operating range (da co gia tri)",
+    "tip_amount (trips) — log-normal parametric, mode ~40k VND (da co gia tri)",
+    "EVN tariff — bien gia dien chinh thuc (hien tai 3100 VND/kWh, da confirm)"
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "generated_at": "2026-08-08T09:01:49.714999Z",
+  "random_seed": 42,
+  "tier_definitions": {
+    "R": "Real-Exact: lay thang tu nguon that, khong bien doi",
+    "RD": "Real-Derived: tinh tu truong that bang cong thuc xac dinh",
+    "RS": "Real-Statistically-Parameterized: sinh synthetic tham so hoa tu phan phoi/tai lieu that",
+    "S": "Scenario-Construct: dung co chu dich cho kich ban, khong co tuong ung that"
+  },
+  "columns": {
+    "real_vinfast_ev_telemetry": {
+      "record_id": {
+        "tier": "S",
+        "note": "ID ky thuat sinh moi"
+      },
+      "timestamp": {
+        "tier": "RD",
+        "note": "Synthetic 15-min interval x 96 sample/ngay x 15 ngay x 60 VIN pilot."
+      },
+      "speed_kmh": {
+        "tier": "RS",
+        "note": "State-machine driven: speed>0 chi trong DRIVING_PASSENGER/DEADHEAD, deadhead thap hon trip co khach."
+      },
+      "motor_rpm": {
+        "tier": "RD",
+        "note": "EV single-speed gear ratio VF8 ~ 9.7: RPM = speed * 73.2 + noise."
+      },
+      "battery_soc": {
+        "tier": "RS",
+        "note": "Physical: SOC giam khi DRIVING*, tang khi CHARGING, stable khi IDLE. Bounds: 92-98% (sau overnight) -> 28-42% (cuoi operating hours)."
+      },
+      "battery_voltage": {
+        "tier": "RS",
+        "note": "Correlated nghich voi SOC, noise theo VED distribution."
+      },
+      "battery_current": {
+        "tier": "RS",
+        "note": "Discharge (+) khi DRIVING, charge (-) khi CHARGING, near 0 khi IDLE."
+      },
+      "battery_temp_c": {
+        "tier": "RS",
+        "note": "Normal(32, 5), clip [20, 45] C. Reference: IEC 62660-1."
+      },
+      "latitude": {
+        "tier": "RS",
+        "note": "Synthetic trong bbox HN, dao dong khi xe chay."
+      },
+      "longitude": {
+        "tier": "RS",
+        "note": "Nhu tren"
+      },
+      "accel_z": {
+        "tier": "S",
+        "note": "Dao dong +/-0.3 khi xe chay, = 0 khi xe dung."
+      },
+      "vehicle_vin": {
+        "tier": "S",
+        "note": "FULL FLEET telemetry-capable: 60 pilot x 15 days x 96 samples/day."
+      },
+      "assigned_day_index": {
+        "tier": "RD",
+        "note": "Khoa ngay 0..14, derive tu timestamp."
+      },
+      "ved_reference_veh_id": {
+        "tier": "S",
+        "note": "VED VehId lam per-vehicle distribution reference (cycle 20 -> 60)."
+      },
+      "synthetic_gap_indicator": {
+        "tier": "S",
+        "note": "Luon False (continuous 15-min)."
+      },
+      "event_sequence_index": {
+        "tier": "S",
+        "note": "0..95 cho moi (VIN, day), timestamp-sorted."
+      },
+      "telemetry_coverage": {
+        "tier": "S",
+        "note": "FULL FLEET 2026-08-08."
+      },
+      "state_at_sample": {
+        "tier": "RD",
+        "note": "State machine lookup tai timestamp: DRIVING_PASSENGER / DEADHEAD / IDLE / CHARGING. Disjoint guarantee vi 4 states mutually exclusive theo thoi gian."
+      }
+    },
+    "acn_charging_mapped": {
+      "session_id": {
+        "tier": "R",
+        "note": ""
+      },
+      "station_id": {
+        "tier": "RD",
+        "note": "Prefix + ghep siteID that."
+      },
+      "charger_id": {
+        "tier": "R",
+        "note": ""
+      },
+      "start_time": {
+        "tier": "RD",
+        "note": "Schedule anchor theo build_per_vin_day_schedule, base_date=2026-01-01."
+      },
+      "duration_mins": {
+        "tier": "RD",
+        "note": "Tier R: lay tu ACN duration that."
+      },
+      "kwh_consumed": {
+        "tier": "R",
+        "note": ""
+      },
+      "power_kw": {
+        "tier": "RD",
+        "note": "kWhConsumed / duration_hr."
+      },
+      "assigned_day_index": {
+        "tier": "RD",
+        "note": "Khoa ngay 0..14, derive tu schedule."
+      },
+      "charging_pattern": {
+        "tier": "S",
+        "note": "Rule-based: >120min=overnight_deep, <=90min=opportunity_fast."
+      },
+      "station_temp_c": {
+        "tier": "RS",
+        "note": "Normal(loc=45, scale=10), clip [20, 65] C. Reference: IEC 61851-23."
+      },
+      "cost_vnd": {
+        "tier": "RD",
+        "note": "kwh_consumed (Tier R) x EVN tariff (3,100 VND/kWh)."
+      },
+      "status": {
+        "tier": "S",
+        "note": "Baseline mac dinh; fault injection o Layer 3."
+      },
+      "vehicle_vin": {
+        "tier": "S",
+        "note": "Constructed Fleet Index, cycle 60 VIN."
+      },
+      "soft_overlap_flag": {
+        "tier": "S",
+        "note": "2026-08-08 v4: state machine guarantees disjoint by construction. Cot giu de backward-compat, nhung luon False (khong con overlap case)."
+      },
+      "event_sequence_index": {
+        "tier": "S",
+        "note": "0..N cho moi (VIN, day), start_time-sorted."
+      }
+    },
+    "real_xanh_sm_trips": {
+      "trip_id": {
+        "tier": "S",
+        "note": "ID ky thuat sinh moi theo format XANH_TRIP_XXXX."
+      },
+      "driver_id": {
+        "tier": "S",
+        "note": "Sinh deterministic DRV_XANH_<SEQ> tu VIN."
+      },
+      "pickup_datetime": {
+        "tier": "RD",
+        "note": "Schedule anchor theo build_per_vin_day_schedule, operating hours 6h-22h."
+      },
+      "dropoff_datetime": {
+        "tier": "RD",
+        "note": "pickup_datetime + duration_mins (15-25 min)."
+      },
+      "assigned_day_index": {
+        "tier": "RD",
+        "note": "Khoa ngay 0..14, derive tu schedule."
+      },
+      "trip_miles": {
+        "tier": "R",
+        "note": "Gia tri goc tu fact_rides."
+      },
+      "fare_amount": {
+        "tier": "RD",
+        "note": "USD -> VND (x 25,400)."
+      },
+      "currency_unverified": {
+        "tier": "S",
+        "note": "Cot flag: False = da xac minh VND."
+      },
+      "tip_amount": {
+        "tier": "RS",
+        "note": "Log-normal(loc=10.5, scale=0.8), clip [5k, 200k] VND."
+      },
+      "total_fare": {
+        "tier": "RD",
+        "note": "fare + tip (vouchers da loai bo 2026-08-08)."
+      },
+      "pickup_latitude": {
+        "tier": "S",
+        "note": "Synthetic trong bbox Ha Noi (fact_rides khong co lat/lon so)."
+      },
+      "pickup_longitude": {
+        "tier": "S",
+        "note": "Nhu tren"
+      },
+      "vehicle_vin": {
+        "tier": "S",
+        "note": "Constructed Fleet Index, cycle 60 VIN."
+      },
+      "vehicle_type": {
+        "tier": "S",
+        "note": "Gan theo fleet index."
+      },
+      "event_sequence_index": {
+        "tier": "S",
+        "note": "0..N cho moi (VIN, day), pickup_datetime-sorted."
+      }
+    },
+    "nlp_benchmark_uit_vsfc": {
+      "sentence": {
+        "tier": "R",
+        "note": "Text tieng Viet that nhung LECH DOMAIN (feedback sinh vien, khong phai app goi xe/tram sac) — chi dung de kiem dinh module chuan hoa/NLP chung, khong dung lam feedback content chinh"
+      },
+      "sentiment": {
+        "tier": "R",
+        "note": ""
+      },
+      "topic": {
+        "tier": "R",
+        "note": "Topic khong khop enum VinGroup, chi dung noi bo"
+      }
+    }
+  }
+}

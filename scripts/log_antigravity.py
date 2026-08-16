@@ -58,7 +58,7 @@ if sys.platform == "win32":
 VN_TZ = timezone(timedelta(hours=7))
 GEMINI_HOME = Path.home() / ".gemini"
 
-# Antigravity has shipped under multiple folder names (ide, cli, legacy).
+# Antigravity paths (CLI / IDE / legacy)
 BRAIN_CANDIDATES = (
     GEMINI_HOME / "antigravity-cli" / "brain",
     GEMINI_HOME / "antigravity-ide" / "brain",
@@ -101,10 +101,10 @@ def get_brain_dirs() -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def _normalize(p: str) -> str:
-    """Lower-case + backslash form, no trailing separator."""
+    """Lower-case path, normalized, no trailing separator."""
     if not p:
         return ""
-    return p.strip().lower().replace("/", "\\").rstrip("\\")
+    return os.path.normpath(p.strip()).lower().rstrip("/").rstrip("\\")
 
 
 def _unquote_arg(val):
@@ -147,15 +147,17 @@ def _conv_cwds(transcript: Path) -> set[str]:
 
 
 def _conv_matches_repo(cwds: set[str], repo_root_n: str) -> bool:
-    """True if any cwd is equal to, ancestor of, or descendant of the repo."""
+    """True ONLY if any cwd is equal to or a descendant of the repo root.
+    
+    Ancestor directories (such as /home/shayneeo or /home/shayneeo/Downloads)
+    must NEVER match, as tool calls in home/parent dirs do not belong to P-086.
+    """
     if not repo_root_n or not cwds:
         return False
     for cwd in cwds:
         if cwd == repo_root_n:
             return True
-        if cwd.startswith(repo_root_n + "\\"):
-            return True
-        if repo_root_n.startswith(cwd + "\\"):
+        if cwd.startswith(repo_root_n + "/") or cwd.startswith(repo_root_n + "\\"):
             return True
     return False
 
@@ -203,9 +205,17 @@ def get_logged_entry_ids(log_file: Path) -> set[str]:
 # Iterating user inputs
 # ---------------------------------------------------------------------------
 
+def _is_repo_dir(c: str, repo_root_n: str) -> bool:
+    if not c or not repo_root_n:
+        return False
+    n = _normalize(c)
+    return n == repo_root_n or n.startswith(repo_root_n + "/") or n.startswith(repo_root_n + "\\")
+
+
 def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                      only_conv: str | None, repo_root_n: str):
-    """Yield user-input dicts from every matching conversation transcript."""
+    """Yield user-input dicts from transcripts where the prompt or its tool calls
+    specifically belong to repo_root_n (or its subdirectories)."""
     for brain in brain_dirs:
         for conv_dir in sorted(brain.iterdir()):
             if not conv_dir.is_dir():
@@ -218,45 +228,75 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
             if not transcript.exists() or transcript.stat().st_size == 0:
                 continue
 
-            cwds = _conv_cwds(transcript)
-            # If we have a repo root, skip convs that never touched it.
-            if repo_root_n and not _conv_matches_repo(cwds, repo_root_n):
+            entries = []
+            try:
+                with open(transcript, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+            except OSError:
                 continue
 
-            with open(transcript, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
+            # Determine if conversation belongs to repo
+            if repo_root_n:
+                cwds = set()
+                for entry in entries:
+                    for tc in (entry.get("tool_calls") or []):
+                        args = tc.get("args") or {}
+                        cwd = args.get("Cwd") or args.get("cwd")
+                        cwd = _unquote_arg(cwd)
+                        if isinstance(cwd, str) and cwd:
+                            n = _normalize(cwd)
+                            if n:
+                                cwds.add(n)
+                
+                is_conv_in_repo = False
+                if _conv_matches_repo(cwds, repo_root_n):
+                    is_conv_in_repo = True
+                else:
+                    # Fallback: check if any user prompt mentions the repo
+                    for entry in entries:
+                        if entry.get("type") == "USER_INPUT" and entry.get("source") == "USER_EXPLICIT":
+                            text = extract_user_prompt(entry.get("content", ""))
+                            text_n = _normalize(text)
+                            if "p-086" in text_n or "p086" in text_n:
+                                is_conv_in_repo = True
+                                break
+                
+                if not is_conv_in_repo:
+                    continue
+
+            for i, entry in enumerate(entries):
+                if (entry.get("type") != "USER_INPUT"
+                        or entry.get("source") != "USER_EXPLICIT"):
+                    continue
+
+                ts = entry.get("created_at") or ""
+                if cutoff and ts:
                     try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if (entry.get("type") != "USER_INPUT"
-                            or entry.get("source") != "USER_EXPLICIT"):
-                        continue
+                        ts_dt = datetime.fromisoformat(
+                            ts.replace("Z", "+00:00")
+                        )
+                        if ts_dt < cutoff:
+                            continue
+                    except ValueError:
+                        pass
 
-                    ts = entry.get("created_at") or ""
-                    if cutoff and ts:
-                        try:
-                            ts_dt = datetime.fromisoformat(
-                                ts.replace("Z", "+00:00")
-                            )
-                            if ts_dt < cutoff:
-                                continue
-                        except ValueError:
-                            pass
+                text = extract_user_prompt(entry.get("content", ""))
+                if len(text) < 2:
+                    continue
 
-                    text = extract_user_prompt(entry.get("content", ""))
-                    if len(text) < 2:
-                        continue
-
-                    yield {
-                        "conv_id": conv_dir.name,
-                        "step_index": int(entry.get("step_index", 0)),
-                        "timestamp": ts,
-                        "text": text,
-                    }
+                yield {
+                    "conv_id": conv_dir.name,
+                    "step_index": int(entry.get("step_index", 0)),
+                    "timestamp": ts,
+                    "text": text,
+                }
 
 
 # ---------------------------------------------------------------------------
@@ -299,8 +339,8 @@ def main() -> None:
     )
     parser.add_argument("--auto", action="store_true",
                         help="Default mode: scan recent conversations.")
-    parser.add_argument("--hours", type=int, default=24,
-                        help="Window in hours when scanning (default: 24).")
+    parser.add_argument("--hours", type=int, default=168,
+                        help="Window in hours when scanning (default: 168 for 7 days).")
     parser.add_argument("--all", action="store_true",
                         help="Ignore the time window; scan everything.")
     parser.add_argument("--conv-id",

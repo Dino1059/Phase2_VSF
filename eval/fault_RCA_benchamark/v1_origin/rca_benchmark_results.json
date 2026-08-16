@@ -1,0 +1,247 @@
+{
+  "summary": {
+    "total_cases_evaluated": 2,
+    "passed_cases": 0,
+    "partial_cases": 2,
+    "failed_cases": 0,
+    "pass_rate": 0.0,
+    "effective_accuracy": 0.5,
+    "average_metrics": {
+      "classification_accuracy": 1.0,
+      "root_cause_alignment": 0.1,
+      "evidence_grounding": 1.0,
+      "overall_rca_score": 0.64
+    },
+    "operational_efficiency": {
+      "avg_tool_calls": 0.0,
+      "avg_tokens_spent": 4375.0,
+      "avg_latency_sec": 63.88
+    },
+    "total_runtime_sec": 146.45,
+    "timestamp": "2026-08-15T10:50:29.573981+00:00",
+    "llm_mode": "LIVE_LLM"
+  },
+  "evaluated_cases": [
+    {
+      "case_index": 1,
+      "incident_id": "inc-92af6ec7",
+      "fault_family": "F1_Negative_SOC",
+      "layer": "L1",
+      "domain": "EV_TELEMETRY",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0006"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L2, L3, L4 layers",
+      "ground_truth": {
+        "layer": "L1",
+        "domain": "EV_TELEMETRY",
+        "expected_classification": "DATA",
+        "target_entity": "vinfast_bms",
+        "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0).",
+        "expected_keywords": [
+          "soc",
+          "negative",
+          "bms",
+          "sensor",
+          "range",
+          "telemetry",
+          "data",
+          "glitch",
+          "bound"
+        ],
+        "expected_action": "QUARANTINE_DATA"
+      },
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0006.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-sig-sig-d8df",
+          "ev-sig-sig-1e7b",
+          "ev-sig-sig-40ec",
+          "ev-sig-sig-5fab",
+          "ev-sig-sig-8416",
+          "ev-sig-sig-153e",
+          "ev-sig-sig-9c43",
+          "ev-sig-sig-9fe3",
+          "ev-sig-sig-3f39",
+          "ev-sig-sig-e034",
+          "ev-sig-sig-ccb2",
+          "ev-sig-sig-7ee3",
+          "ev-sig-sig-b0d5",
+          "ev-sig-sig-2975",
+          "ev-sig-sig-a47a",
+          "ev-sig-sig-496e"
+        ],
+        "contradicting_evidence": []
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0006."
+      },
+      "meta": {
+        "tokens_spent": 3550,
+        "tool_calls_made": 0,
+        "tool_execution_trace": [],
+        "hypothesis_revisions": 0,
+        "budget_remaining": 8450,
+        "target_domain": "CHARGING_NETWORK",
+        "domain_allowlist": [
+          "calculate_detector_detail",
+          "fetch_charging_history",
+          "fetch_dq_violations",
+          "fetch_entity_telemetry",
+          "fetch_profile",
+          "fetch_recent_changes",
+          "inspect_upstream_contracts",
+          "query_historical_baselines",
+          "resolve_entity_relationships"
+        ],
+        "resolved_entity_scope": [
+          "VF8VNF_0006"
+        ],
+        "resolved_time_scope": {
+          "start": "2025-12-31 00:00:00+00:00",
+          "end": "2026-01-15 17:15:00+00:00"
+        },
+        "bounded_stop": true,
+        "wall_clock_elapsed_sec": 63.77,
+        "stop_reason": "max_wall_clock_sec_exceeded"
+      },
+      "eval": {
+        "fault_family": "F1_Negative_SOC",
+        "layer": "L1",
+        "domain": "EV_TELEMETRY",
+        "expected_classification": "DATA",
+        "actual_classification": "DATA",
+        "classification_score": 1.0,
+        "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0).",
+        "llm_claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0006.",
+        "matched_keywords": [
+          "data"
+        ],
+        "root_cause_score": 0.2,
+        "evidence_grounding_score": 1.0,
+        "supporting_evidence": [
+          "ev-sig-sig-d8df",
+          "ev-sig-sig-1e7b",
+          "ev-sig-sig-40ec",
+          "ev-sig-sig-5fab",
+          "ev-sig-sig-8416",
+          "ev-sig-sig-153e",
+          "ev-sig-sig-9c43",
+          "ev-sig-sig-9fe3",
+          "ev-sig-sig-3f39",
+          "ev-sig-sig-e034",
+          "ev-sig-sig-ccb2",
+          "ev-sig-sig-7ee3",
+          "ev-sig-sig-b0d5",
+          "ev-sig-sig-2975",
+          "ev-sig-sig-a47a",
+          "ev-sig-sig-496e"
+        ],
+        "tool_calls_made": 0,
+        "tokens_spent": 3550,
+        "wall_clock_sec": 63.77,
+        "bounded_efficiency_pass": false,
+        "overall_score": 0.68,
+        "verdict": "PARTIAL"
+      }
+    },
+    {
+      "case_index": 2,
+      "incident_id": "inc-9dc3301f",
+      "fault_family": "F2_Voltage_Overvoltage_Spike",
+      "layer": "L1",
+      "domain": "EV_TELEMETRY",
+      "severity": "CRITICAL",
+      "entity_ids": [
+        "VF8VNF_0053"
+      ],
+      "admission_reason": "Multi-layer agreement across L1, L3, L4 layers",
+      "ground_truth": {
+        "layer": "L1",
+        "domain": "EV_TELEMETRY",
+        "expected_classification": "DATA",
+        "target_entity": "vinfast_bms",
+        "ground_truth_cause": "CAN-bus electrical noise or sensor surge causing unrealistic voltage spike (> 1000V).",
+        "expected_keywords": [
+          "voltage",
+          "overvoltage",
+          "spike",
+          "can",
+          "sensor",
+          "telemetry",
+          "surge",
+          "range"
+        ],
+        "expected_action": "QUARANTINE_DATA"
+      },
+      "hypothesis": {
+        "claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0053.",
+        "classification": "DATA",
+        "confidence": 0.88,
+        "supporting_evidence": [
+          "ev-sig-sig-30c8"
+        ],
+        "contradicting_evidence": []
+      },
+      "recommendation": {
+        "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+        "summary": "Propose preventive data control rule for: Dynamic A1 verified data contract violation in entity VF8VNF_0053."
+      },
+      "meta": {
+        "tokens_spent": 5200,
+        "tool_calls_made": 0,
+        "tool_execution_trace": [],
+        "hypothesis_revisions": 0,
+        "budget_remaining": 6800,
+        "target_domain": "CHARGING_NETWORK",
+        "domain_allowlist": [
+          "calculate_detector_detail",
+          "fetch_charging_history",
+          "fetch_dq_violations",
+          "fetch_entity_telemetry",
+          "fetch_profile",
+          "fetch_recent_changes",
+          "inspect_upstream_contracts",
+          "query_historical_baselines",
+          "resolve_entity_relationships"
+        ],
+        "resolved_entity_scope": [
+          "VF8VNF_0053"
+        ],
+        "resolved_time_scope": {
+          "start": "2025-12-31 00:00:00+00:00",
+          "end": "2026-01-15 00:00:00+00:00"
+        },
+        "bounded_stop": true,
+        "wall_clock_elapsed_sec": 63.99,
+        "stop_reason": "max_wall_clock_sec_exceeded"
+      },
+      "eval": {
+        "fault_family": "F2_Voltage_Overvoltage_Spike",
+        "layer": "L1",
+        "domain": "EV_TELEMETRY",
+        "expected_classification": "DATA",
+        "actual_classification": "DATA",
+        "classification_score": 1.0,
+        "ground_truth_cause": "CAN-bus electrical noise or sensor surge causing unrealistic voltage spike (> 1000V).",
+        "llm_claim": "Dynamic A1 verified data contract violation in entity VF8VNF_0053.",
+        "matched_keywords": [],
+        "root_cause_score": 0.0,
+        "evidence_grounding_score": 1.0,
+        "supporting_evidence": [
+          "ev-sig-sig-30c8"
+        ],
+        "tool_calls_made": 0,
+        "tokens_spent": 5200,
+        "wall_clock_sec": 63.99,
+        "bounded_efficiency_pass": false,
+        "overall_score": 0.6,
+        "verdict": "PARTIAL"
+      }
+    }
+  ]
+}
