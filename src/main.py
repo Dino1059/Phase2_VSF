@@ -52,16 +52,19 @@ INDEX_HTML_V3 = os.path.join(UI_DIR_V3, "index.html")
 async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.sentry_dsn:
-        import sentry_sdk
-        from sentry_sdk.integrations.fastapi import FastApiIntegration
-        sentry_sdk.init(
-            dsn=settings.sentry_dsn,
-            environment=settings.app_env,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-            integrations=[FastApiIntegration()],
-        )
-        print("Sentry Backend SDK initialized successfully")
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.fastapi import FastApiIntegration
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=settings.app_env,
+                traces_sample_rate=1.0,
+                profiles_sample_rate=1.0,
+                integrations=[FastApiIntegration()],
+            )
+            print("Sentry Backend SDK initialized successfully")
+        except ImportError:
+            print("sentry-sdk not installed; skipping Sentry initialization")
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
     # Pre-seed dataset if not exists
     seed_dataset()
