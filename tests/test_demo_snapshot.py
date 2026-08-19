@@ -114,3 +114,9 @@ def test_unhappy_health_is_critical_not_not_measured():
     assert "story" in ui
     ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
     assert "setStream([])" in ws
+
+def test_story_switch_keeps_one_profile_summary():
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    assert "messagesForStory" in ws
+    assert "isProfileSummary" in ws
+    assert "HAPPY · clean CSVs" in ws

@@ -88,6 +88,26 @@ function historyAlreadyProfiled(messages: Array<{ content?: string; type?: strin
   });
 }
 
+function isProfileSummary(content?: string): boolean {
+  const c = content || '';
+  return c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát');
+}
+
+function messagesForStory<T extends { content?: string }>(messages: T[], story: string | null): T[] {
+  const filtered = messages.filter((m) => !(m.content || '').includes('HAPPY · clean CSVs'));
+  if (story !== 'unhappy') return filtered;
+  let keptSummary = false;
+  const out: T[] = [];
+  for (let i = filtered.length - 1; i >= 0; i -= 1) {
+    if (isProfileSummary(filtered[i].content)) {
+      if (keptSummary) continue;
+      keptSummary = true;
+    }
+    out.unshift(filtered[i]);
+  }
+  return out;
+}
+
 const AGENT_COLORS: Record<string, string> = {
   orchestrator: 'var(--text-main)',
   profiler: 'var(--royal-purple)',
@@ -186,6 +206,7 @@ export function AgentChatWorkspace() {
     const sessionId = datasetKey ? `dataset:${datasetKey}` : 'default';
     setChatSessionId(sessionId);
     useChatStore.getState().clearMessages();
+    if (story) return;
     void fetchChatHistory(sessionId).then((history) => {
       if (Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
@@ -193,7 +214,7 @@ export function AgentChatWorkspace() {
     }).catch((error) => {
       console.error('Failed to load chat history:', error);
     });
-  }, [datasetKey, isNewChat, resetPipeline, setChatSessionId]);
+  }, [datasetKey, isNewChat, story, resetPipeline, setChatSessionId]);
 
   // Poll the persisted backend result so all right-panel tabs share one run_id.
   useEffect(() => {
@@ -252,6 +273,7 @@ export function AgentChatWorkspace() {
     resetPipeline();
     setStream([]);
     useChatStore.getState().clearMessages();
+    void resetDemoSession();
 
     if (isHappy) {
       setRightTab('tab-profiler');
@@ -580,7 +602,7 @@ export function AgentChatWorkspace() {
               </div>
             );
           })}
-          {chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)).map((msg) => {
+          {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story).map((msg) => {
             const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
             const Icon = AGENT_ICONS[agent] || Brain;
             return (
