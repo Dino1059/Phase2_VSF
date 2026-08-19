@@ -288,18 +288,27 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
             prof = data.get("profile", {})
             total_rows = data.get("total_rows", prof.get("total_rows", 0))
             cols_count = data.get("columns_count", len(prof.get("columns", [])))
-            health = data.get("health_score", 100.0)
+            health = data.get("health_score")
+            if health is None:
+                health = prof.get("data_health_score")
             key = data.get("dataset_key", "dataset")
 
             # Build column breakdown rows
             cols = prof.get("columns", [])
             col_rows = []
-            for c in cols[:8]:
+            for c in cols[:12]:
                 cname = c.get("name", "col")
-                dtype = c.get("dtype", "unknown")
-                null_pct = c.get("null_pct", 0.0)
-                null_str = f"{null_pct * 100:.1f}%" if isinstance(null_pct, (int, float)) and null_pct <= 1.0 else f"{null_pct}%"
-                uniq = c.get("unique_count", "—")
+                dtype = c.get("dtype") or c.get("data_type") or "unknown"
+                null_pct = c.get("null_pct")
+                if null_pct is None and isinstance(c.get("null_count"), (int, float)) and total_rows:
+                    null_pct = c["null_count"] / max(int(total_rows), 1)
+                if isinstance(null_pct, (int, float)) and null_pct <= 1.0:
+                    null_str = f"{null_pct * 100:.1f}%"
+                elif null_pct is None:
+                    null_str = "—"
+                else:
+                    null_str = f"{null_pct}%"
+                uniq = c.get("unique_count", c.get("distinct_count", "—"))
                 col_rows.append(f"| `{cname}` | `{dtype}` | {null_str} | {uniq:,} |" if isinstance(uniq, int) else f"| `{cname}` | `{dtype}` | {null_str} | {uniq} |")
 
             col_table = ""
@@ -307,27 +316,34 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
                 header_title = "#### 📋 Schema Cột & Chất Lượng\n| Cột | Kiểu | Tỷ Lệ Null | Giá Trị Riêng Biệt |\n| :--- | :--- | :--- | :--- |\n" if is_vi else "#### 📋 Column Schema & Quality\n| Column | Type | Null Rate | Unique Values |\n| :--- | :--- | :--- | :--- |\n"
                 col_table = f"\n\n{header_title}" + "\n".join(col_rows)
 
+            if isinstance(health, (int, float)):
+                health_cell = f"**{health}%**"
+                if is_vi:
+                    health_badge = "🟢 Xuất Sắc" if health >= 95 else ("🟡 Trung Bình" if health >= 80 else "🔴 Nghiêm Trọng")
+                else:
+                    health_badge = "🟢 Excellent" if health >= 95 else ("🟡 Moderate" if health >= 80 else "🔴 Critical")
+            else:
+                health_cell = "—"
+                health_badge = "—"
             if is_vi:
-                health_badge = "🟢 Xuất Sắc" if health >= 95 else ("🟡 Trung Bình" if health >= 80 else "🔴 Nghiêm Trọng")
                 return (
                     f"### 📊 Tóm Tắt Khảo Sát: `{key}`\n\n"
                     f"| Chỉ Số | Giá Trị | Phân Hạng Sức Khỏe |\n"
                     f"| :--- | :--- | :--- |\n"
                     f"| **Tổng Số Dòng Lấy Mẫu** | **{total_rows:,}** | 🟢 Đã Xác Thực Nạp Dữ Liệu |\n"
                     f"| **Số Cột Đã Phân Tích** | **{cols_count}** | 🟢 Đã Ánh Xạ Schema |\n"
-                    f"| **Điểm Sức Khỏe Dữ Liệu** | **{health}%** | {health_badge} |\n"
+                    f"| **Điểm Sức Khỏe Dữ Liệu** | {health_cell} | {health_badge} |\n"
                     f"{col_table}\n\n"
                     f"> 💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*"
                 )
             else:
-                health_badge = "🟢 Excellent" if health >= 95 else ("🟡 Moderate" if health >= 80 else "🔴 Critical")
                 return (
                     f"### 📊 Profile Summary: `{key}`\n\n"
                     f"| Metric | Value | Health Grade |\n"
                     f"| :--- | :--- | :--- |\n"
                     f"| **Total Sampled Rows** | **{total_rows:,}** | 🟢 Verified Ingestion |\n"
                     f"| **Columns Analyzed** | **{cols_count}** | 🟢 Schema Mapped |\n"
-                    f"| **Dataset Health Score** | **{health}%** | {health_badge} |\n"
+                    f"| **Dataset Health Score** | {health_cell} | {health_badge} |\n"
                     f"{col_table}\n\n"
                     f"> 💡 *Full deep-profile details synced to the **Data Profiler** panel.*"
                 )
@@ -514,6 +530,7 @@ async def send_chat_message(request: ChatRequest):
         result = react_engine.run(task, context=context)
 
     # Broadcast steward summaries (never raw thought) for the traces panel.
+    emitted_actions: set[str] = set()
     for step in result.steps:
         await ws_manager.broadcast({
             "type": "agent.trace",
@@ -526,6 +543,9 @@ async def send_chat_message(request: ChatRequest):
         }, session_id=session_id)
 
         if step.action and step.action not in ("FINISH", "ABSTAIN"):
+            if step.action == "profile_dataset" and "profile_dataset" in emitted_actions:
+                continue
+            emitted_actions.add(step.action)
             friendly_content = format_friendly_observation(step.action, step.observation, lang=lang_pref)
             obs_msg = conversation_store.save_message(
                 {

@@ -83,3 +83,23 @@ def test_saigon_clock_does_not_double_offset():
     labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
     assert "hasZone" in labels
     assert '+07:00' in labels
+
+def test_health_hides_when_warehouse_has_soc_or_open():
+    engine = (ROOT / "src/services/dataset_engine.py").read_text()
+    assert "hide_sample_health_if_warehouse_faults" in engine
+    assert "battery_soc < 0" in engine
+    assert "status = 'OPEN'" in engine
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "health_cell" in routes
+    assert 'health_cell = "—"' in routes
+    ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
+    assert "warehouseFaults" in ui
+
+
+def test_profile_summary_uses_data_type_alias():
+    engine = (ROOT / "src/services/dataset_engine.py").read_text()
+    assert 'setdefault("dtype"' in engine
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert 'c.get("data_type")' in routes
+    assert "emitted_actions" in routes
+

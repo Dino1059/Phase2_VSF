@@ -312,16 +312,41 @@ def profile_rows(rows: Any) -> Dict[str, Any]:
                 "anomaly_description": None
             })
 
+    for col in column_profiles:
+        col.setdefault("dtype", col.get("data_type") or "unknown")
+        if "null_pct" not in col:
+            nc = col.get("null_count")
+            col["null_pct"] = (nc / total_rows) if isinstance(nc, (int, float)) and total_rows else 0.0
+
     health_score = round(max(0.0, 100.0 * (1.0 - (total_anomalies / (total_rows * max(1, len(column_profiles)))))), 1)
 
-    return {
+    profile = {
         "total_rows": total_rows,
         "columns": column_profiles,
         "total_anomalies": total_anomalies,
         "data_health_score": health_score,
         "summary": f"Profiled {total_rows} records with {len(column_profiles)} columns. Discovered {total_anomalies} anomalies."
     }
+    return hide_sample_health_if_warehouse_faults(profile)
 
+
+def hide_sample_health_if_warehouse_faults(profile):
+    """Hide sample 99%/Excellent when data_new warehouse has SoC<0 or OPEN incidents."""
+    try:
+        from src.db.connection import get_db
+        db = get_db()
+        def _count(sql):
+            res = db.execute(sql)
+            return int(res[0][0]) if res else 0
+        soc = _count("SELECT count(*) FROM raw.ev_telemetry WHERE battery_soc < 0")
+        open_n = _count("SELECT count(*) FROM incidents WHERE status = 'OPEN'")
+        profile["warehouse_soc_below_zero"] = soc
+        profile["warehouse_open_incidents"] = open_n
+        if soc > 0 or open_n > 0:
+            profile["data_health_score"] = None
+    except Exception:
+        pass
+    return profile
 
 def generate_rules_for_baseline(baseline: str, profile_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], float]:
     """Generate dynamic schema-agnostic data quality rules based on baseline variant and profile_data statistics.
