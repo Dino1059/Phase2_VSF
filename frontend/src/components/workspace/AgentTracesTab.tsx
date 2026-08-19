@@ -92,6 +92,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         steps
           .map((s, idx) => mapTraceStep(s, idx))
           .filter((s) => inTimeRange(s.timestamp, timeFilter))
+          .filter((s) => !!(s.action || s.tool))
       );
     } catch {
       setTraces([]);
@@ -190,13 +191,13 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
       ) : (
         <div className="traces-timeline" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {traces.map((trace, idx) => {
-            const stepNum = trace.step || idx + 1;
+            const stepNum = idx + 1;
             const isExpanded = !!expandedSteps[stepNum];
             const selected = selectedStep === stepNum;
             const failed = (trace.status || '').toUpperCase() === 'FAILED';
             return (
               <div
-                key={`trace-${stepNum}`}
+                key={`trace-${idx}-${trace.action}-${trace.timestamp || ''}`}
                 className="trace-step-card"
                 onClick={() => onSelectStep?.(stepNum)}
                 style={{
@@ -277,7 +278,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                   </div>
                 </div>
 
-                {(trace.input || trace.output) && (
+                {((trace.input != null || trace.output != null)) && (
                   <div style={{ marginTop: 8 }}>
                     <button
                       type="button"

@@ -20,6 +20,7 @@ import pandas as pd
 from src.reliability.models.incident import Incident
 from src.reliability.models.hypothesis import Hypothesis
 from src.reliability.models.evidence import Evidence
+from src.reliability.models.signal import Signal
 
 
 # Mapping from fault families to Ground Truth RCA expectations

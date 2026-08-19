@@ -27,6 +27,14 @@ import argparse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from ai_log_redact import redact_obj
+except ImportError:
+    import sys
+    from pathlib import Path as _RedactPath
+    sys.path.insert(0, str(_RedactPath(__file__).resolve().parent))
+    from ai_log_redact import redact_obj
+
 VN_TZ = timezone(timedelta(hours=7))
 
 
@@ -98,6 +106,7 @@ def main():
         "response_summary": result[:500] if result else "",
     }
 
+    entry = redact_obj(entry)
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"
@@ -105,7 +114,7 @@ def main():
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    print(f"\n[log] ✅ Logged: [{tool}] {prompt[:80]}")
+    print(f"\n[log] ✅ Logged: [{tool}] {entry['prompt'][:80]}")
     print(f"[log] 📁 Saved to: {log_file}")
 
 

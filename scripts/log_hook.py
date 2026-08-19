@@ -10,6 +10,14 @@ import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from ai_log_redact import redact_obj
+except ImportError:
+    import sys
+    from pathlib import Path as _RedactPath
+    sys.path.insert(0, str(_RedactPath(__file__).resolve().parent))
+    from ai_log_redact import redact_obj
+
 VN_TZ = timezone(timedelta(hours=7))
 
 
@@ -37,9 +45,12 @@ def detect_tool(data: dict) -> str:
     # Heuristics
     if "transcript_path" in data:
         return "codex"
-    if data.get("hook_event_name", "").startswith(("Before", "After", "Session", "Pre", "Notification")):
+    event_name = data.get("hook_event_name") or data.get("hookEventName") or ""
+    if os.environ.get("GROK_HOOK_EVENT") or "hookEventName" in data:
+        return "grok"
+    if event_name.startswith(("Before", "After", "Session", "Pre", "Notification")):
         return "gemini"
-    if data.get("hook_event_name", "")[0:1].islower():
+    if event_name[0:1].islower():
         # camelCase event names → Cursor or Copilot
         if "workspace_roots" in data:
             return "cursor"
@@ -52,7 +63,7 @@ def detect_tool(data: dict) -> str:
 
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
-    event = data.get("hook_event_name") or data.get("event", "")
+    event = data.get("hook_event_name") or data.get("hookEventName") or data.get("event", "")
     ts = datetime.now(VN_TZ).isoformat()
 
     # Resolve repo from git origin. When cwd is not a git working tree (or
@@ -72,6 +83,7 @@ def normalize(data: dict, tool: str) -> dict | None:
         "event": event,
         "session_id": (
             data.get("session_id") or
+            data.get("sessionId") or
             data.get("conversation_id") or
             data.get("generation_id") or ""
         ),
@@ -140,6 +152,35 @@ def normalize(data: dict, tool: str) -> dict | None:
             "tool_args": data.get("toolArgs"),
         })
 
+    elif tool == "grok":
+        # Request + final reply only. Skip tool calls, thoughts, subagents,
+        # Stop continuations, and the extra session-end Stop fire.
+        event_l = str(event).lower().replace("-", "_")
+        if event_l in (
+            "pre_tool_use", "post_tool_use", "post_tool_use_failure",
+            "permission_denied", "after_agent_thought",
+        ):
+            return None
+        if data.get("subagentType") or data.get("subagent_type"):
+            return None
+        if data.get("stopHookActive") or data.get("stop_hook_active"):
+            return None
+        reason = data.get("reason", "")
+        if event_l in ("stop",) and reason not in ("", "end_turn"):
+            return None
+        prompt = (data.get("prompt") or data.get("text") or "")[:1000]
+        response = (
+            data.get("lastAssistantMessage")
+            or data.get("last_assistant_message")
+            or data.get("response_summary")
+            or ""
+        )[:500]
+        base.update({
+            "prompt": prompt,
+            "response_summary": response,
+            "model": data.get("model") or base.get("model") or "grok",
+        })
+
     # Skip only true noise: no prompt AND no tool-specific payload (tool_input,
     # response_summary, tool_response, tool_args, files_context). Previously
     # this only checked `prompt`, which dropped Claude Bash/Edit events (their
@@ -173,6 +214,7 @@ def main():
     if not entry:
         sys.exit(0)
 
+    entry = redact_obj(entry)
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"

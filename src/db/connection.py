@@ -37,7 +37,7 @@ class DuckDBManager:
         self.db_path = db_path
         self.project_root = project_root
         self._master_conn = None
-        self._conn_lock = threading.Lock()
+        self._conn_lock = threading.RLock()
         self._initialized = True
 
     def _get_master_conn(self) -> duckdb.DuckDBPyConnection:

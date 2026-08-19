@@ -20,6 +20,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
+    from ai_log_redact import redact_obj
+except ImportError:
+    import sys
+    from pathlib import Path as _RedactPath
+    sys.path.insert(0, str(_RedactPath(__file__).resolve().parent))
+    from ai_log_redact import redact_obj
+
+try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
@@ -110,7 +118,7 @@ def main():
                 leftover_lines.append(line)
                 continue
             try:
-                entries.append(json.loads(stripped))
+                entries.append(redact_obj(json.loads(stripped)))
             except json.JSONDecodeError:
                 pass  # drop unparseable line
 

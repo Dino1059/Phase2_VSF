@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone, timedelta
-from src.db.connection import get_db
+from src.db.connection import DuckDBManager
 from src.reliability.models.signal import Signal
 from src.reliability.models.incident import Incident
 from src.reliability.models.evidence import Evidence
@@ -404,13 +404,26 @@ def test_fusion_engine_and_service():
     assert retrieved.incident_id == inc.incident_id
 
 
+
+def _isolated_file_db(path: str) -> DuckDBManager:
+    """File-backed manager that does not steal DuckDBManager._instance."""
+    mgr = object.__new__(DuckDBManager)
+    mgr._initialized = False
+    DuckDBManager.__init__(mgr, path)
+    conn = mgr.get_connection()
+    mgr._ensure_reliability_tables(conn)
+    return mgr
+
+
 def test_incident_service_db_persistence(tmp_path):
     """
     Verifies that created/updated Incidents, Evidence, Hypotheses, Decisions,
     and Recommendations are persisted to DuckDB and successfully restored across backend restarts.
     """
     db_file = str(tmp_path / "test_persistence.duckdb")
-    db = get_db(db_file)
+    # Do not use get_db(tmp): that closes/rebinds the process-wide DuckDB
+    # singleton (session fixture + earlier tests) and can deadlock the suite.
+    db = _isolated_file_db(db_file)
 
     service1 = IncidentService(db=db)
 
@@ -475,7 +488,7 @@ def test_incident_service_db_persistence(tmp_path):
     db.close()
 
     # Simulate backend restart with a fresh service instance reading from the same DB file
-    db2 = get_db(db_file)
+    db2 = _isolated_file_db(db_file)
     service2 = IncidentService(db=db2)
 
     # Assertions on restored state
