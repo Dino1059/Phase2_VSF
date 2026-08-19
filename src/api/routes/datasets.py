@@ -39,13 +39,17 @@ async def list_datasets():
 async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
     """Profile a registered dataset with server-side file loading."""
     try:
-        from src.services.dataset_engine import load_dataset
+        from src.services.dataset_engine import load_dataset, profile_rows
         from src.tools.profiler import Profiler
 
         df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
         profiler = Profiler()
         result = profiler.profile(df, file_path=dataset_key)
         profile_data = result.model_dump()
+        rows_profile = profile_rows(df.to_dict("records"))
+        profile_data["data_health_score"] = rows_profile.get("data_health_score")
+        profile_data["warehouse_soc_below_zero"] = rows_profile.get("warehouse_soc_below_zero", 0)
+        profile_data["warehouse_open_incidents"] = rows_profile.get("warehouse_open_incidents", 0)
         return {
             "dataset": dataset_key,
             "sample_size": len(df),

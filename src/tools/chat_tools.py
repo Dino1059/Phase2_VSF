@@ -46,7 +46,9 @@ class ProfileDatasetTool(BaseTool):
                     "dataset_key": dataset_key,
                     "total_rows": len(df),
                     "columns_count": len(df.columns),
-                    "health_score": profile_data.get("data_health_score", 100.0),
+                    "health_score": profile_data.get("data_health_score"),
+                    "warehouse_soc_below_zero": profile_data.get("warehouse_soc_below_zero", 0),
+                    "warehouse_open_incidents": profile_data.get("warehouse_open_incidents", 0),
                     "profile": profile_data
                 }
             )

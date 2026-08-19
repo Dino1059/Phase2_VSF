@@ -250,6 +250,8 @@ export function AgentChatWorkspace() {
     runStartedRef.current = bootToken;
     proposeStartedRef.current = false;
     resetPipeline();
+    setStream([]);
+    useChatStore.getState().clearMessages();
 
     if (isHappy) {
       setRightTab('tab-profiler');
@@ -282,8 +284,8 @@ export function AgentChatWorkspace() {
       try {
         const lang = i18n?.language || 'vi';
         const session = datasetKey ? `dataset:${datasetKey}` : useChatStore.getState().sessionId;
-        const existing = await fetchChatHistory(session);
-        if (Array.isArray(existing.messages) && existing.messages.length) {
+        const existing = forceLive ? { messages: [] } : await fetchChatHistory(session);
+        if (!forceLive && Array.isArray(existing.messages) && existing.messages.length) {
           useChatStore.getState().setMessages(existing.messages);
         }
         if (forceLive) {
@@ -733,7 +735,7 @@ export function AgentChatWorkspace() {
               />
             )}
             {rightTab === 'tab-profiler' && (
-              <DataProfilerTab datasetKey={datasetKey} />
+              <DataProfilerTab datasetKey={datasetKey} story={story} />
             )}
             {rightTab === 'tab-rules' && (
               <QualityRulesTab datasetKey={datasetKey} />

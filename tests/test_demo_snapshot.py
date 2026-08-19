@@ -103,3 +103,14 @@ def test_profile_summary_uses_data_type_alias():
     assert 'c.get("data_type")' in routes
     assert "emitted_actions" in routes
 
+def test_unhappy_health_is_critical_not_not_measured():
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "warehouse_faults" in routes
+    assert "🔴 Critical" in routes
+    datasets = (ROOT / "src/api/routes/datasets.py").read_text()
+    assert "profile_rows" in datasets
+    assert "warehouse_soc_below_zero" in datasets
+    ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
+    assert "story" in ui
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    assert "setStream([])" in ws

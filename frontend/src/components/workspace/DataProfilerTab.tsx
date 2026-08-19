@@ -40,9 +40,10 @@ interface ProfileData {
 
 interface DataProfilerTabProps {
   datasetKey?: string;
+  story?: string | null;
 }
 
-export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) => {
+export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story }) => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,7 +77,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) 
     } finally {
       setLoading(false);
     }
-  }, [datasetKey]);
+  }, [datasetKey, story]);
 
   useEffect(() => {
     fetchProfile();

@@ -316,7 +316,17 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
                 header_title = "#### 📋 Schema Cột & Chất Lượng\n| Cột | Kiểu | Tỷ Lệ Null | Giá Trị Riêng Biệt |\n| :--- | :--- | :--- | :--- |\n" if is_vi else "#### 📋 Column Schema & Quality\n| Column | Type | Null Rate | Unique Values |\n| :--- | :--- | :--- | :--- |\n"
                 col_table = f"\n\n{header_title}" + "\n".join(col_rows)
 
-            if isinstance(health, (int, float)):
+            soc_n = data.get("warehouse_soc_below_zero") or prof.get("warehouse_soc_below_zero") or 0
+            open_n = data.get("warehouse_open_incidents") or prof.get("warehouse_open_incidents") or 0
+            warehouse_faults = False
+            try:
+                warehouse_faults = int(soc_n) > 0 or int(open_n) > 0
+            except (TypeError, ValueError):
+                warehouse_faults = False
+            if warehouse_faults:
+                health_cell = "—"
+                health_badge = "🔴 Nghiêm Trọng" if is_vi else "🔴 Critical"
+            elif isinstance(health, (int, float)):
                 health_cell = f"**{health}%**"
                 if is_vi:
                     health_badge = "🟢 Xuất Sắc" if health >= 95 else ("🟡 Trung Bình" if health >= 80 else "🔴 Nghiêm Trọng")
