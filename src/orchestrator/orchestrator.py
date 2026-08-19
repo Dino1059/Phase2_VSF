@@ -95,7 +95,6 @@ def _load_table_as_dataframe(table_name: str, project_id: str, db_path: Optional
         if not os.path.exists(candidate):
             continue
         try:
-            from src.db.connection import get_db
             db_mgr = get_db()
             is_same = os.path.abspath(candidate) == os.path.abspath(str(db_mgr.db_path))
             if is_same:

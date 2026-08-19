@@ -368,22 +368,6 @@ class C1FixedInvestigator:
             reasoning=f"Analyzed {len(diagnostic_ev)} diagnostic evidence items."
         )
 
-        # Validate evidence IDs: filter out any supporting/contradicting evidence IDs not present in retrievable evidence
-        if valid_ev_ids:
-            analysis.supporting_evidence_ids = [
-                eid for eid in analysis.supporting_evidence_ids
-                if eid in valid_ev_ids and (eid.startswith("ev_") or eid.startswith("ev-"))
-            ]
-            analysis.contradicting_evidence_ids = [
-                eid for eid in analysis.contradicting_evidence_ids
-                if eid in valid_ev_ids and (eid.startswith("ev_") or eid.startswith("ev-"))
-            ]
-        else:
-            analysis.supporting_evidence_ids = []
-            analysis.contradicting_evidence_ids = []
-
-        return analysis
-
     def investigate_incident(
         self,
         incident: Incident,

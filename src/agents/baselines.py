@@ -366,7 +366,7 @@ class BaselineA2:
     """
     tier: str = "A2"
 
-    def __init__(self, llm: Optional[GemmaLLMAdapter] = None):
+    def __init__(self, llm: GemmaLLMAdapter | None = None):
         self.llm = llm or GemmaLLMAdapter()
         self.a1 = BaselineA1(llm=self.llm)
 

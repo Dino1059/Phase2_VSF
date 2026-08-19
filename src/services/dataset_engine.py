@@ -993,7 +993,7 @@ class RunStore:
             "sample_quarantined": res["sample_quarantined"]
         }
 
-    def reset_all() -> Tuple[float, int]:
+    def reset_all(self) -> Tuple[float, int]:
         start_t = time.time()
         self._runs.clear()
         count = seed_dataset()
