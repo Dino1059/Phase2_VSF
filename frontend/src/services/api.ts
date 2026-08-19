@@ -80,7 +80,10 @@ export async function ensureDemoAuth(): Promise<void> {
   const res = await authApi.login({ username: 'steward', role: 'steward' });
   if (res?.access_token) {
     persistAuthToken(res.access_token, 'steward');
-    if (res.user) localStorage.setItem('datatrust_user_profile', JSON.stringify(res.user));
+    const profile = (res as { user_profile?: { user_id: string; username: string; role: string } }).user_profile
+      || (res.user && typeof res.user === 'object' ? res.user : null)
+      || { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
+    localStorage.setItem('datatrust_user_profile', JSON.stringify(profile));
   }
 }
 

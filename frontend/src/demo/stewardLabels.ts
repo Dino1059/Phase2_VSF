@@ -17,15 +17,13 @@ export const ACTOR_LABELS: Record<string, { en: string; vi: string }> = {
 export const DEMO_TZ = 'Asia/Saigon';
 
 export function formatSaigonTime(iso?: string | null): string {
-  const d = iso ? new Date(iso) : new Date();
+  const opts = { hour12: false, timeZone: DEMO_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' } as const;
+  if (!iso) return new Date().toLocaleTimeString('en-GB', opts);
+  const trimmed = iso.trim();
+  const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  const d = new Date(hasZone ? trimmed : trimmed.includes('T') ? `${trimmed}+07:00` : trimmed);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-GB', {
-    hour12: false,
-    timeZone: DEMO_TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  return d.toLocaleTimeString('en-GB', opts);
 }
 
 export function actorLabel(kind: string | undefined, isVi: boolean): string {

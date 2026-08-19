@@ -476,7 +476,7 @@ export function Header() {
                   <Shield size={16} />
                 </div>
                 <div className="user-info-text">
-                  <span className="user-name-str">{user?.username?.split('@')[0] || 'Admin'}</span>
+                  <span className="user-name-str">{user?.username?.split('@')[0] || 'steward'}</span>
                   <span
                     className="user-role-str"
                     style={{
@@ -484,7 +484,7 @@ export function Header() {
                       fontWeight: 600,
                     }}
                   >
-                    {user?.role || 'Admin'}
+                    {user?.role || 'Steward'}
                   </span>
                 </div>
                 <ChevronDown className="dropdown-arrow" size={12} />

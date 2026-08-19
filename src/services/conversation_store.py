@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from src.db.connection import get_db
 
 
@@ -16,7 +16,7 @@ class ConversationStore:
 
     def save_message(self, message: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
         msg_id = message.get("id") or f"msg_{int(datetime.now().timestamp()*1000)}"
-        timestamp = message.get("timestamp") or datetime.now().isoformat()
+        timestamp = message.get("timestamp") or datetime.now(timezone.utc).isoformat()
         metadata_json = json.dumps(message.get("metadata") or {})
 
         conn = self.db.get_connection()

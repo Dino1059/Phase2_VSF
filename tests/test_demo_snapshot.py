@@ -73,3 +73,13 @@ def test_saigon_clock_and_honest_tokens():
     assert "Asia/Saigon" in labels
     assert "Number(raw.tokens" in labels
 
+def test_auth_store_uses_user_profile_not_username_string():
+    store = (ROOT / "frontend/src/stores/authStore.ts").read_text()
+    assert "profileFromAuth" in store
+    assert "user_profile" in store
+
+
+def test_saigon_clock_does_not_double_offset():
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    assert "hasZone" in labels
+    assert '+07:00' in labels

@@ -22,16 +22,36 @@ interface AuthState {
   isStewardOrAdmin: () => boolean;
 }
 
+
+function profileFromAuth(res: { user?: unknown; user_profile?: UserProfile; role?: string }, fallbackRole?: string): UserProfile {
+  const raw = (res.user_profile && typeof res.user_profile === 'object')
+    ? res.user_profile
+    : (res.user && typeof res.user === 'object' ? res.user as UserProfile : null);
+  const roleRaw = String(raw?.role || res.role || fallbackRole || 'steward');
+  const role = (roleRaw.charAt(0).toUpperCase() + roleRaw.slice(1).toLowerCase()) as UserRole;
+  const username = typeof res.user === 'string'
+    ? res.user
+    : (raw?.username || `${role.toLowerCase()}@datatrust.os`);
+  return {
+    user_id: raw?.user_id || `usr_${role.toLowerCase()}_01`,
+    username,
+    role,
+  };
+}
+
 const TOKEN_KEY = 'datatrust_jwt_token';
 const USER_KEY = 'datatrust_user_profile';
 
 const initialToken = readAuthToken();
+const STEWARD_USER: UserProfile = { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
 const initialUser: UserProfile = (() => {
   try {
     const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && parsed.role) return parsed as UserProfile;
+    return STEWARD_USER;
   } catch {
-    return { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
+    return STEWARD_USER;
   }
 })();
 
@@ -47,11 +67,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await authApi.login({ username, password, role });
       if (res && res.access_token) {
-        persistAuthToken(res.access_token, (res.user?.role || role || 'steward').toString().toLowerCase());
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        const profile = profileFromAuth(res, role);
+        persistAuthToken(res.access_token, profile.role.toLowerCase());
+        localStorage.setItem(USER_KEY, JSON.stringify(profile));
         set({
           token: res.access_token,
-          user: res.user as UserProfile,
+          user: profile,
           isAuthenticated: true,
           isAuthModalOpen: false,
         });
@@ -66,11 +87,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await authApi.quickSwitch(role);
       if (res && res.access_token) {
-        persistAuthToken(res.access_token, (res.user?.role || role || 'steward').toString().toLowerCase());
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        const profile = profileFromAuth(res, role);
+        persistAuthToken(res.access_token, profile.role.toLowerCase());
+        localStorage.setItem(USER_KEY, JSON.stringify(profile));
         set({
           token: res.access_token,
-          user: res.user as UserProfile,
+          user: profile,
           isAuthenticated: true,
           isAuthModalOpen: false,
         });
