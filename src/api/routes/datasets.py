@@ -281,19 +281,19 @@ async def upload_dataset_endpoint(
     is_vi = (lang == "vi")
     if is_vi:
         declaration_content = (
-            f"📥 **Đã Nạp & Đăng Ký Tập Dữ Liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
-            f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n\n"
-            f"⚖️ **Cổng Tuyên Bố & Phê Duyệt Quản Trị**:\n"
-            f"Agent Điều Phối Orchestrator yêu cầu quyền khởi chạy **Quy Trình Quản Trị Tự Động** "
-            f"(Khảo Sát ➔ Phát Hiện Bất Thường ➔ Chẩn Đoán ➔ Tổng Hợp Luật ➔ Tạo DB Sạch)."
+            f"📥 **Đã đăng ký tập dữ liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
+            f"**Mã**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n"
+            f"**Nguồn (provenance)**: `user_upload`\n\n"
+            f"Bước tiếp: khảo sát + đề xuất luật, rồi dừng HITL để steward duyệt.\n"
+            f"Chưa ghi gì vào clean/quarantine."
         )
     else:
         declaration_content = (
-            f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
-            f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
-            f"⚖️ **Declaration & Permission Gate**:\n"
-            f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
-            f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+            f"📥 **Registered dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
+            f"**Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n"
+            f"**Provenance**: `user_upload`\n\n"
+            f"Next step: profile + propose rules, then stop at HITL for steward review.\n"
+            f"Nothing written to clean/quarantine."
         )
 
     msg = conversation_store.save_message(
@@ -310,10 +310,10 @@ async def upload_dataset_endpoint(
                 "proposals": [
                     {
                         "id": f"prop_upload_{dataset_key}",
-                        "type": "AUTONOMOUS_PIPELINE",
+                        "type": "HITL_PREFIX",
                         "column": "dataset_pipeline",
-                        "expression": f"AUTONOMOUS_GOVERNANCE({dataset_key})",
-                        "description": f"Execute automated DataTrust OS cleaning pipeline for '{dataset_key}'",
+                        "expression": f"HITL_PROFILE_PROPOSE({dataset_key})",
+                        "description": f"Profile and propose quality rules for '{dataset_key}'. Stop for steward review. Do not clean.",
                         "severity": "info",
                         "status": "pending",
                         "agentId": "orchestrator",

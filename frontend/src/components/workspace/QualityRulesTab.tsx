@@ -37,7 +37,7 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
       layer: isVi ? 'L1 Kiểm Tra Bất Biến' : 'L1 Invariant Check',
       problem: isVi
         ? 'Phát hiện 12 bản ghi telemetry có dung lượng pin SOC âm (-6.0% đến -0.1%) hoặc > 100%, vi phạm giới hạn điện hóa học.'
-        : 'Discovered 12 telemetry records with negative battery SOC (-6.0% to -0.1%) or > 100%, violating physical electrochemical bounds.',
+        : 'SOC bound rule: values must stay inside [0, 100]. Counts come from this run’s profile, not a canned story.',
       why: isVi
         ? 'Lỗi cảm biến BMS hoặc lỗi tràn số học telemetry trong quá trình phanh tái sinh và đóng gói gói tin.'
         : 'BMS sensor glitch or telemetry pipeline arithmetic underflow during EV regenerative braking and packet serialization.',
@@ -46,7 +46,7 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
         : 'Guarantees battery state of charge is strictly bounded between [0.0%, 100.0%].',
       impact: isVi
         ? 'Cách ly 12 dòng cảm biến lỗi, bảo vệ mô hình ML dự đoán suy hao pin.'
-        : 'Quarantines 12 corrupt sensor rows, protecting battery degradation machine learning models.',
+        : 'If approved later, violating SOC rows can be quarantined. Nothing is executed yet.',
     };
   }
 
@@ -157,7 +157,7 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
   };
 }
 
-export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _datasetKey, onExecuteClean: _onExecuteClean }) => {
+export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, onExecuteClean: _onExecuteClean }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -169,16 +169,16 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
   const fetchRules = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await hitlApi.queue();
+      const res = await hitlApi.queue(datasetKey);
       if (res && Array.isArray(res.proposals)) {
         setProposals(res.proposals);
       }
     } catch {
-      // Fallback
+      setProposals([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [datasetKey]);
 
   useEffect(() => {
     fetchRules();

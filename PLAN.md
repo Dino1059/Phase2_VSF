@@ -1101,6 +1101,41 @@ Execution / Rollback
 
 Allow “Pin inspector” so the user can scroll the timeline while keeping a selected incident/evidence object visible.
 
+### 16.3 Pinned artifact tabs (hybrid inspector)
+
+Locked 2026-08-19: keep the current four tabs as **pinned artifact views** of the same `run_id` / `dataset_key` state. Do not treat them as a second source of truth.
+
+```text
+Inspector (selection-driven, default)
+  + pinned: Traces | Profiler | Rules & HITL | Split DB
+```
+
+- Selecting a timeline/trace cell fills the inspector (actor, one-line result, evidence IDs, tool I/O).
+- Tabs stay for mentor muscle memory and for pinning an artifact while the timeline scrolls.
+- HITL queue on the Rules tab is scoped to the current `dataset_key` / `run_id`.
+- Empty traces stay empty. Never synthesize a VinGroup story, token counts, or SHA-256 hashes.
+
+### 16.4 Steward Trace Card
+
+Default (steward) view — no raw chain-of-thought:
+
+```text
+#N  [C1 AI]  profile_dataset     842ms   380 tok
+Done: Sampled 50,000 rows. 14 range flags on soc_pct.
+Evidence: ev_014…                 [Open in chat] [Pin]
+▾ Tool I/O
+```
+
+Rules:
+
+- `Done` is derived from `tool_output` / `observation` counts. No hardcoded “12 anomalies”.
+- Optional “Technical detail” may show thought for instructors. Default hides it.
+- Jump-to-chat must scroll the live `.chat-stream` message (`data-msgid`).
+- Map API fields: `tool_name`→tool, `tokens_used`→tokens, `observation`→Done.
+- Live append via WebSocket `agent.trace`. Status: RUNNING / FAILED / COMPLETED.
+
+A steward must answer from the right panel without leaving it: what ran, what it found, which evidence, what waits on me, what approval changes.
+
 ---
 
 ## 17. Dashboard design
@@ -1318,6 +1353,26 @@ Next safe action: request/fetch this evidence
 ```
 
 This is better than a low-quality confident diagnosis.
+
+### 19.5 Upload auto-run contract
+
+Locked 2026-08-19: after a steward uploads a file (or starts the live VinGroup demo), the orchestrator auto-runs **only** this prefix:
+
+```
+register_dataset → profile → detect (frozen L1–L4 if a policy exists, else L1 + “no approved policy”) → propose rules
+STOP at HITL
+```
+
+Do **not** auto-clean, quarantine, compile, authorize, or execute. Clean is a later gated step after Review → Approve → Compile → Sandbox → Authorize exact version.
+
+Orchestrator first message (template):
+
+- dataset name, row/col counts, provenance (`user_upload` | `demo` | `real` | …);
+- measured findings (counts from this run);
+- number of drafted rules;
+- explicit “nothing written to clean/quarantine”.
+
+Right panel: Traces while running; switch to Rules when proposals exist.
 
 ---
 
@@ -1663,6 +1718,25 @@ Implement A2 only if A1 error analysis reveals a repeatable failure class that a
 
 **Exit:** reload/share URL restores project, page, scope, time range, and filters.
 
+### Wave 6a — Honesty pass (mentor-visible, before full Wave 6)
+
+**Priority: P0**
+
+Locked 2026-08-19.
+
+- delete `AgentTracesTab` synthesis and hardcoded Done strings;
+- map real `/traces/{session}` fields (`tool_name`, `observation`, `tokens_used`);
+- connect `agentSocket` and append `agent.trace`;
+- fix Jump-to-chat (`.chat-stream` + `data-msgid`);
+- scope HITL queue to `dataset_key`;
+- time pills filter traces/messages (or stay hidden — no fake hashes);
+- New Chat: Run VinGroup demo + Replay fixture + Upload;
+- upload / live demo auto-run stops at HITL (§19.5);
+- honest actor labels (§27.1);
+- no unlabeled 99% health / 12-anomaly / SHA-256 theater.
+
+**Exit:** empty session shows empty traces; demo is labeled; a judge can finish the 90s story without bringing a file.
+
 ### Wave 6 — Operational Workspace
 
 **Priority: P1**
@@ -1775,6 +1849,22 @@ A coherent demo should follow one incident end to end:
 11. Return to Overview and show the new active policy version and measured state change.
 
 This story is much stronger than “six agents talked to each other and then cleaned the data.”
+
+### 27.1 Demo Harness (judges with no file)
+
+Locked 2026-08-19. New Chat exposes three entries. Dead “Connect Plugin” / “Download Desktop App” buttons are replaced.
+
+| Entry | Behavior | Provenance badge |
+|---|---|---|
+| **Run VinGroup demo** (default) | Live tools on bundled `data_new/db/vingroup_pilot.db` (`dataset_key=vingroup_pilot`) | `DEMO · bundled` |
+| **Replay recorded session** | Play `fixtures/demo/steward_session.jsonl` — no LLM | `DEMO · simulation` |
+| **Upload your file** | Same auto-run contract as §19.5 | `USER` |
+
+Replay clock: 8–12s per beat, pause on HITL. Same governance card as live mode. Banner always visible: **DEMO / SIMULATION — not production metrics**.
+
+Do not use `pipelineStore` TB/Kafka fiction or `usePipelineRun` 7-step theater as the official demo.
+
+Actor labels in chat/traces (locked): **Orchestrator** (sole narrator), **L1–L4 DETECTOR**, **R0**, **C1 AI**, **A1 AI**, **DATA STEWARD**, **EXECUTOR**, **SYSTEM**. No six-agent personality names.
 
 ---
 

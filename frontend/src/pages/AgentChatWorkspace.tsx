@@ -20,13 +20,12 @@ import {
   Mic,
   ArrowUp,
   CloudUpload,
-  Cable,
   ChevronLeft,
   ChevronRight,
   Play,
   Sparkles,
 } from 'lucide-react';
-import { usePipelineStore, DOMAINS, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
+import { usePipelineStore, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
 
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -37,7 +36,15 @@ import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
 import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage } from '../services/api';
 import { useChatStore } from '../stores/chatStore';
+import { agentSocket } from '../services/websocket';
+import { inTimeRange } from '../demo/stewardLabels';
+import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
+
+const HITL_STOP_PROMPT_EN =
+  'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
+const HITL_STOP_PROMPT_VI =
+  'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
 
 const AGENT_AVATAR_CLASS: Record<string, string> = {
   orchestrator: 'agent-orchestrator',
@@ -60,13 +67,13 @@ const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }
 };
 
 const AGENT_TITLES: Record<string, string> = {
-  orchestrator: 'ORCHESTRATOR AGENT',
-  profiler: 'DATA PROFILER AGENT',
-  anomaly: 'ANOMALY DETECTOR AGENT',
-  diagnosis: 'RCA DIAGNOSIS AGENT',
-  proposer: 'RULE PROPOSER AGENT',
-  executor: 'PIPELINE EXECUTOR AGENT',
-  human: 'HUMAN STEWARD GOVERNANCE',
+  orchestrator: 'ORCHESTRATOR',
+  profiler: 'C1 AI',
+  anomaly: 'L1 DETECTOR',
+  diagnosis: 'C1 AI',
+  proposer: 'C1 AI',
+  executor: 'EXECUTOR',
+  human: 'DATA STEWARD',
 };
 
 const AGENT_COLORS: Record<string, string> = {
@@ -85,8 +92,10 @@ export function AgentChatWorkspace() {
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const datasetKey = searchParams.get('dataset_key') || undefined;
+  const demoMode = searchParams.get('demo');
+  const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
   const setChatSessionId = useChatStore((s) => s.setSessionId);
   const chatMessages = useChatStore((s) => s.messages);
@@ -96,7 +105,7 @@ export function AgentChatWorkspace() {
   const currentRuleLogic = store.currentRuleLogic;
   const setDomain = usePipelineStore((s) => s.setDomain);
   const resetPipeline = usePipelineStore((s) => s.resetPipeline);
-  const { startAutoRun, acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
+  const { acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
   const [stream, setStream] = useState<StreamMessage[]>([]);
   const [rightTab, setRightTab] = useState<RightTab>('tab-profiler');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -107,6 +116,9 @@ export function AgentChatWorkspace() {
   const [pipelineResult, setPipelineResult] = useState<Awaited<ReturnType<typeof pipelineApi.result>> | null>(null);
   const [waitingForBackendAgentEvents, setWaitingForBackendAgentEvents] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [replayBeats, setReplayBeats] = useState<DemoBeat[]>([]);
+  const [selectedTraceStep, setSelectedTraceStep] = useState<number | null>(null);
+  const proposeStartedRef = useRef(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
   const telemetryCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -116,7 +128,7 @@ export function AgentChatWorkspace() {
     setIsRunningPipeline(true);
     try {
       const lang = i18n?.language || 'vi';
-      const prompt = lang === 'vi' ? 'Chạy toàn bộ pipeline cho tôi' : 'run full pipeline for me';
+      const prompt = lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN;
       const currentSession = useChatStore.getState().sessionId;
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
       const history = await fetchChatHistory(currentSession);
@@ -247,7 +259,7 @@ export function AgentChatWorkspace() {
           `| **Tổng Số Dòng Lấy Mẫu** | \`${result.sample_size.toLocaleString()}\` | 🟢 Đã Xác Thực Nạp Dữ Liệu |\n` +
           `| **Số Cột Đã Phân Tích** | \`${columns.length}\` | 🟢 Đã Ánh Xạ Schema |\n` +
           `| **Số Dòng Trùng Lặp** | \`${profile.duplicate_count ?? 0}\` | 🟢 Không Trùng Lặp |\n` +
-          `| **Điểm Sức Khỏe Dữ Liệu** | \`${profile.health_score ? Number(profile.health_score).toFixed(1) : '99.0'}%\` | 🟢 Đã Xác Thực |\n\n` +
+          `| **Điểm Sức Khỏe Dữ Liệu** | \`${profile.health_score != null ? `${Number(profile.health_score).toFixed(1)}%` : '—'}\` | ${profile.health_score != null ? '🟢 Đo được' : '—'} |\n\n` +
           `${colTable}` +
           (flags.length > 0
             ? `\n\n> ⚠️ **Phát Hiện Chất Lượng**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*`
@@ -258,7 +270,7 @@ export function AgentChatWorkspace() {
           `| **Total Sampled Rows** | \`${result.sample_size.toLocaleString()}\` | 🟢 Verified Ingestion |\n` +
           `| **Columns Analyzed** | \`${columns.length}\` | 🟢 Schema Mapped |\n` +
           `| **Duplicate Rows** | \`${profile.duplicate_count ?? 0}\` | 🟢 Zero Collision |\n` +
-          `| **Dataset Health Score** | \`${profile.health_score ? Number(profile.health_score).toFixed(1) : '99.0'}%\` | 🟢 Verified |\n\n` +
+          `| **Dataset Health Score** | \`${profile.health_score != null ? `${Number(profile.health_score).toFixed(1)}%` : '—'}\` | ${profile.health_score != null ? '🟢 Measured' : '—'} |\n\n` +
           `${colTable}` +
           (flags.length > 0
             ? `\n\n> ⚠️ **Quality Findings**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Full deep-profile details synced to the **Data Profiler** panel.*`
@@ -284,38 +296,57 @@ export function AgentChatWorkspace() {
     }
   }, [datasetKey, pushMessage]);
 
+  useEffect(() => {
+    agentSocket.connect();
+  }, []);
+
   // Kick off initial pipeline run once per session
   useEffect(() => {
     if (isNewChat) return;
     if (runStartedRef.current) return;
     runStartedRef.current = true;
     resetPipeline();
-    const domain = DOMAINS[domainId];
-    if (!datasetKey) {
-      pushMessage({
-        id: `init-${Date.now()}`,
-        agent: 'orchestrator',
-        text: `Command Session Initialized for ${domain.name} (Database: ${domain.dbName}). Auto-ingesting live telemetry from Kafka topic ${domain.topic}.`,
+
+    if (isReplay) {
+      setReplayBeats(STEWARD_SESSION_BEATS);
+      STEWARD_SESSION_BEATS.forEach((beat, i) => {
+        if (beat.type === 'workflow.step') return;
+        pushMessage({
+          id: `replay-${i}`,
+          agent: beat.actor_kind === 'DATA_STEWARD' ? 'human' : 'orchestrator',
+          text: `**DEMO · simulation** — ${beat.summary}`,
+        });
       });
+      setRightTab('tab-traces');
+      return () => clearTimers();
     }
-    // Uploaded datasets run real metadata/profile first; the legacy static steps are not used here.
+
     const bootstrap = async () => {
-      if (datasetKey) {
-        try {
-          await profileUploadedDataset();
-          store.setStepStatus(1, 'completed');
-          store.setStepIndex(1);
-        } catch {
-          return;
+      if (!datasetKey) return;
+      try {
+        await profileUploadedDataset();
+        store.setStepStatus(1, 'completed');
+        store.setStepIndex(1);
+        if (!proposeStartedRef.current) {
+          proposeStartedRef.current = true;
+          const lang = i18n?.language || 'vi';
+          const session = useChatStore.getState().sessionId;
+          setRightTab('tab-traces');
+          await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
+          const history = await fetchChatHistory(session);
+          if (Array.isArray(history.messages)) {
+            useChatStore.getState().setMessages(history.messages);
+          }
+          setRightTab('tab-rules');
         }
+      } catch {
         return;
       }
-      await startAutoRun(pushMessage);
     };
-    bootstrap();
+    void bootstrap();
     return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [domainId, datasetKey, isNewChat]);
+  }, [domainId, datasetKey, isNewChat, isReplay]);
 
   // Auto-scroll stream
   useEffect(() => {
@@ -435,11 +466,9 @@ export function AgentChatWorkspace() {
 
   const handleTimeFilter = (filter: TimeFilter) => {
     store.setTimeFilter(filter);
-    pushMessage({
-      id: `filter-${Date.now()}`,
-      agent: 'orchestrator',
-      text: `TIME FILTER ACTIVE: ${filter.toUpperCase()} — Loaded operational logs and rule approval audit history for ${TIME_FILTERS[filter].date}. Audit Manifest Hash: ${TIME_FILTERS[filter].hash}`,
-    });
+    const next = new URLSearchParams(searchParams);
+    next.set('range', filter);
+    setSearchParams(next, { replace: true });
   };
 
   const handleAccept = () => {
@@ -466,6 +495,25 @@ export function AgentChatWorkspace() {
     <div className={`agent-chat-workspace ${rightPanelOpen ? '' : 'right-panel-collapsed'}`}>
       {/* CENTER COLUMN: CHAT STREAM */}
       <div className="center-chat-pane">
+        {demoMode && (
+          <div
+            role="status"
+            style={{
+              margin: '8px 16px 0',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'rgba(217,119,6,0.12)',
+              border: '1px solid rgba(217,119,6,0.35)',
+              color: 'var(--text-main)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {demoMode === 'replay'
+              ? (isVi ? 'DEMO · simulation — băng ghi, không phải số liệu production.' : 'DEMO · simulation — recorded tape, not production metrics.')
+              : (isVi ? 'DEMO · bundled — chạy trên vingroup_pilot có sẵn trong repo.' : 'DEMO · bundled — live run on the repo VinGroup pilot.')}
+          </div>
+        )}
         {/* In-Stream Time Filter Bar */}
         <div className="in-stream-filter-bar">
           <div className="time-filter-left">
@@ -507,7 +555,7 @@ export function AgentChatWorkspace() {
               </div>
               <div className="agent-content-box">
                 <div className="agent-header">
-                  <span className="agent-name" style={{ color: 'var(--royal-purple)' }}>DATA PROFILER AGENT</span>
+                  <span className="agent-name" style={{ color: 'var(--royal-purple)' }}>C1 AI</span>
                   <span className="agent-timestamp">—</span>
                 </div>
                 <div className="agent-body">Waiting for backend agent events...</div>
@@ -553,18 +601,18 @@ export function AgentChatWorkspace() {
               </div>
             );
           })}
-          {chatMessages.map((msg) => {
+          {chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)).map((msg) => {
             const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
             const Icon = AGENT_ICONS[agent] || Brain;
             return (
-              <div key={`chat-${msg.id}`} className="agent-entry">
+              <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id}>
                 <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
                   <Icon size={15} />
                 </div>
                 <div className="agent-content-box">
                   <div className="agent-header">
                     <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
-                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR AGENT')}
+                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR')}
                     </span>
                     <span className="agent-timestamp">{new Date(msg.timestamp).toLocaleTimeString('en-US', { hour12: false })}</span>
                   </div>
@@ -617,7 +665,9 @@ export function AgentChatWorkspace() {
                     {isVi ? 'Dataset Đã Sẵn Sàng:' : 'Dataset Ready:'} <code>{datasetKey}</code>
                   </div>
                   <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {isVi ? 'Tự động phân tích, đề xuất luật chất lượng L1-L4 và làm sạch cách ly dữ liệu.' : 'Automatically profile, synthesize L1-L4 quality rules, and quarantine corrupt records.'}
+                    {isVi
+                      ? 'Tự động khảo sát + đề xuất luật, rồi dừng HITL. Không làm sạch cho đến khi steward duyệt.'
+                      : 'Auto profile + propose, then stop at HITL. Nothing is cleaned until you approve.'}
                   </div>
                 </div>
               </div>
@@ -641,7 +691,7 @@ export function AgentChatWorkspace() {
                 }}
               >
                 <Play size={13} style={{ fill: '#ffffff' }} />
-                <span>{isRunningPipeline ? (isVi ? 'Đang thực thi...' : 'Executing...') : (isVi ? '🚀 Chạy Toàn Bộ Pipeline' : '🚀 Run Full Pipeline')}</span>
+                <span>{isRunningPipeline ? (isVi ? 'Đang chạy...' : 'Running...') : (isVi ? 'Khảo sát + đề xuất (dừng HITL)' : 'Profile & Propose (stop at HITL)')}</span>
               </button>
             </div>
           )}
@@ -696,7 +746,14 @@ export function AgentChatWorkspace() {
 
           <div className="panel-content-body">
             {rightTab === 'tab-traces' && (
-              <AgentTracesTab datasetKey={datasetKey} sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'} />
+              <AgentTracesTab
+                datasetKey={datasetKey}
+                sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
+                timeFilter={store.timeFilter}
+                replayBeats={isReplay ? replayBeats : undefined}
+                selectedStep={selectedTraceStep}
+                onSelectStep={setSelectedTraceStep}
+              />
             )}
             {rightTab === 'tab-profiler' && (
               <DataProfilerTab datasetKey={datasetKey} />
@@ -834,11 +891,15 @@ function NewChatLanding() {
         </form>
         <div className="new-chat-shortcuts">
           <input ref={fileInputRef} type="file" accept=".csv,.db,.json" hidden onChange={handleUpload} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải Lên Database' : 'Upload Database')}
+          <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=live')}>
+            <Play size={22} /> {isVi ? 'Chạy demo VinGroup' : 'Run VinGroup demo'}
           </button>
-          <button type="button"><Cable size={22} /> {isVi ? 'Kết Nối Plugin' : 'Connect Plugin'}</button>
-          <button type="button"><Database size={22} /> {isVi ? 'Tải Ứng Dụng Máy Tính' : 'Download Desktop App'}</button>
+          <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=replay')}>
+            <Sparkles size={22} /> {isVi ? 'Replay phiên ghi' : 'Replay recorded session'}
+          </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải file của bạn' : 'Upload your file')}
+          </button>
         </div>
         {uploadError && <div className="new-chat-upload-error" role="alert">{uploadError}</div>}
       </div>

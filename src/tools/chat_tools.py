@@ -107,11 +107,18 @@ class ProposeQualityRulesTool(BaseTool):
                 for p in proposals:
                     existing = db.execute("SELECT id FROM quality_rules WHERE id = ?", [p["id"]])
                     if not existing:
-                        db.execute(
-                            """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                               VALUES (?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                            [p["id"], f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
-                        )
+                        try:
+                            db.execute(
+                                """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                                   VALUES (?, ?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                                [p["id"], dataset_key, f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
+                            )
+                        except Exception:
+                            db.execute(
+                                """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                                   VALUES (?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                                [p["id"], f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
+                            )
             except Exception as dbe:
                 print(f"[WARN] Could not persist quality_rules to DuckDB: {dbe}")
 

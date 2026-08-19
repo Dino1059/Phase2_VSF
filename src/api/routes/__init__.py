@@ -513,17 +513,17 @@ async def send_chat_message(request: ChatRequest):
     with sentry_ctx:
         result = react_engine.run(task, context=context)
 
-    # Broadcast step thoughts as traces for the right panel; save only action observations & final response
+    # Broadcast steward summaries (never raw thought) for the traces panel.
     for step in result.steps:
-        if step.thought:
-            await ws_manager.broadcast({
-                "type": "agent.trace",
-                "data": {
-                    "agentId": "orchestrator",
-                    "thought": step.thought,
-                    "action": step.action,
-                }
-            }, session_id=session_id)
+        await ws_manager.broadcast({
+            "type": "agent.trace",
+            "data": {
+                "actor_kind": "ORCHESTRATOR",
+                "action": step.action,
+                "summary": (step.observation or step.action or "")[:280],
+                "status": "COMPLETED" if step.action else "RUNNING",
+            }
+        }, session_id=session_id)
 
         if step.action and step.action not in ("FINISH", "ABSTAIN"):
             friendly_content = format_friendly_observation(step.action, step.observation, lang=lang_pref)
@@ -671,16 +671,14 @@ async def upload_dataset(
             f"📥 **Đã Nạp & Đăng Ký Tập Dữ Liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
             f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n\n"
             f"⚖️ **Cổng Tuyên Bố & Phê Duyệt Quản Trị**:\n"
-            f"Agent Điều Phối Orchestrator yêu cầu quyền khởi chạy **Quy Trình Quản Trị Tự Động** "
-            f"(Khảo Sát ➔ Phát Hiện Bất Thường ➔ Chẩn Đoán ➔ Tổng Hợp Luật ➔ Tạo DB Sạch)."
+            f"Orchestrator sẽ **khảo sát + đề xuất**, dừng tại HITL, không làm sạch."
         )
     else:
         declaration_content = (
             f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
             f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
             f"⚖️ **Declaration & Permission Gate**:\n"
-            f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
-            f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+            f"Orchestrator will **profile + propose**, stop at HITL, nothing cleaned."
         )
 
     msg = conversation_store.save_message({
@@ -695,10 +693,10 @@ async def upload_dataset(
             "total_rows": len(df),
             "proposals": [{
                 "id": f"prop_upload_{dataset_key}",
-                "type": "AUTONOMOUS_PIPELINE",
+                "type": "HITL_PREFIX",
                 "column": "dataset_pipeline",
-                "expression": f"AUTONOMOUS_GOVERNANCE({dataset_key})",
-                "description": f"Execute automated DataTrust OS cleaning pipeline for '{dataset_key}'",
+                "expression": f"HITL_PROFILE_PROPOSE({dataset_key})",
+                "description": f"Profile and propose quality rules for '{dataset_key}'. Stop for steward review. Do not clean.",
                 "severity": "info",
                 "status": "pending",
                 "agentId": "orchestrator"

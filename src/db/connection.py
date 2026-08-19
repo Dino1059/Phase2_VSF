@@ -79,6 +79,7 @@ class DuckDBManager:
                     self._ensure_pipeline_runs_schema(self._master_conn)
                     self._ensure_snapshots_schema(self._master_conn)
                     self._ensure_reliability_tables(self._master_conn)
+                    self._ensure_quality_rules_dataset_key(self._master_conn)
                 except Exception:
                     pass
             return self._master_conn
@@ -103,6 +104,20 @@ class DuckDBManager:
         self._ensure_pipeline_runs_schema(conn)
         self._ensure_snapshots_schema(conn)
         self._ensure_reliability_tables(conn)
+        self._ensure_quality_rules_dataset_key(conn)
+
+    def _ensure_quality_rules_dataset_key(self, conn) -> None:
+        try:
+            cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='quality_rules'"
+                ).fetchall()
+            ]
+            if cols and "dataset_key" not in cols:
+                conn.execute("ALTER TABLE quality_rules ADD COLUMN dataset_key VARCHAR")
+        except Exception:
+            pass
 
     def _ensure_reliability_tables(self, conn) -> None:
         try:

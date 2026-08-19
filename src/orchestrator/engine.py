@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -323,14 +324,27 @@ class ReActEngine:
         try:
             db = get_db()
             trace_id = str(uuid.uuid4())[:8]
+            action_l = (step.action or "").lower()
+            if "profile" in action_l or "propose" in action_l or "rule" in action_l:
+                agent_type = "C1_AI"
+            elif "detect" in action_l or "anomaly" in action_l:
+                agent_type = "L1_DETECTOR"
+            elif "clean" in action_l or "quarantine" in action_l:
+                agent_type = "EXECUTOR"
+            elif "hitl" in action_l or "approv" in action_l or "govern" in action_l:
+                agent_type = "DATA_STEWARD"
+            elif "register" in action_l or "ingest" in action_l:
+                agent_type = "SYSTEM"
+            else:
+                agent_type = "ORCHESTRATOR"
             db.execute(
                 "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, tool_name, tool_input, tool_output, observation, tokens_used, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     trace_id,
                     session_id,
-                    "canonical_react_engine",
+                    agent_type,
                     step.step_index,
-                    step.thought[:500],
+                    "",
                     step.action,
                     step.action,
                     json.dumps(step.action_input)[:500],
@@ -341,7 +355,7 @@ class ReActEngine:
                 ],
             )
         except Exception:
-            pass
+            logging.getLogger(__name__).exception("agent_traces insert failed")
 
     def detect_anomalies(self, current_profile: dict, baseline_profile: dict | None = None) -> Any:
         from src.agents.sub_agents import AnomalyDetectorAgent

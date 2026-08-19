@@ -405,8 +405,10 @@ export interface TraceSession {
 export const tracesApi = {
   list: (limit: number = 20) =>
     request<{ sessions: TraceSession[] }>(`/traces/?limit=${limit}`),
-  get: (sessionId: string) =>
-    request<{ session_id: string; steps: Array<Record<string, any>> }>(`/traces/${encodeURIComponent(sessionId)}`),
+  get: (sessionId: string, since?: string) =>
+    request<{ session_id: string; steps: Array<Record<string, any>> }>(
+      `/traces/${encodeURIComponent(sessionId)}${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
 };
 
 export const executionsApi = {
@@ -535,8 +537,10 @@ export interface HITLProposal {
 }
 
 export const hitlApi = {
-  queue: () =>
-    request<{ proposals: HITLProposal[] }>('/hitl/queue'),
+  queue: (datasetKey?: string) =>
+    request<{ proposals: HITLProposal[] }>(
+      `/hitl/queue${datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : ''}`
+    ),
   approve: (ruleId: string, approvedBy: string = 'human') =>
     request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {
       method: 'POST',

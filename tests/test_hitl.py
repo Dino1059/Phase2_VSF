@@ -32,6 +32,26 @@ def test_get_queue_with_proposals(client):
     assert len(resp.json()["proposals"]) == 1
 
 
+def test_get_queue_filters_dataset_key(client):
+    c, db = client
+    try:
+        db.execute("ALTER TABLE quality_rules ADD COLUMN dataset_key VARCHAR")
+    except Exception:
+        pass
+    db.execute(
+        "INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by) "
+        "VALUES ('r-pilot', 'vingroup_pilot', 'soc', 'range', 'soc BETWEEN 0 AND 100', 0.9, 'proposed', 'agent')"
+    )
+    db.execute(
+        "INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by) "
+        "VALUES ('r-other', 'other_ds', 'fare', 'range', 'fare >= 0', 0.9, 'proposed', 'agent')"
+    )
+    resp = c.get("/api/v1/hitl/queue?dataset_key=vingroup_pilot")
+    assert resp.status_code == 200
+    ids = {p["rule_id"] for p in resp.json()["proposals"]}
+    assert ids == {"r-pilot"}
+
+
 def test_approve_rule(client):
     c, db = client
     db.execute("INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) VALUES ('r1', 'test', 'range', 'x > 0', 0.9, 'proposed')")

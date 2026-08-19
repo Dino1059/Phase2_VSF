@@ -30,7 +30,7 @@ interface ProfileData {
   dataset?: string;
   total_rows?: number;
   columns_count?: number;
-  health_score?: number;
+  health_score?: number | null;
   data_health_score?: number;
   columns?: ColumnProfile[];
   summary?: string;
@@ -59,7 +59,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) 
           dataset: res.dataset || datasetKey,
           total_rows: rawProf.total_rows ?? res.sample_size,
           columns_count: rawProf.columns ? rawProf.columns.length : 0,
-          health_score: rawProf.data_health_score ?? rawProf.health_score ?? 99.0,
+          health_score: rawProf.data_health_score ?? rawProf.health_score ?? null,
           columns: rawProf.columns || [],
           summary: rawProf.summary || 'Profile computed successfully.',
         });
@@ -77,7 +77,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) 
 
   const columns = profile?.columns || [];
   const totalRows = profile?.total_rows || 0;
-  const healthScore = profile?.health_score ?? 100;
+  const healthScore = profile?.health_score;
 
   const filteredColumns = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -90,6 +90,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) 
   }, [columns, searchQuery]);
 
   const healthGrade = useMemo(() => {
+    if (healthScore == null) return { text: isVi ? 'Chưa đo' : 'Not measured', color: 'var(--text-muted)', bg: 'transparent' };
     if (healthScore >= 95) return { text: isVi ? 'Xuất Sắc' : 'Excellent', color: 'var(--electric-green)', bg: 'rgba(52, 211, 153, 0.1)' };
     if (healthScore >= 80) return { text: isVi ? 'Tốt' : 'Good', color: 'var(--warning-amber)', bg: 'rgba(251, 191, 36, 0.1)' };
     return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
@@ -123,7 +124,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey }) 
             <span>{isVi ? 'Điểm Sức Khỏe' : 'Health Score'}</span>
           </div>
           <div className="kpi-card-value" style={{ color: healthGrade.color }}>
-            {healthScore}%
+            {healthScore == null ? '—' : `${healthScore}%`}
           </div>
           <div className="kpi-card-sub" style={{ color: healthGrade.color }}>
             ● {healthGrade.text}

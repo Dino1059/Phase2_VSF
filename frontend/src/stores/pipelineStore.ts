@@ -17,7 +17,7 @@ export const DOMAINS: Record<DomainId, DomainInfo> = {
   ev_telemetry: {
     id: 'ev_telemetry',
     shortcut: 'ev',
-    name: 'VinFast EV Telemetry',
+    name: 'VinFast EV Telemetry (DEMO)',
     dbName: 'vinfast_ev_telemetry_v4',
     table: 'telemetry_pack_bms_v4',
     rows: '1,248,912,400',
@@ -32,7 +32,7 @@ export const DOMAINS: Record<DomainId, DomainInfo> = {
   vgreen_charging: {
     id: 'vgreen_charging',
     shortcut: 'vgreen',
-    name: 'V-GREEN Charging',
+    name: 'V-GREEN Charging (DEMO)',
     dbName: 'vgreen_charging_logs_db',
     table: 'charging_station_sessions_v2',
     rows: '348,110,900',
@@ -47,7 +47,7 @@ export const DOMAINS: Record<DomainId, DomainInfo> = {
   xanhsm_trips: {
     id: 'xanhsm_trips',
     shortcut: 'xanhsm',
-    name: 'Xanh SM Trips',
+    name: 'Xanh SM Trips (DEMO)',
     dbName: 'xanhsm_trip_telemetry_db',
     table: 'driver_trips_telemetry',
     rows: '890,442,100',
@@ -62,7 +62,7 @@ export const DOMAINS: Record<DomainId, DomainInfo> = {
   customer_nlp: {
     id: 'customer_nlp',
     shortcut: 'nlp',
-    name: 'Customer Feedback NLP',
+    name: 'Customer Feedback NLP (DEMO)',
     dbName: 'vin_feedback_nlp_db',
     table: 'app_reviews_sentiment_vector',
     rows: '52,100,000',

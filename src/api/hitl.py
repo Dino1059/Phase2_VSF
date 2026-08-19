@@ -23,12 +23,30 @@ def check_rule_approved(rule_id: str):
 
 
 @hitl_router.get("/queue")
-async def get_queue():
+async def get_queue(dataset_key: Optional[str] = None):
     db = get_db()
-    rows = db.execute("SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at FROM quality_rules WHERE status IN ('pending', 'proposed') ORDER BY created_at DESC")
+    if dataset_key:
+        try:
+            rows = db.execute(
+                "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+                "FROM quality_rules WHERE status IN ('pending', 'proposed') AND dataset_key = ? "
+                "ORDER BY created_at DESC",
+                [dataset_key],
+            )
+        except Exception:
+            rows = db.execute(
+                "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+                "FROM quality_rules WHERE status IN ('pending', 'proposed') ORDER BY created_at DESC"
+            )
+    else:
+        rows = db.execute(
+            "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+            "FROM quality_rules WHERE status IN ('pending', 'proposed') ORDER BY created_at DESC"
+        )
     return {"proposals": [
         {"rule_id": r[0], "rule_name": r[1], "rule_type": r[2], "rule_expression": r[3],
-         "confidence": r[4], "status": r[5], "proposed_by": r[6], "proposed_at": str(r[7]) if r[7] else None}
+         "confidence": r[4], "status": r[5], "proposed_by": r[6], "proposed_at": str(r[7]) if r[7] else None,
+         "dataset_key": dataset_key}
         for r in rows
     ]}
 

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS profile_results (
 CREATE TABLE IF NOT EXISTS quality_rules (
     id VARCHAR PRIMARY KEY,
     snapshot_id VARCHAR,
+    dataset_key VARCHAR,
     rule_name VARCHAR,
     rule_type VARCHAR,
     rule_expression VARCHAR,
