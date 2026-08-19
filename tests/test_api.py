@@ -161,42 +161,42 @@ def test_list_datasets_endpoint():
 
 
 def test_profile_dataset_endpoint():
-    response = client.post("/api/v1/datasets/nyc_fhvhv/profile?sample_size=10")
+    response = client.post("/api/v1/datasets/vgreen_charging/profile?sample_size=10")
     if response.status_code == 404:
         pytest.skip(response.text)
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["dataset"] == "nyc_fhvhv"
+    assert data["dataset"] == "vgreen_charging"
     assert "profile" in data
 
 
 def test_propose_rules_for_dataset_endpoint():
-    response = client.post("/api/v1/datasets/nyc_fhvhv/propose?variant=A1&sample_size=10")
+    response = client.post("/api/v1/datasets/vgreen_charging/propose?variant=A1&sample_size=10")
     if response.status_code == 404:
         pytest.skip(response.text)
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["dataset"] == "nyc_fhvhv"
+    assert data["dataset"] == "vgreen_charging"
     assert data["variant"] == "A1"
     assert "rules" in data
 
 
 def test_execute_rules_on_dataset_endpoint():
-    response = client.post("/api/v1/datasets/nyc_fhvhv/execute?sample_size=10")
+    response = client.post("/api/v1/datasets/vgreen_charging/execute?sample_size=10")
     assert response.status_code in (200, 403, 404), response.text
     if response.status_code == 200:
         data = response.json()
-        assert data["dataset"] == "nyc_fhvhv"
+        assert data["dataset"] == "vgreen_charging"
         assert "clean_rows" in data
         assert "quarantine_rows" in data
 
 
 @_SKIP_LLM
 def test_benchmark_dataset_endpoint():
-    response = client.post("/api/v1/datasets/nyc_fhvhv/benchmark?sample_size=10")
+    response = client.post("/api/v1/datasets/vgreen_charging/benchmark?sample_size=10")
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["dataset"] == "nyc_fhvhv"
+    assert data["dataset"] == "vgreen_charging"
     assert "results" in data
 
 
