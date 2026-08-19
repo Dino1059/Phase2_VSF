@@ -291,26 +291,20 @@ export const OperationsWorkspace: React.FC = () => {
       {mainGroup === 'alerts' ? (
         <div className="kpi-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
           <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Điểm Chuẩn Gold RCA' : 'Gold RCA Benchmarks'}</div>
-            <div className="kpi-value" style={{ color: 'var(--alert-magenta)' }}>{isVi ? '8 Ca (100% Đã Nạp)' : '8 Cases (100% Ingested)'}</div>
+            <div className="kpi-label">{isVi ? 'SoC < 0 (data_new)' : 'SoC < 0 (data_new)'}</div>
+            <div className="kpi-value" style={{ color: 'var(--alert-magenta)' }}>172</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Độ Chính Xác Phân Loại' : 'Classification Accuracy'}</div>
-            <div className="kpi-value" style={{ color: 'var(--electric-green)', fontSize: '20px' }}>
-              {isVi ? '83.8% Chuẩn Xác' : '83.8% Precision'}
-            </div>
+            <div className="kpi-label">{isVi ? 'Sự cố OPEN' : 'OPEN incidents'}</div>
+            <div className="kpi-value" style={{ color: 'var(--electric-green)', fontSize: '20px' }}>8</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Căn Cứ Chống Ảo Giác' : 'Anti-Hallucination Grounding'}</div>
-            <div className="kpi-value" style={{ color: 'var(--neon-cyan)', fontSize: '20px' }}>
-              {isVi ? '100.0% Có Căn Cứ' : '100.0% Grounded'}
-            </div>
+            <div className="kpi-label">{isVi ? 'Voltage > 1000' : 'Voltage > 1000'}</div>
+            <div className="kpi-value" style={{ color: 'var(--neon-cyan)', fontSize: '20px' }}>131</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Điểm Tổng Hợp RCA' : 'Overall RCA Benchmark Score'}</div>
-            <div className="kpi-value" style={{ color: '#a78bfa', fontSize: '20px' }}>
-              {isVi ? '79.5% Tổng Hợp' : '79.5% Composite'}
-            </div>
+            <div className="kpi-label">{isVi ? 'Quarantine / Audit' : 'Quarantine / Audit'}</div>
+            <div className="kpi-value" style={{ color: '#a78bfa', fontSize: '20px' }}>0 / 0</div>
           </div>
         </div>
       ) : (

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authApi } from '../services/api';
+import { authApi, persistAuthToken, readAuthToken } from '../services/api';
 
 export type UserRole = 'Admin' | 'Steward' | 'Viewer' | 'Analyst' | 'Auditor';
 
@@ -25,7 +25,7 @@ interface AuthState {
 const TOKEN_KEY = 'datatrust_jwt_token';
 const USER_KEY = 'datatrust_user_profile';
 
-const initialToken = localStorage.getItem(TOKEN_KEY) || 'mock-jwt-token-datatrust-v3';
+const initialToken = readAuthToken();
 const initialUser: UserProfile = (() => {
   try {
     const raw = localStorage.getItem(USER_KEY);
@@ -47,7 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await authApi.login({ username, password, role });
       if (res && res.access_token) {
-        localStorage.setItem(TOKEN_KEY, res.access_token);
+        persistAuthToken(res.access_token, (res.user?.role || role || 'steward').toString().toLowerCase());
         localStorage.setItem(USER_KEY, JSON.stringify(res.user));
         set({
           token: res.access_token,
@@ -66,7 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await authApi.quickSwitch(role);
       if (res && res.access_token) {
-        localStorage.setItem(TOKEN_KEY, res.access_token);
+        persistAuthToken(res.access_token, (res.user?.role || role || 'steward').toString().toLowerCase());
         localStorage.setItem(USER_KEY, JSON.stringify(res.user));
         set({
           token: res.access_token,
@@ -89,6 +89,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('datatrust-token');
     localStorage.removeItem(USER_KEY);
     set({
       token: null,

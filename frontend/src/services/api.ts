@@ -6,14 +6,30 @@ export function getRoleHeader(): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
+const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
+
+export function readAuthToken(): string | null {
+  for (const key of TOKEN_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value && !value.startsWith('mock-jwt')) return value;
+  }
+  return null;
+}
+
+export function persistAuthToken(token: string, role?: string) {
+  localStorage.setItem('datatrust-token', token);
+  localStorage.setItem('datatrust_jwt_token', token);
+  if (role) localStorage.setItem('datatrust-role', role);
+}
+
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const customHeaders = (options.headers as Record<string, string>) || {};
-  const token = localStorage.getItem('datatrust-token') || 'mock-jwt-token-datatrust-v3';
+  const token = readAuthToken();
   const headers: Record<string, string> = {
     'X-User-Role': getRoleHeader(),
-    'Authorization': `Bearer ${token}`,
     ...customHeaders,
   };
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
@@ -58,20 +74,38 @@ export const authApi = {
     }),
 };
 
+export async function ensureDemoAuth(): Promise<void> {
+  if (readAuthToken()) return;
+  const res = await authApi.login({ username: 'steward', role: 'steward' });
+  if (res?.access_token) persistAuthToken(res.access_token, 'steward');
+}
+
+
 export const systemApi = {
   resetAll: () =>
     request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all', {
       method: 'POST',
     }),
+  loadSnapshot: (mode: 'happy' | 'unhappy') =>
+    request<{
+      mode: string;
+      source: string;
+      fault_injected: boolean;
+      telemetry: number;
+      charging_sessions: number;
+      trips: number;
+      soc_below_zero: number;
+      open_incidents: number;
+      window_end: string;
+      ingress: string;
+    }>(`/system/demo-snapshot?mode=${mode}`, { method: 'POST' }),
 };
 
 
-function normalizeDatasetKey(k: string): string {
-  if (!k) return 'vingroup_pilot';
-  let cleaned = k.trim();
-  if (cleaned.startsWith('uploaded_')) cleaned = cleaned.slice('uploaded_'.length);
-  if (cleaned.startsWith('upload_')) cleaned = cleaned.slice('upload_'.length);
-  if (cleaned.endsWith('.db')) cleaned = cleaned.slice(0, -3);
+export function normalizeDatasetKey(k: string): string {
+  // Keep uploaded_* keys intact so the profiler hits the registered file,
+  // not the bundled vingroup_pilot DuckDB (wrong table, e.g. vgreen).
+  const cleaned = (k || '').trim();
   return cleaned || 'vingroup_pilot';
 }
 
@@ -79,19 +113,19 @@ export const datasetsApi = {
   list: () =>
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
-    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${normalizeDatasetKey(key)}`),
+    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}`),
   profile: (key: string, sampleSize: number = 100000) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${normalizeDatasetKey(key)}/profile?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   proposeRules: (key: string, variant: string = 'A1', sampleSize: number = 100000) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
-      `/datasets/${normalizeDatasetKey(key)}/propose?variant=${variant}&sample_size=${sampleSize}`,
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}&sample_size=${sampleSize}`,
       { method: 'POST' }
     ),
   executeRules: (key: string, sampleSize?: number) =>
     request<{ dataset: string; input_rows: number; clean_rows: number; quarantine_rows: number; rules_applied: number; execution_result: any }>(
-      `/datasets/${normalizeDatasetKey(key)}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
       { method: 'POST' }
     ),
   sample: (key: string, limit: number = 50, offset: number = 0) =>
@@ -99,7 +133,7 @@ export const datasetsApi = {
       `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/sample?limit=${limit}&offset=${offset}`
     ),
   benchmark: (key: string, sampleSize: number = 50000) =>
-    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${normalizeDatasetKey(key)}/benchmark?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/benchmark?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   upload: (file: File) => uploadDatasetFile(file),

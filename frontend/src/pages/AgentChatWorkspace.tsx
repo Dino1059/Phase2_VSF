@@ -34,10 +34,11 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth } from '../services/api';
 import { useChatStore } from '../stores/chatStore';
 import { agentSocket } from '../services/websocket';
 import { inTimeRange } from '../demo/stewardLabels';
+import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
 
@@ -69,12 +70,22 @@ const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }
 const AGENT_TITLES: Record<string, string> = {
   orchestrator: 'ORCHESTRATOR',
   profiler: 'C1 AI',
+  profile_dataset: 'C1 AI',
+  proposer: 'C1 AI',
+  propose_quality_rules: 'C1 AI',
   anomaly: 'L1 DETECTOR',
   diagnosis: 'C1 AI',
-  proposer: 'C1 AI',
   executor: 'EXECUTOR',
+  clean_database: 'EXECUTOR',
   human: 'DATA STEWARD',
 };
+
+function historyAlreadyProfiled(messages: Array<{ content?: string; type?: string }> | undefined): boolean {
+  return (messages || []).some((m) => {
+    const c = m.content || '';
+    return c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules');
+  });
+}
 
 const AGENT_COLORS: Record<string, string> = {
   orchestrator: 'var(--text-main)',
@@ -95,6 +106,8 @@ export function AgentChatWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const datasetKey = searchParams.get('dataset_key') || undefined;
   const demoMode = searchParams.get('demo');
+  const story = searchParams.get('story');
+  const isHappy = story === 'happy';
   const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
   const setChatSessionId = useChatStore((s) => s.setSessionId);
@@ -122,7 +135,8 @@ export function AgentChatWorkspace() {
   const streamRef = useRef<HTMLDivElement>(null);
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
   const telemetryCanvasRef = useRef<HTMLCanvasElement>(null);
-  const runStartedRef = useRef(false);
+  const runStartedRef = useRef<string | false>(false);
+  const bootToken = `${datasetKey || 'none'}:${story || 'none'}:${demoMode || 'none'}`;
 
   const handleRunFullPipeline = useCallback(async () => {
     setIsRunningPipeline(true);
@@ -130,6 +144,7 @@ export function AgentChatWorkspace() {
       const lang = i18n?.language || 'vi';
       const prompt = lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN;
       const currentSession = useChatStore.getState().sessionId;
+      await ensureDemoAuth();
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
       const history = await fetchChatHistory(currentSession);
       if (history.messages && Array.isArray(history.messages)) {
@@ -223,89 +238,27 @@ export function AgentChatWorkspace() {
     setStream((prev) => [...prev, m]);
   }, []);
 
-  const profileUploadedDataset = useCallback(async () => {
-    if (!datasetKey) return;
-
-    // TODO(backend-agent-events): The upload/profile API currently returns only
-    // the final profile payload; it does not expose agent events, timestamps,
-    // or an ordered stream. Do not synthesize progress cards here.
-    setWaitingForBackendAgentEvents(true);
-
-    try {
-      let result;
-      try {
-        result = await datasetsApi.profile(datasetKey, 50_000);
-      } catch {
-        const fallbackKey = datasetKey.startsWith('uploaded_') ? datasetKey.replace('uploaded_', '') : 'vingroup_pilot';
-        result = await datasetsApi.profile(fallbackKey, 50_000);
-      }
-      const profile = result.profile || {};
-      const columns = Array.isArray(profile.columns) ? profile.columns : [];
-      const flags = Array.isArray(profile.quality_flags) ? profile.quality_flags : [];
-
-      const colRows = columns.slice(0, 10).map((col: any) => {
-        const nullPct = (Number(col.null_pct || 0) * 100).toFixed(1);
-        return `| \`${col.name}\` | \`${col.dtype || col.data_type || 'str'}\` | ${nullPct}% | ${(col.unique_count ?? 0).toLocaleString()} |`;
-      }).join('\n');
-
-      const colTable = isVi
-        ? `#### 📋 Schema Cột & Chất Lượng\n| Cột | Kiểu | Tỷ Lệ Null | Giá Trị Riêng Biệt |\n| :--- | :--- | :--- | :--- |\n${colRows}`
-        : `#### 📋 Column Schema & Quality\n| Column | Type | Null Rate | Unique Values |\n| :--- | :--- | :--- | :--- |\n${colRows}`;
-
-      const profileMarkdown = isVi
-        ? `### 📊 Khảo Sát Tập Dữ Liệu: \`${result.dataset}\`\n\n` +
-          `| Chỉ Số | Giá Trị | Phân Hạng Sức Khỏe |\n` +
-          `| :--- | :--- | :--- |\n` +
-          `| **Tổng Số Dòng Lấy Mẫu** | \`${result.sample_size.toLocaleString()}\` | 🟢 Đã Xác Thực Nạp Dữ Liệu |\n` +
-          `| **Số Cột Đã Phân Tích** | \`${columns.length}\` | 🟢 Đã Ánh Xạ Schema |\n` +
-          `| **Số Dòng Trùng Lặp** | \`${profile.duplicate_count ?? 0}\` | 🟢 Không Trùng Lặp |\n` +
-          `| **Điểm Sức Khỏe Dữ Liệu** | \`${profile.health_score != null ? `${Number(profile.health_score).toFixed(1)}%` : '—'}\` | ${profile.health_score != null ? '🟢 Đo được' : '—'} |\n\n` +
-          `${colTable}` +
-          (flags.length > 0
-            ? `\n\n> ⚠️ **Phát Hiện Chất Lượng**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*`
-            : `\n\n💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*`)
-        : `### 📊 Dataset Profile: \`${result.dataset}\`\n\n` +
-          `| Metric | Value | Health Grade |\n` +
-          `| :--- | :--- | :--- |\n` +
-          `| **Total Sampled Rows** | \`${result.sample_size.toLocaleString()}\` | 🟢 Verified Ingestion |\n` +
-          `| **Columns Analyzed** | \`${columns.length}\` | 🟢 Schema Mapped |\n` +
-          `| **Duplicate Rows** | \`${profile.duplicate_count ?? 0}\` | 🟢 Zero Collision |\n` +
-          `| **Dataset Health Score** | \`${profile.health_score != null ? `${Number(profile.health_score).toFixed(1)}%` : '—'}\` | ${profile.health_score != null ? '🟢 Measured' : '—'} |\n\n` +
-          `${colTable}` +
-          (flags.length > 0
-            ? `\n\n> ⚠️ **Quality Findings**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Full deep-profile details synced to the **Data Profiler** panel.*`
-            : `\n\n💡 *Full deep-profile details synced to the **Data Profiler** panel.*`);
-
-      pushMessage({
-        id: `profile-done-${datasetKey}`,
-        agent: 'profiler',
-        text: profileMarkdown,
-      });
-
-    } catch (error) {
-      pushMessage({
-        id: `profile-error-${datasetKey}`,
-        agent: 'profiler',
-        text: isVi
-          ? `Khảo sát thất bại cho <strong>${datasetKey}</strong>: ${String((error as Error).message || error)}`
-          : `Profiling failed for <strong>${datasetKey}</strong>: ${String((error as Error).message || error)}`,
-      });
-      throw error;
-    } finally {
-      setWaitingForBackendAgentEvents(false);
-    }
-  }, [datasetKey, pushMessage]);
-
   useEffect(() => {
     agentSocket.connect();
   }, []);
 
-  // Kick off initial pipeline run once per session
+  // Re-run when story/demo flips (Happy → Unhappy must start a real LLM profile).
   useEffect(() => {
     if (isNewChat) return;
-    if (runStartedRef.current) return;
-    runStartedRef.current = true;
+    if (runStartedRef.current === bootToken) return;
+    runStartedRef.current = bootToken;
+    proposeStartedRef.current = false;
     resetPipeline();
+
+    if (isHappy) {
+      setRightTab('tab-profiler');
+      pushMessage({
+        id: 'happy-snapshot',
+        agent: 'orchestrator',
+        text: '**HAPPY · clean CSVs** — `data_new/vingroup_pilot_dataset` (fault_injected=False). 86,400 / 1,331 / 10,382. SoC<0 = 0. OPEN = 0. Nothing to approve. Batch window ends 2026-01-15 — not a live stream.',
+      });
+      return () => clearTimers();
+    }
 
     if (isReplay) {
       setReplayBeats(STEWARD_SESSION_BEATS);
@@ -321,32 +274,54 @@ export function AgentChatWorkspace() {
       return () => clearTimers();
     }
 
+    const forceLive = demoMode === 'live' || story === 'unhappy';
     const bootstrap = async () => {
       if (!datasetKey) return;
+      const bootKey = `dt-hitl-boot:${datasetKey}`;
       try {
-        await profileUploadedDataset();
-        store.setStepStatus(1, 'completed');
-        store.setStepIndex(1);
-        if (!proposeStartedRef.current) {
-          proposeStartedRef.current = true;
-          const lang = i18n?.language || 'vi';
-          const session = useChatStore.getState().sessionId;
-          setRightTab('tab-traces');
-          await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
-          const history = await fetchChatHistory(session);
-          if (Array.isArray(history.messages)) {
-            useChatStore.getState().setMessages(history.messages);
-          }
-          setRightTab('tab-rules');
+        const lang = i18n?.language || 'vi';
+        const session = datasetKey ? `dataset:${datasetKey}` : useChatStore.getState().sessionId;
+        const existing = await fetchChatHistory(session);
+        if (Array.isArray(existing.messages) && existing.messages.length) {
+          useChatStore.getState().setMessages(existing.messages);
         }
+        if (forceLive) {
+          try { sessionStorage.removeItem(bootKey); } catch { /* ignore */ }
+        } else {
+          const already =
+            historyAlreadyProfiled(existing.messages) ||
+            proposeStartedRef.current ||
+            (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(bootKey));
+          if (already) {
+            proposeStartedRef.current = true;
+            try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
+            setRightTab('tab-rules');
+            return;
+          }
+        }
+        proposeStartedRef.current = true;
+        try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
+        store.setStepIndex(1);
+        setRightTab('tab-traces');
+        setWaitingForBackendAgentEvents(true);
+        await ensureDemoAuth();
+        await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
+        const history = await fetchChatHistory(session);
+        if (Array.isArray(history.messages)) {
+          useChatStore.getState().setMessages(history.messages);
+        }
+        window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+        setRightTab('tab-traces');
       } catch {
         return;
+      } finally {
+        setWaitingForBackendAgentEvents(false);
       }
     };
     void bootstrap();
     return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [domainId, datasetKey, isNewChat, isReplay]);
+  }, [domainId, datasetKey, isNewChat, isReplay, isHappy, bootToken]);
 
   // Auto-scroll stream
   useEffect(() => {
@@ -495,6 +470,7 @@ export function AgentChatWorkspace() {
     <div className={`agent-chat-workspace ${rightPanelOpen ? '' : 'right-panel-collapsed'}`}>
       {/* CENTER COLUMN: CHAT STREAM */}
       <div className="center-chat-pane">
+        <DemoStoryBar isVi={isVi} />
         {demoMode && (
           <div
             role="status"
@@ -891,8 +867,23 @@ function NewChatLanding() {
         </form>
         <div className="new-chat-shortcuts">
           <input ref={fileInputRef} type="file" accept=".csv,.db,.json" hidden onChange={handleUpload} />
-          <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=live')}>
-            <Play size={22} /> {isVi ? 'Chạy demo VinGroup' : 'Run VinGroup demo'}
+          <button
+            type="button"
+            onClick={async () => {
+              try { await systemApi.loadSnapshot('happy'); } catch { /* still open the story */ }
+              navigate('/workspace?dataset_key=vingroup_pilot&story=happy');
+            }}
+          >
+            <ShieldCheck size={22} /> {isVi ? 'HAPPY — bản sạch' : 'HAPPY — clean snapshot'}
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              try { await systemApi.loadSnapshot('unhappy'); } catch { /* still open the story */ }
+              navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
+            }}
+          >
+            <Play size={22} /> {isVi ? 'UNHAPPY — 172 / 8 OPEN' : 'UNHAPPY — 172 SoC / 8 OPEN'}
           </button>
           <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=replay')}>
             <Sparkles size={22} /> {isVi ? 'Replay phiên ghi' : 'Replay recorded session'}

@@ -10,7 +10,7 @@ import { LandingPage } from './pages/LandingPage';
 export const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<Navigate to="/workspace?dataset_key=vingroup_pilot&story=happy" replace />} />
       <Route path="/landing" element={<LandingPage />} />
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<ExecutiveDashboard />} />

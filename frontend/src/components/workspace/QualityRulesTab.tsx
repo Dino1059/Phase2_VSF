@@ -29,131 +29,20 @@ interface EnrichedRuleReasoning {
 }
 
 function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReasoning {
-  const expr = (rule.rule_expression || '').toLowerCase();
-  const name = (rule.rule_name || rule.rule_id || '').toLowerCase();
-
-  if (expr.includes('soc') || name.includes('soc')) {
-    return {
-      layer: isVi ? 'L1 Kiểm Tra Bất Biến' : 'L1 Invariant Check',
-      problem: isVi
-        ? 'Phát hiện 12 bản ghi telemetry có dung lượng pin SOC âm (-6.0% đến -0.1%) hoặc > 100%, vi phạm giới hạn điện hóa học.'
-        : 'SOC bound rule: values must stay inside [0, 100]. Counts come from this run’s profile, not a canned story.',
-      why: isVi
-        ? 'Lỗi cảm biến BMS hoặc lỗi tràn số học telemetry trong quá trình phanh tái sinh và đóng gói gói tin.'
-        : 'BMS sensor glitch or telemetry pipeline arithmetic underflow during EV regenerative braking and packet serialization.',
-      guarantee: isVi
-        ? 'Bảo đảm dung lượng pin (SOC) luôn nằm trong khoảng [0.0%, 100.0%].'
-        : 'Guarantees battery state of charge is strictly bounded between [0.0%, 100.0%].',
-      impact: isVi
-        ? 'Cách ly 12 dòng cảm biến lỗi, bảo vệ mô hình ML dự đoán suy hao pin.'
-        : 'If approved later, violating SOC rows can be quarantined. Nothing is executed yet.',
-    };
-  }
-
-  if (expr.includes('voltage') || name.includes('voltage')) {
-    return {
-      layer: isVi ? 'L1 Bất Biến Ngưỡng Đo' : 'L1 Range Invariant',
-      problem: isVi
-        ? 'Phát hiện điện áp cao bất thường (> 1000V) vượt trần an toàn trên các mẫu telemetry bus cao áp.'
-        : 'Unrealistic overvoltage spikes (> 1000V) detected across high-voltage bus telemetry samples.',
-      why: isVi
-        ? 'Nhiễu điện mạng CAN-bus và xung điện áp cảm biến trong quá trình nạp nhanh DC công suất cao.'
-        : 'CAN-bus electrical noise and voltage sensor surge during rapid DC fast-charging ramp-up.',
-      guarantee: isVi
-        ? 'Thực thi trần điện áp tối đa 1000V DC cho toàn bộ khối pin.'
-        : 'Enforces maximum pack voltage ceiling of 1000V DC.',
-      impact: isVi
-        ? 'Ngăn chặn các cảnh báo quá nhiệt giả trong hệ thống giám sát vận hành.'
-        : 'Prevents false thermal runaway alerts in operational monitoring systems.',
-    };
-  }
-
-  if (expr.includes('rpm') || expr.includes('speed') || name.includes('rpm')) {
-    return {
-      layer: isVi ? 'L3 Kiểm Tra Tương Quan' : 'L3 Relational Check',
-      problem: isVi
-        ? 'Trạng thái bất nhất: Cảm biến tốc độ ghi nhận 0 km/h trong khi vòng tua động cơ ghi nhận hơn 12.000 RPM.'
-        : 'Inconsistent state: Speed sensor reads 0 km/h while motor tachometer records over 12,000 RPM.',
-      why: isVi
-        ? 'Mất đồng bộ CAN-bus giữa đồng hồ đo tốc độ và ECU động cơ trong quá trình chẩn đoán tĩnh.'
-        : 'CAN-bus desynchronization between speed odometer and motor ECU during stationary vehicle diagnostics.',
-      guarantee: isVi
-        ? 'Thực thi quy luật liên kết cơ khí giữa tốc độ bánh xe và tốc độ quay động cơ.'
-        : 'Enforces mechanical coupling invariant between wheel speed and motor rotational speed.',
-      impact: isVi
-        ? 'Cách ly 18 bản ghi chu kỳ lái xe mất đồng bộ khỏi phân tích tiêu hao năng lượng đội xe.'
-        : 'Isolates 18 desynchronized drive-cycle records from fleet consumption analytics.',
-    };
-  }
-
-  if (expr.includes('cost') || expr.includes('fare') || name.includes('cost') || name.includes('fare')) {
-    return {
-      layer: isVi ? 'L1 Bất Biến Sổ Cái' : 'L1 Ledger Invariant',
-      problem: isVi
-        ? 'Sổ cái giao dịch ghi nhận giá trị tài chính âm (cost_vnd < 0 hoặc fare_amount < 0).'
-        : 'Billing ledger contains negative financial transaction values (cost_vnd < 0 or fare_amount < 0).',
-      why: isVi
-        ? 'Lỗi tràn số học tính cước hoặc lỗi khấu trừ khuyến mãi cổng thanh toán dịch vụ gọi xe.'
-        : 'Tariff calculation arithmetic underflow or ride-hailing payment gateway promotion deduction bug.',
-      guarantee: isVi
-        ? 'Thực thi tính bất biến giao dịch tài chính không âm (cost >= 0).'
-        : 'Enforces strictly non-negative financial transaction invariants (cost >= 0).',
-      impact: isVi
-        ? 'Bảo đảm tính toàn vẹn kiểm toán tài chính và độ chính xác doanh thu 100%.'
-        : 'Guarantees financial audit integrity and zero revenue calculation skew.',
-    };
-  }
-
-  if (expr.includes('lat') || expr.includes('lon') || expr.includes('coord') || name.includes('gps')) {
-    return {
-      layer: isVi ? 'L2 Tính Nhất Quán Không Gian' : 'L2 Spatial Consistency',
-      problem: isVi
-        ? 'Tọa độ GPS đón/trả khách nằm ngoài ranh giới vận hành Hà Nội (kinh độ/vĩ độ ngoài vùng cho phép).'
-        : 'GPS pickup/dropoff coordinates logged outside operational Hanoi geofence (latitude/longitude out of range).',
-      why: isVi
-        ? 'Phản xạ tín hiệu GPS đa đường truyền trong các hẻm đô thị nhà cao tầng.'
-        : 'Multipath GPS signal reflection in dense high-rise urban alleyways.',
-      guarantee: isVi
-        ? 'Đảm bảo mọi điểm khởi hành và kết thúc chuyến đi nằm trong ranh giới địa lý hợp lệ.'
-        : 'Ensures all trip origins and destinations fall strictly within valid municipal boundary polygons.',
-      impact: isVi
-        ? 'Loại bỏ các điểm dị biệt không gian gây sai lệch chỉ số hiệu suất lộ trình xe.'
-        : 'Eliminates spatial outliers skewing ride-hailing route efficiency metrics.',
-    };
-  }
-
-  if (expr.includes('kwh') || expr.includes('duration') || name.includes('charging')) {
-    return {
-      layer: isVi ? 'L3 Kiểm Tra Liên Miền' : 'L3 Cross-Domain Check',
-      problem: isVi
-        ? 'Phiên sạc ghi nhận thời lượng dài (> 30 phút) nhưng điện năng truyền nạp là 0.0 kWh.'
-        : 'Charging sessions logged long duration (> 30 mins) with 0.0 kWh delivered energy.',
-      why: isVi
-        ? 'Timeout giao tiếp phần cứng trạm sạc không ghi nhận được xung đo đếm điện năng.'
-        : 'Charging station hardware communication timeout failing to record meter pulse updates.',
-      guarantee: isVi
-        ? 'Xác thực điện năng truyền tải khác 0 cho các phiên sạc đang hoạt động.'
-        : 'Validates non-zero energy transfer invariant for active charging sessions.',
-      impact: isVi
-        ? 'Ngăn chặn các phiên sạc ảo làm sai lệch chỉ số thời gian chiếm dụng trụ sạc.'
-        : 'Prevents ghost sessions from inflating station occupancy duration metrics.',
-    };
-  }
-
+  const expr = rule.rule_expression || '—';
+  const col = rule.rule_name || rule.rule_id || 'column';
   return {
-    layer: isVi ? 'L1 Quy Luật Hợp Đồng Dữ Liệu' : 'L1 Data Contract Rule',
+    layer: isVi ? 'L1 Hợp đồng dữ liệu' : 'L1 Data contract',
     problem: isVi
-      ? `Giá trị dữ liệu trong ${rule.rule_name || rule.rule_id} lệch khỏi ngưỡng thống kê tiêu chuẩn.`
-      : `Data values in ${rule.rule_name || rule.rule_id} deviate from established statistical baseline.`,
+      ? `Luật đề xuất cho ${col}. Chưa thực thi.`
+      : `Proposed constraint on ${col}. Not executed yet.`,
     why: isVi
-      ? 'ReAct Agent tự chủ phát hiện vi phạm ràng buộc schema trong tập dữ liệu mẫu.'
-      : 'Autonomous ReAct Agent identified schema constraint violations in sampled dataset.',
-    guarantee: isVi
-      ? `Thực thi biểu thức ràng buộc: ${rule.rule_expression}.`
-      : `Enforces constraint expression: ${rule.rule_expression}.`,
+      ? 'Sinh từ profile cột của dataset đang chọn, không dùng số liệu demo.'
+      : 'Synthesized from this dataset’s column profile. No demo counts.',
+    guarantee: isVi ? `Ràng buộc: ${expr}` : `Constraint: ${expr}`,
     impact: isVi
-      ? 'Phân tách các dòng vi phạm vào sổ cái cách ly, bảo toàn dữ liệu kho.'
-      : 'Segregates violating rows into quarantine ledger, preserving warehouse baseline.',
+      ? 'Steward duyệt xong mới được clean/quarantine.'
+      : 'Clean/quarantine runs only after steward approval.',
   };
 }
 
@@ -213,8 +102,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
   };
 
   const handleBatchApprove = async () => {
-    const pendingRules = proposals.filter(
-      (r) => (r.status || 'proposed').toLowerCase() === 'proposed'
+    const pendingRules = proposals.filter((r) =>
+      ['proposed', 'pending', 'draft'].includes((r.status || 'proposed').toLowerCase())
     );
     if (pendingRules.length === 0) return;
 
@@ -309,6 +198,23 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
           </span>
         </div>
 
+        <button
+            type="button"
+            disabled
+            title={isVi ? 'Execute tắt đến khi sandbox + authorize đúng version' : 'Execute stays off until sandbox + exact-version authorize'}
+            style={{
+              background: 'none',
+              border: '1px dashed var(--glass-border)',
+              color: 'var(--text-muted)',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'not-allowed',
+            }}
+          >
+            {isVi ? 'Execute tắt · sandbox chưa chạy · quarantine=0' : 'Execute disabled · sandbox not run · quarantine=0'}
+          </button>
         <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {proposedCount > 0 && (
             <button
