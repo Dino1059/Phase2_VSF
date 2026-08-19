@@ -29,9 +29,9 @@ const initialToken = readAuthToken();
 const initialUser: UserProfile = (() => {
   try {
     const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : { user_id: 'usr_admin_01', username: 'admin@datatrust.os', role: 'Admin' };
+    return raw ? JSON.parse(raw) : { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
   } catch {
-    return { user_id: 'usr_admin_01', username: 'admin@datatrust.os', role: 'Admin' };
+    return { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
   }
 })();
 

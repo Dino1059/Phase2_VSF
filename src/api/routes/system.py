@@ -258,6 +258,15 @@ async def load_demo_snapshot(mode: str = Query(..., description="happy | unhappy
     live_con = db._get_master_conn()
     mod.ingest(source, P(db.db_path), con=live_con)
 
+    try:
+        db.execute("DELETE FROM agent_traces")
+    except Exception as e:
+        logger.warning(f"snapshot traces clear: {e}")
+    try:
+        conversation_store.clear_messages(session_id="dataset:vingroup_pilot")
+    except Exception as e:
+        logger.warning(f"snapshot chat clear: {e}")
+
     if mode == "happy":
         for tbl in ("incidents", "quality_rules", "quarantine", "execution_authorizations"):
             try:
@@ -265,6 +274,11 @@ async def load_demo_snapshot(mode: str = Query(..., description="happy | unhappy
             except Exception as e:
                 logger.warning(f"happy clear {tbl}: {e}")
     else:
+        try:
+            db.execute("DELETE FROM quality_rules")
+        except Exception as e:
+            logger.warning(f"unhappy rules clear: {e}")
+
         try:
             open_n = db.execute("SELECT count(*) FROM incidents WHERE status = 'OPEN'")
             if not open_n or int(open_n[0][0]) == 0:

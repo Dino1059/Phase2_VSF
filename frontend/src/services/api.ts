@@ -2,7 +2,7 @@ const API_BASE = '/api/v1';
 
 export function getRoleHeader(): string {
   const role = localStorage.getItem('datatrust-role');
-  if (!role) return 'Admin';
+  if (!role) return 'Steward';
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
@@ -11,7 +11,7 @@ const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
 export function readAuthToken(): string | null {
   for (const key of TOKEN_KEYS) {
     const value = localStorage.getItem(key);
-    if (value && !value.startsWith('mock-jwt')) return value;
+    if (value) return value;
   }
   return null;
 }
@@ -75,9 +75,13 @@ export const authApi = {
 };
 
 export async function ensureDemoAuth(): Promise<void> {
-  if (readAuthToken()) return;
+  const role = (localStorage.getItem('datatrust-role') || '').toLowerCase();
+  if (readAuthToken() && role === 'steward') return;
   const res = await authApi.login({ username: 'steward', role: 'steward' });
-  if (res?.access_token) persistAuthToken(res.access_token, 'steward');
+  if (res?.access_token) {
+    persistAuthToken(res.access_token, 'steward');
+    if (res.user) localStorage.setItem('datatrust_user_profile', JSON.stringify(res.user));
+  }
 }
 
 
@@ -545,6 +549,21 @@ export async function clearChatDatabase(sessionId?: string) {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId }),
   });
+}
+
+export const DEMO_SESSION_ID = 'dataset:vingroup_pilot';
+
+export async function resetDemoSession(): Promise<void> {
+  try {
+    await clearChatDatabase(DEMO_SESSION_ID);
+  } catch {
+    /* snapshot already wiped traces/chat */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function uploadDatasetFile(file: File, lang?: string) {

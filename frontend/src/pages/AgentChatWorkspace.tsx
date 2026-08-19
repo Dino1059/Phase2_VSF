@@ -34,10 +34,11 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth, resetDemoSession } from '../services/api';
 import { useChatStore } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
 import { agentSocket } from '../services/websocket';
-import { inTimeRange } from '../demo/stewardLabels';
+import { formatSaigonTime, inTimeRange } from '../demo/stewardLabels';
 import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
@@ -551,7 +552,7 @@ export function AgentChatWorkspace() {
                     <span className="agent-name" style={{ color: AGENT_COLORS[msg.agent] || 'var(--text-main)' }}>
                       {AGENT_TITLES[msg.agent] || 'AGENT'}
                     </span>
-                    <span className="agent-timestamp">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+                    <span className="agent-timestamp">{formatSaigonTime()}</span>
                   </div>
                   <div className="agent-body">
                     <MarkdownContent content={msg.text} />
@@ -590,7 +591,7 @@ export function AgentChatWorkspace() {
                     <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
                       {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR')}
                     </span>
-                    <span className="agent-timestamp">{new Date(msg.timestamp).toLocaleTimeString('en-US', { hour12: false })}</span>
+                    <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
                   </div>
                   <div className="agent-body">
                     <MarkdownContent content={msg.content} />
@@ -605,7 +606,7 @@ export function AgentChatWorkspace() {
               <div className="agent-content-box" style={{ borderColor: 'var(--warning-amber)' }}>
                 <div className="agent-header">
                   <span className="agent-name" style={{ color: 'var(--warning-amber)' }}>{t('governanceGate')}</span>
-                  <span className="agent-timestamp">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+                  <span className="agent-timestamp">{formatSaigonTime()}</span>
                 </div>
                 <div className="agent-body">
                   ⏸ {t('pipelinePaused')}
@@ -870,7 +871,12 @@ function NewChatLanding() {
           <button
             type="button"
             onClick={async () => {
-              try { await systemApi.loadSnapshot('happy'); } catch { /* still open the story */ }
+              try {
+                await useAuthStore.getState().login('steward', undefined, 'steward');
+                await systemApi.loadSnapshot('happy');
+                await resetDemoSession();
+                useChatStore.getState().clearMessages();
+              } catch { /* still open the story */ }
               navigate('/workspace?dataset_key=vingroup_pilot&story=happy');
             }}
           >
@@ -879,7 +885,12 @@ function NewChatLanding() {
           <button
             type="button"
             onClick={async () => {
-              try { await systemApi.loadSnapshot('unhappy'); } catch { /* still open the story */ }
+              try {
+                await useAuthStore.getState().login('steward', undefined, 'steward');
+                await systemApi.loadSnapshot('unhappy');
+                await resetDemoSession();
+                useChatStore.getState().clearMessages();
+              } catch { /* still open the story */ }
               navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
             }}
           >

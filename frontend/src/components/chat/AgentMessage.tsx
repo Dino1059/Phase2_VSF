@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { formatSaigonTime } from '../../demo/stewardLabels';
 import { AgentAvatar } from '../agents/AgentAvatar';
 import { RuleProposalCard } from '../hitl/RuleProposalCard';
 import { AGENTS } from '../../types';
@@ -17,13 +18,7 @@ const AGENT_ALIASES: Record<string, keyof typeof AGENTS> = {
 };
 
 function safeFormatTime(timestamp?: string) {
-  try {
-    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const d = new Date(timestamp);
-    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  return formatSaigonTime(timestamp || null);
 }
 
 export function AgentMessage({ message }: { message: ChatMessage }) {

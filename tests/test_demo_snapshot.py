@@ -53,3 +53,23 @@ def test_api_reads_both_jwt_keys_not_mock():
     assert "ensureDemoAuth" in api
     assert "mock-jwt-token-datatrust-v3" not in api
 
+def test_snapshot_clears_traces_and_chat():
+    src = (ROOT / "src/api/routes/system.py").read_text()
+    assert "DELETE FROM agent_traces" in src
+    assert "clear_messages" in src
+
+
+def test_ensure_demo_auth_forces_steward():
+    api = (ROOT / "frontend/src/services/api.ts").read_text()
+    assert "role === 'steward'" in api
+    assert "username: 'steward'" in api
+    store = (ROOT / "frontend/src/stores/authStore.ts").read_text()
+    assert "usr_steward_01" in store
+    assert "admin@datatrust.os" not in store
+
+
+def test_saigon_clock_and_honest_tokens():
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    assert "Asia/Saigon" in labels
+    assert "Number(raw.tokens" in labels
+

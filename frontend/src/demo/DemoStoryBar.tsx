@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { systemApi, ensureDemoAuth } from '../services/api';
+import { systemApi, resetDemoSession } from '../services/api';
+import { useAuthStore } from '../stores/authStore';
+import { useChatStore } from '../stores/chatStore';
 import { PILOT_CLEAN, PILOT_FAULTY, PILOT_BATCH } from './pilotFacts';
 
 export function DemoStoryBar({ isVi }: { isVi: boolean }) {
@@ -17,8 +19,10 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
     setBusy(true);
     setErr(null);
     try {
-      await ensureDemoAuth();
+      await useAuthStore.getState().login('steward', undefined, 'steward');
       const res = await systemApi.loadSnapshot(mode);
+      await resetDemoSession();
+      useChatStore.getState().clearMessages();
       setMeasured({ soc_below_zero: res.soc_below_zero, open_incidents: res.open_incidents });
       if (mode === 'happy') {
         navigate('/workspace?dataset_key=vingroup_pilot&story=happy');

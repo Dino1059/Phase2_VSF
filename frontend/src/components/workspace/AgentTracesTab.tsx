@@ -221,7 +221,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                         <Clock size={10} /> {trace.duration_ms}ms
                       </span>
                     ) : null}
-                    {typeof trace.tokens === 'number' ? (
+                    {typeof trace.tokens === 'number' && trace.tokens > 0 ? (
                       <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'inline-flex', gap: 3, alignItems: 'center' }}>
                         <Zap size={10} /> {trace.tokens}t
                       </span>

@@ -1,13 +1,8 @@
+import { formatSaigonTime } from '../../demo/stewardLabels';
 import type { ChatMessage } from '../../types';
 
 function safeFormatTime(timestamp?: string) {
-  try {
-    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const d = new Date(timestamp);
-    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  return formatSaigonTime(timestamp || null);
 }
 
 export function UserMessage({ message }: { message: ChatMessage }) {

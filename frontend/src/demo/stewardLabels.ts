@@ -14,6 +14,20 @@ export const ACTOR_LABELS: Record<string, { en: string; vi: string }> = {
   SYSTEM: { en: 'System', vi: 'Hệ thống' },
 };
 
+export const DEMO_TZ = 'Asia/Saigon';
+
+export function formatSaigonTime(iso?: string | null): string {
+  const d = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-GB', {
+    hour12: false,
+    timeZone: DEMO_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 export function actorLabel(kind: string | undefined, isVi: boolean): string {
   const key = (kind || 'ORCHESTRATOR').toUpperCase();
   const row = ACTOR_LABELS[key] || ACTOR_LABELS.ORCHESTRATOR;
@@ -59,8 +73,8 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     output,
     observation,
     summary_done: raw.summary_done || observation || (tool ? `${tool} completed` : ''),
-    tokens: raw.tokens ?? raw.tokens_used ?? null,
-    duration_ms: raw.duration_ms ?? null,
+    tokens: Number(raw.tokens ?? raw.tokens_used) > 0 ? Number(raw.tokens ?? raw.tokens_used) : null,
+    duration_ms: Number(raw.duration_ms) > 0 ? Number(raw.duration_ms) : null,
     timestamp: raw.timestamp || null,
     actor_kind: raw.actor_kind || 'ORCHESTRATOR',
     status: raw.status || 'COMPLETED',
