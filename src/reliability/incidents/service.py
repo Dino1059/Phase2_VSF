@@ -33,7 +33,6 @@ class IncidentService:
         self._decisions: Dict[str, Decision] = {}
         self._recommendations: Dict[str, Recommendation] = {}
         self._load_from_db()
-        self.seed_benchmark_cases()
 
     def seed_benchmark_cases(self) -> None:
         """Seed gold RCA cases and evaluation results from eval/fault_RCA_benchamark/v2-optimized_token_prompt into DuckDB."""

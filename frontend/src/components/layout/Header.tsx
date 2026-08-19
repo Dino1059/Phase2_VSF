@@ -12,6 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { searchApi, SearchHit, systemApi, datasetsApi } from '../../services/api';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useChatStore } from '../../stores/chatStore';
 import { AuthModal } from '../auth/AuthModal';
 import { changeLanguage } from '../../i18n';
 
@@ -99,9 +100,19 @@ export function Header() {
     setResetLoading(true);
     try {
       await systemApi.resetAll();
+      try {
+        useChatStore.getState().clearMessages();
+        useChatStore.getState().setSessionId('default');
+        Object.keys(sessionStorage)
+          .filter((k) => k.startsWith('dt-hitl-boot:'))
+          .forEach((k) => sessionStorage.removeItem(k));
+      } catch {
+        /* ignore */
+      }
       setResetSuccess(true);
       setTimeout(() => setResetSuccess(false), 3500);
       window.dispatchEvent(new CustomEvent('datatrust:db-reset'));
+      navigate('/workspace?new=1');
     } catch (err: any) {
       alert(isVi ? `Đặt lại thất bại: ${err.message}` : `Reset failed: ${err.message}`);
     } finally {

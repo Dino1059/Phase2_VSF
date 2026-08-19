@@ -60,10 +60,9 @@ export function Sidebar() {
       try {
         const response = await datasetsApi.list();
         if (!mounted) return;
-        const builtinKeys = new Set(['vietnam_trips', 'vietnam_trips_dirty', 'vietnam_ecommerce_test']);
         setUploadedDatasets(
           response.datasets
-            .filter((dataset) => !builtinKeys.has(dataset.key))
+            .filter((dataset) => dataset.key.startsWith('uploaded_'))
             .map((dataset) => ({ key: dataset.key, name: formatDatasetName(dataset) }))
         );
       } catch (error) {

@@ -1,5 +1,24 @@
 # Implementation notes
 
+## 2026-08-19 — Production reset: data_new + Algolia
+
+- `POST /api/v1/system/reset-all` now: wipe runtime tables + `messages`, delete `uploaded_%`, purge `data/uploads`, reload warehouse from `data_new/vingroup_faulty_pilot_dataset` on the live DuckDB connection, `clear_index()` + `seed_all_entities()`.
+- Ingest accepts `con=` so reset does not open a second DuckDB lock.
+- Sidebar "uploaded" list is only `uploaded_*` keys (was almost the whole registry).
+- Live reset: telemetry 86400, charging 1513, trips 10382, faults 2079; Algolia cleared+31 seeded; search `uploaded` = 0; HITL empty then demo proposes `vingroup_pilot__R1_A1`.
+
+## 2026-08-19 — Live QA: uploaded HITL / traces / wrong dataset
+
+- C1 ghost card profiled `vgreen_charging_stations` because `normalizeDatasetKey` stripped `uploaded_` → bundled `vingroup_pilot` DuckDB. Keep uploaded keys; drop local profile fallback.
+- Chat 99% / `unknown` dtypes: formatter read `dtype`/`health_score` (missing). Use `data_type` / measured health or `—`.
+- HITL empty: rule ids `R1_A1` collided globally. Namespace `{dataset}__R1_A1`, persist `proposed` + `dataset_key`.
+- Ghost `telemetry_coverage` / `accel_z >= 0`: skip signed physical cols and coverage/flag constants.
+- Triple YOU prompt: bootstrap skips if history already has proposals.
+- Leftover `vietnam_trips_dirty` list: only append when user asked to list datasets.
+- Traces FINISH-only: truncated JSON failed DuckDB JSON insert. `json_preview()` stores valid JSON; React keys by index+action not `step_index`.
+- LLM often FINISHed after profile. `missing_requested_tools()` runs `propose_quality_rules` if the prompt asked for rules. HITL now gets `uploaded_*__R1_A1`.
+- Chrome 9222: profile dtypes STRING/FLOAT; HITL 1 rule `soc_pct >= 0`; Approve → 1 Approved, nothing cleaned. Profiler shows telemetry 10 cols, not vgreen.
+
 ## 2026-08-19 — ReAct loop: remaining PLAN P0
 
 - `_log_trace`: empty thought, actor_kind from action.
@@ -28,3 +47,16 @@
 - Selecting an uploaded dataset runs the real profiling endpoint with a 50,000-row sample before the pipeline bootstrap starts.
 - The chat stream reports profiling start, completion, and API failure; no profile/demo fallback was added.
 - Verification: backend Python syntax check and frontend TypeScript/build pass.
+
+## 2026-08-20 — Happy/unhappy demo switch (data_new only)
+
+- `/` now redirects to Workspace `story=happy`. `/landing` stays marketing; 99.8% RCA tile removed (172 / 8 OPEN / 60 VIN).
+- Real switch: `POST /api/v1/system/demo-snapshot?mode=happy|unhappy`.
+  - happy = ingest `data_new/vingroup_pilot_dataset` (clean CSVs, no fault_manifest). Clears live incidents/rules/quarantine.
+  - unhappy = ingest `data_new/vingroup_faulty_pilot_dataset` and restore the 8 OPEN fused incidents from `fixtures/demo/unhappy_incidents.json` if the queue is empty.
+- Do not treat `raw.datasets.fault_injected=False` as Happy — those rows can still point at nested faulty paths.
+- Gold RCA seed removed from IncidentService startup and system reset (eval stays on /evaluation).
+- DOMAIN_LIST / Operations / Overview steward queue use measured 86400 / 1331 / 10382 and 172 / 131 / 8 / 0. No Kafka / 1.2B / AGENT_HEALTH ms.
+- HITL: Approve stays; Execute disabled; sandbox not run; quarantine=0.
+- Batch window labeled 2026-01-01 → 2026-01-15. Same detectors, different ingress. Not a live stream.
+- Hollow `charging_rate_kw` / `fault_code` dropped from the vinfast_bms view (they were always NULL).
