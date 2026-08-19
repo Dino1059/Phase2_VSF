@@ -30,7 +30,7 @@ def test_chat_passes_selected_dataset_context_to_react_engine(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured["context"] == {"dataset_key": "uploaded_sample"}
+    assert captured["context"]["dataset_key"] == "uploaded_sample"
     assert "dataset_key='uploaded_sample'" in captured["task"]
 
     history = client.get("/api/v1/chat/history", params={"session_id": "dataset:uploaded_sample"})

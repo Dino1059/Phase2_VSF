@@ -6,11 +6,20 @@ from pydantic import BaseModel
 from src.middleware.auth import (
     UserRole,
     SERVER_USERS,
+    ROLE_PERMISSIONS,
     create_access_token,
     decode_access_token,
 )
 
 logger = logging.getLogger(__name__)
+
+def _permissions_for_role(role: str) -> list[str]:
+    try:
+        role_enum = UserRole(role)
+    except ValueError:
+        role_enum = UserRole.VIEWER
+    return sorted(ROLE_PERMISSIONS.get(role_enum, {"read"}))
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -139,7 +148,7 @@ async def get_me(
                 "user_id": payload.get("user_id", "usr_01"),
                 "username": payload.get("sub", "user@datatrust.os"),
                 "role": role,
-                "permissions": ["all", "read", "write"] if role == "Admin" else ["read"],
+                "permissions": _permissions_for_role(role),
             }
 
     role = x_user_role or "Admin"
@@ -147,7 +156,7 @@ async def get_me(
         "user_id": f"usr_{role.lower()}_01",
         "username": f"{role.lower()}@datatrust.os",
         "role": role,
-        "permissions": ["all", "read", "write"] if role == "Admin" else ["read"],
+        "permissions": _permissions_for_role(role),
     }
 
 

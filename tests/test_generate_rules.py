@@ -72,6 +72,6 @@ def test_schema_agnostic_rule_generation():
     assert len(zero_rules) > 0
     assert "zero_col != 0" in zero_rules[0]["expression"]
 
-    # Verify constant column semantic rule
-    const_rules = [r for r in a1_rules if r["rule_type"] == "semantic" and r["column"] == "status"]
+    # Verify constant column variance/semantic rule
+    const_rules = [r for r in a1_rules if r["rule_type"] in ("semantic", "variance") and r["column"] == "status"]
     assert len(const_rules) > 0

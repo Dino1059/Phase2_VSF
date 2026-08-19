@@ -27,7 +27,7 @@ async def list_datasets():
         settings = get_settings()
         result = settings.list_available_datasets()
         return {"datasets": result}
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -55,7 +55,7 @@ async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
             "sample_size": len(df),
             "profile": _sanitize_nans(profile_data),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -76,7 +76,7 @@ async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
             "offset": offset,
             "records": _sanitize_nans(subset.to_dict(orient="records")),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -127,7 +127,7 @@ async def propose_rules_for_dataset(
             "rules": _sanitize_nans(rules),
             "generation_time_seconds": round(duration, 3),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -182,7 +182,7 @@ async def execute_rules_on_dataset(
         }
     except HTTPException:
         raise
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -210,7 +210,7 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
             "sample_size": len(df),
             "results": _sanitize_nans(results),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
