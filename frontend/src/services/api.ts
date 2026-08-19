@@ -163,6 +163,11 @@ export const approvalsApi = {
       method: 'POST',
       body: JSON.stringify({ rule_ids: ruleIds, action }),
     }),
+  authorize: (datasetKey: string, ruleIds: string[]) =>
+    request<{ authorization_id: string; payload_hash: string; status: string; rule_ids: string[] }>('/approvals/authorize', {
+      method: 'POST',
+      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
+    }),
 };
 
 export const schedulesApi = {
@@ -616,6 +621,8 @@ export const hitlApi = {
     request<{ status: string; rule_id: string }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
     }),
+  history: () =>
+    request<{ history: Array<{ event_hash?: string; previous_event_hash?: string; action?: string; timestamp?: string }> }>('/hitl/history'),
 };
 
 export const pipelineApi = {

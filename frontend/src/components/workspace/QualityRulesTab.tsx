@@ -13,7 +13,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { hitlApi, HITLProposal } from '../../services/api';
+import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
 
 interface QualityRulesTabProps {
   datasetKey?: string;
@@ -50,6 +50,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [sandboxAuthorized, setSandboxAuthorized] = useState(false);
+  const [payloadHash, setPayloadHash] = useState<string | null>(null);
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
   const [editExpression, setEditExpression] = useState('');
   const { i18n } = useTranslation('pipeline');
@@ -144,6 +147,27 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
     }
   };
 
+  const handleSandboxExecute = async () => {
+    const approved = proposals.filter(
+      (r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited'
+    );
+    if (approved.length === 0) return;
+    setActionLoading('sandbox');
+    setSandboxError(null);
+    try {
+      const auth = await approvalsApi.authorize(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      for (const r of approved) {
+        await hitlApi.execute(r.rule_id);
+      }
+      setPayloadHash(auth?.payload_hash || '');
+      setSandboxAuthorized(true);
+    } catch (err: any) {
+      setSandboxError(err?.message || 'sandbox execute failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const proposedCount = proposals.filter(
     (r) => (r.status || 'proposed').toLowerCase() === 'proposed'
   ).length;
@@ -198,7 +222,43 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
           </span>
         </div>
 
-        <button
+        {sandboxAuthorized && payloadHash ? (
+          <span
+            title={payloadHash}
+            style={{
+              background: 'rgba(5, 150, 105, 0.1)',
+              border: '1px solid rgba(5, 150, 105, 0.25)',
+              color: '#059669',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
+            {isVi ? 'Sandbox đã chạy · authorized' : 'Sandbox run · authorized'}{' '}
+            <code>{payloadHash.length > 16 ? `${payloadHash.slice(0, 12)}…` : payloadHash}</code>
+          </span>
+        ) : approvedCount >= 1 ? (
+          <button
+            type="button"
+            onClick={() => void handleSandboxExecute()}
+            disabled={actionLoading === 'sandbox'}
+            title="Sandbox execute"
+            style={{
+              background: 'rgba(2, 132, 199, 0.12)',
+              border: '1px solid rgba(2, 132, 199, 0.3)',
+              color: '#0284c7',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: actionLoading === 'sandbox' ? 'wait' : 'pointer',
+            }}
+          >
+            {isVi ? 'Chạy sandbox' : 'Run sandbox'}
+          </button>
+        ) : (
+          <button
             type="button"
             disabled
             title={isVi ? 'Execute tắt đến khi sandbox + authorize đúng version' : 'Execute stays off until sandbox + exact-version authorize'}
@@ -215,6 +275,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
           >
             {isVi ? 'Execute tắt · sandbox chưa chạy · quarantine=0' : 'Execute disabled · sandbox not run · quarantine=0'}
           </button>
+        )}
+        {sandboxError && <span role="alert" style={{ color: '#dc2626', fontSize: 11 }}>{sandboxError}</span>}
         <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {proposedCount > 0 && (
             <button

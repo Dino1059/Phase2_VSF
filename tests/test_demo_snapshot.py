@@ -120,3 +120,38 @@ def test_story_switch_keeps_one_profile_summary():
     assert "messagesForStory" in ws
     assert "isProfileSummary" in ws
     assert "HAPPY · clean CSVs" in ws
+
+def test_happy_snapshot_reloads_after_unhappy():
+    bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
+    assert "sessionStorage.setItem('dt-snap', mode)" in bar
+    assert "loaded.current === 'happy'" in bar
+    assert "loaded.current = null" in bar
+    assert "sessionStorage.getItem('dt-snap') === 'happy'" not in bar
+
+
+def test_profiler_wipes_grade_on_story_change():
+    ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
+    assert "setProfile(null)" in ui
+    assert "fetchProfile" in ui
+    assert "warehouseFaults" in ui
+
+
+def test_hitl_opens_sandbox_after_approve():
+    ui = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    assert "Run sandbox" in ui
+    assert "approvalsApi.authorize" in ui
+    assert "hitlApi.execute" in ui
+    assert "Execute disabled · sandbox not run · quarantine=0" in ui
+
+
+def test_traces_surfaces_existing_event_hash_only():
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    assert "hitlApi.history" in ui
+    assert "event_hash" in ui
+    assert "a1b2c3d4e5f6" not in ui
+
+
+def test_vin_uses_data_new_60():
+    bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
+    assert "60 VIN" in bar
+

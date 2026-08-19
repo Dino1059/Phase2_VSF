@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
-import { tracesApi } from '../../services/api';
+import { tracesApi, hitlApi } from '../../services/api';
 import { actorLabel, inTimeRange, mapTraceStep, rangeStart } from '../../demo/stewardLabels';
 import type { DemoBeat } from '../../demo/stewardSession';
 import type { TimeFilter } from '../../types';
@@ -43,6 +43,13 @@ interface AgentTracesTabProps {
   onSelectStep?: (step: number) => void;
 }
 
+function isRealAuditHash(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const t = value.trim();
+  if (t.length < 16 || t.includes('...')) return false;
+  return /^[0-9a-fA-F]+$/.test(t);
+}
+
 function beatToTrace(beat: DemoBeat, index: number): TraceStep {
   return {
     step: index + 1,
@@ -67,6 +74,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 }) => {
   const [traces, setTraces] = useState<TraceStep[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hashTrail, setHashTrail] = useState<{ latest: string; count: number } | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
   const [showThought, setShowThought] = useState(false);
   const { i18n } = useTranslation('pipeline');
@@ -81,23 +89,41 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   const loadTraces = useCallback(async () => {
     if (replayBeats && replayBeats.length > 0) {
       setTraces(replayBeats.filter((b) => b.type === 'workflow.step').map(beatToTrace));
-      return;
+    } else {
+      setLoading(true);
+      try {
+        const since = rangeStart(timeFilter).toISOString();
+        const res = await tracesApi.get(effectiveSessionId, since);
+        const steps = Array.isArray(res?.steps) ? res.steps : [];
+        setTraces(
+          steps
+            .map((s, idx) => mapTraceStep(s, idx))
+            .filter((s) => inTimeRange(s.timestamp, timeFilter))
+            .filter((s) => !!(s.action || s.tool))
+        );
+      } catch {
+        setTraces([]);
+      } finally {
+        setLoading(false);
+      }
     }
-    setLoading(true);
     try {
-      const since = rangeStart(timeFilter).toISOString();
-      const res = await tracesApi.get(effectiveSessionId, since);
-      const steps = Array.isArray(res?.steps) ? res.steps : [];
-      setTraces(
-        steps
-          .map((s, idx) => mapTraceStep(s, idx))
-          .filter((s) => inTimeRange(s.timestamp, timeFilter))
-          .filter((s) => !!(s.action || s.tool))
-      );
+      const hist = await hitlApi.history();
+      const events = Array.isArray(hist?.history) ? hist.history : [];
+      const hashes: string[] = [];
+      let latestEventHash: string | null = null;
+      for (const ev of events) {
+        if (isRealAuditHash(ev?.event_hash)) {
+          hashes.push(ev.event_hash);
+          latestEventHash = ev.event_hash.trim();
+        }
+        if (isRealAuditHash(ev?.previous_event_hash)) {
+          hashes.push(ev.previous_event_hash);
+        }
+      }
+      setHashTrail(latestEventHash ? { latest: latestEventHash, count: hashes.length } : null);
     } catch {
-      setTraces([]);
-    } finally {
-      setLoading(false);
+      setHashTrail(null);
     }
   }, [effectiveSessionId, replayBeats, timeFilter]);
 
@@ -176,6 +202,11 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         >
           <RefreshCw size={13} className={loading ? 'spinning' : ''} />
         </button>
+        {hashTrail ? (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Hash trail · {hashTrail.latest.length > 16 ? `${hashTrail.latest.slice(0, 12)}…` : hashTrail.latest} · {hashTrail.count}
+          </span>
+        ) : null}
       </div>
 
       {traces.length === 0 ? (

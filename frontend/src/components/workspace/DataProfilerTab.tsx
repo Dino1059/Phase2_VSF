@@ -80,6 +80,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   }, [datasetKey, story]);
 
   useEffect(() => {
+    setProfile(null);
     fetchProfile();
   }, [fetchProfile]);
 

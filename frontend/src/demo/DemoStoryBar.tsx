@@ -21,6 +21,8 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
     try {
       await useAuthStore.getState().login('steward', undefined, 'steward');
       const res = await systemApi.loadSnapshot(mode);
+      try { sessionStorage.setItem('dt-snap', mode); } catch { /* ignore */ }
+      loaded.current = mode;
       await resetDemoSession();
       useChatStore.getState().clearMessages();
       setMeasured({ soc_below_zero: res.soc_below_zero, open_incidents: res.open_incidents });
@@ -37,11 +39,15 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
   };
 
   useEffect(() => {
-    if (story !== 'happy') return;
+    if (story !== 'happy') {
+      loaded.current = null;
+      try { sessionStorage.setItem('dt-snap', 'unhappy'); } catch { /* ignore */ }
+      return;
+    }
+    // Reload Happy unless this mount already started go('happy').
+    // Do not skip just because leftover dt-snap === 'happy' after Unhappy.
     if (loaded.current === 'happy') return;
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('dt-snap') === 'happy') return;
     loaded.current = 'happy';
-    try { sessionStorage.setItem('dt-snap', 'happy'); } catch { /* ignore */ }
     void go('happy');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [story]);
