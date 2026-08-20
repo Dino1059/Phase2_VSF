@@ -238,13 +238,17 @@ class Settings(BaseSettings):
             path = self.dataset_registry.get(cleaned_key)
 
             if not path:
-                # Check directly in data_new/db/ or data_new/raw/
+                # Check directly in data_new/db/, data_new/raw/, or data/uploads/
                 base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 candidates = [
                     f"data_new/db/{cleaned_key}.db",
                     f"data_new/db/{cleaned_key}",
                     f"data_new/raw/{cleaned_key}.csv",
                     f"data_new/raw/{cleaned_key}.json",
+                    f"data/uploads/{cleaned_key}.db",
+                    f"data/uploads/{cleaned_key}.csv",
+                    f"data/uploads/{cleaned_key}.json",
+                    f"data/uploads/{cleaned_key}",
                 ]
                 for cand in candidates:
                     if os.path.exists(os.path.join(base, cand)):
@@ -252,6 +256,22 @@ class Settings(BaseSettings):
                         self.dataset_registry[key] = cand
                         self.dataset_registry[cleaned_key] = cand
                         break
+
+            if not path and (key.startswith("uploaded_") or key.startswith("upload_")):
+                # Check data/uploads directory for latest file as fallback
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                upload_dir = os.path.join(base, "data", "uploads")
+                if os.path.exists(upload_dir):
+                    files = [
+                        os.path.join(upload_dir, f)
+                        for f in os.listdir(upload_dir)
+                        if not f.endswith(".tmp") and os.path.isfile(os.path.join(upload_dir, f))
+                    ]
+                    if files:
+                        files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                        cand = os.path.relpath(files[0], base)
+                        path = cand
+                        self.dataset_registry[key] = cand
 
         if not path:
             try:

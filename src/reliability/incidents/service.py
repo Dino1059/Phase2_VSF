@@ -24,129 +24,32 @@ class IncidentService:
     Manages persistence and retrieval of Incidents, Evidence, Hypotheses, Decisions, and Recommendations.
     Backed by DuckDB table storage for backend restart state persistence.
     """
+    _instance: Optional["IncidentService"] = None
+
+    def __new__(cls, db: Optional[DuckDBManager] = None):
+        if cls._instance is None:
+            cls._instance = super(IncidentService, cls).__new__(cls)
+            cls._instance._db = db or get_db()
+            cls._instance._incidents = {}
+            cls._instance._evidence = {}
+            cls._instance._hypotheses = {}
+            cls._instance._decisions = {}
+            cls._instance._recommendations = {}
+            cls._instance._incident_meta = {}
+            cls._instance._load_from_db()
+        elif db is not None and db != cls._instance._db:
+            cls._instance._db = db
+            cls._instance._incidents.clear()
+            cls._instance._evidence.clear()
+            cls._instance._hypotheses.clear()
+            cls._instance._decisions.clear()
+            cls._instance._recommendations.clear()
+            cls._instance._incident_meta.clear()
+            cls._instance._load_from_db()
+        return cls._instance
 
     def __init__(self, db: Optional[DuckDBManager] = None):
-        self._db = db or get_db()
-        self._incidents: Dict[str, Incident] = {}
-        self._evidence: Dict[str, Evidence] = {}
-        self._hypotheses: Dict[str, Hypothesis] = {}
-        self._decisions: Dict[str, Decision] = {}
-        self._recommendations: Dict[str, Recommendation] = {}
-        self._load_from_db()
-        self.seed_benchmark_cases()
-
-    def seed_benchmark_cases(self) -> None:
-        """Seed gold RCA cases and evaluation results from eval/fault_RCA_benchamark/v2-optimized_token_prompt into DuckDB."""
-        import os
-        from pathlib import Path
-
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent
-        eval_v2_dir = base_dir / "eval" / "fault_RCA_benchamark" / "v2-optimized_token_prompt"
-        gold_path = eval_v2_dir / "gold_rca_cases.json"
-        results_path = eval_v2_dir / "rca_benchmark_results.json"
-
-        if not gold_path.exists():
-            return
-
-        try:
-            with open(gold_path, "r", encoding="utf-8") as f:
-                gold_cases = json.load(f)
-
-            eval_results_map = {}
-            if results_path.exists():
-                try:
-                    with open(results_path, "r", encoding="utf-8") as f:
-                        results_json = json.load(f)
-                        for ec in results_json.get("evaluated_cases", []):
-                            eval_results_map[ec.get("incident_id")] = ec
-                except Exception:
-                    pass
-
-            for idx, case in enumerate(gold_cases):
-                try:
-                    inc_id = case.get("incident_id", f"inc-gold-{idx:03d}")
-                    entity_ids = case.get("entity_ids", ["VIN-001"])
-                    supporting_layers = case.get("supporting_layers", [case.get("layer", "L1")])
-                    admission_reason = case.get("admission_reason") or f"{case.get('fault_family', 'Anomaly')} detected on {case.get('domain', 'EV_TELEMETRY')}"
-                    severity = case.get("severity", "CRITICAL")
-                    ground_truth_cause = case.get("ground_truth_cause", "")
-
-                    if inc_id not in self._incidents:
-                        inc = Incident(
-                            incident_id=inc_id,
-                            project_id="proj-vingroup-pilot",
-                            status="OPEN",
-                            entity_ids=entity_ids,
-                            signal_ids=[f"sig-{layer.lower()}-{inc_id[-4:]}" for layer in supporting_layers],
-                            admission_reason=admission_reason,
-                            supporting_layers=supporting_layers,
-                            severity=severity,
-                            time_window={},
-                            confirmed_facts=[ground_truth_cause] if ground_truth_cause else [],
-                            evidence_refs=[f"ev-{inc_id[-6:]}"],
-                            owner="autonomous_orchestrator",
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
-                        )
-                        self.save_incident(inc)
-
-                    # Save Evidence
-                    ev_id = f"ev-{inc_id[-6:]}"
-                    if ev_id not in self._evidence:
-                        ev = Evidence(
-                            evidence_id=ev_id,
-                            source_type=case.get("domain", "EV_TELEMETRY"),
-                            source_id=entity_ids[0] if entity_ids else "VIN-001",
-                            time_range={},
-                            entity_ids=entity_ids,
-                            content_hash=f"sha256_{inc_id}",
-                            summary=f"Multi-layer telemetry signal indicating {case.get('fault_family', 'data violation')}: {ground_truth_cause}",
-                            provenance="REAL_INGESTION_BENCHMARK"
-                        )
-                        self.add_evidence(ev)
-
-                    # Save Hypothesis
-                    hyp_id = f"hyp-{inc_id[-6:]}"
-                    if hyp_id not in self._hypotheses:
-                        eval_case = eval_results_map.get(inc_id, {})
-                        hyp_data = eval_case.get("hypothesis", {})
-                        claim = hyp_data.get("claim") or ground_truth_cause or f"Data anomaly in {case.get('domain')}"
-                        classification = hyp_data.get("classification") or case.get("expected_classification", "DATA")
-                        confidence = float(hyp_data.get("confidence", 0.88))
-                        supporting_ev = hyp_data.get("supporting_evidence", [ev_id])
-
-                        hyp = Hypothesis(
-                            hypothesis_id=hyp_id,
-                            incident_id=inc_id,
-                            claim=claim,
-                            classification=classification,
-                            supporting_evidence=supporting_ev,
-                            confidence=confidence,
-                            status="CONFIRMED"
-                        )
-                        self.add_hypothesis(hyp)
-
-                    # Save Recommendation
-                    rec_id = f"rec-{inc_id[-6:]}"
-                    if rec_id not in self._recommendations:
-                        expected_action = case.get("expected_action", "QUARANTINE_DATA")
-                        c_type = case.get("expected_classification", "DATA")
-                        cause_type = c_type if c_type in ["DATA", "OPERATIONAL", "UNKNOWN"] else "DATA"
-                        rec = Recommendation(
-                            recommendation_id=rec_id,
-                            incident_id=inc_id,
-                            cause_type=cause_type,
-                            action_type=expected_action,
-                            summary=f"Automated remediation: {expected_action} for entity {entity_ids[0] if entity_ids else 'target'}",
-                            details={"action": expected_action, "target": entity_ids, "rule": case.get("fault_family")},
-                            requires_hitl_approval=True
-                        )
-                        self.add_recommendation(rec)
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
+        pass
     def _load_from_db(self) -> None:
         if not self._db:
             return
@@ -298,8 +201,50 @@ class IncidentService:
                     requires_hitl_approval=bool(row[6])
                 )
                 self._recommendations[rec.recommendation_id] = rec
+
+            # Load incident metadata
+            try:
+                self._db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS incident_metadata (
+                        incident_id VARCHAR PRIMARY KEY,
+                        meta_json JSON,
+                        updated_at TIMESTAMP
+                    );
+                    """
+                )
+                meta_rows = self._db.execute("SELECT incident_id, meta_json FROM incident_metadata")
+                for row in meta_rows:
+                    m = json.loads(row[1]) if isinstance(row[1], str) else (row[1] or {})
+                    self._incident_meta[row[0]] = m
+            except Exception:
+                pass
         except Exception:
             pass
+
+    def set_incident_meta(self, incident_id: str, meta: Dict[str, Any]) -> None:
+        self._incident_meta[incident_id] = meta
+        if self._db:
+            try:
+                self._db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS incident_metadata (
+                        incident_id VARCHAR PRIMARY KEY,
+                        meta_json JSON,
+                        updated_at TIMESTAMP
+                    );
+                    """
+                )
+                self._db.execute("DELETE FROM incident_metadata WHERE incident_id = ?", [incident_id])
+                self._db.execute(
+                    "INSERT INTO incident_metadata (incident_id, meta_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    [incident_id, json.dumps(meta, default=str)]
+                )
+            except Exception:
+                pass
+
+    def get_incident_meta(self, incident_id: str) -> Optional[Dict[str, Any]]:
+        return self._incident_meta.get(incident_id)
 
     def save_incident(self, incident: Incident) -> Incident:
         self._incidents[incident.incident_id] = incident
@@ -395,12 +340,15 @@ class IncidentService:
                     continue
 
             # 4. Time window scoping
-            if inc_start is not None and inc_end is not None and ev.time_range:
-                ev_start = ev.time_range.get("start")
-                ev_end = ev.time_range.get("end") or ev_start
-                if ev_start is not None and ev_end is not None:
-                    if ev_start > inc_end or ev_end < inc_start:
-                        continue
+            if inc_start is not None and inc_end is not None:
+                if ev.time_range:
+                    ev_start = ev.time_range.get("start")
+                    ev_end = ev.time_range.get("end") or ev_start
+                    if ev_start is not None and ev_end is not None:
+                        if ev_start > inc_end or ev_end < inc_start:
+                            continue
+                elif not is_explicit_ref:
+                    continue
 
             matched.append(ev)
 
@@ -565,3 +513,22 @@ class IncidentService:
 
     def list_recommendations_for_incident(self, incident_id: str) -> List[Recommendation]:
         return [r for r in self._recommendations.values() if r.incident_id == incident_id]
+
+    def clear(self) -> None:
+        """Clear in-memory caches and DuckDB incident tables."""
+        self._incidents.clear()
+        self._evidence.clear()
+        self._hypotheses.clear()
+        self._decisions.clear()
+        self._recommendations.clear()
+        self._incident_meta.clear()
+        if self._db:
+            try:
+                self._db.execute("DELETE FROM incidents")
+                self._db.execute("DELETE FROM evidence")
+                self._db.execute("DELETE FROM hypotheses")
+                self._db.execute("DELETE FROM decisions")
+                self._db.execute("DELETE FROM recommendations")
+                self._db.execute("DELETE FROM incident_metadata")
+            except Exception:
+                pass

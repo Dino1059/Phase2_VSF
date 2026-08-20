@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-08-19T05:52:25.035235+00:00",
+  "l1_evaluation": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "p95_latency_ms": 5.09,
+    "sla_target_passed": true
+  },
+  "l2_l4_evaluation": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "fp_per_entity_day": 0.0
+  }
+}

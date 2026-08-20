@@ -1,0 +1,127 @@
+{
+  "case_id": "TC-11-L3-F14-DurationEnergy-Mismatch",
+  "case_definition": {
+    "case_id": "TC-11-L3-F14-DurationEnergy-Mismatch",
+    "fault_family": "F14_DurationEnergy_Mismatch",
+    "layer": "L3",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "CSESS_VGREEN_0199",
+    "dataset": "acn_charging_mapped",
+    "admission_observation": "Relational anomaly detected for CSESS_VGREEN_0199: charging session duration increased significantly while delivered energy (kWh) remained flat.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-011",
+        "source_type": "detector_signal",
+        "source_id": "det-l3",
+        "entity_ids": [
+          "CSESS_VGREEN_0199"
+        ],
+        "summary": "Relational anomaly detected for CSESS_VGREEN_0199: charging session duration increased significantly while delivered energy (kWh) remained flat."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "MIXED",
+      "target_component": "CHARGER_METER",
+      "target_metric": "duration_vs_kwh",
+      "failure_mechanism": "RELATIONAL_BREAK",
+      "ground_truth_cause": "Relational break where charging duration increases significantly while delivered energy (kWh) remains flat, indicating power delivery stall or charger meter fault."
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp-b35f96b8",
+    "incident_id": "INC-TC-11-L3-F14-DurationEnergy-Mismatch",
+    "claim": "The charging station's energy delivery sensor is malfunctioning, reporting zero kWh while the session duration is long, causing a relational anomaly.",
+    "classification": "DATA",
+    "target_component": "CHARGING_STATION",
+    "target_metric": "energy_delivered_kwh",
+    "failure_mechanism": "SENSOR_GLITCH",
+    "anomalous_value_observed": "0 kWh despite prolonged duration",
+    "technical_summary": "Charging session logs show prolonged duration with negligible kWh recorded, indicating the energy measurement sensor is not capturing delivered energy. No recent deployment changes or data quality violations were found, pointing to a hardware sensor fault rather than a pipeline issue.",
+    "supporting_evidence": [
+      "EV-INIT-011"
+    ],
+    "contradicting_evidence": [],
+    "missing_evidence": [],
+    "confidence": 0.92,
+    "status": "PROPOSED"
+  },
+  "recommendation": {
+    "recommendation_id": "rec-0bfdf909",
+    "incident_id": "INC-TC-11-L3-F14-DurationEnergy-Mismatch",
+    "recommendation_type": "PREVENTIVE_DATA_CONTROL",
+    "cause_type": "DATA",
+    "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+    "summary": "Propose preventive data control rule for: The charging station's energy delivery sensor is malfunctioning, reporting zero kWh while the session duration is long, causing a relational anomaly.",
+    "details": {
+      "hypothesis_id": "hyp-b35f96b8",
+      "rule_proposal": "The charging station's energy delivery sensor is malfunctioning, reporting zero kWh while the session duration is long, causing a relational anomaly."
+    },
+    "requires_hitl_approval": true
+  },
+  "execution_meta": {
+    "tokens_spent": 2754,
+    "tool_calls_made": 0,
+    "tool_execution_trace": [],
+    "hypothesis_revisions": 0,
+    "budget_remaining": 9246,
+    "target_domain": "CHARGING_NETWORK",
+    "domain_allowlist": [
+      "calculate_detector_detail",
+      "fetch_charging_history",
+      "fetch_dq_violations",
+      "fetch_entity_telemetry",
+      "fetch_profile",
+      "fetch_recent_changes",
+      "inspect_upstream_contracts",
+      "query_historical_baselines",
+      "resolve_entity_relationships"
+    ],
+    "resolved_entity_scope": [
+      "CSESS_VGREEN_0199"
+    ],
+    "resolved_time_scope": {},
+    "bounded_stop": true,
+    "wall_clock_elapsed_sec": 8.589977,
+    "stop_reason": "completed"
+  },
+  "evaluation": {
+    "case_id": "TC-11-L3-F14-DurationEnergy-Mismatch",
+    "fault_family": "F14_DurationEnergy_Mismatch",
+    "layer": "L3",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "CSESS_VGREEN_0199",
+    "expected_classification": "MIXED",
+    "actual_classification": "DATA",
+    "classification_score": 0.7,
+    "target_component": {
+      "expected": "CHARGER_METER",
+      "actual": "CHARGING_STATION",
+      "matched": true
+    },
+    "target_metric": {
+      "expected": "duration_vs_kwh",
+      "actual": "energy_delivered_kwh",
+      "matched": false
+    },
+    "failure_mechanism": {
+      "expected": "RELATIONAL_BREAK",
+      "actual": "SENSOR_GLITCH",
+      "matched": false
+    },
+    "diagnosis_score": 0.333,
+    "ground_truth_cause": "Relational break where charging duration increases significantly while delivered energy (kWh) remains flat, indicating power delivery stall or charger meter fault.",
+    "llm_claim": "The charging station's energy delivery sensor is malfunctioning, reporting zero kWh while the session duration is long, causing a relational anomaly.",
+    "supporting_evidence": [
+      "EV-INIT-011"
+    ],
+    "grounding_score": 1.0,
+    "operational_efficiency": {
+      "tool_calls_made": 0,
+      "tokens_spent": 2754,
+      "wall_clock_sec": 8.589977,
+      "bounds_passed": true
+    },
+    "overall_score": 0.613,
+    "verdict": "PARTIAL"
+  }
+}

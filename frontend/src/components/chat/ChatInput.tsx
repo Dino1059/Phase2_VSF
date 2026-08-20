@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Send, Play, Layers, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
+import { Send, Play, Layers, Activity, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
 import { sendChatMessage, fetchChatHistory } from '../../services/api';
+import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
 
 interface ChatInputProps {
@@ -22,6 +23,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
 
     try {
       if (onPipelineStarted) onPipelineStarted();
+      agentSocket.connect(sessionId);
       await sendChatMessage(promptText, sessionId, datasetKey, i18n.language);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
@@ -59,7 +61,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           type="button"
           disabled={isSending}
           onClick={() => executePrompt(i18n.language === 'vi' ? 'Chạy toàn bộ pipeline cho tôi' : 'run full pipeline for me')}
-          title="Tự động chạy toàn bộ quy trình: Khảo sát, Đề xuất luật và Làm sạch dữ liệu"
+          title="Tự động chạy toàn bộ quy trình: Khảo sát, Phát hiện dị thường L1-L4, Đề xuất luật và Làm sạch dữ liệu"
           style={{
             background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(147, 51, 234, 0.15))',
             border: '1px solid rgba(2, 132, 199, 0.4)',
@@ -106,6 +108,28 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
         >
           <Layers size={11} style={{ color: '#2563eb' }} />
           <span>{i18n.language === 'vi' ? 'Khảo sát dữ liệu' : 'Profile Dataset'}</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={isSending}
+          onClick={() => executePrompt(i18n.language === 'vi' ? 'Phát hiện dị thường L1-L4' : 'detect anomalies')}
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--glass-border)',
+            color: 'var(--text-muted)',
+            padding: '4px 10px',
+            borderRadius: '20px',
+            fontSize: '11px',
+            fontWeight: 500,
+            cursor: isSending ? 'not-allowed' : 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          <Activity size={11} style={{ color: '#ec4899' }} />
+          <span>{i18n.language === 'vi' ? 'Dị thường L1–L4' : 'Anomaly L1–L4'}</span>
         </button>
 
         <button

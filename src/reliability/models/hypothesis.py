@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Any
 from pydantic import BaseModel, Field
 import uuid
 
@@ -10,8 +10,14 @@ class Hypothesis(BaseModel):
     incident_id: str
     claim: str
     classification: CauseClassification = "UNKNOWN"
+    target_component: Optional[str] = None
+    target_metric: Optional[str] = None
+    failure_mechanism: Optional[str] = None
+    anomalous_value_observed: Optional[Any] = None
+    technical_summary: Optional[str] = None
     supporting_evidence: List[str] = Field(default_factory=list)
     contradicting_evidence: List[str] = Field(default_factory=list)
     missing_evidence: List[str] = Field(default_factory=list)
     confidence: float = 0.0
     status: HypothesisStatus = "PROPOSED"
+

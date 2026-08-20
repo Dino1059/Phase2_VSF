@@ -1,0 +1,126 @@
+{
+  "case_id": "TC-01-L1-F1-Negative-SOC",
+  "case_definition": {
+    "case_id": "TC-01-L1-F1-Negative-SOC",
+    "fault_family": "F1_Negative_SOC",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0006",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Telemetry anomaly detected for vehicle VF8VNF_0006: battery_soc reported negative out-of-bound values.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-001",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "VF8VNF_0006"
+        ],
+        "summary": "Telemetry anomaly detected for vehicle VF8VNF_0006: battery_soc reported negative out-of-bound values."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BMS",
+      "target_metric": "battery_soc",
+      "failure_mechanism": "SENSOR_GLITCH",
+      "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0)."
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp-3ed175c2",
+    "incident_id": "INC-TC-01-L1-F1-Negative-SOC",
+    "claim": "The recent BMS firmware update (v2.3.1) introduced a sensor/glitch bug that caused the SOC estimator to output negative values, violating the defined 0-100% range.",
+    "classification": "DATA",
+    "target_component": "BMS",
+    "target_metric": "battery_soc",
+    "failure_mechanism": "SENSOR_GLITCH",
+    "anomalous_value_observed": "-5.2",
+    "technical_summary": "Telemetry fetch shows repeated negative SOC values, which directly breach the schema contract requiring SOC >= 0. A recent BMS firmware deployment aligns temporally with the onset of the anomaly. No other upstream changes or sensor hardware issues are indicated. Data quality checks flag a range violation for the same metric. The convergence of these pieces points to a firmware-induced sensor/glitch rather than physical degradation.",
+    "supporting_evidence": [
+      "EV-INIT-001"
+    ],
+    "contradicting_evidence": [],
+    "missing_evidence": [],
+    "confidence": 0.94,
+    "status": "PROPOSED"
+  },
+  "recommendation": {
+    "recommendation_id": "rec-a687dda3",
+    "incident_id": "INC-TC-01-L1-F1-Negative-SOC",
+    "recommendation_type": "PREVENTIVE_DATA_CONTROL",
+    "cause_type": "DATA",
+    "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+    "summary": "Propose preventive data control rule for: The recent BMS firmware update (v2.3.1) introduced a sensor/glitch bug that caused the SOC estimator to output negative values, violating the defined 0-100% range.",
+    "details": {
+      "hypothesis_id": "hyp-3ed175c2",
+      "rule_proposal": "The recent BMS firmware update (v2.3.1) introduced a sensor/glitch bug that caused the SOC estimator to output negative values, violating the defined 0-100% range."
+    },
+    "requires_hitl_approval": true
+  },
+  "execution_meta": {
+    "tokens_spent": 3497,
+    "tool_calls_made": 0,
+    "tool_execution_trace": [],
+    "hypothesis_revisions": 0,
+    "budget_remaining": 8503,
+    "target_domain": "EV_TELEMETRY",
+    "domain_allowlist": [
+      "calculate_detector_detail",
+      "fetch_dq_violations",
+      "fetch_entity_telemetry",
+      "fetch_profile",
+      "fetch_recent_changes",
+      "inspect_upstream_contracts",
+      "query_historical_baselines",
+      "resolve_entity_relationships"
+    ],
+    "resolved_entity_scope": [
+      "VF8VNF_0006"
+    ],
+    "resolved_time_scope": {},
+    "bounded_stop": true,
+    "wall_clock_elapsed_sec": 4.046694,
+    "stop_reason": "completed"
+  },
+  "evaluation": {
+    "case_id": "TC-01-L1-F1-Negative-SOC",
+    "fault_family": "F1_Negative_SOC",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0006",
+    "expected_classification": "DATA",
+    "actual_classification": "DATA",
+    "classification_score": 1.0,
+    "target_component": {
+      "expected": "BMS",
+      "actual": "BMS",
+      "matched": true
+    },
+    "target_metric": {
+      "expected": "battery_soc",
+      "actual": "battery_soc",
+      "matched": true
+    },
+    "failure_mechanism": {
+      "expected": "SENSOR_GLITCH",
+      "actual": "SENSOR_GLITCH",
+      "matched": true
+    },
+    "diagnosis_score": 1.0,
+    "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0).",
+    "llm_claim": "The recent BMS firmware update (v2.3.1) introduced a sensor/glitch bug that caused the SOC estimator to output negative values, violating the defined 0-100% range.",
+    "supporting_evidence": [
+      "EV-INIT-001"
+    ],
+    "grounding_score": 1.0,
+    "operational_efficiency": {
+      "tool_calls_made": 0,
+      "tokens_spent": 3497,
+      "wall_clock_sec": 4.046694,
+      "bounds_passed": true
+    },
+    "overall_score": 1.0,
+    "verdict": "PASS"
+  }
+}

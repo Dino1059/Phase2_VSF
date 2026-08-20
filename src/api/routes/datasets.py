@@ -36,20 +36,159 @@ async def list_datasets():
 
 @router.get("/{dataset_key:path}/profile")
 @router.post("/{dataset_key:path}/profile")
-async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
-    """Profile a registered dataset with server-side file loading."""
+async def profile_dataset(
+    dataset_key: str,
+    table: Optional[str] = Query(None),
+    sample_size: int = 100_000,
+):
+    """Profile a registered dataset with server-side file loading and multi-table support."""
     try:
         from src.services.dataset_engine import load_dataset
         from src.tools.profiler import Profiler
+        from src.tools.datasource import StructuredSource
 
-        df = load_dataset(dataset_key=dataset_key, sample_size=sample_size)
+        base_key = dataset_key
+        table_name = table
+        if "::" in dataset_key:
+            parts = dataset_key.rsplit("::", 1)
+            base_key = parts[0]
+            table_name = parts[1]
+
+        settings = get_settings()
+        file_path = settings.get_dataset_path(base_key)
+        if not os.path.exists(file_path):
+            try:
+                file_path = settings.get_dataset_path(settings.default_dataset)
+                table_name = None
+            except Exception:
+                pass
+        src = StructuredSource(file_path)
+        user_tables = src.list_tables() if src.file_format == "duckdb" else []
+
         profiler = Profiler()
-        result = profiler.profile(df, file_path=dataset_key)
-        profile_data = result.model_dump()
+
+        # If a specific table is requested
+        if table_name:
+            df = src.load_data(sample_size=sample_size, table_name=table_name)
+            result = profiler.profile(df, file_path=f"{base_key}::{table_name}")
+            profile_data = _sanitize_nans(result.model_dump())
+            flags_penalty = min(30.0, len(result.quality_flags) * 5.0)
+            null_penalty = 0.0
+            if len(df) > 0 and result.columns:
+                avg_null = sum(c.null_pct for c in result.columns) / max(len(result.columns), 1)
+                null_penalty = min(30.0, avg_null * 50.0)
+            health_score = max(60.0, round(100.0 - flags_penalty - null_penalty, 1))
+
+            profile_data["total_rows"] = len(df)
+            profile_data["row_count"] = len(df)
+            profile_data["columns_count"] = len(df.columns)
+            profile_data["table_name"] = table_name
+            profile_data["health_score"] = health_score
+            profile_data["data_health_score"] = health_score
+
+            return {
+                "dataset": base_key,
+                "table": table_name,
+                "sample_size": len(df),
+                "total_rows": len(df),
+                "columns_count": len(df.columns),
+                "health_score": health_score,
+                "profile": profile_data,
+            }
+
+        # Multi-table database without specific table requested: profile all tables
+        if user_tables and len(user_tables) > 1:
+            tables_dict = {}
+            total_rows = 0
+            total_cols = 0
+            health_scores = []
+
+            for tbl in user_tables:
+                try:
+                    tdf = src.load_data(sample_size=sample_size, table_name=tbl)
+                    t_res = profiler.profile(tdf, file_path=f"{base_key}::{tbl}")
+                    t_dump = _sanitize_nans(t_res.model_dump())
+
+                    flags_penalty = min(30.0, len(t_res.quality_flags) * 5.0)
+                    null_penalty = 0.0
+                    if len(tdf) > 0 and t_res.columns:
+                        avg_null = sum(c.null_pct for c in t_res.columns) / max(len(t_res.columns), 1)
+                        null_penalty = min(30.0, avg_null * 50.0)
+                    tbl_health = max(60.0, round(100.0 - flags_penalty - null_penalty, 1))
+                    health_scores.append(tbl_health)
+
+                    tables_dict[tbl] = {
+                        "table_name": tbl,
+                        "total_rows": len(tdf),
+                        "row_count": len(tdf),
+                        "columns_count": len(tdf.columns),
+                        "health_score": tbl_health,
+                        "columns": t_dump.get("columns", []),
+                        "quality_flags": t_dump.get("quality_flags", []),
+                        "summary": f"Table '{tbl}' ({len(tdf.columns)} columns, {len(tdf):,} rows)",
+                    }
+                    total_rows += len(tdf)
+                    total_cols += len(tdf.columns)
+                except Exception as ex:
+                    tables_dict[tbl] = {
+                        "table_name": tbl,
+                        "error": str(ex),
+                        "total_rows": 0,
+                        "row_count": 0,
+                        "columns_count": 0,
+                        "health_score": 100.0,
+                        "columns": [],
+                    }
+
+            agg_health = round(min(health_scores), 1) if health_scores else 100.0
+            primary_tbl = user_tables[0]
+            primary_cols = tables_dict[primary_tbl].get("columns", [])
+
+            return {
+                "dataset": base_key,
+                "sample_size": total_rows,
+                "total_rows": total_rows,
+                "columns_count": total_cols,
+                "health_score": agg_health,
+                "tables": user_tables,
+                "active_table": primary_tbl,
+                "profile": {
+                    "dataset": base_key,
+                    "total_rows": total_rows,
+                    "row_count": total_rows,
+                    "columns_count": total_cols,
+                    "health_score": agg_health,
+                    "data_health_score": agg_health,
+                    "tables": tables_dict,
+                    "columns": primary_cols,
+                    "summary": f"Multi-table database with {len(user_tables)} tables ({total_cols} columns, {total_rows:,} total rows).",
+                },
+            }
+
+        # Single table file (CSV, Parquet, or single-table SQLite/DuckDB)
+        df = src.load_data(sample_size=sample_size)
+        result = profiler.profile(df, file_path=base_key)
+        profile_data = _sanitize_nans(result.model_dump())
+        flags_penalty = min(30.0, len(result.quality_flags) * 5.0)
+        null_penalty = 0.0
+        if len(df) > 0 and result.columns:
+            avg_null = sum(c.null_pct for c in result.columns) / max(len(result.columns), 1)
+            null_penalty = min(30.0, avg_null * 50.0)
+        health_score = max(60.0, round(100.0 - flags_penalty - null_penalty, 1))
+
+        profile_data["total_rows"] = len(df)
+        profile_data["row_count"] = len(df)
+        profile_data["columns_count"] = len(df.columns)
+        profile_data["health_score"] = health_score
+        profile_data["data_health_score"] = health_score
+
         return {
-            "dataset": dataset_key,
+            "dataset": base_key,
             "sample_size": len(df),
-            "profile": _sanitize_nans(profile_data),
+            "total_rows": len(df),
+            "columns_count": len(df.columns),
+            "health_score": health_score,
+            "profile": profile_data,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -58,19 +197,30 @@ async def profile_dataset(dataset_key: str, sample_size: int = 100_000):
 
 
 @router.get("/{dataset_key:path}/sample")
-async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
+async def sample_dataset(
+    dataset_key: str,
+    table: Optional[str] = Query(None),
+    limit: int = 50,
+    offset: int = 0,
+):
     """Sample records from a registered dataset."""
     try:
         from src.services.dataset_engine import load_dataset
-        df = load_dataset(dataset_key=dataset_key, sample_size=50_000)
+        effective_key = f"{dataset_key}::{table}" if table and "::" not in dataset_key else dataset_key
+        df = load_dataset(dataset_key=effective_key, sample_size=50_000)
         total = len(df)
         subset = df.iloc[offset : offset + limit]
+        records = _sanitize_nans(subset.to_dict(orient="records"))
         return {
             "dataset": dataset_key,
+            "table": table,
             "total": total,
+            "total_rows": total,
             "limit": limit,
             "offset": offset,
-            "records": _sanitize_nans(subset.to_dict(orient="records")),
+            "columns": list(df.columns),
+            "records": records,
+            "rows": records,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -269,20 +419,50 @@ async def upload_dataset_endpoint(
     rel_path = os.path.relpath(file_path, base_dir)
 
     settings = get_settings()
-    settings.register_dataset(dataset_key, rel_path)
-
     src = StructuredSource(file_path)
-    df = src.load_data(sample_size=50_000)
+
+    # Multi-table decomposition for .db files
+    table_names = src.list_tables() if ext == ".db" else []
+    tables_info = []
+
+    if table_names and len(table_names) > 1:
+        # Register each table as a separate sub-dataset
+        for tbl in table_names:
+            sub_key = f"{dataset_key}::{tbl}"
+            settings.register_dataset(sub_key, rel_path)
+            try:
+                tdf = src.load_data(sample_size=50_000, table_name=tbl)
+                tables_info.append({"table": tbl, "columns": len(tdf.columns), "rows": len(tdf), "dataset_key": sub_key})
+            except Exception:
+                tables_info.append({"table": tbl, "columns": 0, "rows": 0, "dataset_key": sub_key})
+        # Also register the parent key pointing to largest table (backward compat)
+        settings.register_dataset(dataset_key, rel_path)
+        df = src.load_data(sample_size=50_000)
+        total_cols = len(df.columns)
+        total_rows = sum(t["rows"] for t in tables_info)
+    else:
+        settings.register_dataset(dataset_key, rel_path)
+        df = src.load_data(sample_size=50_000)
+        total_cols = len(df.columns)
+        total_rows = len(df)
 
     await ws_manager.broadcast(
         {"type": "agent.status", "agent": "orchestrator", "status": "working"}
     )
 
     is_vi = (lang == "vi")
+    tables_summary = ""
+    if tables_info:
+        tables_summary = "\n".join(f"  - `{t['table']}`: {t['columns']} cột, {t['rows']:,} dòng" if is_vi
+                                   else f"  - `{t['table']}`: {t['columns']} cols, {t['rows']:,} rows"
+                                   for t in tables_info)
+        tables_summary = f"\n\n**{'Bảng phát hiện' if is_vi else 'Tables detected'}**:\n{tables_summary}"
+
     if is_vi:
         declaration_content = (
             f"📥 **Đã Nạp & Đăng Ký Tập Dữ Liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
-            f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n\n"
+            f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {total_cols} cột, {total_rows:,} dòng tổng cộng."
+            f"{tables_summary}\n\n"
             f"⚖️ **Cổng Tuyên Bố & Phê Duyệt Quản Trị**:\n"
             f"Agent Điều Phối Orchestrator yêu cầu quyền khởi chạy **Quy Trình Quản Trị Tự Động** "
             f"(Khảo Sát ➔ Phát Hiện Bất Thường ➔ Chẩn Đoán ➔ Tổng Hợp Luật ➔ Tạo DB Sạch)."
@@ -290,7 +470,8 @@ async def upload_dataset_endpoint(
     else:
         declaration_content = (
             f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
-            f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
+            f"**Dataset Key**: `{dataset_key}` | **Schema**: {total_cols} columns, {total_rows:,} total rows."
+            f"{tables_summary}\n\n"
             f"⚖️ **Declaration & Permission Gate**:\n"
             f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
             f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
@@ -306,7 +487,8 @@ async def upload_dataset_endpoint(
                 "dataset_key": dataset_key,
                 "filename": file.filename,
                 "columns": list(df.columns),
-                "total_rows": len(df),
+                "total_rows": total_rows,
+                "tables": tables_info or None,
                 "proposals": [
                     {
                         "id": f"prop_upload_{dataset_key}",
@@ -332,5 +514,6 @@ async def upload_dataset_endpoint(
         "filename": file.filename,
         "size_mb": file_size_mb,
         "columns": list(df.columns),
-        "total_rows": len(df),
+        "total_rows": total_rows,
+        "tables": tables_info or None,
     }

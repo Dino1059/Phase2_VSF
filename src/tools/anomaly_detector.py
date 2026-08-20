@@ -6,10 +6,39 @@ from src.db.connection import get_db
 from src.api.state_machine import WorkflowState
 
 
+def _resolve_allowed_tables() -> set:
+    """
+    Compute the set of tables the AnomalyDetectorTool is allowed to query.
+
+    Includes:
+      - the canonical VinGroup pilot tables (always allowed)
+      - any uploaded_* dataset's user tables (discovered via dataset registry)
+    """
+    canonical = {
+        "vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback",
+        "raw.ev_telemetry", "raw.charging_sessions", "raw.trips", "raw.fault_manifest",
+    }
+    try:
+        from src.config import get_settings
+        from src.tools.datasource import StructuredSource
+        settings = get_settings()
+        for key, path in (settings.dataset_registry or {}).items():
+            if not key.startswith("uploaded_"):
+                continue
+            try:
+                tables = StructuredSource(path).list_tables()
+                canonical.update(tables or [])
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return canonical
+
+
 class AnomalyDetectorTool(BaseTool):
     name = "anomaly_detector"
     target_workflow_state = WorkflowState.PROFILED
-    description = "Detect statistical anomalies in a DuckDB table column using Z-score, IQR, or simple threshold methods."
+    description = "Detect statistical anomalies in a DuckDB table column using Z-score, IQR, or simple threshold methods. Supports uploaded multi-table DuckDB datasets."
     input_schema = {
         "type": "object",
         "properties": {
@@ -21,16 +50,15 @@ class AnomalyDetectorTool(BaseTool):
         "required": ["table_name", "column_name"]
     }
 
-    ALLOWED_TABLES = {"vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback"}
-
     def execute(self, input_data: dict) -> dict:
         table = input_data["table_name"]
         column = input_data["column_name"]
         method = input_data.get("method", "z_score")
         threshold = input_data.get("threshold", 3.0)
 
-        if table not in self.ALLOWED_TABLES:
-            return {"error": f"Table '{table}' not allowed. Use: {self.ALLOWED_TABLES}", "anomalies_found": 0, "anomaly_indices": [], "statistics": {}}
+        allowed = _resolve_allowed_tables()
+        if allowed and table not in allowed:
+            return {"error": f"Table '{table}' not allowed. Use one of: {sorted(allowed)}", "anomalies_found": 0, "anomaly_indices": [], "statistics": {}}
 
         db = get_db()
         # Validate column exists

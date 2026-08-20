@@ -49,8 +49,11 @@ async def reset_all_db(authorization: Optional[str] = Header(None)):
         "execution_authorizations",
         "decisions",
         "evidence",
+        "hypotheses",
+        "recommendations",
         "agent_traces",
         "incidents",
+        "incident_metadata",
     ]
 
     for tbl in tables_to_clear:
@@ -94,13 +97,14 @@ async def reset_all_db(authorization: Optional[str] = Header(None)):
     except Exception as e:
         logger.warning(f"Could not clear conversation store: {e}")
 
-    # 3. Reseed gold RCA benchmark cases into incident service
+    # 2b. Clear in-memory incident / evidence / hypothesis caches so the
+    # Alert Dashboard starts empty after a reset and does not leak the
+    # previous session's incidents into a fresh upload.
     try:
         from src.reliability.incidents.service import IncidentService
-        inc_service = IncidentService(db=db)
-        inc_service.seed_benchmark_cases()
+        IncidentService().clear()
     except Exception as e:
-        logger.warning(f"Could not reseed benchmark cases: {e}")
+        logger.warning(f"Could not clear IncidentService cache: {e}")
 
     # 4. Verify / Ingest VinGroup baseline tables
     reloaded = {}
@@ -122,3 +126,6 @@ async def reset_all_db(authorization: Optional[str] = Header(None)):
         cleared_tables=cleared,
         reloaded_records=reloaded,
     )
+
+
+

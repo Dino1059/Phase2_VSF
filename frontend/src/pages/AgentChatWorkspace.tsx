@@ -36,46 +36,63 @@ import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
 import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage } from '../services/api';
+import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import type { TimeFilter } from '../types';
 
 const AGENT_AVATAR_CLASS: Record<string, string> = {
   orchestrator: 'agent-orchestrator',
   profiler: 'agent-profiler',
+  profile_dataset: 'agent-profiler',
   anomaly: 'agent-anomaly',
+  detect_anomalies: 'agent-anomaly',
   diagnosis: 'agent-diagnosis',
   proposer: 'agent-proposer',
+  propose_quality_rules: 'agent-proposer',
   executor: 'agent-executor',
+  clean_database: 'agent-executor',
   human: 'agent-human',
 };
 
 const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }>> = {
   orchestrator: Brain,
   profiler: ScanSearch,
+  profile_dataset: ScanSearch,
   anomaly: AlertTriangle,
+  detect_anomalies: AlertTriangle,
   diagnosis: Stethoscope,
   proposer: Lightbulb,
+  propose_quality_rules: Lightbulb,
   executor: FlaskConical,
+  clean_database: FlaskConical,
   human: UserShield,
 };
 
 const AGENT_TITLES: Record<string, string> = {
   orchestrator: 'ORCHESTRATOR AGENT',
   profiler: 'DATA PROFILER AGENT',
+  profile_dataset: 'DATA PROFILER AGENT',
   anomaly: 'ANOMALY DETECTOR AGENT',
+  detect_anomalies: 'ANOMALY DETECTOR AGENT',
   diagnosis: 'RCA DIAGNOSIS AGENT',
   proposer: 'RULE PROPOSER AGENT',
+  propose_quality_rules: 'RULE PROPOSER AGENT',
   executor: 'PIPELINE EXECUTOR AGENT',
+  clean_database: 'PIPELINE EXECUTOR AGENT',
   human: 'HUMAN STEWARD GOVERNANCE',
 };
 
 const AGENT_COLORS: Record<string, string> = {
   orchestrator: 'var(--text-main)',
   profiler: 'var(--royal-purple)',
+  profile_dataset: 'var(--royal-purple)',
   anomaly: 'var(--warning-amber)',
+  detect_anomalies: 'var(--warning-amber)',
   diagnosis: 'var(--alert-magenta)',
   proposer: 'var(--electric-green)',
+  propose_quality_rules: 'var(--electric-green)',
   executor: 'var(--electric-green)',
+  clean_database: 'var(--electric-green)',
   human: 'var(--text-main)',
 };
 
@@ -113,11 +130,13 @@ export function AgentChatWorkspace() {
   const runStartedRef = useRef(false);
 
   const handleRunFullPipeline = useCallback(async () => {
+    if (isRunningPipeline) return;
     setIsRunningPipeline(true);
     try {
       const lang = i18n?.language || 'vi';
       const prompt = lang === 'vi' ? 'Chạy toàn bộ pipeline cho tôi' : 'run full pipeline for me';
       const currentSession = useChatStore.getState().sessionId;
+      agentSocket.connect(currentSession);
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
       const history = await fetchChatHistory(currentSession);
       if (history.messages && Array.isArray(history.messages)) {
@@ -128,19 +147,21 @@ export function AgentChatWorkspace() {
     } finally {
       setIsRunningPipeline(false);
     }
-  }, [datasetKey, i18n]);
+  }, [datasetKey, i18n, isRunningPipeline]);
 
   // Context-Aware Auto-Switch: sync right panel to latest agent step
   useEffect(() => {
     if (chatMessages.length === 0) return;
     const lastMsg = chatMessages[chatMessages.length - 1];
-    if (lastMsg.type === 'agent' || lastMsg.agentId === 'orchestrator') {
+    if (lastMsg.type === 'agent') {
       const content = lastMsg.content || '';
-      if (content.includes('Profile Summary') || content.includes('profile_dataset')) {
+      if (content.includes('Profile Summary') || content.includes('profile_dataset') || content.includes('Khảo sát') || content.includes('Khảo Sát')) {
         setRightTab('tab-profiler');
-      } else if (content.includes('Quality Rule Proposals') || content.includes('propose_quality_rules')) {
+      } else if (content.includes('Dị Thường') || content.includes('detect_anomalies') || content.includes('Anomaly') || content.includes('Incidents')) {
+        setRightTab('tab-traces');
+      } else if (content.includes('Quality Rule Proposals') || content.includes('propose_quality_rules') || content.includes('Đề Xuất Luật') || content.includes('Đề xuất luật')) {
         setRightTab('tab-rules');
-      } else if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database')) {
+      } else if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database') || content.includes('Làm Sạch') || content.includes('Làm sạch')) {
         setRightTab('tab-split');
       }
     }
@@ -153,11 +174,13 @@ export function AgentChatWorkspace() {
       resetPipeline();
       setChatSessionId('default');
       useChatStore.getState().clearMessages();
+      agentSocket.connect('default');
       return;
     }
     const sessionId = datasetKey ? `dataset:${datasetKey}` : 'default';
     setChatSessionId(sessionId);
     useChatStore.getState().clearMessages();
+    agentSocket.connect(sessionId);
     void fetchChatHistory(sessionId).then((history) => {
       if (Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
@@ -166,6 +189,17 @@ export function AgentChatWorkspace() {
       console.error('Failed to load chat history:', error);
     });
   }, [datasetKey, isNewChat, resetPipeline, setChatSessionId]);
+
+  useEffect(() => {
+    const handleDbReset = () => {
+      resetPipeline();
+      setStream([]);
+      setPipelineResult(null);
+      useChatStore.getState().clearMessages();
+    };
+    window.addEventListener('datatrust:db-reset', handleDbReset);
+    return () => window.removeEventListener('datatrust:db-reset', handleDbReset);
+  }, [resetPipeline]);
 
   // Poll the persisted backend result so all right-panel tabs share one run_id.
   useEffect(() => {

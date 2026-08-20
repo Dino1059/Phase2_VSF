@@ -1,0 +1,126 @@
+{
+  "case_id": "TC-02-L1-F2-Voltage-Overvoltage-Spike",
+  "case_definition": {
+    "case_id": "TC-02-L1-F2-Voltage-Overvoltage-Spike",
+    "fault_family": "F2_Voltage_Overvoltage_Spike",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0012",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Telemetry anomaly detected for vehicle VF8VNF_0012: battery_voltage reported extreme overvoltage spike (> 1000V).",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-002",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "VF8VNF_0012"
+        ],
+        "summary": "Telemetry anomaly detected for vehicle VF8VNF_0012: battery_voltage reported extreme overvoltage spike (> 1000V)."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BMS",
+      "target_metric": "battery_voltage",
+      "failure_mechanism": "SENSOR_GLITCH",
+      "ground_truth_cause": "CAN-bus electrical surge or sensor glitch causing unrealistic voltage spike (> 1000V)."
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp-fb6aceb0",
+    "incident_id": "INC-TC-02-L1-F2-Voltage-Overvoltage-Spike",
+    "claim": "The battery experienced an overvoltage spike reaching 1025V, likely due to a transient fault in the high-voltage bus or BMS regulation failure.",
+    "classification": "OPERATIONAL",
+    "target_component": "BATTERY",
+    "target_metric": "battery_voltage",
+    "failure_mechanism": "OVERVOLTAGE_SPIKE",
+    "anomalous_value_observed": "1025V",
+    "technical_summary": "The initial detector flagged a voltage >1000V, which is far beyond the normal operating range (~350-400V). No data quality violations or schema issues were observed, indicating a genuine physical overvoltage event rather than a sensor or pipeline error.",
+    "supporting_evidence": [
+      "EV-INIT-002"
+    ],
+    "contradicting_evidence": [],
+    "missing_evidence": [],
+    "confidence": 0.85,
+    "status": "PROPOSED"
+  },
+  "recommendation": {
+    "recommendation_id": "rec-26a3d044",
+    "incident_id": "INC-TC-02-L1-F2-Voltage-Overvoltage-Spike",
+    "recommendation_type": "OPERATIONAL_RECOMMENDATION",
+    "cause_type": "OPERATIONAL",
+    "action_type": "MAINTENANCE_ROUTING",
+    "summary": "Route operational maintenance recommendation: The battery experienced an overvoltage spike reaching 1025V, likely due to a transient fault in the high-voltage bus or BMS regulation failure.",
+    "details": {
+      "hypothesis_id": "hyp-fb6aceb0",
+      "target_team": "Maintenance_Ops"
+    },
+    "requires_hitl_approval": false
+  },
+  "execution_meta": {
+    "tokens_spent": 2775,
+    "tool_calls_made": 0,
+    "tool_execution_trace": [],
+    "hypothesis_revisions": 0,
+    "budget_remaining": 9225,
+    "target_domain": "EV_TELEMETRY",
+    "domain_allowlist": [
+      "calculate_detector_detail",
+      "fetch_dq_violations",
+      "fetch_entity_telemetry",
+      "fetch_profile",
+      "fetch_recent_changes",
+      "inspect_upstream_contracts",
+      "query_historical_baselines",
+      "resolve_entity_relationships"
+    ],
+    "resolved_entity_scope": [
+      "VF8VNF_0012"
+    ],
+    "resolved_time_scope": {},
+    "bounded_stop": true,
+    "wall_clock_elapsed_sec": 2.393415,
+    "stop_reason": "completed"
+  },
+  "evaluation": {
+    "case_id": "TC-02-L1-F2-Voltage-Overvoltage-Spike",
+    "fault_family": "F2_Voltage_Overvoltage_Spike",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0012",
+    "expected_classification": "DATA",
+    "actual_classification": "OPERATIONAL",
+    "classification_score": 0.0,
+    "target_component": {
+      "expected": "BMS",
+      "actual": "BATTERY",
+      "matched": true
+    },
+    "target_metric": {
+      "expected": "battery_voltage",
+      "actual": "battery_voltage",
+      "matched": true
+    },
+    "failure_mechanism": {
+      "expected": "SENSOR_GLITCH",
+      "actual": "OVERVOLTAGE_SPIKE",
+      "matched": true
+    },
+    "diagnosis_score": 1.0,
+    "ground_truth_cause": "CAN-bus electrical surge or sensor glitch causing unrealistic voltage spike (> 1000V).",
+    "llm_claim": "The battery experienced an overvoltage spike reaching 1025V, likely due to a transient fault in the high-voltage bus or BMS regulation failure.",
+    "supporting_evidence": [
+      "EV-INIT-002"
+    ],
+    "grounding_score": 1.0,
+    "operational_efficiency": {
+      "tool_calls_made": 0,
+      "tokens_spent": 2775,
+      "wall_clock_sec": 2.393415,
+      "bounds_passed": true
+    },
+    "overall_score": 0.6,
+    "verdict": "PARTIAL"
+  }
+}

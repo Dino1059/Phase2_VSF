@@ -106,11 +106,65 @@ export const datasetsApi = {
 };
 
 
+export interface QualityRuleItem {
+  id: string;
+  rule_id: string;
+  rule_type: string;
+  rule_name: string;
+  status: 'approved' | 'proposed' | 'pending' | 'rejected' | string;
+  rule_expression: string;
+  description?: string;
+  confidence: number;
+  proposed_by?: string;
+  approved_by?: string;
+  created_at?: string;
+  approved_at?: string;
+  dataset_key: string;
+  dataset_name: string;
+  target_table: string;
+  dataset_category?: string;
+  dataset_icon?: string;
+  dataset_color?: string;
+  layer: string;
+  target_column: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | string;
+  quarantined_count?: number;
+}
+
+export const rulesApi = {
+  list: (params?: { dataset_key?: string; status?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.dataset_key) query.append('dataset_key', params.dataset_key);
+    if (params?.status) query.append('status', params.status);
+    const qs = query.toString();
+    return request<QualityRuleItem[]>(`/rules${qs ? `?${qs}` : ''}`);
+  },
+  approve: (ruleId: string) =>
+    request<{ status: string; rule_id: string; rule_name?: string; dataset_key?: string; quarantined_count: number; message: string }>(
+      `/rules/${encodeURIComponent(ruleId)}/approve`,
+      { method: 'POST' }
+    ),
+  reject: (ruleId: string) =>
+    request<{ status: string; rule_id: string }>(`/rules/${encodeURIComponent(ruleId)}/reject`, { method: 'POST' }),
+  batchApprove: (ruleIds: string[]) =>
+    request<{ status: string; processed_count: number; total_quarantined: number; results: any[] }>('/rules/batch-approve', {
+      method: 'POST',
+      body: JSON.stringify({ rule_ids: ruleIds }),
+    }),
+  seedDefaults: () =>
+    request<{ status: string; count: number }>('/rules/seed-defaults', { method: 'POST' }),
+  create: (data: { rule_type: string; target_column: string; description?: string; dataset_key?: string }) =>
+    request<{ status: string; rule_id: string; dataset_key: string }>('/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
 export const approvalsApi = {
   list: () =>
     request<Array<{ id: string; rule_type: string; rule_name: string; status: string; description: string }>>('/approvals'),
   approve: (ruleId: string) =>
-    request<{ status: string; rule_id: string }>(`/approvals/${ruleId}/approve`, {
+    request<{ status: string; rule_id: string; quarantined_count?: number }>(`/approvals/${ruleId}/approve`, {
       method: 'POST',
     }),
   reject: (ruleId: string) =>
@@ -118,7 +172,7 @@ export const approvalsApi = {
       method: 'POST',
     }),
   batchApprove: (ruleIds: string[], action: 'approve' | 'reject' = 'approve') =>
-    request<{ status: string; processed_count: number; new_status: string }>('/approvals/batch', {
+    request<{ status: string; processed_count: number; new_status: string; total_quarantined?: number }>('/approvals/batch', {
       method: 'POST',
       body: JSON.stringify({ rule_ids: ruleIds, action }),
     }),
@@ -225,6 +279,65 @@ export const summaryApi = {
   getTrend: (range: string = '24h') => request<TrendInfo>(`/summary/trend?range=${encodeURIComponent(range)}`),
 };
 
+export interface ToolTraceStep {
+  tool_name: string;
+  args?: Record<string, any>;
+  success?: boolean;
+  evidence_ref?: string;
+  tokens_used?: number;
+  wall_clock_sec?: number;
+  data?: any;
+}
+
+export interface IncidentMeta {
+  tokens_spent?: number;
+  tool_calls_made?: number;
+  tool_execution_trace?: ToolTraceStep[];
+  hypothesis_revisions?: number;
+  budget_remaining?: number;
+  target_domain?: string;
+  domain_allowlist?: string[];
+  resolved_entity_scope?: string[];
+  resolved_time_scope?: Record<string, any>;
+  bounded_stop?: boolean;
+  wall_clock_elapsed_sec?: number;
+  stop_reason?: string;
+  tool_trace?: string[];
+}
+
+export interface IncidentEvidence {
+  evidence_id: string;
+  source_type: string;
+  source_id: string;
+  time_range?: Record<string, any>;
+  entity_ids?: string[];
+  content_hash?: string;
+  summary: string;
+  provenance?: string;
+}
+
+export interface IncidentHypothesis {
+  hypothesis_id?: string;
+  incident_id?: string;
+  claim: string;
+  classification?: string;
+  supporting_evidence?: string[];
+  contradicting_evidence?: string[];
+  missing_evidence?: string[];
+  confidence?: number;
+  status?: string;
+}
+
+export interface IncidentRecommendation {
+  recommendation_id?: string;
+  incident_id?: string;
+  cause_type?: string;
+  action_type?: string;
+  summary?: string;
+  details?: Record<string, any>;
+  requires_hitl_approval?: boolean;
+}
+
 export interface IncidentInfo {
   incident_id: string;
   project_id: string;
@@ -240,6 +353,27 @@ export interface IncidentInfo {
   owner?: string | null;
   created_at?: string;
   updated_at?: string;
+
+  // Enriched A1 Dynamic RCA fields
+  target_entity?: string;
+  domain?: string;
+  fault_family?: string;
+  layer?: string;
+  llm_claim?: string;
+  llm_classification?: string;
+  confidence?: number;
+  benchmark_score?: number;
+  verdict?: string;
+  tokens_spent?: number;
+  tool_calls_count?: number;
+  tool_trace?: string[];
+  expected_action?: string;
+  ground_truth_cause?: string;
+  meta?: IncidentMeta;
+  evidence?: IncidentEvidence[];
+  hypotheses?: IncidentHypothesis[];
+  recommendations?: IncidentRecommendation[];
+  benchmark_eval?: any;
 }
 
 export const incidentsApi = {
@@ -247,8 +381,8 @@ export const incidentsApi = {
     request<IncidentInfo[]>(`/incidents?project_id=${encodeURIComponent(projectId)}`),
   get: (incidentId: string) =>
     request<IncidentInfo>(`/incidents/${encodeURIComponent(incidentId)}`),
-  investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' = 'C1') =>
-    request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}`, { method: 'POST' }),
+  investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' | string = 'A1', useLlm: boolean = false) =>
+    request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}&use_llm=${useLlm}`, { method: 'POST' }),
   chat: (incidentId: string, payload: any) =>
     request<{ reply: string; reasoning?: string; tokens_used?: number }>(`/incidents/${encodeURIComponent(incidentId)}/chat`, {
       method: 'POST',
@@ -532,11 +666,20 @@ export interface HITLProposal {
   status?: string;
   proposed_by?: string;
   proposed_at?: string | null;
+  layer?: string;
+  problem_discovered?: string;
+  why_proposed?: string;
+  quality_impact?: string;
 }
 
 export const hitlApi = {
   queue: () =>
     request<{ proposals: HITLProposal[] }>('/hitl/queue'),
+  synthesizeLlm: (datasetKey?: string, tableName?: string) =>
+    request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean }>('/hitl/synthesize-llm', {
+      method: 'POST',
+      body: JSON.stringify({ dataset_key: datasetKey, table_name: tableName }),
+    }),
   approve: (ruleId: string, approvedBy: string = 'human') =>
     request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
@@ -587,17 +730,90 @@ export const pipelineApi = {
     }>(`/pipeline/result/${encodeURIComponent(runId)}`),
 };
 
+export interface QuarantineSampleRecord {
+  id: string;
+  source_row_id: number | string;
+  reason: string;
+  original_data?: any;
+  quarantined_at?: string | null;
+  lineage_hash?: string | null;
+}
+
+export interface QuarantineGroup {
+  group_id: string;
+  rule_id: string;
+  rule_name: string;
+  source_table: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | string;
+  total_rows: number;
+  reason_summary: string;
+  ai_suggested_sql: string;
+  remediation_strategy: string;
+  sample_records: QuarantineSampleRecord[];
+  earliest_time?: string | null;
+  latest_time?: string | null;
+  status?: string;
+}
+
 export const quarantineApi = {
-  list: (limit: number = 50) =>
-    request<{ quarantine: Array<{
-      id: string;
-      source_table: string;
-      source_row_id: string;
-      rule_id: string;
-      reason: string;
-      quarantined_at?: string | null;
-      lineage_hash?: string | null;
-    }> }>(`/quarantine/?limit=${limit}`),
+  list: (limit: number = 100, offset: number = 0, sourceTable?: string, ruleId?: string, search?: string) => {
+    let url = `/quarantine/?limit=${limit}&offset=${offset}`;
+    if (sourceTable && sourceTable !== 'all') url += `&source_table=${encodeURIComponent(sourceTable)}`;
+    if (ruleId && ruleId !== 'all') url += `&rule_id=${encodeURIComponent(ruleId)}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    return request<{
+      quarantine: Array<{
+        id: string;
+        source_table: string;
+        source_row_id: string | number;
+        rule_id: string;
+        reason: string;
+        original_data?: any;
+        quarantined_at?: string | null;
+        lineage_hash?: string | null;
+        status?: string;
+      }>;
+      total_count: number;
+      limit: number;
+      offset: number;
+    }>(url);
+  },
+  groups: (sourceTable?: string, status?: string) => {
+    let url = '/quarantine/groups';
+    const params: string[] = [];
+    if (sourceTable && sourceTable !== 'all') params.push(`source_table=${encodeURIComponent(sourceTable)}`);
+    if (status && status !== 'all') params.push(`status=${encodeURIComponent(status)}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
+    return request<{
+      groups: QuarantineGroup[];
+      total_quarantined: number;
+      groups_count: number;
+    }>(url);
+  },
+  remediate: (payload: { rule_id: string; source_table: string; sql_query?: string; group_id?: string; action_by?: string }) =>
+    request<{ status: string; remediated_count: number; rule_id: string; source_table: string; applied_sql: string; message: string }>(
+      '/quarantine/remediate',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
+  reject: (payload: { rule_id: string; source_table: string; group_id?: string; reason?: string; action_by?: string }) =>
+    request<{ status: string; rejected_count: number; rule_id: string; source_table: string; group_status: string; message: string }>(
+      '/quarantine/reject',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
+  block: (payload: { rule_id: string; source_table: string; group_id?: string; reason?: string; action_by?: string }) =>
+    request<{ status: string; blocked_count: number; rule_id: string; source_table: string; message: string }>(
+      '/quarantine/block',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
   count: () =>
     request<{ counts: Record<string, number> }>('/quarantine/count'),
 };
