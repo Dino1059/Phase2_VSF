@@ -222,3 +222,33 @@ def test_traces_get_and_poll_never_force_propose():
     routes = (ROOT / "src/api/routes/__init__.py").read_text()
     assert "_PROPOSE_ALIASES" in routes or "quality_rule_proposer" in routes.split("def _session_has_tool_beat", 1)[1]
 
+
+
+def test_traces_tab_does_not_wipe_steps_on_empty_refetch():
+    """Profiler → Traces must keep STEPS. Empty GET/error must not setTraces([])."""
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    load = ui.split("const loadTraces", 1)[1].split("useEffect", 1)[0]
+    assert "setTraces([])" not in load
+    assert "keep existing" in load or "Never setTraces([])" in load
+    assert "resolvedSessionRef" in ui
+    assert "tracesApi.list" in load
+    assert "dataset:${datasetKey}" in load
+    poll = ui.split("window.setInterval", 1)[0]
+    assert "if (!active)" in ui
+    rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    fetch = rules.split("const fetchRules", 1)[1].split("useEffect", 1)[0]
+    assert "fromDb.length === 0 && prev.length > 0" in fetch
+    assert "setProposals([])" not in fetch
+    traces_py = (ROOT / "src/api/traces.py").read_text()
+    assert "def workspace_trace_sessions" in traces_py
+    assert "def resolve_trace_rows" in traces_py
+    get_fn = traces_py.split("async def get_trace", 1)[1]
+    assert "if since_dt and not normalized and unfiltered" in traces_py
+    assert "ProposeQualityRulesTool" not in get_fn
+    hitl = (ROOT / "src/api/hitl.py").read_text()
+    assert "id LIKE" in hitl
+    assert "_hydrate_queue_from_traces" in hitl
+    tools = (ROOT / "src/tools/chat_tools.py").read_text()
+    assert "def persist_hitl_proposals" in tools
+    assert "namespace_rule_id(dataset_key, rid)" in tools
+    assert '"status": "proposed"' in tools

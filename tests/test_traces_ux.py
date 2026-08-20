@@ -11,6 +11,7 @@ Empty traces / no-fake-hash / no-kafka-theater cases already hold.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -624,3 +625,53 @@ def test_engine_skips_second_propose_execute_and_log(monkeypatch):
         ["profile_dataset", "FINISH"],
     ) == ["propose_quality_rules"]
 
+
+
+
+def test_traces_get_resolves_dataset_alias_and_keeps_beats_if_since_misses():
+    """GET dataset:X and X must return the 2 workspace beats. since must not hide them."""
+    from src.db.connection import get_db
+
+    sid = f"dataset:qa-alias-{uuid.uuid4().hex[:10]}"
+    key = sid.split(":", 1)[1]
+    db = get_db()
+    for idx, action in enumerate(("profile_dataset", "propose_quality_rules"), start=1):
+        db.execute(
+            "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
+            "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                f"tr-{uuid.uuid4().hex[:12]}",
+                sid,
+                "C1_AI",
+                idx,
+                None,
+                action,
+                action,
+                json.dumps({"dataset_key": key}),
+                json.dumps({"count": 3} if "propose" in action else {"total_rows": 2}),
+                "3 rules" if "propose" in action else "2 rows",
+                4,
+                12,
+            ],
+        )
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    for path in (sid, key):
+        resp = client.get(f"/api/v1/traces/{path}")
+        assert resp.status_code == 200, resp.text
+        names = [
+            s.get("tool_name") or s.get("action")
+            for s in (resp.json().get("steps") or [])
+        ]
+        assert names.count("profile_dataset") == 1, names
+        assert names.count("propose_quality_rules") == 1, names
+    future = "2099-01-01T00:00:00.000Z"
+    resp = client.get(f"/api/v1/traces/{sid}?since={future}")
+    assert resp.status_code == 200, resp.text
+    names = [s.get("tool_name") or s.get("action") for s in (resp.json().get("steps") or [])]
+    assert names.count("profile_dataset") == 1, names
+    assert names.count("propose_quality_rules") == 1, names
+    empty = f"qa-empty-alias-{uuid.uuid4().hex}"
+    blank = client.get(f"/api/v1/traces/{empty}")
+    assert blank.status_code == 200
+    assert blank.json().get("steps") == []

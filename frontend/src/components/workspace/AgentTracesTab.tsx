@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain,
@@ -99,6 +99,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   const [showThought, setShowThought] = useState(false);
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const resolvedSessionRef = useRef<string | null>(null);
 
   const effectiveSessionId = sessionId.startsWith('dataset:')
     ? sessionId
@@ -113,16 +114,62 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
       setLoading(true);
       try {
         const since = rangeStart(timeFilter).toISOString();
-        const res = await tracesApi.get(effectiveSessionId, since);
-        const steps = Array.isArray(res?.steps) ? res.steps : [];
-        setTraces(
-          steps
+        const tryIds: string[] = [];
+        const addId = (id?: string | null) => {
+          const t = (id || '').trim();
+          if (t && !tryIds.includes(t)) tryIds.push(t);
+        };
+        addId(resolvedSessionRef.current);
+        addId(effectiveSessionId);
+        if (datasetKey) {
+          addId(`dataset:${datasetKey}`);
+          addId(datasetKey);
+        }
+
+        const applySteps = (steps: Array<Record<string, any>>) => {
+          const mapped = steps
             .map((s, idx) => mapTraceStep(s, idx))
             .filter((s) => inTimeRange(s.timestamp, timeFilter))
-            .filter((s) => !!(s.action || s.tool || s.tool_name))
-        );
+            .filter((s) => !!(s.action || s.tool || s.tool_name));
+          if (mapped.length > 0) {
+            setTraces(mapped);
+            return true;
+          }
+          return false;
+        };
+
+        let applied = false;
+        for (const id of tryIds) {
+          const res = await tracesApi.get(id, since);
+          const steps = Array.isArray(res?.steps) ? res.steps : [];
+          if (applySteps(steps)) {
+            resolvedSessionRef.current = res?.session_id || id;
+            applied = true;
+            break;
+          }
+        }
+        if (!applied && datasetKey) {
+          const listed = await tracesApi.list(50).catch(() => ({ sessions: [] as Array<{ session_id: string; steps: number }> }));
+          const sessions = Array.isArray(listed?.sessions) ? listed.sessions : [];
+          const hit = sessions.find((s) => {
+            const sid = String(s.session_id || '');
+            return (
+              (s.steps || 0) > 0 &&
+              (sid === effectiveSessionId || sid === `dataset:${datasetKey}` || sid === datasetKey || sid.includes(datasetKey))
+            );
+          });
+          if (hit) {
+            const res = await tracesApi.get(hit.session_id, since);
+            const steps = Array.isArray(res?.steps) ? res.steps : [];
+            if (applySteps(steps)) {
+              resolvedSessionRef.current = res?.session_id || hit.session_id;
+              applied = true;
+            }
+          }
+        }
+        // empty / wrong session: keep existing steps. Do not clear the trail.
       } catch {
-        setTraces([]);
+        // keep existing steps — empty/error must not wipe a measured trail
       } finally {
         setLoading(false);
       }
@@ -141,11 +188,11 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
           hashes.push(ev.previous_event_hash);
         }
       }
-      setHashTrail(latestEventHash ? { latest: latestEventHash, count: hashes.length } : null);
+      if (latestEventHash) setHashTrail({ latest: latestEventHash, count: hashes.length });
     } catch {
-      setHashTrail(null);
+      // keep existing hash trail
     }
-  }, [effectiveSessionId, replayBeats, timeFilter]);
+  }, [datasetKey, effectiveSessionId, replayBeats, timeFilter]);
 
   useEffect(() => {
     void loadTraces();
@@ -164,11 +211,12 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   }, [loadTraces]);
 
   useEffect(() => {
+    if (!active) return undefined;
     const id = window.setInterval(() => {
       void loadTraces();
     }, 2000);
     return () => window.clearInterval(id);
-  }, [loadTraces]);
+  }, [active, loadTraces]);
 
   const jumpToChat = (trace: TraceStep) => {
     const stream = document.querySelector('.chat-stream');

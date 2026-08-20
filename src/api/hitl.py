@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -26,6 +27,72 @@ def _norm_rule_status(raw) -> str:
     return (str(raw) if raw is not None else "").strip().lower()
 
 
+def _parse_json_blob(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", errors="replace")
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
+    """Recover HITL rows from the Propose beat the run already wrote. Never re-run Propose."""
+    if not dataset_key:
+        return
+    try:
+        rows = db.execute(
+            "SELECT tool_output, observation FROM agent_traces "
+            "WHERE (tool_name IN ('propose_quality_rules', 'quality_rule_proposer') "
+            "   OR action IN ('propose_quality_rules', 'quality_rule_proposer')) "
+            "AND (session_id = ? OR session_id = ? OR CAST(tool_input AS VARCHAR) LIKE ?) "
+            "ORDER BY timestamp DESC LIMIT 8",
+            [f"dataset:{dataset_key}", dataset_key, f"%{dataset_key}%"],
+        )
+    except Exception:
+        return
+    from src.tools.chat_tools import persist_hitl_proposals
+    for row in rows or []:
+        for blob in row:
+            data = _parse_json_blob(blob)
+            if not isinstance(data, dict):
+                continue
+            proposals = data.get("proposals")
+            if isinstance(proposals, list) and proposals:
+                persist_hitl_proposals(dataset_key, proposals, db=db)
+                return
+
+
+def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
+    select_sql = (
+        "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+        f"FROM quality_rules WHERE {where_status} "
+    )
+    if not dataset_key:
+        return db.execute(select_sql + "ORDER BY created_at DESC")
+    like = f"{dataset_key}__%"
+    try:
+        return db.execute(
+            select_sql
+            + "AND (dataset_key = ? OR id LIKE ? OR "
+            "(dataset_key IS NULL AND lower(trim(cast(status AS VARCHAR))) "
+            "IN ('pending', 'proposed', 'draft', 'queued'))) "
+            "ORDER BY created_at DESC",
+            [dataset_key, like],
+        )
+    except Exception:
+        return db.execute(
+            select_sql + "AND id LIKE ? ORDER BY created_at DESC",
+            [like],
+        )
+
+
 @hitl_router.get("/queue")
 async def get_queue(dataset_key: Optional[str] = None, include_active: bool = False):
     db = get_db()
@@ -36,24 +103,10 @@ async def get_queue(dataset_key: Optional[str] = None, include_active: bool = Fa
     else:
         statuses = "('pending', 'proposed')"
     where_status = f"lower(trim(cast(status AS VARCHAR))) IN {statuses}"
-    if dataset_key:
-        try:
-            rows = db.execute(
-                "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-                f"FROM quality_rules WHERE {where_status} AND dataset_key = ? "
-                "ORDER BY created_at DESC",
-                [dataset_key],
-            )
-        except Exception:
-            rows = db.execute(
-                "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-                f"FROM quality_rules WHERE {where_status} ORDER BY created_at DESC"
-            )
-    else:
-        rows = db.execute(
-            "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-            f"FROM quality_rules WHERE {where_status} ORDER BY created_at DESC"
-        )
+    rows = _fetch_queue_rows(db, where_status, dataset_key)
+    if dataset_key and not rows:
+        _hydrate_queue_from_traces(db, dataset_key)
+        rows = _fetch_queue_rows(db, where_status, dataset_key)
     return {"proposals": [
         {"rule_id": r[0], "rule_name": r[1], "rule_type": r[2], "rule_expression": r[3],
          "confidence": r[4], "status": _norm_rule_status(r[5]) or "proposed",

@@ -7,6 +7,79 @@ from src.config import get_settings
 from src.api.state_machine import WorkflowState
 
 
+
+
+def namespace_rule_id(dataset_key: str, rule_id: str) -> str:
+    """Scope a rule id to its dataset so HITL cards do not collide across uploads."""
+    key = (dataset_key or "").strip()
+    rid = (rule_id or "").strip() or "rule"
+    if key and not rid.startswith(f"{key}__"):
+        return f"{key}__{rid}"
+    return rid
+
+
+def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
+    """Write HITL rows /hitl/queue reads: namespaced id, dataset_key, status proposed."""
+    from src.db.connection import get_db
+
+    key = (dataset_key or "").strip()
+    if db is None:
+        db = get_db()
+    written = []
+    for p in proposals or []:
+        raw_id = str(p.get("id") or p.get("rule_id") or "").strip() or "rule"
+        rid = namespace_rule_id(key, raw_id)
+        name = p.get("rule_name") or f"{p.get('column', 'column')} {p.get('type') or p.get('rule_type') or 'rule'}"
+        rtype = p.get("type") or p.get("rule_type") or "range_check"
+        expr = p.get("expression") or p.get("rule_expression") or "val != null"
+        try:
+            conf = float(p.get("confidence", 0.95) or 0.95)
+        except (TypeError, ValueError):
+            conf = 0.95
+        row = {**p, "id": rid, "rule_id": rid, "status": "proposed", "dataset_key": key}
+        existing = []
+        try:
+            existing = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rid])
+        except Exception:
+            existing = []
+        if existing:
+            try:
+                db.execute(
+                    "UPDATE quality_rules SET dataset_key = ?, rule_name = ?, rule_type = ?, "
+                    "rule_expression = ?, confidence = ?, status = CASE "
+                    "WHEN lower(trim(cast(status AS VARCHAR))) IN ('approved', 'edited', 'rejected') "
+                    "THEN status ELSE 'proposed' END, "
+                    "proposed_by = COALESCE(proposed_by, 'dq_proposer') WHERE id = ?",
+                    [key or None, name, rtype, expr, conf, rid],
+                )
+            except Exception:
+                try:
+                    db.execute(
+                        "UPDATE quality_rules SET rule_name = ?, rule_type = ?, rule_expression = ?, "
+                        "confidence = ?, status = 'proposed' WHERE id = ?",
+                        [name, rtype, expr, conf, rid],
+                    )
+                except Exception:
+                    pass
+        else:
+            try:
+                db.execute(
+                    """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                    [rid, key or None, name, rtype, expr, conf],
+                )
+            except Exception:
+                try:
+                    db.execute(
+                        """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                           VALUES (?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                        [rid, name, rtype, expr, conf],
+                    )
+                except Exception:
+                    pass
+        written.append(row)
+    return written
+
 class ListDatasetsInput(BaseModel):
     pass
 
@@ -92,6 +165,7 @@ class ProposeQualityRulesTool(BaseTool):
                 
                 if sev not in ["critical", "warning", "info"]:
                     sev = "warning"
+                rid = namespace_rule_id(dataset_key, rid)
                 proposals.append({
                     "id": rid,
                     "type": rf,
@@ -99,28 +173,12 @@ class ProposeQualityRulesTool(BaseTool):
                     "expression": expr,
                     "description": desc,
                     "severity": sev,
-                    "status": "pending"
+                    "status": "proposed"
                 })
             
             # Persist proposals into DuckDB quality_rules table for HITL review
             try:
-                from src.db.connection import get_db
-                db = get_db()
-                for p in proposals:
-                    existing = db.execute("SELECT id FROM quality_rules WHERE id = ?", [p["id"]])
-                    if not existing:
-                        try:
-                            db.execute(
-                                """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                                   VALUES (?, ?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                                [p["id"], dataset_key, f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
-                            )
-                        except Exception:
-                            db.execute(
-                                """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                                   VALUES (?, ?, ?, ?, ?, 'pending', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                                [p["id"], f"{p['column']} {p['type']}", p["type"], p["expression"], 0.95]
-                            )
+                persist_hitl_proposals(dataset_key, proposals)
             except Exception as dbe:
                 print(f"[WARN] Could not persist quality_rules to DuckDB: {dbe}")
 

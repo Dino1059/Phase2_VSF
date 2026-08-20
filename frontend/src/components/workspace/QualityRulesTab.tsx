@@ -78,6 +78,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       if (res && Array.isArray(res.proposals)) {
         const fromDb = res.proposals;
         setProposals((prev) => {
+          // Empty queue must not wipe cards the Propose beat already put on screen.
+          if (fromDb.length === 0 && prev.length > 0) {
+            return prev;
+          }
           const dbIds = new Set(fromDb.map((r) => r.rule_id));
           // DuckDB wins for every id it returns. Keep local APPROVED cards the queue omitted
           // so header Approved follows the pills after one Approve.
@@ -88,7 +92,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         });
       }
     } catch {
-      if (!silent) setProposals([]);
+      // keep existing cards — empty/error must not zero the header
     } finally {
       if (!silent) setLoading(false);
     }

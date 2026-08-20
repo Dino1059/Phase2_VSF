@@ -313,6 +313,83 @@ async def list_sessions(limit: int = 20):
     ]}
 
 
+_TRACE_BASE_COLS = (
+    "step_index, thought, action, tool_name, tool_input, tool_output, "
+    "observation, tokens_used, duration_ms, timestamp, agent_type"
+)
+
+
+def workspace_trace_sessions(session_id: str) -> list[str]:
+    """dataset:vingroup_pilot <-> vingroup_pilot. Keep the workspace id the run used."""
+    sid = (session_id or "").strip()
+    out: list[str] = []
+    def add(value: str) -> None:
+        value = (value or "").strip()
+        if value and value not in out:
+            out.append(value)
+    add(sid)
+    if sid.startswith("dataset:"):
+        add(sid.split(":", 1)[1])
+    elif sid:
+        add(f"dataset:{sid}")
+    return out
+
+
+def _dataset_key_from_session(session_id: str) -> str | None:
+    sid = (session_id or "").strip()
+    if sid.startswith("dataset:"):
+        key = sid.split(":", 1)[1].strip()
+        return key or None
+    if sid and ":" not in sid:
+        return sid
+    return None
+
+
+def _fetch_trace_rows(db, session_id: str):
+    ensure_steward_trace_columns(db)
+    try:
+        return db.execute(
+            f"SELECT {_TRACE_BASE_COLS}, status, tool_title, tool_about "
+            "FROM agent_traces WHERE session_id = ? ORDER BY step_index",
+            [session_id],
+        )
+    except Exception:
+        return db.execute(
+            f"SELECT {_TRACE_BASE_COLS} FROM agent_traces WHERE session_id = ? ORDER BY step_index",
+            [session_id],
+        )
+
+
+def _latest_session_for_dataset(db, dataset_key: str) -> str | None:
+    if not dataset_key:
+        return None
+    try:
+        rows = db.execute(
+            "SELECT session_id FROM agent_traces "
+            "WHERE session_id = ? OR session_id = ? OR session_id LIKE ? "
+            "ORDER BY timestamp DESC LIMIT 1",
+            [f"dataset:{dataset_key}", dataset_key, f"dataset:{dataset_key}%"],
+        )
+        return rows[0][0] if rows else None
+    except Exception:
+        return None
+
+
+def resolve_trace_rows(db, session_id: str):
+    """Return (resolved_session_id, rows). Exact id, then dataset alias, then latest dataset session."""
+    for sid in workspace_trace_sessions(session_id):
+        rows = _fetch_trace_rows(db, sid)
+        if rows:
+            return sid, rows
+    key = _dataset_key_from_session(session_id)
+    latest = _latest_session_for_dataset(db, key) if key else None
+    if latest:
+        rows = _fetch_trace_rows(db, latest)
+        if rows:
+            return latest, rows
+    return session_id, []
+
+
 @traces_router.get("/{session_id}")
 async def get_trace(
     session_id: str,
@@ -320,14 +397,7 @@ async def get_trace(
     include_thought: bool = Query(default=False, description="Instructor-only raw thought"),
 ):
     db = get_db()
-    ensure_steward_trace_columns(db)
-    steps = db.execute(
-        "SELECT step_index, thought, action, tool_name, tool_input, tool_output, "
-        "observation, tokens_used, duration_ms, timestamp, agent_type, "
-        "status, tool_title, tool_about "
-        "FROM agent_traces WHERE session_id = ? ORDER BY step_index",
-        [session_id],
-    )
+    resolved, steps = resolve_trace_rows(db, session_id)
     since_dt = None
     if since:
         try:
@@ -335,6 +405,7 @@ async def get_trace(
         except ValueError:
             since_dt = None
     normalized = []
+    unfiltered = []
     for row in steps:
         card = normalize_trace_step(row)
         if not include_thought:
@@ -343,6 +414,10 @@ async def get_trace(
         action = (card.get("action") or card.get("tool_name") or card.get("tool") or "").strip()
         if action in ("FINISH", "ABSTAIN", "FINISH_DEFAULT") or not action:
             continue
+        unfiltered.append(card)
         if _in_range(card.get("timestamp"), since_dt):
             normalized.append(card)
-    return {"session_id": session_id, "steps": normalized}
+    # Clock/tz mismatch must not hide beats the workspace session already wrote.
+    if since_dt and not normalized and unfiltered:
+        normalized = unfiltered
+    return {"session_id": resolved, "steps": normalized}
