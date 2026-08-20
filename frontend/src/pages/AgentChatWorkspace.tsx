@@ -787,6 +787,7 @@ export function AgentChatWorkspace() {
                 replayBeats={isReplay ? replayBeats : undefined}
                 selectedStep={selectedTraceStep}
                 selectedTool={selectedTraceTool}
+                pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
                 onSelectStep={(n) => {
                   setSelectedTraceStep(n);
                   setSelectedTraceTool(null);

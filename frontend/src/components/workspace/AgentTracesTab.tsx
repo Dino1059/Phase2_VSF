@@ -45,6 +45,7 @@ interface AgentTracesTabProps {
   selectedStep?: number | null;
   selectedTool?: string | null;
   onSelectStep?: (step: number) => void;
+  pendingRun?: boolean;
 }
 
 function isRealAuditHash(value: unknown): value is string {
@@ -86,6 +87,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   selectedStep,
   selectedTool,
   onSelectStep,
+  pendingRun = false,
 }) => {
   const [traces, setTraces] = useState<TraceStep[]>([]);
   const [loading, setLoading] = useState(false);
@@ -253,23 +255,27 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         ) : null}
       </div>
 
-      {running.length > 0 ? (
+      {(running.length > 0 || pendingRun) ? (
         <div className="now-running-card" style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(2,132,199,0.35)', background: 'rgba(2,132,199,0.06)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
           <Loader2 size={14} className="spinning" style={{ color: '#0284c7', marginTop: 2 }} />
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#0284c7' }}>
               {isVi ? 'Đang chạy' : 'Now running'}
             </div>
-            {running.map((t, i) => (
+            {running.length > 0 ? running.map((t, i) => (
               <div key={`run-${i}`} style={{ fontSize: 12, marginTop: 2 }}>
                 {t.summary_done || t.tool_title || t.tool_name || t.action}
               </div>
-            ))}
+            )) : (
+              <div style={{ fontSize: 12, marginTop: 2 }}>
+                {isVi ? 'Đang chạy công cụ steward…' : 'Running steward tools…'}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
 
-      {traces.length === 0 ? (
+      {traces.length === 0 && !pendingRun ? (
         <div className="empty-panel-state" style={{ textAlign: 'center', padding: '40px 16px' }}>
           <Brain size={32} style={{ opacity: 0.3, marginBottom: 8, color: 'var(--text-muted)' }} />
           <div style={{ fontWeight: 600 }}>{isVi ? 'Chưa có dấu vết đo được' : 'No measured traces'}</div>

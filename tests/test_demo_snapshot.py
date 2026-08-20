@@ -271,3 +271,26 @@ def test_chat_send_backfills_missing_propose_and_logs_trace():
     assert "steward-beat" in ui
     assert "Why this tool" in ui
     assert "selectedTool" in ui
+    assert "def _seed_running_profile" in engine
+    assert "asyncio.to_thread" in routes
+
+
+def test_log_trace_persists_profile_and_propose_beats():
+    """Named Profile + Propose must both survive _log_trace (no step_index clobber)."""
+    import uuid
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.orchestrator.engine import ReActEngine, ReActStep
+
+    sid = f"qa-two-beats-{uuid.uuid4().hex}"
+    eng = ReActEngine(tools=type("T", (), {"get": lambda self, n: None})())
+    eng.tools = type("T", (), {"get": lambda self, n: None})()
+    eng._log_trace(sid, ReActStep(0, "", "profile_dataset", {"dataset_key": "vingroup_pilot"},
+                                  observation='{"total_rows": 10, "columns_count": 2}'), status="done")
+    eng._log_trace(sid, ReActStep(1, "", "propose_quality_rules", {"dataset_key": "vingroup_pilot"},
+                                  observation='{"proposals": [{}, {}, {}], "count": 3}'), status="done")
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    steps = client.get(f"/api/v1/traces/{sid}").json()["steps"]
+    names = {s.get("tool_name") or s.get("tool") or s.get("action") for s in steps}
+    assert "profile_dataset" in names
+    assert "propose_quality_rules" in names
