@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Atom, Search, Moon, Sun, ChevronDown,
   IdCard, LogOut, X, Database,
@@ -57,6 +57,25 @@ export function Header() {
   const modalInputRef = useRef<HTMLInputElement>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Confirm Reset toast must survive navigate('/workspace?new=1') Header remount.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('dt-reset-toast')) {
+        setResetSuccess(true);
+        const timer = setTimeout(() => {
+          setResetSuccess(false);
+          try { sessionStorage.removeItem('dt-reset-toast'); } catch { /* ignore */ }
+        }, 3500);
+        return () => clearTimeout(timer);
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }, [location.pathname, location.search]);
+
 
   // Load registered & uploaded datasets for Ctrl+K search index
   useEffect(() => {
@@ -126,6 +145,11 @@ export function Header() {
       }
       if (wasAdmin && keepToken && keepUser) {
         useAuthStore.getState().restoreSession(keepToken, keepUser);
+      }
+      try {
+        sessionStorage.setItem('dt-reset-toast', '1');
+      } catch {
+        /* ignore */
       }
       setResetSuccess(true);
       setTimeout(() => setResetSuccess(false), 3500);

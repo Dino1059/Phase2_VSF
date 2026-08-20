@@ -883,11 +883,29 @@ function NewChatLanding() {
   const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [resetToast, setResetToast] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const sessionId = useChatStore((s) => s.sessionId);
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+
+  // Header toast is local state; navigate to ?new=1 remounts it. Re-show from sessionStorage.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('dt-reset-toast')) {
+        setResetToast(true);
+        const timer = setTimeout(() => {
+          setResetToast(false);
+          try { sessionStorage.removeItem('dt-reset-toast'); } catch { /* ignore */ }
+        }, 3500);
+        return () => clearTimeout(timer);
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }, []);
 
   const handleSubmit = async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
@@ -1016,6 +1034,28 @@ function NewChatLanding() {
         </div>
         {uploadError && <div className="new-chat-upload-error" role="alert">{uploadError}</div>}
       </div>
+      {resetToast && (
+        <div
+          role="status"
+          className="reset-toast"
+          style={{
+            position: 'fixed',
+            top: 72,
+            right: 16,
+            zIndex: 80,
+            background: 'rgba(16, 185, 129, 0.15)',
+            border: '1px solid var(--electric-green)',
+            color: 'var(--electric-green)',
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 700,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          }}
+        >
+          {isVi ? 'Toast: Đã đặt lại DB · HITL 0/0 · Split 0' : 'Toast: Database reset · HITL 0/0 · Split 0'}
+        </div>
+      )}
     </main>
   );
 }

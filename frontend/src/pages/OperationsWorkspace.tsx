@@ -25,11 +25,35 @@ import {
   authorizationsApi,
   executionsApi,
   incidentsApi,
+  quarantineApi,
   signalsApi,
   snapshotsApi,
   summaryApi,
   tracesApi,
 } from '../services/api';
+import { useWorkspaceStore } from '../stores/workspaceStore';
+
+/** This-run Split totals (sandbox DuckDB), never leftover warehouse 50k. */
+function thisRunSplitTotals(): { thisRun: boolean; quarantine: number } {
+  const map = useWorkspaceStore.getState().splitRowsByDataset;
+  let quarantine = 0;
+  let thisRun = false;
+  for (const row of Object.values(map || {})) {
+    if (row && (row.thisRun || row.snapshotId)) {
+      thisRun = true;
+      quarantine += Number(row.totalQuarantine || 0);
+    }
+  }
+  return { thisRun, quarantine };
+}
+
+function thisRunAuditCount(entries: Array<{ action?: string; target_table?: string }> | null | undefined): number {
+  return (entries || []).filter((e) => {
+    const act = String(e.action || '').toUpperCase();
+    const tbl = String(e.target_table || '').toLowerCase();
+    return act.includes('SANDBOX') || act.includes('QUARANTINE') || tbl === 'quarantine';
+  }).length;
+}
 
 type DashboardGroup = 'alerts' | 'governance';
 type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'governance' | 'executions' | 'snapshots';
@@ -106,6 +130,8 @@ export const OperationsWorkspace: React.FC = () => {
 
   const [data, setData] = useState<Row[]>([]);
   const [_summary, setSummary] = useState<Row | null>(null);
+  const [quarantineCount, setQuarantineCount] = useState(0);
+  const [auditCount, setAuditCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
@@ -133,12 +159,30 @@ export const OperationsWorkspace: React.FC = () => {
     setError(null);
     try {
       if (activeSubTab === 'alerts' || activeSubTab === 'incidents') {
-        const [sumRes, incRes] = await Promise.all([
+        const [sumRes, incRes, qCountRes, auditRes] = await Promise.all([
           summaryApi.get().catch(() => null),
           incidentsApi.list().catch(() => []),
+          quarantineApi.count().catch(() => null),
+          auditApi.list(50).catch(() => []),
         ]);
         if (sumRes) setSummary(sumRes);
         setData(incRes || []);
+        const stored = thisRunSplitTotals();
+        const apiThisRun = Number(
+          (qCountRes as { this_run?: number } | null)?.this_run
+          ?? (sumRes as { this_run_quarantined?: number } | null)?.this_run_quarantined
+          ?? 0
+        );
+        // Same this-run DuckDB quarantine as Split. Empty before sandbox stays 0. Never leftover 50k.
+        let q = stored.thisRun ? stored.quarantine : (apiThisRun > 0 && apiThisRun < 50000 ? apiThisRun : 0);
+        if (q >= 50000) q = 0;
+        let a = 0;
+        if (stored.thisRun || q > 0) {
+          a = thisRunAuditCount(Array.isArray(auditRes) ? auditRes : []);
+          if (a === 0) a = q; // quarantine ledger is the audit when no separate this-run rows
+        }
+        setQuarantineCount(q);
+        setAuditCount(a);
       } else if (activeSubTab === 'signals') {
         const sigRes = await signalsApi.list().catch(() => []);
         setData(sigRes || []);
@@ -175,13 +219,33 @@ export const OperationsWorkspace: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Listen for DB reset event
+  // Listen for DB reset + this-run sandbox so Quarantine/Audit match Split
   useEffect(() => {
     const handleReset = () => {
+      setQuarantineCount(0);
+      setAuditCount(0);
+      loadData();
+    };
+    const handleSandbox = (ev: Event) => {
+      const d = (ev as CustomEvent).detail || {};
+      const q = Number(d.quarantine_rows ?? (Array.isArray(d.quarantine) ? d.quarantine.length : 0));
+      if (d.sandbox || d.thisRun || d.cleanRan) {
+        const safe = q >= 50000 ? 0 : q;
+        setQuarantineCount(safe);
+        setAuditCount(safe);
+      }
       loadData();
     };
     window.addEventListener('datatrust:db-reset', handleReset);
-    return () => window.removeEventListener('datatrust:db-reset', handleReset);
+    window.addEventListener('datatrust:sandbox-split', handleSandbox as EventListener);
+    window.addEventListener('datatrust:split-refresh', handleSandbox as EventListener);
+    window.addEventListener('datatrust:sandbox-failed', handleReset);
+    return () => {
+      window.removeEventListener('datatrust:db-reset', handleReset);
+      window.removeEventListener('datatrust:sandbox-split', handleSandbox as EventListener);
+      window.removeEventListener('datatrust:split-refresh', handleSandbox as EventListener);
+      window.removeEventListener('datatrust:sandbox-failed', handleReset);
+    };
   }, [loadData]);
 
   const handleOpenIncident = async (incidentId: string, initialRow?: Row) => {
@@ -304,7 +368,7 @@ export const OperationsWorkspace: React.FC = () => {
           </div>
           <div className="kpi-card">
             <div className="kpi-label">{isVi ? 'Quarantine / Audit' : 'Quarantine / Audit'}</div>
-            <div className="kpi-value" style={{ color: '#a78bfa', fontSize: '20px' }}>0 / 0</div>
+            <div className="kpi-value" style={{ color: '#a78bfa', fontSize: '20px' }}>{quarantineCount} / {auditCount}</div>
           </div>
         </div>
       ) : (

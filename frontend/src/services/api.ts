@@ -266,6 +266,7 @@ export interface SummaryInfo {
   total_data_records: number;
   clean_records: number;
   quarantined_records: number;
+  this_run_quarantined?: number;
   pass_validation_rate: string;
   system_status: string;
 }
@@ -693,7 +694,7 @@ export const quarantineApi = {
       lineage_hash?: string | null;
     }> }>(`/quarantine/?limit=${limit}`),
   count: () =>
-    request<{ counts: Record<string, number> }>('/quarantine/count'),
+    request<{ counts: Record<string, number>; this_run?: number }>('/quarantine/count'),
 };
 
 export const anomaliesApi = {

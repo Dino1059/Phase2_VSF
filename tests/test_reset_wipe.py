@@ -127,3 +127,21 @@ def test_reset_keeps_admin_session_not_steward():
     assert "if (!useAuthStore.getState().isAdmin())" in bar
     assert "if (!useAuthStore.getState().isAdmin())" in ws
 
+def test_reset_toast_survives_workspace_new_navigate():
+    """Confirm Reset must toast even when navigate('/workspace?new=1') remounts Header."""
+    header = (ROOT / "frontend/src/components/layout/Header.tsx").read_text()
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    reset_fn = header.split("const handleResetAll", 1)[1].split("const handleToggleLang", 1)[0]
+    assert "dt-reset-toast" in reset_fn
+    assert "sessionStorage.setItem" in reset_fn
+    persist_at = reset_fn.find("dt-reset-toast")
+    nav_at = reset_fn.find("navigate('/workspace?new=1')")
+    assert persist_at != -1 and nav_at != -1 and persist_at < nav_at
+    assert "dt-reset-toast" in header
+    assert "location.search" in header or "location.pathname" in header
+    assert "dt-reset-toast" in ws
+    assert "Database reset · HITL 0/0 · Split 0" in header
+    assert "Database reset · HITL 0/0 · Split 0" in ws
+    assert "reset-toast" in ws
+    assert "window.confirm" not in reset_fn
+

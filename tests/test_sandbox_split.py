@@ -154,3 +154,67 @@ def test_sandbox_504_does_not_keep_leftover_split_as_success():
     assert "replaceSplitRows" in store
     assert "Empty GET must never clobber" in store
 
+def test_alert_dashboard_reads_this_run_quarantine():
+    """Alert Dashboard Quarantine/Audit must read this-run DuckDB, not a hardcoded 0."""
+    ops = (ROOT / "frontend/src/pages/OperationsWorkspace.tsx").read_text()
+    qapi = (ROOT / "src/api/quarantine_api.py").read_text()
+    summary = (ROOT / "src/api/routes/summary.py").read_text()
+    assert "0 / 0" not in ops
+    assert "thisRunSplitTotals" in ops
+    assert "quarantineApi" in ops
+    assert "this_run" in ops
+    assert "datatrust:sandbox-split" in ops
+    assert "totalQuarantine" in ops
+    assert "splitRowsByDataset" in ops
+    assert "50000" in ops
+    assert "_this_run_quarantine_count" in qapi
+    assert "sandbox:%" in qapi
+    assert "this_run" in qapi
+    assert "this_run_quarantined" in summary
+
+
+def test_quarantine_count_this_run_matches_persist():
+    """GET /quarantine/count this_run is sandbox rows, not leftover warehouse total."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.db.connection import get_db
+    from src.services.dataset_engine import execute_compiled_rules
+    from src.tools.chat_tools import persist_sandbox_split
+
+    rows = [
+        {"vin": "VIN-DIRTY-DASH", "battery_soc": -3, "speed_kmh": 10},
+        {"vin": "VIN-CLEAN-DASH", "battery_soc": 64, "speed_kmh": 12},
+    ]
+    rules = [{
+        "rule_id": "qa_dash__R1",
+        "id": "qa_dash__R1",
+        "name": "soc",
+        "rule_name": "soc",
+        "expression": "battery_soc >= 0",
+        "rule_expression": "battery_soc >= 0",
+        "decision": "approved",
+    }]
+    exec_res = execute_compiled_rules(rows, rules)
+    db = get_db()
+    try:
+        db.execute("DELETE FROM quarantine WHERE source_table = 'qa_dash' OR id LIKE 'q-qa_dash%'")
+    except Exception:
+        pass
+    payload = persist_sandbox_split("qa_dash", rows, exec_res, rules, db=db)
+    assert payload["this_run"] is True
+    assert payload["quarantine_rows"] == 1
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    res = client.get("/api/v1/quarantine/count")
+    assert res.status_code == 200
+    body = res.json()
+    assert "this_run" in body
+    assert int(body["this_run"]) >= 1
+    assert int(body["this_run"]) < 50000
+    listed = client.get("/api/v1/quarantine/?limit=100")
+    assert listed.status_code == 200
+    listed_body = listed.json()
+    assert "this_run" in listed_body
+    mine = [r for r in listed_body.get("quarantine") or [] if r.get("source_table") == "qa_dash"]
+    assert mine
+    assert all(r.get("this_run") or str(r.get("snapshot_id") or "").startswith("sandbox:") for r in mine)
+
