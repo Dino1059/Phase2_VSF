@@ -43,11 +43,27 @@ interface DataProfilerTabProps {
   story?: string | null;
 }
 
+type PendingMode = 'happy' | 'unhappy' | null;
+
+function readPendingMode(): PendingMode {
+  try {
+    const v = sessionStorage.getItem('dt-snap-pending');
+    return v === 'happy' || v === 'unhappy' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingMode() {
+  try { sessionStorage.removeItem('dt-snap-pending'); } catch { /* ignore */ }
+}
+
 export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story }) => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedColumn, setSelectedColumn] = useState<ColumnProfile | null>(null);
+  const [pendingMode, setPendingMode] = useState<PendingMode>(() => readPendingMode());
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
 
@@ -84,6 +100,25 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     fetchProfile();
   }, [fetchProfile]);
 
+  useEffect(() => {
+    const onSnap = () => { void fetchProfile(); };
+    window.addEventListener('datatrust:demo-snapshot', onSnap);
+    return () => window.removeEventListener('datatrust:demo-snapshot', onSnap);
+  }, [fetchProfile]);
+
+  useEffect(() => {
+    const onPending = (e: Event) => {
+      const mode = (e as CustomEvent<{ mode?: string }>).detail?.mode;
+      if (mode === 'happy' || mode === 'unhappy') {
+        try { sessionStorage.setItem('dt-snap-pending', mode); } catch { /* ignore */ }
+        setPendingMode(mode);
+        setProfile(null); // drop leftover Happy 99.1 / Unhappy Critical immediately
+      }
+    };
+    window.addEventListener('datatrust:demo-snapshot-pending', onPending);
+    return () => window.removeEventListener('datatrust:demo-snapshot-pending', onPending);
+  }, []);
+
   const columns = profile?.columns || [];
   const totalRows = profile?.total_rows || 0;
   const healthScore = profile?.health_score;
@@ -99,13 +134,30 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   }, [columns, searchQuery]);
 
   const warehouseFaults = (profile?.warehouse_soc_below_zero || 0) > 0 || (profile?.warehouse_open_incidents || 0) > 0;
+  // Unhappy leftover Happy score (99.1 Excellent) is not a measured Critical settle.
+  const holdUnhappyHealth = story === 'unhappy' && !warehouseFaults;
+  // Instant pending hold: leftover Happy 99.1 must not paint while Loading snapshot…
+  const holdPendingHealth = pendingMode != null;
+
+  useEffect(() => {
+    if (!pendingMode) return;
+    const unhappySettled = pendingMode === 'unhappy' && warehouseFaults;
+    const happyPendingSettled = pendingMode === 'happy' && story === 'happy' && !!profile && !warehouseFaults;
+    if (unhappySettled || happyPendingSettled) {
+      clearPendingMode();
+      setPendingMode(null);
+    }
+  }, [pendingMode, warehouseFaults, story, profile]);
+
+  const holdHealth = holdPendingHealth || holdUnhappyHealth;
   const healthGrade = useMemo(() => {
+    if (holdHealth) return { text: isVi ? 'Chưa đo' : 'Not measured', color: 'var(--text-muted)', bg: 'transparent' };
     if (warehouseFaults) return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
     if (healthScore == null) return { text: isVi ? 'Chưa đo' : 'Not measured', color: 'var(--text-muted)', bg: 'transparent' };
     if (healthScore >= 95) return { text: isVi ? 'Xuất Sắc' : 'Excellent', color: 'var(--electric-green)', bg: 'rgba(52, 211, 153, 0.1)' };
     if (healthScore >= 80) return { text: isVi ? 'Tốt' : 'Good', color: 'var(--warning-amber)', bg: 'rgba(251, 191, 36, 0.1)' };
     return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
-  }, [healthScore, isVi, warehouseFaults]);
+  }, [healthScore, isVi, warehouseFaults, holdHealth]);
 
   return (
     <div className="data-profiler-tab">
@@ -135,7 +187,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
             <span>{isVi ? 'Điểm Sức Khỏe' : 'Health Score'}</span>
           </div>
           <div className="kpi-card-value" style={{ color: healthGrade.color }}>
-            {warehouseFaults || healthScore == null ? '—' : `${healthScore}%`}
+            {warehouseFaults || healthScore == null || holdHealth ? '—' : `${healthScore}%`}
           </div>
           <div className="kpi-card-sub" style={{ color: healthGrade.color }}>
             ● {healthGrade.text}

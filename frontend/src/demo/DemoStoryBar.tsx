@@ -5,6 +5,11 @@ import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
 import { PILOT_CLEAN, PILOT_FAULTY, PILOT_BATCH } from './pilotFacts';
 
+function markSnapshotPending(mode: 'happy' | 'unhappy') {
+  try { sessionStorage.setItem('dt-snap-pending', mode); } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('datatrust:demo-snapshot-pending', { detail: { mode } }));
+}
+
 export function DemoStoryBar({ isVi }: { isVi: boolean }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -18,6 +23,8 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
   const go = async (mode: 'happy' | 'unhappy') => {
     setBusy(true);
     setErr(null);
+    // Instant hold: fire before login/fetch/navigate so leftover Happy 99.1 cannot paint.
+    markSnapshotPending(mode);
     try {
       await useAuthStore.getState().login('steward', undefined, 'steward');
       const res = await systemApi.loadSnapshot(mode);
@@ -31,6 +38,7 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
       } else {
         navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
       }
+      window.dispatchEvent(new CustomEvent('datatrust:demo-snapshot', { detail: { mode } }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'snapshot failed');
     } finally {
