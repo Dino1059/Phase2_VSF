@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
+import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 
 interface QualityRulesTabProps {
   datasetKey?: string;
@@ -119,6 +120,18 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   }, [fetchRules]);
 
   useEffect(() => {
+    const onReset = () => {
+      emptyBootRef.current = false;
+      setProposals([]);
+      setSandboxAuthorized(false);
+      setPayloadHash(null);
+      setSandboxError(null);
+    };
+    window.addEventListener('datatrust:db-reset', onReset);
+    return () => window.removeEventListener('datatrust:db-reset', onReset);
+  }, []);
+
+  useEffect(() => {
     const id = window.setInterval(() => { void fetchRules({ silent: true }); }, 2000);
     return () => window.clearInterval(id);
   }, [fetchRules]);
@@ -207,6 +220,33 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       for (const r of approved) {
         await hitlApi.execute(r.rule_id);
       }
+      const sandbox = await hitlApi.sandbox(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      const storeKey = datasetStoreKey(datasetKey);
+      const qRows = (sandbox && Array.isArray(sandbox.quarantine)) ? sandbox.quarantine : [];
+      const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
+      const qCount = sandbox?.quarantine_rows ?? qRows.length;
+      const cCount = sandbox?.clean_rows ?? cRows.length;
+      useWorkspaceStore.getState().mergeSplitRows(storeKey, {
+        cleanRan: true,
+        quarantineRows: qRows,
+        cleanRows: cRows,
+        totalQuarantine: qCount,
+        totalClean: cCount,
+      });
+      useWorkspaceStore.getState().mergeTraces(storeKey, [{
+        step: 2,
+        action: 'clean_database',
+        tool: 'clean_database',
+        tool_name: 'clean_database',
+        status: 'done',
+        observation: `${qCount} quarantined · ${cCount} clean`,
+      }]);
+      const detail = { ...(sandbox || {}), sandbox: true, cleanRan: true, dataset_key: datasetKey || 'vingroup_pilot' };
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
+        window.dispatchEvent(new CustomEvent('datatrust:split-refresh', { detail }));
+        window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+      } catch { /* ignore */ }
       setPayloadHash(auth?.payload_hash || '');
       setSandboxAuthorized(true);
     } catch (err: any) {

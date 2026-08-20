@@ -215,6 +215,20 @@ export function AgentChatWorkspace() {
     }
   }, [chatMessages]);
 
+  useEffect(() => {
+    const onSandbox = (ev: Event) => {
+      const d = (ev as CustomEvent).detail || {};
+      if (d.sandbox || d.cleanRan || (Array.isArray(d.quarantine) && d.quarantine.length) || (Array.isArray(d.clean) && d.clean.length)) {
+        setRightTab('tab-split');
+      }
+    };
+    window.addEventListener('datatrust:sandbox-split', onSandbox as EventListener);
+    window.addEventListener('datatrust:split-refresh', onSandbox as EventListener);
+    return () => {
+      window.removeEventListener('datatrust:sandbox-split', onSandbox as EventListener);
+      window.removeEventListener('datatrust:split-refresh', onSandbox as EventListener);
+    };
+  }, []);
 
   // Keep the selected dataset scoped to a stable temporary chat session.
   useEffect(() => {

@@ -69,12 +69,16 @@ async def sample_dataset(dataset_key: str, limit: int = 50, offset: int = 0):
         df = load_dataset(dataset_key=dataset_key, sample_size=50_000)
         total = len(df)
         subset = df.iloc[offset : offset + limit]
+        records = _sanitize_nans(subset.to_dict(orient="records"))
         return {
             "dataset": dataset_key,
             "total": total,
+            "total_rows": total,
             "limit": limit,
             "offset": offset,
-            "records": _sanitize_nans(subset.to_dict(orient="records")),
+            "columns": list(df.columns),
+            "records": records,
+            "rows": records,
         }
     except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))

@@ -621,6 +621,19 @@ export const hitlApi = {
     request<{ status: string; rule_id: string }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
     }),
+  sandbox: (datasetKey: string, ruleIds: string[]) =>
+    request<{
+      dataset_key: string;
+      sandbox?: boolean;
+      clean?: any[];
+      quarantine?: any[];
+      clean_rows?: number;
+      quarantine_rows?: number;
+      manifest_hash?: string;
+    }>('/hitl/sandbox', {
+      method: 'POST',
+      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
+    }),
   history: () =>
     request<{ history: Array<{ event_hash?: string; previous_event_hash?: string; action?: string; timestamp?: string }> }>('/hitl/history'),
 };

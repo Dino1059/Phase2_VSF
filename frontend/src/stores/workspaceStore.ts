@@ -47,11 +47,34 @@ export function datasetStoreKey(datasetKey?: string | null, sessionId?: string |
   return sessionId || '_';
 }
 
+/** sessionStorage / localStorage keys that remember HITL / split / warehouse steward state. */
+export const STEWARD_STORAGE_PREFIXES = ['dt-hitl', 'dt-warehouse', 'dt-split', 'dt-snap'] as const;
+
+export function wipeStewardBrowserKeys(): void {
+  if (typeof window === 'undefined') return;
+  const stores: Storage[] = [];
+  try { stores.push(window.sessionStorage); } catch { /* ignore */ }
+  try { stores.push(window.localStorage); } catch { /* ignore */ }
+  for (const store of stores) {
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const k = store.key(i);
+      if (k) keys.push(k);
+    }
+    for (const k of keys) {
+      if (STEWARD_STORAGE_PREFIXES.some((p) => k === p || k.startsWith(`${p}-`) || k.startsWith(`${p}:`))) {
+        store.removeItem(k);
+      }
+    }
+  }
+}
+
 interface WorkspaceState {
   tracesByDataset: Record<string, WorkspaceTraceBeat[]>;
   splitRowsByDataset: Record<string, SplitRows>;
   mergeTraces: (datasetKey: string, incoming: WorkspaceTraceBeat[]) => void;
   mergeSplitRows: (datasetKey: string, patch: Partial<SplitRows>) => void;
+  resetStewardState: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -105,4 +128,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       }
       return { splitRowsByDataset: { ...state.splitRowsByDataset, [key]: next } };
     }),
+
+  resetStewardState: () => {
+    wipeStewardBrowserKeys();
+    set({ tracesByDataset: {}, splitRowsByDataset: {} });
+  },
 }));

@@ -110,6 +110,37 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
     if (active) void fetchData();
   }, [active, fetchData]);
 
+  useEffect(() => {
+    const onSplit = (ev: Event) => {
+      const d = (ev as CustomEvent).detail || {};
+      const incomingKey = datasetStoreKey(d.dataset_key || datasetKey);
+      if (incomingKey !== storeKey && d.dataset_key) return;
+      const q = Array.isArray(d.quarantine) ? d.quarantine : [];
+      const c = Array.isArray(d.clean) ? d.clean : [];
+      if (q.length || c.length) {
+        mergeSplitRows(storeKey, {
+          cleanRan: true,
+          quarantineRows: q,
+          cleanRows: c,
+          totalQuarantine: d.quarantine_rows ?? q.length,
+          totalClean: d.clean_rows ?? c.length,
+        });
+      } else if (d.sandbox) {
+        void fetchData();
+      }
+    };
+    const onReset = () => {
+      // store reset is global; refetch cannot invent rows
+      void fetchData();
+    };
+    window.addEventListener('datatrust:split-refresh', onSplit as EventListener);
+    window.addEventListener('datatrust:db-reset', onReset);
+    return () => {
+      window.removeEventListener('datatrust:split-refresh', onSplit as EventListener);
+      window.removeEventListener('datatrust:db-reset', onReset);
+    };
+  }, [datasetKey, fetchData, mergeSplitRows, storeKey]);
+
   const handleCopyHash = () => {
     navigator.clipboard.writeText(manifestHash);
     setCopiedHash(true);

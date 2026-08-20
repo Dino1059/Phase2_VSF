@@ -15,6 +15,66 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+
+STEWARD_WIPE_TABLES = [
+    "quality_rules",
+    "quarantine",
+    "audit_log",
+    "execution_authorizations",
+    "decisions",
+    "evidence",
+    "agent_traces",
+    "incidents",
+    "messages",
+    "hypotheses",
+    "recommendations",
+    "profile_results",
+    "job_runs",
+    "preventive_controls",
+    "authorizations",
+    "workflow_events",
+    "signals",
+    "policy_versions",
+    "detector_artifacts",
+    "investigation_runs",
+    "sessions",
+]
+
+
+def wipe_steward_runtime(db) -> list:
+    """True admin wipe: approved/proposed rules, HITL, traces, split, pipeline session."""
+    cleared = []
+    for tbl in STEWARD_WIPE_TABLES:
+        try:
+            db.execute(f"DELETE FROM {tbl}")
+            cleared.append(tbl)
+        except Exception as e:
+            logger.warning(f"Could not clear table {tbl}: {e}")
+    try:
+        leftover = db.execute("SELECT count(*) FROM quality_rules")
+        if leftover and int(leftover[0][0]) > 0:
+            db.execute("DELETE FROM quality_rules")
+        leftover = db.execute("SELECT count(*) FROM quality_rules")
+        if leftover and int(leftover[0][0]) == 0 and "quality_rules" not in cleared:
+            cleared.append("quality_rules")
+    except Exception as e:
+        logger.warning(f"quality_rules wipe verify: {e}")
+    try:
+        from src.services.dataset_engine import run_store
+        run_store._runs.clear()
+        cleared.append("run_store")
+    except Exception as e:
+        logger.warning(f"run_store wipe: {e}")
+    try:
+        from src.api import routes as api_routes
+        sm = getattr(api_routes, "state_machine", None)
+        if sm is not None and hasattr(sm, "reset"):
+            sm.reset()
+        cleared.append("pipeline_session")
+    except Exception as e:
+        logger.warning(f"pipeline session wipe: {e}")
+    return cleared
+
 class ResetAllResponse(BaseModel):
     status: str
     message: str
@@ -48,29 +108,7 @@ async def reset_all_db(
 
     db = get_db()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    cleared = []
-    tables_to_clear = [
-        "quality_rules",
-        "quarantine",
-        "audit_log",
-        "execution_authorizations",
-        "decisions",
-        "evidence",
-        "agent_traces",
-        "incidents",
-        "messages",
-        "hypotheses",
-        "recommendations",
-        "profile_results",
-        "job_runs",
-    ]
-
-    for tbl in tables_to_clear:
-        try:
-            db.execute(f"DELETE FROM {tbl}")
-            cleared.append(tbl)
-        except Exception as e:
-            logger.warning(f"Could not clear table {tbl}: {e}")
+    cleared = wipe_steward_runtime(db)
 
     # 1b. Purge uploaded / dynamic ghost datasets from datasets table & registry
     try:

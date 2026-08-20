@@ -1,8 +1,9 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from src.db.connection import get_db
 from src.models.hitl import RuleProposalCard, ApproveRequest, RejectRequest, EditRequest
@@ -179,6 +180,97 @@ async def execute_hitl_rules(payload: Optional[dict] = None):
     return {"status": "executed", "rule_id": rule_id}
 
 
+
+def _log_sandbox_clean_beat(dataset_key: str, payload: dict) -> None:
+    """Honest clean_database beat — sandbox did run after Approve. Never invent counts."""
+    try:
+        from src.orchestrator.engine import ReActEngine, ReActStep
+        observation = {
+            "dataset_key": dataset_key,
+            "sandbox": True,
+            "execution_result": {
+                "clean_count": payload.get("clean_rows") or 0,
+                "quarantine_count": payload.get("quarantine_rows") or 0,
+                "manifest_hash": payload.get("manifest_hash") or "",
+                "status": "CLEAN_DATABASE_CREATED",
+            },
+        }
+        import json
+        eng = ReActEngine(tools=type("T", (), {"get": lambda self, n: None})())
+        eng.tools = type("T", (), {"get": lambda self, n: None})()
+        sid = f"dataset:{dataset_key}"
+        eng._log_trace(
+            sid,
+            ReActStep(
+                2,
+                "",
+                "clean_database",
+                {"dataset_key": dataset_key, "sandbox": True},
+                observation=json.dumps(observation),
+            ),
+            status="done",
+        )
+    except Exception:
+        pass
+
+
+class SandboxRequest(BaseModel):
+    dataset_key: str
+    rule_ids: Optional[List[str]] = None
+
+
+@hitl_router.post("/sandbox")
+async def sandbox_clean(req: SandboxRequest):
+    """Run the sandbox/clean path for approved HITL rules and persist Split rows.
+
+    Prod Execute stays gated. This still writes visible sandbox output into
+    quarantine + the payload Split reads. Never invents quarantine/clean rows.
+    """
+    dataset_key = (req.dataset_key or "").strip()
+    if not dataset_key:
+        raise HTTPException(status_code=400, detail="dataset_key is required")
+    db = get_db()
+    from src.tools.chat_tools import approved_rules_for_clean, persist_sandbox_split
+    from src.services.dataset_engine import load_dataset, execute_compiled_rules
+
+    rule_ids = list(req.rule_ids or [])
+    for rid in rule_ids:
+        check_rule_approved(rid)
+    rules = approved_rules_for_clean(db, dataset_key, rule_ids or None)
+    if not rules:
+        raise HTTPException(
+            status_code=403,
+            detail="Rule execution denied: Rule is not approved by HITL",
+        )
+    try:
+        df = load_dataset(dataset_key=dataset_key)
+        rows = df.to_dict("records")
+        exec_res = execute_compiled_rules(rows, rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload = persist_sandbox_split(dataset_key, rows, exec_res, rules, db=db)
+    AuditService.log(
+        "SANDBOX_CLEAN",
+        "HITL_USER",
+        "quarantine",
+        dataset_key,
+        {
+            "clean_rows": payload.get("clean_rows"),
+            "quarantine_rows": payload.get("quarantine_rows"),
+            "manifest_hash": payload.get("manifest_hash"),
+        },
+    )
+    _log_sandbox_clean_beat(dataset_key, payload)
+    return payload
+
+
 @hitl_router.get("/history")
 async def get_history():
     return {"history": AuditService.get_history(limit=100)}
@@ -188,15 +280,30 @@ async def get_history():
 async def reset_hitl_and_rules():
     db = get_db()
     deleted_counts = {}
-    for tbl in ["quality_rules", "audit_log", "quarantine", "execution_authorizations", "decisions", "evidence"]:
+    for tbl in [
+        "quality_rules",
+        "audit_log",
+        "quarantine",
+        "execution_authorizations",
+        "decisions",
+        "evidence",
+        "agent_traces",
+        "messages",
+        "profile_results",
+    ]:
         try:
             db.execute(f"DELETE FROM {tbl}")
             deleted_counts[tbl] = "cleared"
         except Exception as e:
             deleted_counts[tbl] = str(e)
+    try:
+        from src.services.conversation_store import conversation_store
+        conversation_store.clear_all()
+        deleted_counts["conversation_store"] = "cleared"
+    except Exception as e:
+        deleted_counts["conversation_store"] = str(e)
     return {
         "status": "success",
         "message": "DB rule history and audit log reset successfully",
         "details": deleted_counts
     }
-

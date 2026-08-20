@@ -13,6 +13,8 @@ import { searchApi, SearchHit, systemApi, datasetsApi } from '../../services/api
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chatStore';
+import { usePipelineStore } from '../../stores/pipelineStore';
+import { useWorkspaceStore, wipeStewardBrowserKeys } from '../../stores/workspaceStore';
 import { AuthModal } from '../auth/AuthModal';
 import { changeLanguage } from '../../i18n';
 
@@ -103,8 +105,11 @@ export function Header() {
       try {
         useChatStore.getState().clearMessages();
         useChatStore.getState().setSessionId('default');
+        useWorkspaceStore.getState().resetStewardState();
+        usePipelineStore.getState().resetPipeline();
+        wipeStewardBrowserKeys();
         Object.keys(sessionStorage)
-          .filter((k) => k.startsWith('dt-hitl-boot:'))
+          .filter((k) => k.startsWith('dt-hitl') || k.startsWith('dt-warehouse') || k.startsWith('dt-split') || k.startsWith('dt-snap'))
           .forEach((k) => sessionStorage.removeItem(k));
       } catch {
         /* ignore */
