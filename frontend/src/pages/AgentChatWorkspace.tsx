@@ -164,6 +164,12 @@ export function AgentChatWorkspace() {
   const bootToken = `${datasetKey || 'none'}:${story || 'none'}:${demoMode || 'none'}`;
 
   const handleRunFullPipeline = useCallback(async () => {
+    // Auto-bootstrap already POSTs HITL chat. Button / StrictMode must not send a second.
+    if (hitlBootsInFlight.has(bootToken) || proposeStartedRef.current) {
+      return;
+    }
+    hitlBootsInFlight.add(bootToken);
+    proposeStartedRef.current = true;
     setIsRunningPipeline(true);
     try {
       const lang = i18n?.language || 'vi';
@@ -180,7 +186,7 @@ export function AgentChatWorkspace() {
     } finally {
       setIsRunningPipeline(false);
     }
-  }, [datasetKey, i18n]);
+  }, [datasetKey, i18n, bootToken]);
 
   // Context-Aware Auto-Switch: sync right panel to latest agent step
   useEffect(() => {
@@ -339,6 +345,7 @@ export function AgentChatWorkspace() {
         store.setStepIndex(1);
         setRightTab('tab-traces');
         setWaitingForBackendAgentEvents(true);
+        setIsRunningPipeline(true);
         await ensureDemoAuth();
         await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
         const history = await fetchChatHistory(session);
@@ -351,6 +358,7 @@ export function AgentChatWorkspace() {
         return;
       } finally {
         setWaitingForBackendAgentEvents(false);
+        setIsRunningPipeline(false);
       }
     };
     void bootstrap();

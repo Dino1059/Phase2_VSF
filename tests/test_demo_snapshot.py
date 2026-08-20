@@ -345,3 +345,210 @@ def test_right_panel_tabs_stay_mounted():
     assert "right-panel-collapsed .right-panel" in css
     assert "translateX(100%)" in css or "display: none" in css
 
+
+
+def test_first_run_cannot_force_log_a_second_propose():
+    """First Unhappy Profile & Propose must not force-log a second Propose."""
+    from src.api.routes import missing_requested_tools, _session_has_tool_beat
+    from src.orchestrator.engine import ReActEngine, ReActStep
+    import uuid
+    from fastapi.testclient import TestClient
+    from src.main import app
+
+    prompt = "Profile this dataset and propose quality rules. Stop for HITL review."
+    # Profile-then-FINISH still force-runs once
+    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["propose_quality_rules"]
+    # LLM already ran Propose (canonical or alias) — do not force a second
+    assert missing_requested_tools(prompt, ["profile_dataset", "propose_quality_rules"]) == []
+    assert missing_requested_tools(prompt, ["profile_dataset", "quality_rule_proposer"]) == []
+    assert missing_requested_tools(prompt, ["profile_dataset", "default_api:propose_quality_rules"]) == []
+
+    sid = f"qa-first-run-one-propose-{uuid.uuid4().hex}"
+    eng = ReActEngine(tools=type("T", (), {"get": lambda self, n: None})())
+    eng.tools = type("T", (), {"get": lambda self, n: None})()
+    eng._log_trace(
+        sid,
+        ReActStep(1, "", "quality_rule_proposer", {"dataset_key": "vingroup_pilot"},
+                  observation='{"proposals": [{}, {}, {}], "count": 3}'),
+        status="done",
+    )
+    assert _session_has_tool_beat(sid, "propose_quality_rules") is True
+    assert eng._skip_duplicate_propose(sid, "propose_quality_rules") is True
+    # second log (canonical name, new step_index) must not insert another Propose row
+    eng._log_trace(
+        sid,
+        ReActStep(2, "", "propose_quality_rules", {"dataset_key": "vingroup_pilot"},
+                  observation='{"proposals": [{}, {}, {}], "count": 3}'),
+        status="done",
+    )
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    steps = client.get(f"/api/v1/traces/{sid}").json()["steps"]
+    propose = [
+        s for s in steps
+        if (s.get("tool_name") or s.get("tool") or s.get("action") or "").replace("default_api:", "")
+        in ("propose_quality_rules", "quality_rule_proposer")
+    ]
+    assert len(propose) == 1
+
+    # source-inspection: first Unhappy bootstrap cannot POST chat twice
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    handle = ws.split("const handleRunFullPipeline")[1].split("}, [")[0]
+    assert "hitlBootsInFlight" in handle
+    assert "proposeStartedRef" in handle
+    assert "sendChatMessage" in handle
+    assert "hitlBootsInFlight" in ws
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    force = routes.split("for tool_name in missing_requested_tools", 1)[1]
+    guard = force.split("step = ReActStep", 1)[0]
+    assert "if _session_has_tool_beat(session_id, tool_name)" in guard
+    assert "_skip_duplicate_propose" in guard
+    assert "continue" in guard
+    engine = (ROOT / "src/orchestrator/engine.py").read_text()
+    log_fn = engine.split("def _log_trace", 1)[1]
+    assert "_skip_duplicate_propose" in log_fn.split("params_core")[0]
+
+
+def test_hitl_header_counts_the_cards_that_render():
+    """Header Proposed/Approved must match card pills; empty only when zero cards."""
+    rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    api = (ROOT / "frontend/src/services/api.ts").read_text()
+    hitl = (ROOT / "src/api/hitl.py").read_text()
+
+    assert "function ruleCardStatus" in rules
+    assert ".trim()" in rules.split("function ruleCardStatus", 1)[1].split("export const QualityRulesTab", 1)[0]
+    assert "proposedCount = proposals.filter((r) => ruleCardStatus(r) === 'proposed')" in rules
+    assert "approvedCount = proposals.filter((r) => ruleCardStatus(r) === 'approved')" in rules
+    assert "const cardStatus = ruleCardStatus(rule)" in rules
+    assert "proposals.length === 0" in rules
+    assert "No Active Quality Rules" in rules
+    # unlabeled / queued still render as PROPOSED (same helper as header)
+    helper = rules.split("function ruleCardStatus", 1)[1].split("export const QualityRulesTab", 1)[0]
+    assert "queued" in helper or "return 'proposed'" in helper
+
+    approve = rules.split("const handleApprove")[1].split("const handleReject")[0]
+    assert "hitlApi.approve" in approve
+    assert "fetchRules({ silent: true })" in approve
+    assert "hitlApi.execute" not in approve
+
+    assert "include_active=true" in api or "include_active" in api
+    assert "include_active" in hitl
+    assert "approved" in hitl.split("if include_active", 1)[1].split("else:", 1)[0]
+    assert "keptApproved" in rules
+    assert "ruleCardStatus(r) !== 'proposed'" in rules
+
+
+def test_hitl_stop_engine_allowlist_refuses_clean():
+    """HITL-stop may only run profile/propose; clean/search/list never execute or write a done beat."""
+    engine = (ROOT / "src/orchestrator/engine.py").read_text()
+    assert "def _is_hitl_stop" in engine
+    assert "def _allow_hitl_tool" in engine
+    assert "HITL_ALLOWED_TOOLS" in engine or "HITL_STOP_ALLOWED_TOOLS" in engine
+    allow_src = engine
+    if "HITL_ALLOWED_TOOLS = frozenset" in engine:
+        allow_src = engine.split("HITL_ALLOWED_TOOLS = frozenset", 1)[1].split("})", 1)[0]
+    elif "HITL_STOP_ALLOWED_TOOLS = frozenset" in engine:
+        allow_src = engine.split("HITL_STOP_ALLOWED_TOOLS = frozenset", 1)[1].split("})", 1)[0]
+    for allowed in ("profile_dataset", "propose_quality_rules", "quality_rule_proposer"):
+        assert allowed in allow_src
+    run_fn = engine.split("def run(", 1)[1].split("def _parse_response", 1)[0]
+    assert "self.tools.execute" in run_fn
+    # allowlist check sits after tool-name parse and before every execute
+    assert "_allow_hitl_tool" in run_fn or "_hitl_refuse" in run_fn
+    first_exec = run_fn.find("self.tools.execute")
+    before_first = run_fn[:first_exec]
+    assert "_allow_hitl_tool" in before_first or "_hitl_refuse" in before_first
+    # both execute branches (native tool_calls + text Action:) are guarded
+    assert run_fn.count("self.tools.execute") >= 4
+    assert before_first.count("_allow_hitl_tool") + before_first.count("_hitl_refuse") >= 1
+
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "def missing_requested_tools" in routes
+    miss = routes.split("def missing_requested_tools", 1)[1].split("@router.post", 1)[0]
+    assert "clean_database" in miss
+    assert "algolia_search" in miss
+    assert "list_datasets" in miss
+    assert "_allow_hitl_tool" in miss
+    force = routes.split("for tool_name in missing_requested_tools", 1)[1]
+    guard = force.split("step = ReActStep", 1)[0]
+    assert "clean_database" in guard
+    assert "continue" in guard
+
+    from src.orchestrator.engine import (
+        _is_hitl_stop,
+        _allow_hitl_tool,
+        ReActEngine,
+        HITL_ALLOWED_TOOLS,
+    )
+    from src.api.routes import missing_requested_tools
+    from src.services.llm import LLMResponse
+
+    assert _is_hitl_stop("Profile this dataset and propose quality rules. Stop for HITL review.")
+    assert _is_hitl_stop("Khảo sát dữ liệu và đề xuất luật chất lượng. Dừng HITL.")
+    assert _is_hitl_stop("không clean the warehouse")
+    assert _is_hitl_stop("Do not clean, quarantine, or execute any writes.")
+    assert not _is_hitl_stop("Just count the rows in telemetry")
+
+    assert _allow_hitl_tool("profile_dataset") is True
+    assert _allow_hitl_tool("propose_quality_rules") is True
+    assert _allow_hitl_tool("quality_rule_proposer") is True
+    assert _allow_hitl_tool("default_api:propose_quality_rules") is True
+    assert _allow_hitl_tool("clean_database") is False
+    assert _allow_hitl_tool("algolia_search") is False
+    assert _allow_hitl_tool("list_datasets") is False
+    assert HITL_ALLOWED_TOOLS == {
+        "profile_dataset",
+        "propose_quality_rules",
+        "quality_rule_proposer",
+    }
+
+    prompt = "Profile this dataset and propose quality rules. Stop for HITL review."
+    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["propose_quality_rules"]
+    assert missing_requested_tools(prompt, ["profile_dataset", "propose_quality_rules"]) == []
+    assert "clean_database" not in missing_requested_tools(prompt, ["profile_dataset"])
+    assert "algolia_search" not in missing_requested_tools(prompt, [])
+    assert "list_datasets" not in missing_requested_tools(prompt, [])
+
+    class _SeqLLM:
+        def __init__(self, names):
+            self.names = list(names)
+        def chat(self, messages, tools=None):
+            if self.names:
+                name = self.names.pop(0)
+                return LLMResponse(
+                    content=f"Thought: next\nAction: {name}\nAction Input: {{}}",
+                    tool_calls=[{"name": name, "arguments": {}}],
+                )
+            return LLMResponse(content="Thought: done\nAction: FINISH\nAction Input: {}")
+
+    class _RecTools:
+        def __init__(self):
+            self.executed = []
+            self.tool_names = [
+                "profile_dataset",
+                "propose_quality_rules",
+                "clean_database",
+                "algolia_search",
+                "list_datasets",
+            ]
+        def list_tools(self):
+            return [{"function": {"name": n, "description": n}} for n in self.tool_names]
+        def execute(self, name, args):
+            self.executed.append(name)
+            out = {"ok": True}
+            if "propose" in name:
+                out["proposals"] = [{}, {}, {}]
+                out["count"] = 3
+            return type("R", (), {"output_data": out})()
+        def get(self, n):
+            return None
+
+    tools = _RecTools()
+    eng = ReActEngine(llm=_SeqLLM(["clean_database", "algolia_search", "list_datasets", "propose_quality_rules"]), tools=tools, max_steps=6)
+    result = eng.run("Profile and propose quality rules. Stop for HITL review. Do not clean, quarantine, or execute.")
+    assert "clean_database" not in tools.executed
+    assert "algolia_search" not in tools.executed
+    assert "list_datasets" not in tools.executed
+    assert any(_allow_hitl_tool(n) for n in tools.executed) or "propose_quality_rules" in [s.action for s in result.steps]
+    assert "clean_database" not in [s.action for s in result.steps]
+    assert result.status in ("completed", "max_steps")
+

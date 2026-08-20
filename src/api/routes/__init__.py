@@ -70,7 +70,7 @@ from src.tools.algolia_tool import AlgoliaSearchTool
 from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
-from src.orchestrator.engine import ReActStep
+from src.orchestrator.engine import ReActStep, is_hitl_stop_prompt, _is_hitl_stop, _allow_hitl_tool, HITL_REFUSED_TOOLS, HITL_STOP_ALLOWED_TOOLS
 from src.models.schemas import (
     AlertCreateRequest,
     AnomalyDetectRequest,
@@ -515,7 +515,10 @@ def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
 
 
 def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
-    """Force propose when the steward asked for rules and the LLM FINISHed after Profile."""
+    """Force propose when the steward asked for rules and the LLM FINISHed after Profile.
+
+    Never force-run clean_database / algolia_search / list_datasets (HITL-stop refuse).
+    """
     blob = (prompt or "").lower()
     done = {_normalize_tool_name(a) for a in (executed or []) if a}
     if done & _PROPOSE_ALIASES:
@@ -533,9 +536,15 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
             "luat chat luong",
         )
     )
+    missing: list[str] = []
     if wants_propose and "propose_quality_rules" not in done:
-        return ["propose_quality_rules"]
-    return []
+        missing.append("propose_quality_rules")
+    # HITL-stop / force-run: refuse clean, search, list — allow profile/propose only
+    refused = HITL_REFUSED_TOOLS | {"clean_database", "algolia_search", "list_datasets"}
+    missing = [t for t in missing if t not in refused]
+    if _is_hitl_stop(prompt):
+        missing = [t for t in missing if _allow_hitl_tool(t)]
+    return missing
 
 
 @router.post("/chat/send")
@@ -556,16 +565,22 @@ async def send_chat_message(request: ChatRequest):
         session_id=session_id,
     )
 
+    hitl_stop = is_hitl_stop_prompt(request.message)
     registry = ToolRegistry()
-    registry.register(ListDatasetsTool())
     registry.register(ProfileDatasetTool())
     registry.register(ProposeQualityRulesTool())
-    registry.register(CleanDatabaseTool())
-    registry.register(AlgoliaSearchTool())
-    registry.register(AnomalyDetectorTool())
+    if not hitl_stop:
+        registry.register(ListDatasetsTool())
+        registry.register(CleanDatabaseTool())
+        registry.register(AlgoliaSearchTool())
+        registry.register(AnomalyDetectorTool())
 
     llm_service = LLMService()
-    react_engine = BoundedReActEngine(llm_service=llm_service, tools=registry)
+    react_engine = BoundedReActEngine(
+        llm_service=llm_service,
+        tools=registry,
+        tool_allowlist=HITL_STOP_ALLOWED_TOOLS if hitl_stop else None,
+    )
     
     try:
         import sentry_sdk
@@ -583,6 +598,8 @@ async def send_chat_message(request: ChatRequest):
         lang_instruction = "IMPORTANT: Respond and summarize all findings and observations in professional English. Format technical tables clearly."
 
     context = {"lang": lang_pref, "session_id": session_id}
+    if hitl_stop:
+        context["stop_at_hitl"] = True
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
         task = (
@@ -592,6 +609,11 @@ async def send_chat_message(request: ChatRequest):
         )
     else:
         task = f"{lang_instruction}\nUser request: {request.message}"
+    if hitl_stop:
+        task += (
+            "\nHITL GATE: After propose_quality_rules succeeds, Action: FINISH. "
+            "Do not call clean_database, list_datasets, algolia_search, or any write tool."
+        )
 
     with sentry_ctx:
         # Offload blocking ReAct so GET /traces can serve the seeded running Profile beat.
@@ -610,6 +632,12 @@ async def send_chat_message(request: ChatRequest):
         for tool_name in missing_requested_tools(request.message, executed_so_far):
             if _session_has_tool_beat(session_id, tool_name):
                 continue
+            if getattr(react_engine, "_skip_duplicate_propose", lambda *_a, **_k: False)(session_id, tool_name):
+                continue
+            # do not force-run clean / search / list (HITL-stop allowlist)
+            if tool_name in HITL_REFUSED_TOOLS or not _allow_hitl_tool(tool_name):
+                if _is_hitl_stop(request.message) or tool_name in ("clean_database", "algolia_search", "list_datasets"):
+                    continue
             step = ReActStep(
                 step_index=max((getattr(s, "step_index", -1) for s in result.steps), default=-1) + 1,
                 thought="",
@@ -684,7 +712,7 @@ async def send_chat_message(request: ChatRequest):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
+    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
         final_content += "\nAvailable registered datasets include: `vietnam_trips_dirty`, `vgreen_telemetry`, `vinfast_bms`, `xanhsm_trips`."
 
     agent_msg = conversation_store.save_message(

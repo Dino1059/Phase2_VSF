@@ -174,6 +174,90 @@ def _measured_from_output(tool_name: str | None, output: object) -> str:
     return f"{title} finished"
 
 
+
+HITL_ALLOWED_TOOLS = frozenset({
+    "profile_dataset",
+    "propose_quality_rules",
+    "quality_rule_proposer",
+})
+HITL_STOP_ALLOWED_TOOLS = HITL_ALLOWED_TOOLS
+HITL_BOOTSTRAP_TOOLS = HITL_ALLOWED_TOOLS
+HITL_REFUSED_TOOLS = frozenset({
+    "clean_database",
+    "algolia_search",
+    "list_datasets",
+})
+HITL_BLOCKED_TOOLS = HITL_REFUSED_TOOLS
+_HITL_STOP_MARKERS = (
+    "stop for hitl",
+    "stop at hitl",
+    "hitl review",
+    "do not clean, quarantine, or execute",
+    "do not clean",
+    "don't clean",
+    "do not quarantine",
+    "do not execute",
+    "không làm sạch",
+    "khong lam sach",
+    "không cách ly",
+    "khong cach ly",
+    "không thực thi",
+    "khong thuc thi",
+    "không clean",
+    "khong clean",
+    "dừng hitl",
+    "dung hitl",
+    "dừng lại để steward",
+    "dung lai de steward",
+    "duyệt hitl",
+    "duyet hitl",
+)
+
+
+def _is_hitl_stop(task: str, context: dict | None = None) -> bool:
+    """True when the steward asked to stop at HITL (no clean / quarantine / execute)."""
+    if isinstance(context, dict) and (context.get("stop_at_hitl") or context.get("hitl_stop")):
+        return True
+    blob = f"{task or ''}"
+    if context:
+        blob += " " + json.dumps(context, default=str)
+    blob = blob.lower()
+    return any(m in blob for m in _HITL_STOP_MARKERS)
+
+
+def _allow_hitl_tool(name: str | None) -> bool:
+    """HITL-stop allowlist: profile + propose only. Everything else is refused."""
+    n = (name or "").replace("default_api:", "").strip().lower()
+    return n in HITL_ALLOWED_TOOLS
+
+
+def is_hitl_stop_prompt(*parts) -> bool:
+    """True for Profile+Propose then stop (do not clean / quarantine / execute)."""
+    task = ""
+    context = None
+    for part in parts:
+        if isinstance(part, dict):
+            context = part if context is None else {**context, **part}
+        elif part:
+            task = f"{task} {part}".strip()
+    return _is_hitl_stop(task, context)
+
+
+def is_hitl_blocked_tool(name: str | None) -> bool:
+    """True when a HITL-stop run must not execute this tool (allowlist invert)."""
+    n = (name or "").replace("default_api:", "").strip().lower()
+    if not n or n in ("finish", "abstain", "finish_default"):
+        return False
+    if n in HITL_REFUSED_TOOLS:
+        return True
+    return not _allow_hitl_tool(n)
+
+
+def is_propose_tool(name: str | None) -> bool:
+    n = (name or "").replace("default_api:", "").strip().lower()
+    return n in ("propose_quality_rules", "quality_rule_proposer")
+
+
 SYSTEM_PROMPT = """You are DataTrust OS Agent — an AI-powered data quality analyst for the VinGroup EV ecosystem.
 
 You have access to the following tools:
@@ -211,12 +295,18 @@ class ReActEngine:
         max_steps: int = 10,
         token_budget: int = 10000,
         llm_service: GemmaLLMAdapter | None = None,
+        tool_allowlist: frozenset[str] | set[str] | list[str] | None = None,
         **kwargs,
     ):
         self.llm = llm if llm is not None else (llm_service if llm_service is not None else GemmaLLMAdapter())
         self.tools = tools if tools is not None else ToolRegistry()
         self.max_steps = min(max_steps, 10)
         self.token_budget = token_budget
+        self.tool_allowlist = (
+            frozenset(str(n).replace("default_api:", "").strip().lower() for n in tool_allowlist)
+            if tool_allowlist is not None
+            else None
+        )
 
     def run(self, task: str, context: dict | None = None, session_id: str | None = None) -> ReActResult:
         """Execute a bounded dynamic ReAct loop."""
@@ -230,6 +320,16 @@ class ReActEngine:
 
         # Build system prompt with available tools
         tool_specs = self.tools.list_tools() if hasattr(self.tools, "list_tools") else []
+        hitl_stop = _is_hitl_stop(task, context)
+        if hitl_stop:
+            # Allowlist: LLM must not even see clean / algolia / list / write tools.
+            filtered = []
+            for t in tool_specs:
+                fn = t.get("function") if isinstance(t, dict) else None
+                name = (fn or {}).get("name") if isinstance(fn, dict) else None
+                if self._allow_hitl_tool(name):
+                    filtered.append(t)
+            tool_specs = filtered
         tool_desc = "\n".join(
             f"- {t['function']['name']}: {t['function']['description']}"
             for t in tool_specs
@@ -293,6 +393,18 @@ class ReActEngine:
                     # Empty native payload — do not write a nameless running row.
                     continue
 
+                if _is_hitl_stop(task, context) and not _allow_hitl_tool(step.action):
+                    messages.append({"role": "assistant", "content": llm_response.content or f"Calling {step.action}"})
+                    messages.append({
+                        "role": "user",
+                        "content": "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools.",
+                    })
+                    if self._hitl_already_proposed(result):
+                        result.status = "completed"
+                        result.final_answer = result.final_answer or "Stopping for HITL review."
+                        break
+                    continue
+
                 if self._skip_duplicate_propose(result.session_id, step.action):
                     continue
 
@@ -326,6 +438,11 @@ class ReActEngine:
                 messages.append({"role": "user", "content": f"Observation: {step.observation}"})
 
                 self._log_trace(result.session_id, step)
+                if self._hitl_finish_after_propose(task, context, step.action, step.observation):
+                    result.status = "completed"
+                    if not result.final_answer:
+                        result.final_answer = "Stopping for HITL review."
+                    break
                 continue
 
             # Text-based action parsing branch
@@ -364,6 +481,17 @@ class ReActEngine:
                 action_name = step.action.replace("default_api:", "")
                 if context and context.get("dataset_key") and isinstance(step.action_input, dict):
                     step.action_input.setdefault("dataset_key", context["dataset_key"])
+                if _is_hitl_stop(task, context) and not _allow_hitl_tool(action_name):
+                    messages.append({"role": "assistant", "content": llm_response.content})
+                    messages.append({
+                        "role": "user",
+                        "content": "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools.",
+                    })
+                    if self._hitl_already_proposed(result):
+                        result.status = "completed"
+                        result.final_answer = result.final_answer or "Stopping for HITL review."
+                        break
+                    continue
                 if self._skip_duplicate_propose(result.session_id, action_name):
                     continue
                 self._log_trace(result.session_id, step, status="running")
@@ -394,6 +522,11 @@ class ReActEngine:
                 messages.append({"role": "assistant", "content": llm_response.content})
                 messages.append({"role": "user", "content": f"Observation: {step.observation}"})
                 self._log_trace(result.session_id, step)
+                if self._hitl_finish_after_propose(task, context, action_name, step.observation):
+                    result.status = "completed"
+                    if not result.final_answer:
+                        result.final_answer = "Stopping for HITL review."
+                    break
             else:
                 # Fallback: treat response content as final answer
                 result.final_answer = (
@@ -486,6 +619,34 @@ class ReActEngine:
 
     def _normalize_tool_name(self, name: str | None) -> str:
         return (name or "").replace("default_api:", "").strip().lower()
+
+
+    def _is_hitl_stop(self, task: str, context: dict | None = None) -> bool:
+        return _is_hitl_stop(task, context)
+
+    def _allow_hitl_tool(self, name: str | None) -> bool:
+        n = self._normalize_tool_name(name)
+        if getattr(self, "tool_allowlist", None) is not None:
+            return n in self.tool_allowlist
+        return _allow_hitl_tool(name)
+
+    def _hitl_refuse(self, task: str, context: dict | None, action: str | None) -> bool:
+        n = (action or "").replace("default_api:", "").strip().lower()
+        if not n or n in ("finish", "abstain", "finish_default"):
+            return False
+        return self._is_hitl_stop(task, context) and not self._allow_hitl_tool(action)
+
+    def _hitl_already_proposed(self, result: ReActResult) -> bool:
+        if any(is_propose_tool(getattr(s, "action", None)) for s in result.steps):
+            return True
+        return self._has_tool_beat(result.session_id, "propose_quality_rules")
+
+    def _hitl_finish_after_propose(self, task: str, context: dict | None, action: str | None, observation: str | None) -> bool:
+        if not self._is_hitl_stop(task, context) or not is_propose_tool(action):
+            return False
+        obs = observation or ""
+        return not obs.startswith("Error")
+
 
     def _has_tool_beat(self, session_id: str, tool_name: str) -> bool:
         """True when this session already persisted a named beat (alias-aware)."""

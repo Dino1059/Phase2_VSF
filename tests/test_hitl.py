@@ -165,3 +165,24 @@ def test_audit_state_hash(client):
     h = AuditService.compute_state_hash("r1", "x > 0", "approved")
     assert len(h) == 16
     assert isinstance(h, str)
+
+
+def test_queue_include_active_keeps_approved_after_approve(client):
+    """After one Approve, include_active queue still returns the approved row (DuckDB wins)."""
+    c, db = client
+    db.execute(
+        "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by) "
+        "VALUES ('r1', 'soc', 'range', 'x > 0', 0.9, 'proposed', 'agent')"
+    )
+    db.execute(
+        "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by) "
+        "VALUES ('r2', 'vin', 'not_null', 'y IS NOT NULL', 0.9, 'proposed', 'agent')"
+    )
+    resp = c.post("/api/v1/hitl/approve/r1", json={"approved_by": "tester"})
+    assert resp.status_code == 200
+    default_q = c.get("/api/v1/hitl/queue").json()["proposals"]
+    assert {p["rule_id"] for p in default_q} == {"r2"}
+    active = c.get("/api/v1/hitl/queue?include_active=true").json()["proposals"]
+    by_id = {p["rule_id"]: p for p in active}
+    assert by_id["r1"]["status"] == "approved"
+    assert by_id["r2"]["status"] in ("proposed", "pending")

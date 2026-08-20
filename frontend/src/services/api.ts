@@ -600,7 +600,7 @@ export interface HITLProposal {
 export const hitlApi = {
   queue: (datasetKey?: string) =>
     request<{ proposals: HITLProposal[] }>(
-      `/hitl/queue${datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : ''}`
+      `/hitl/queue?include_active=true${datasetKey ? `&dataset_key=${encodeURIComponent(datasetKey)}` : ''}`
     ),
   approve: (ruleId: string, approvedBy: string = 'human') =>
     request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {

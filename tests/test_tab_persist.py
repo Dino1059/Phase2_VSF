@@ -129,11 +129,14 @@ def test_unhappy_tab_state_is_critical_172_8_measured_steps_and_proposed_count()
     assert "a1b2c3d4e5f6" not in traces
     assert "I will now" not in traces
 
-    # HITL: proposed count includes pending (tool writes pending, cards say PROPOSED)
+    # HITL: header counts the same cards that render (pending/queued/unlabeled → PROPOSED)
     assert "proposedCount" in rules
-    assert "'pending'" in rules
-    assert "'proposed'" in rules
+    assert "approvedCount" in rules
+    assert "ruleCardStatus" in rules
     assert "{proposedCount}" in rules
+    assert "{approvedCount}" in rules
+    assert "ruleCardStatus(r) === 'proposed'" in rules
+    assert "ruleCardStatus(r) === 'approved'" in rules
 
     # Remount is what wipes the above; keep-mount is the fix
     panel = _right_panel(ws)
@@ -183,7 +186,8 @@ def test_rules_tab_refetches_on_show_and_trace_without_rerunning_propose():
     assert "sendChatMessage" not in rules
     assert "/chat/send" not in rules
     assert "proposeRules" not in rules
-    assert "['proposed', 'pending', 'draft']" in rules
+    assert "ruleCardStatus" in rules
+    assert "fetchRules({ silent: true })" in rules
     assert "active={rightTab === 'tab-rules'}" in panel
 
     assert "active?: boolean" in traces

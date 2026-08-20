@@ -48,6 +48,16 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
   };
 }
 
+
+/** Same status the card pill uses. Header counts MUST use this (count what you show). */
+function ruleCardStatus(rule: { status?: string | null }): 'approved' | 'rejected' | 'proposed' {
+  const raw = String(rule.status ?? '').trim().toLowerCase();
+  if (raw === 'approved' || raw === 'edited') return 'approved';
+  if (raw === 'rejected') return 'rejected';
+  // unlabeled / whitespace / Proposed / pending / draft / queued → PROPOSED pill
+  return 'proposed';
+}
+
 export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,7 +76,16 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     try {
       const res = await hitlApi.queue(datasetKey);
       if (res && Array.isArray(res.proposals)) {
-        setProposals(res.proposals);
+        const fromDb = res.proposals;
+        setProposals((prev) => {
+          const dbIds = new Set(fromDb.map((r) => r.rule_id));
+          // DuckDB wins for every id it returns. Keep local APPROVED cards the queue omitted
+          // so header Approved follows the pills after one Approve.
+          const keptApproved = prev.filter(
+            (r) => ruleCardStatus(r) === 'approved' && !dbIds.has(r.rule_id)
+          );
+          return [...fromDb, ...keptApproved];
+        });
       }
     } catch {
       if (!silent) setProposals([]);
@@ -103,6 +122,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       setProposals((prev) =>
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'approved' } : r))
       );
+      // DuckDB wins when include_active returns the approved row; keep the pill if queue lags.
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Approval error: ${err.message}`);
     } finally {
@@ -117,6 +138,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       setProposals((prev) =>
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'rejected' } : r))
       );
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Reject error: ${err.message}`);
     } finally {
@@ -125,9 +147,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   };
 
   const handleBatchApprove = async () => {
-    const pendingRules = proposals.filter((r) =>
-      ['proposed', 'pending', 'draft'].includes((r.status || 'proposed').toLowerCase())
-    );
+    const pendingRules = proposals.filter((r) => ruleCardStatus(r) === 'proposed');
     if (pendingRules.length === 0) return;
 
     setActionLoading('batch');
@@ -140,6 +160,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       setProposals((prev) =>
         prev.map((r) => ({ ...r, status: 'approved' }))
       );
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Batch approval error: ${err.message}`);
     } finally {
@@ -160,6 +181,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         )
       );
       setEditingRule(null);
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Save edit error: ${err.message}`);
     } finally {
@@ -168,9 +190,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   };
 
   const handleSandboxExecute = async () => {
-    const approved = proposals.filter(
-      (r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited'
-    );
+    const approved = proposals.filter((r) => ruleCardStatus(r) === 'approved');
     if (approved.length === 0) return;
     setActionLoading('sandbox');
     setSandboxError(null);
@@ -188,12 +208,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     }
   };
 
-  const proposedCount = proposals.filter((r) =>
-    ['proposed', 'pending', 'draft'].includes((r.status || 'proposed').toLowerCase())
-  ).length;
-  const approvedCount = proposals.filter(
-    (r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited'
-  ).length;
+  // Count the same cards that render (not a narrower API-status filter).
+  const proposedCount = proposals.filter((r) => ruleCardStatus(r) === 'proposed').length;
+  const approvedCount = proposals.filter((r) => ruleCardStatus(r) === 'approved').length;
 
   return (
     <div className="quality-rules-tab" style={{ padding: '4px' }}>
@@ -351,10 +368,14 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         </div>
       ) : (
         <div className="rules-cards-list" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {proposals.map((rule) => {
-            const status = (rule.status || 'proposed').toLowerCase();
-            const isApproved = status === 'approved' || status === 'edited';
-            const isRejected = status === 'rejected';
+          {[
+            ...proposals.filter((r) => ruleCardStatus(r) === 'proposed'),
+            ...proposals.filter((r) => ruleCardStatus(r) !== 'proposed'),
+          ].map((rule) => {
+            const cardStatus = ruleCardStatus(rule);
+            const status = cardStatus;
+            const isApproved = cardStatus === 'approved';
+            const isRejected = cardStatus === 'rejected';
             const reasoning = getRuleReasoning(rule, isVi);
 
             return (

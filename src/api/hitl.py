@@ -22,30 +22,42 @@ def check_rule_approved(rule_id: str):
     return rules[0]
 
 
+def _norm_rule_status(raw) -> str:
+    return (str(raw) if raw is not None else "").strip().lower()
+
+
 @hitl_router.get("/queue")
-async def get_queue(dataset_key: Optional[str] = None):
+async def get_queue(dataset_key: Optional[str] = None, include_active: bool = False):
     db = get_db()
+    # Default stays pending/proposed so existing queue-empty tests hold.
+    # include_active=true keeps approved/edited so HITL header can count what it shows.
+    if include_active:
+        statuses = "('pending', 'proposed', 'draft', 'queued', 'approved', 'edited')"
+    else:
+        statuses = "('pending', 'proposed')"
+    where_status = f"lower(trim(cast(status AS VARCHAR))) IN {statuses}"
     if dataset_key:
         try:
             rows = db.execute(
                 "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-                "FROM quality_rules WHERE status IN ('pending', 'proposed') AND dataset_key = ? "
+                f"FROM quality_rules WHERE {where_status} AND dataset_key = ? "
                 "ORDER BY created_at DESC",
                 [dataset_key],
             )
         except Exception:
             rows = db.execute(
                 "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-                "FROM quality_rules WHERE status IN ('pending', 'proposed') ORDER BY created_at DESC"
+                f"FROM quality_rules WHERE {where_status} ORDER BY created_at DESC"
             )
     else:
         rows = db.execute(
             "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
-            "FROM quality_rules WHERE status IN ('pending', 'proposed') ORDER BY created_at DESC"
+            f"FROM quality_rules WHERE {where_status} ORDER BY created_at DESC"
         )
     return {"proposals": [
         {"rule_id": r[0], "rule_name": r[1], "rule_type": r[2], "rule_expression": r[3],
-         "confidence": r[4], "status": r[5], "proposed_by": r[6], "proposed_at": str(r[7]) if r[7] else None,
+         "confidence": r[4], "status": _norm_rule_status(r[5]) or "proposed",
+         "proposed_by": r[6], "proposed_at": str(r[7]) if r[7] else None,
          "dataset_key": dataset_key}
         for r in rows
     ]}
@@ -57,7 +69,8 @@ async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
     rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
     if not rules:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
-    if rules[0][1] not in ("proposed", "pending", "draft"):
+    current = _norm_rule_status(rules[0][1])
+    if current not in ("proposed", "pending", "draft", "queued"):
         raise HTTPException(status_code=400, detail=f"Rule {rule_id} is '{rules[0][1]}', not 'proposed'")
 
     db.execute("UPDATE quality_rules SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
