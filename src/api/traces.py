@@ -340,6 +340,9 @@ async def get_trace(
         if not include_thought:
             # Thought is still returned (steward Technical detail), never invented.
             pass
+        action = (card.get("action") or card.get("tool_name") or card.get("tool") or "").strip()
+        if action in ("FINISH", "ABSTAIN", "FINISH_DEFAULT") or not action:
+            continue
         if _in_range(card.get("timestamp"), since_dt):
             normalized.append(card)
     return {"session_id": session_id, "steps": normalized}

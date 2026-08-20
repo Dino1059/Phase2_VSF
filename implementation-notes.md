@@ -60,3 +60,9 @@
 - HITL: Approve stays; Execute disabled; sandbox not run; quarantine=0.
 - Batch window labeled 2026-01-01 → 2026-01-15. Same detectors, different ingress. Not a live stream.
 - Hollow `charging_rate_kw` / `fault_code` dropped from the vinfast_bms view (they were always NULL).
+
+## 2026-08-20 — Propose traces beat missing (under-count)
+
+- Live GET `/traces/dataset:vingroup_pilot` had Profile done + two nameless `running` rows. Chat had a Propose chip; HITL had 3 rules. Frontend drops rows without action/tool_name → MEASURED STEPS 1.
+- Cause: Gemini/OpenAI tool_calls nest `function.name`. Engine read `tc.get("name")` → `""`, logged `Now: running tool…`, then session_id+step_index upsert clobbered a later Propose beat. `missing_requested_tools` was tested but not implemented, so FINISH-after-profile also skipped the write.
+- Fix: unwrap nested tool_calls; skip empty/FINISH trace writes; upsert by tool_name; after chat run, force+log missing profile/propose.

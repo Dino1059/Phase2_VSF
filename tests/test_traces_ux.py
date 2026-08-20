@@ -279,3 +279,70 @@ def test_chat_tool_run_is_a_followable_chip():
     assert any(m in combined for m in markers), (
         "A tool-run must render as a chip the steward can follow, not a Thought: blob"
     )
+
+
+
+def test_missing_requested_tools_propose_only():
+    from src.api.routes import missing_requested_tools
+
+    assert missing_requested_tools(
+        "Profile this dataset and propose quality rules. Stop for HITL.",
+        ["profile_dataset"],
+    ) == ["propose_quality_rules"]
+    assert missing_requested_tools("just profile the dataset", ["profile_dataset"]) == []
+    assert "profile_dataset" not in missing_requested_tools(
+        "Profile and propose quality rules",
+        [],
+    )
+
+
+def test_log_trace_writes_propose_steward_beat():
+    from src.db.connection import get_db
+    from src.orchestrator.engine import ReActEngine, ReActStep
+
+    sid = f"qa-propose-beat-{uuid.uuid4().hex}"
+    engine = ReActEngine()
+    step = ReActStep(
+        step_index=1,
+        thought="",
+        action="propose_quality_rules",
+        action_input={"dataset_key": "vingroup_pilot"},
+        observation='{"proposals": [{}, {}, {}], "count": 3}',
+        duration_ms=12,
+    )
+    engine._log_trace(sid, step)
+    rows = get_db().execute(
+        "SELECT tool_name, status, observation FROM agent_traces WHERE session_id = ? AND tool_name = ?",
+        [sid, "propose_quality_rules"],
+    )
+    assert rows, "propose must write a steward beat like profile"
+    assert rows[0][0] == "propose_quality_rules"
+    assert str(rows[0][1] or "").lower() in ("done", "success", "completed", "")
+
+
+def test_seed_running_profile_writes_immediate_beat():
+    from src.db.connection import get_db
+    from src.orchestrator.engine import ReActEngine, ReActResult
+
+    sid = f"qa-seed-profile-{uuid.uuid4().hex}"
+    engine = ReActEngine()
+    result = ReActResult(task="Profile this dataset", session_id=sid)
+    engine._seed_running_profile(result, "Profile this dataset and propose quality rules", {"dataset_key": "vingroup_pilot"})
+    rows = get_db().execute(
+        "SELECT tool_name, status FROM agent_traces WHERE session_id = ?",
+        [sid],
+    )
+    assert rows
+    assert rows[0][0] == "profile_dataset"
+    assert str(rows[0][1] or "").lower() in ("running", "in_progress")
+
+
+def test_traces_tab_shows_pending_running_card():
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "pendingRun" in ui
+    assert "now-running-card" in ui
+    assert "pendingRun={waitingForBackendAgentEvents || isRunningPipeline}" in ws
+    assert "asyncio.to_thread" in routes
+    assert "missing_requested_tools" in routes

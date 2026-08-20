@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -69,6 +70,7 @@ from src.tools.algolia_tool import AlgoliaSearchTool
 from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
+from src.orchestrator.engine import ReActStep
 from src.models.schemas import (
     AlertCreateRequest,
     AnomalyDetectRequest,
@@ -482,6 +484,41 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
 
 
 
+
+def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
+    try:
+        from src.db.connection import get_db
+        rows = get_db().execute(
+            "SELECT 1 FROM agent_traces WHERE session_id = ? AND (tool_name = ? OR action = ?) LIMIT 1",
+            [session_id, tool_name, tool_name],
+        )
+        return bool(rows)
+    except Exception:
+        return False
+
+
+def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
+    """Force propose when the steward asked for rules and the LLM FINISHed after Profile."""
+    blob = (prompt or "").lower()
+    done = {str(a).replace("default_api:", "").strip() for a in (executed or []) if a}
+    wants_propose = any(
+        w in blob
+        for w in (
+            "propose",
+            "quality rule",
+            "quality rules",
+            "hitl",
+            "đề xuất",
+            "de xuat",
+            "luật chất lượng",
+            "luat chat luong",
+        )
+    )
+    if wants_propose and "propose_quality_rules" not in done:
+        return ["propose_quality_rules"]
+    return []
+
+
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
     session_id = request.session_id or "default"
@@ -538,7 +575,36 @@ async def send_chat_message(request: ChatRequest):
         task = f"{lang_instruction}\nUser request: {request.message}"
 
     with sentry_ctx:
-        result = react_engine.run(task, context=context)
+        # Offload blocking ReAct so GET /traces can serve the seeded running Profile beat.
+        result = await asyncio.to_thread(lambda: react_engine.run(task, context=context))
+
+    executed_so_far = [
+        s.action for s in getattr(result, "steps", [])
+        if getattr(s, "action", None) and s.action not in ("FINISH", "ABSTAIN")
+    ]
+    if hasattr(react_engine, "_log_trace"):
+        for step in getattr(result, "steps", []) or []:
+            action = getattr(step, "action", None)
+            if action and action not in ("FINISH", "ABSTAIN", "FINISH_DEFAULT"):
+                if not _session_has_tool_beat(session_id, action):
+                    react_engine._log_trace(session_id, step)
+        for tool_name in missing_requested_tools(request.message, executed_so_far):
+            step = ReActStep(
+                step_index=max((getattr(s, "step_index", -1) for s in result.steps), default=-1) + 1,
+                thought="",
+                action=tool_name,
+                action_input={"dataset_key": request.dataset_key} if request.dataset_key else {},
+            )
+            react_engine._log_trace(session_id, step, status="running")
+            try:
+                tool_result = registry.execute(tool_name, step.action_input)
+                output_data = getattr(tool_result, "output_data", {}) or {}
+                step.observation = json.dumps(output_data, default=str)
+                step.duration_ms = int(getattr(tool_result, "duration_ms", 0) or 0)
+            except Exception as exc:
+                step.observation = f"Error: {exc}"
+            result.steps.append(step)
+            react_engine._log_trace(session_id, step)
 
     # Broadcast steward summaries (never raw thought) for the traces panel.
     emitted_actions: set[str] = set()

@@ -226,3 +226,48 @@ def test_chat_used_chip_no_observation_dump():
     assert "Tool Observation" not in agent
     assert "renderFormattedContent(content.replace(/^Observation:" not in agent
     assert "Thought:" in chat
+
+
+def test_unwrap_nested_function_call_names_propose():
+    from src.orchestrator.engine import unwrap_tool_call
+    name, args = unwrap_tool_call({
+        "id": "call_1",
+        "type": "function",
+        "function": {
+            "name": "propose_quality_rules",
+            "arguments": '{"dataset_key": "vingroup_pilot"}',
+        },
+    })
+    assert name == "propose_quality_rules"
+    assert args.get("dataset_key") == "vingroup_pilot"
+    flat_name, _ = unwrap_tool_call({"name": "profile_dataset", "arguments": {}})
+    assert flat_name == "profile_dataset"
+    empty_name, empty_args = unwrap_tool_call({"type": "function", "function": {}})
+    assert empty_name == ""
+    assert empty_args == {}
+
+
+def test_missing_requested_tools_forces_propose_after_profile_only():
+    from src.api.routes import missing_requested_tools
+    prompt = "Profile this dataset and propose quality rules. Stop for HITL review."
+    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["propose_quality_rules"]
+    assert missing_requested_tools(prompt, ["profile_dataset", "propose_quality_rules"]) == []
+    vi = "Khảo sát dữ liệu và đề xuất luật chất lượng. Dừng HITL."
+    assert missing_requested_tools(vi, ["profile_dataset"]) == ["propose_quality_rules"]
+
+
+def test_chat_send_backfills_missing_propose_and_logs_trace():
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "def missing_requested_tools" in routes
+    assert "react_engine._log_trace" in routes
+    assert 'status="running"' in routes or "status=\"running\"" in routes or 'status="running"' in routes
+    engine = (ROOT / "src/orchestrator/engine.py").read_text()
+    assert "def unwrap_tool_call" in engine
+    assert "coalesce(tool_name, action, '')" in engine
+    assert 'if not tool_name or tool_name in ("FINISH", "ABSTAIN", "FINISH_DEFAULT")' in engine
+    traces = (ROOT / "src/api/traces.py").read_text()
+    assert 'if action in ("FINISH", "ABSTAIN", "FINISH_DEFAULT") or not action' in traces
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    assert "steward-beat" in ui
+    assert "Why this tool" in ui
+    assert "selectedTool" in ui

@@ -71,6 +71,25 @@ def json_preview(value, limit: int = 1500) -> str | None:
     return json.dumps({"preview": blob[:limit], "truncated": True})
 
 
+def unwrap_tool_call(tc: dict | None) -> tuple[str, dict]:
+    """Accept OpenAI/Gemini nested {function:{name,arguments}} or flat {name,arguments}."""
+    if not isinstance(tc, dict):
+        return "", {}
+    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+    name = str(tc.get("name") or fn.get("name") or "").replace("default_api:", "").strip()
+    args = tc.get("arguments")
+    if args in (None, "", {}):
+        args = fn.get("arguments")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            args = {"raw": args}
+    if not isinstance(args, dict):
+        args = {}
+    return name, args
+
+
 def _human_tool_title(name: str | None) -> str:
     return (name or "").replace("_", " ").strip().capitalize()
 
@@ -225,6 +244,10 @@ class ReActEngine:
         if context:
             messages.append({"role": "user", "content": f"Context: {json.dumps(context)}"})
 
+        # Seed a running Profile beat before the LLM call so GET /traces is not empty
+        # for ~30s. Later profile_dataset at step 0 upserts this same row. Do not invent Done.
+        self._seed_running_profile(result, task, context)
+
         for step_idx in range(self.max_steps):
             if result.total_tokens >= self.token_budget:
                 result.status = "token_budget_exceeded"
@@ -255,10 +278,20 @@ class ReActEngine:
             # Check for tool calls from native LLM function calling
             if getattr(llm_response, "tool_calls", None):
                 tc = llm_response.tool_calls[0]
-                step.action = tc.get("name", "")
-                step.action_input = tc.get("arguments", {}) or {}
+                name, args = unwrap_tool_call(tc if isinstance(tc, dict) else {})
+                # Keep text-parsed action if the provider nested name under function.*
+                if name:
+                    step.action = name
+                    step.action_input = args
+                elif isinstance(tc, dict) and not step.action:
+                    step.action = str(tc.get("name") or "")
+                    step.action_input = args
                 if context and context.get("dataset_key") and isinstance(step.action_input, dict):
                     step.action_input.setdefault("dataset_key", context["dataset_key"])
+
+                if not step.action:
+                    # Empty native payload — do not write a nameless running row.
+                    continue
 
                 self._log_trace(result.session_id, step, status="running")
                 try:
@@ -429,6 +462,20 @@ class ReActEngine:
             action_input=action_input
         )
 
+    def _seed_running_profile(self, result: ReActResult, task: str, context: dict | None) -> None:
+        """Write one running profile_dataset row at step 0 when the steward asked to profile."""
+        blob = f"{task or ''} {json.dumps(context or {}, default=str)}".lower()
+        if not any(k in blob for k in ("profile", "khảo sát", "khao sat", "scan")):
+            return
+        dataset_key = (context or {}).get("dataset_key")
+        step = ReActStep(
+            step_index=0,
+            thought="",
+            action="profile_dataset",
+            action_input={"dataset_key": dataset_key} if dataset_key else {},
+        )
+        self._log_trace(result.session_id, step, status="running")
+
     def _resolve_tool_name(self, action: str | None) -> str:
         return (action or "").replace("default_api:", "").strip()
 
@@ -497,6 +544,8 @@ class ReActEngine:
             db = get_db()
             self._ensure_steward_columns(db)
             tool_name = self._resolve_tool_name(step.action) or (step.action or "")
+            if not tool_name or tool_name in ("FINISH", "ABSTAIN", "FINISH_DEFAULT"):
+                return
             tool_title, tool_about = self._tool_meta(tool_name)
             thought = _pass_thought(step.thought)
             agent_type = self._actor_type(step.action or tool_name)
@@ -526,8 +575,9 @@ class ReActEngine:
                 duration = step.duration_ms
 
             existing = db.execute(
-                "SELECT id FROM agent_traces WHERE session_id = ? AND step_index = ? ORDER BY timestamp DESC LIMIT 1",
-                [session_id, step.step_index],
+                "SELECT id FROM agent_traces WHERE session_id = ? AND step_index = ? "
+                "AND coalesce(tool_name, action, '') = ? ORDER BY timestamp DESC LIMIT 1",
+                [session_id, step.step_index, tool_name],
             )
             params_core = [
                 thought,
@@ -544,6 +594,15 @@ class ReActEngine:
                 agent_type,
             ]
             if existing:
+                # Never let FINISH/ABSTAIN clobber a real tool beat (seeded Profile).
+                if (step.action or "") in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
+                    prev = db.execute(
+                        "SELECT action, tool_name FROM agent_traces WHERE id = ?",
+                        [existing[0][0]],
+                    )
+                    prev_action = (prev[0][0] or "") if prev else ""
+                    if prev_action not in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
+                        return
                 db.execute(
                     "UPDATE agent_traces SET thought = ?, action = ?, tool_name = ?, tool_input = ?, "
                     "tool_output = ?, observation = ?, tokens_used = ?, duration_ms = ?, "
@@ -575,6 +634,32 @@ class ReActEngine:
                 )
         except Exception:
             logging.getLogger(__name__).exception("agent_traces insert failed")
+            try:
+                db = get_db()
+                db.execute(
+                    "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
+                    "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms, "
+                    "status, tool_title, tool_about) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        str(uuid.uuid4())[:8],
+                        session_id,
+                        self._actor_type(step.action or ""),
+                        step.step_index,
+                        _pass_thought(step.thought),
+                        step.action,
+                        self._resolve_tool_name(step.action) or (step.action or ""),
+                        None,
+                        None,
+                        (str(step.observation)[:280] if step.observation else _running_now(step.action, step.action_input)),
+                        step.tokens_used,
+                        step.duration_ms if locals().get("status") not in ("running", "in_progress") else None,
+                        locals().get("status") or "done",
+                        _human_tool_title(step.action),
+                        "",
+                    ],
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("agent_traces fallback insert failed")
 
     def detect_anomalies(self, current_profile: dict, baseline_profile: dict | None = None) -> Any:
         from src.agents.sub_agents import AnomalyDetectorAgent
