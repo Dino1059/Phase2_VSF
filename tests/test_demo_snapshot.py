@@ -256,6 +256,35 @@ def test_missing_requested_tools_forces_propose_after_profile_only():
     assert missing_requested_tools(vi, ["profile_dataset"]) == ["propose_quality_rules"]
 
 
+def test_missing_requested_tools_skips_second_propose_when_beat_exists():
+    """If a named Propose beat already exists, chat/send must not force-run a second."""
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "def missing_requested_tools" in routes
+    assert "def _session_has_tool_beat" in routes
+    assert "if not _session_has_tool_beat(session_id, action)" in routes
+    force = routes.split("for tool_name in missing_requested_tools", 1)[1]
+    guard = force.split("executed_tools", 1)[0]
+    assert "if _session_has_tool_beat(session_id, tool_name)" in guard
+    assert "continue" in guard
+    from src.api.routes import missing_requested_tools, _session_has_tool_beat
+    from src.orchestrator.engine import ReActEngine, ReActStep
+    import uuid
+    prompt = "Profile this dataset and propose quality rules. Stop for HITL review."
+    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["propose_quality_rules"]
+    sid = f"qa-no-dup-propose-{uuid.uuid4().hex}"
+    assert _session_has_tool_beat(sid, "propose_quality_rules") is False
+    eng = ReActEngine(tools=type("T", (), {"get": lambda self, n: None})())
+    eng.tools = type("T", (), {"get": lambda self, n: None})()
+    eng._log_trace(sid, ReActStep(1, "", "propose_quality_rules", {"dataset_key": "vingroup_pilot"},
+                                  observation='{"proposals": [{}, {}, {}], "count": 3}'), status="done")
+    assert _session_has_tool_beat(sid, "propose_quality_rules") is True
+    assert _session_has_tool_beat(sid, "default_api:propose_quality_rules") is True
+    missing = missing_requested_tools(prompt, ["profile_dataset", "FINISH"])
+    assert missing == ["propose_quality_rules"]
+    # send path: force-run is skipped because the named beat already exists
+    assert _session_has_tool_beat(sid, missing[0]) is True
+
+
 def test_chat_send_backfills_missing_propose_and_logs_trace():
     routes = (ROOT / "src/api/routes/__init__.py").read_text()
     assert "def missing_requested_tools" in routes

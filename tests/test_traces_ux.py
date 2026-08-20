@@ -346,3 +346,198 @@ def test_traces_tab_shows_pending_running_card():
     assert "pendingRun={waitingForBackendAgentEvents || isRunningPipeline}" in ws
     assert "asyncio.to_thread" in routes
     assert "missing_requested_tools" in routes
+    force = routes.split("for tool_name in missing_requested_tools", 1)[1]
+    assert "if _session_has_tool_beat(session_id, tool_name)" in force.split("executed_tools", 1)[0]
+
+
+def test_propose_quality_rules_real_run_has_traces_beat_not_just_chip(monkeypatch):
+    """Live click after e52727a: used-tool chip, no traces beat.
+
+    Chat catalog chip is not a traces beat. A real propose_quality_rules run
+    (nested Gemini tool_call -> persist/normalize) must produce a traces step
+    with tool_name/action propose_quality_rules and a human tool_about.
+    Empty sessions stay empty. Thoughts are not invented. No fake hashes.
+    """
+    from unittest.mock import MagicMock
+
+    import pandas as pd
+
+    from src.orchestrator.engine import ReActEngine
+    from src.services.llm import GemmaLLMAdapter, LLMResponse
+    from src.tools.base import ToolRegistry
+    from src.tools import chat_tools as chat_tools_mod
+
+    # Chip exists — not sufficient without a traces beat.
+    agent = (ROOT / "frontend/src/components/chat/AgentMessage.tsx").read_text()
+    chat = (ROOT / "frontend/src/components/chat/ChatMessage.tsx").read_text()
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    assert "used-tool-chip" in agent
+    assert "propose_quality_rules" in labels
+    assert "startsWith('Thought:')" in chat
+    assert "if (isThought)" in agent and "return null" in agent
+
+    sid = f"qa-propose-real-{uuid.uuid4().hex}"
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    empty = client.get(f"/api/v1/traces/{sid}")
+    assert empty.status_code == 200, empty.text
+    assert empty.json().get("steps") == []
+    empty_blob = str(empty.json()).lower()
+    assert "kafka" not in empty_blob
+    assert "a1b2c3d4e5f6" not in empty_blob
+
+    tiny = pd.DataFrame(
+        [
+            {"soc_pct": 80.0, "battery_soc": 80.0},
+            {"soc_pct": -2.0, "battery_soc": -2.0},
+            {"soc_pct": 50.0, "battery_soc": 50.0},
+        ]
+    )
+    monkeypatch.setattr(chat_tools_mod, "load_dataset", lambda *a, **k: tiny)
+
+    registry = ToolRegistry()
+    registry.register(ProposeQualityRulesTool())
+    mock_llm = MagicMock(spec=GemmaLLMAdapter)
+    mock_llm.chat.side_effect = [
+        LLMResponse(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_propose",
+                    "type": "function",
+                    "function": {
+                        "name": "propose_quality_rules",
+                        "arguments": '{"dataset_key": "vingroup_pilot"}',
+                    },
+                }
+            ],
+            tokens_used=8,
+        ),
+        LLMResponse(
+            content="Action: FINISH\nAction Input: {}",
+            tokens_used=3,
+        ),
+    ]
+    engine = ReActEngine(llm=mock_llm, tools=registry)
+    engine.run(
+        "Propose quality rules. Stop for HITL review.",
+        context={"dataset_key": "vingroup_pilot", "session_id": sid},
+        session_id=sid,
+    )
+
+    resp = client.get(f"/api/v1/traces/{sid}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "a1b2c3d4e5f6" not in str(body)
+    assert "kafka" not in str(body).lower()
+    propose = [
+        s
+        for s in (body.get("steps") or [])
+        if (s.get("tool_name") == "propose_quality_rules"
+            or s.get("action") == "propose_quality_rules"
+            or s.get("tool") == "propose_quality_rules")
+    ]
+    assert propose, (
+        "used-tool chip for propose_quality_rules is not a traces beat; "
+        "persist/normalize must write tool_name/action propose_quality_rules"
+    )
+    card = propose[0]
+    _about_ok(card.get("tool_about"), ProposeQualityRulesTool)
+    assert card.get("thought") in (None, "")
+    assert "I will now" not in str(card.get("thought") or "")
+    assert "completed" not in (card.get("summary_done") or "").lower() or "rule" in (card.get("summary_done") or "").lower()
+
+def test_force_log_does_not_duplicate_propose_when_already_ran(monkeypatch):
+    """Live click after 7c40468: STEPS=3 because Propose was logged twice.
+
+    LLM already persisted profile_dataset + propose_quality_rules. The chat/send
+    missing_requested_tools force-run / force-log must not write a second
+    propose_quality_rules beat. Empty sessions stay empty. No invented thoughts.
+    No fake hashes.
+    """
+    import pandas as pd
+
+    import src.api.routes as routes
+    from src.orchestrator.engine import ReActEngine, ReActResult, ReActStep
+    from src.tools import chat_tools as chat_tools_mod
+
+    sid = f"qa-no-dup-propose-{uuid.uuid4().hex}"
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    empty = client.get(f"/api/v1/traces/{sid}")
+    assert empty.status_code == 200, empty.text
+    assert empty.json().get("steps") == []
+    empty_blob = str(empty.json()).lower()
+    assert "kafka" not in empty_blob
+    assert "a1b2c3d4e5f6" not in empty_blob
+    assert "I will now" not in empty_blob
+
+    tiny = pd.DataFrame(
+        [
+            {"soc_pct": 80.0, "battery_soc": 80.0},
+            {"soc_pct": -2.0, "battery_soc": -2.0},
+        ]
+    )
+    monkeypatch.setattr(chat_tools_mod, "load_dataset", lambda *a, **k: tiny)
+
+    class EngineProposeAlreadyRan(ReActEngine):
+        """LLM already wrote both beats; result.steps omits Propose so today's
+        missing_requested_tools still force-logs a second Propose."""
+
+        def run(self, task, context=None, session_id=None):
+            sid_ = session_id or (context or {}).get("session_id") or "default"
+            result = ReActResult(task=task, session_id=sid_)
+            profile = ReActStep(
+                step_index=0,
+                thought="",
+                action="profile_dataset",
+                action_input={"dataset_key": "vingroup_pilot"},
+                observation='{"total_rows": 3, "columns_count": 2, "status": "ok"}',
+            )
+            propose = ReActStep(
+                step_index=1,
+                thought="",
+                action="propose_quality_rules",
+                action_input={"dataset_key": "vingroup_pilot"},
+                observation='{"proposals": [{}, {}, {}], "count": 3}',
+            )
+            self._log_trace(sid_, profile)
+            self._log_trace(sid_, propose)
+            result.steps = [
+                profile,
+                ReActStep(step_index=2, thought="", action="FINISH"),
+            ]
+            result.final_answer = "Profiled and proposed rules. Stop for HITL."
+            result.status = "completed"
+            return result
+
+    monkeypatch.setattr(routes, "BoundedReActEngine", EngineProposeAlreadyRan)
+
+    resp = client.post(
+        "/api/v1/chat/send",
+        json={
+            "message": "Profile this dataset and propose quality rules. Stop for HITL review.",
+            "session_id": sid,
+            "dataset_key": "vingroup_pilot",
+            "lang": "en",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    traces = client.get(f"/api/v1/traces/{sid}")
+    assert traces.status_code == 200, traces.text
+    body = traces.json()
+    assert "a1b2c3d4e5f6" not in str(body)
+    assert "kafka" not in str(body).lower()
+    steps = body.get("steps") or []
+
+    def _tool(step: dict) -> str:
+        return str(step.get("tool_name") or step.get("action") or step.get("tool") or "")
+
+    names = [_tool(s) for s in steps]
+    assert names.count("profile_dataset") == 1, names
+    assert names.count("propose_quality_rules") == 1, (
+        "missing_requested_tools force-log must not write a second Propose "
+        f"when Propose already ran; got {names}"
+    )
+    for card in steps:
+        assert card.get("thought") in (None, "")
+        assert "I will now" not in str(card.get("thought") or "")

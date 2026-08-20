@@ -485,14 +485,22 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
 
 
 
+def _normalize_tool_name(name: str | None) -> str:
+    return (name or "").replace("default_api:", "").strip().lower()
+
+
 def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
+    """True when this session already persisted a named beat for tool_name (or alias)."""
+    want = _normalize_tool_name(tool_name)
+    if not session_id or not want:
+        return False
     try:
         from src.db.connection import get_db
         rows = get_db().execute(
-            "SELECT 1 FROM agent_traces WHERE session_id = ? AND (tool_name = ? OR action = ?) LIMIT 1",
-            [session_id, tool_name, tool_name],
+            "SELECT tool_name, action FROM agent_traces WHERE session_id = ?",
+            [session_id],
         )
-        return bool(rows)
+        return any(want in {_normalize_tool_name(tool), _normalize_tool_name(action)} for tool, action in rows)
     except Exception:
         return False
 
@@ -500,7 +508,7 @@ def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
 def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
     """Force propose when the steward asked for rules and the LLM FINISHed after Profile."""
     blob = (prompt or "").lower()
-    done = {str(a).replace("default_api:", "").strip() for a in (executed or []) if a}
+    done = {_normalize_tool_name(a) for a in (executed or []) if a}
     wants_propose = any(
         w in blob
         for w in (
@@ -589,6 +597,8 @@ async def send_chat_message(request: ChatRequest):
                 if not _session_has_tool_beat(session_id, action):
                     react_engine._log_trace(session_id, step)
         for tool_name in missing_requested_tools(request.message, executed_so_far):
+            if _session_has_tool_beat(session_id, tool_name):
+                continue
             step = ReActStep(
                 step_index=max((getattr(s, "step_index", -1) for s in result.steps), default=-1) + 1,
                 thought="",
