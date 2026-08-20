@@ -489,18 +489,27 @@ def _normalize_tool_name(name: str | None) -> str:
     return (name or "").replace("default_api:", "").strip().lower()
 
 
+_PROPOSE_ALIASES = {"propose_quality_rules", "quality_rule_proposer"}
+
+
 def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
     """True when this session already persisted a named beat for tool_name (or alias)."""
     want = _normalize_tool_name(tool_name)
     if not session_id or not want:
         return False
+    aliases = {want}
+    if want in _PROPOSE_ALIASES:
+        aliases |= _PROPOSE_ALIASES
     try:
         from src.db.connection import get_db
         rows = get_db().execute(
             "SELECT tool_name, action FROM agent_traces WHERE session_id = ?",
             [session_id],
         )
-        return any(want in {_normalize_tool_name(tool), _normalize_tool_name(action)} for tool, action in rows)
+        return any(
+            _normalize_tool_name(tool) in aliases or _normalize_tool_name(action) in aliases
+            for tool, action in rows
+        )
     except Exception:
         return False
 
@@ -509,6 +518,8 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
     """Force propose when the steward asked for rules and the LLM FINISHed after Profile."""
     blob = (prompt or "").lower()
     done = {_normalize_tool_name(a) for a in (executed or []) if a}
+    if done & _PROPOSE_ALIASES:
+        done |= _PROPOSE_ALIASES
     wants_propose = any(
         w in blob
         for w in (
