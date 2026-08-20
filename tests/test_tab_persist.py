@@ -225,11 +225,14 @@ def test_traces_get_and_poll_never_force_propose():
 
 
 def test_traces_tab_does_not_wipe_steps_on_empty_refetch():
-    """Profiler → Traces must keep STEPS. Empty GET/error must not setTraces([])."""
+    """Profiler → Traces must keep STEPS. loadTraces must not clobber existing steps with empty."""
+    import re
     ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
     load = ui.split("const loadTraces", 1)[1].split("useEffect", 1)[0]
-    assert "setTraces([])" not in load
-    assert "keep existing" in load or "Never setTraces([])" in load
+    code = re.sub(r"//.*?$", "", load, flags=re.M)
+    assert "setTraces([])" not in code
+    assert "Never clobber existing steps with empty" in load
+    assert "keep existing" in load
     assert "resolvedSessionRef" in ui
     assert "tracesApi.list" in load
     assert "dataset:${datasetKey}" in load
@@ -237,8 +240,12 @@ def test_traces_tab_does_not_wipe_steps_on_empty_refetch():
     assert "if (!active)" in ui
     rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
     fetch = rules.split("const fetchRules", 1)[1].split("useEffect", 1)[0]
-    assert "fromDb.length === 0 && prev.length > 0" in fetch
+    assert "fromDb.length === 0" in fetch
+    assert "prev.length > 0" in fetch
+    assert "emptyBootRef" in rules
     assert "setProposals([])" not in fetch
+    assert "if (active)" in rules
+    assert "datatrust:agent-trace" in rules
     traces_py = (ROOT / "src/api/traces.py").read_text()
     assert "def workspace_trace_sessions" in traces_py
     assert "def resolve_trace_rows" in traces_py
@@ -252,3 +259,136 @@ def test_traces_tab_does_not_wipe_steps_on_empty_refetch():
     assert "def persist_hitl_proposals" in tools
     assert "namespace_rule_id(dataset_key, rid)" in tools
     assert '"status": "proposed"' in tools
+
+
+def test_autoswitch_does_not_wipe_traces_or_split_store():
+    """Auto-switch is display-only. Empty GET / hidden mount cannot clobber the store."""
+    ws = _ws()
+    store = (ROOT / "frontend/src/stores/workspaceStore.ts").read_text()
+    traces = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    split = (ROOT / "frontend/src/components/workspace/SplitDbQuarantineTab.tsx").read_text()
+
+    assert "tracesByDataset" in store
+    assert "splitRowsByDataset" in store
+    assert "datasetStoreKey" in store
+    assert "if (!incoming.length) return state" in store
+    merge_split = store.split("mergeSplitRows:", 1)[1]
+    assert "never clobber" in merge_split.lower() or "quarantineRows.length > 0" in merge_split
+
+    auto = ws.split("Context-Aware Auto-Switch", 1)[1].split("useEffect", 1)[1].split("}, [chatMessages]", 1)[0]
+    assert "setRightTab('tab-profiler')" in auto
+    assert "setRightTab('tab-rules')" in auto
+    assert "loadSnapshot" not in auto
+    assert "resetDemoSession" not in auto
+    assert "clearMessages" not in auto
+    assert "setTraces([])" not in auto
+    assert "mergeTraces(" not in auto or "mergeTraces(storeKey, [])" not in auto
+
+    load = traces.split("const loadTraces", 1)[1].split("useEffect", 1)[0]
+    assert "setTraces([])" not in load
+    assert "mergeTraces" in load
+    assert "Never clobber existing steps with empty" in load
+    assert "useWorkspaceStore" in traces
+
+    assert "useWorkspaceStore" in split
+    assert "mergeSplitRows" in split
+    assert "Empty GET must never clobber" in split
+    assert "Clean has not run" in split
+    assert "No quarantine or clean rows invented" in split
+    assert "if (active) void fetchData()" in split
+    assert "active={rightTab === 'tab-split'}" in ws
+
+
+def test_beat_click_jumps_to_chat_via_msgid_or_tool():
+    """Each beat stores msgId or tool_name; chat bubbles/chips have data-msgid/data-tool."""
+    traces = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    ws = _ws()
+    agent = (ROOT / "frontend/src/components/chat/AgentMessage.tsx").read_text()
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    traces_py = (ROOT / "src/api/traces.py").read_text()
+
+    assert "msgId" in traces
+    assert "tool_name" in traces
+    assert "jumpToChat" in traces
+    assert "dt-chat-highlight" in traces
+    assert "data-msgid" in traces or "[data-msgid=" in traces
+    assert "[data-tool=" in traces
+    assert "jumpToChat(trace)" in traces
+
+    assert "data-msgid={msg.id}" in ws
+    assert "data-tool={toolName" in ws
+    assert "used-tool-chip" in ws
+    assert 'data-msgid={message.id}' in agent
+    assert "data-tool={toolName" in agent
+    assert "msgId: raw.msgId || raw.msg_id || raw.message_id" in labels
+    assert "def attach_msg_ids" in traces_py
+    assert "attach_msg_ids(db, resolved, normalized)" in traces_py
+
+
+def test_split_empty_honest_when_clean_never_ran():
+    """Stop-at-HITL: empty Split says clean never ran. Populated rows survive active flip."""
+    split = (ROOT / "frontend/src/components/workspace/SplitDbQuarantineTab.tsx").read_text()
+    ws = _ws()
+    rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+
+    assert "cleanRan" in split
+    assert "Clean has not run" in split
+    assert "Approve at HITL" in split
+    fetch = split.split("const fetchData", 1)[1].split("useEffect", 1)[0]
+    assert "setQuarantineRows([])" not in fetch
+    assert "setCleanRows([])" not in fetch
+    assert "incomingQ" in fetch
+    assert "never clobber" in fetch
+    assert "if (active)" in split
+    assert "HITL_STOP_PROMPT" in ws
+    approve = rules.split("const handleApprove")[1].split("const handleReject")[0]
+    assert "hitlApi.approve" in approve
+    assert "hitlApi.execute" not in approve
+    assert "Execute disabled · sandbox not run · quarantine=0" in rules
+
+
+def test_traces_api_attaches_msgid_from_chat_message():
+    """GET /traces stamps msgId from the chat row for that tool. Empty sessions stay empty."""
+    import json
+    import uuid
+    from fastapi.testclient import TestClient
+    from src.db.connection import get_db
+    from src.main import app
+
+    sid = f"dataset:qa-msgid-{uuid.uuid4().hex[:10]}"
+    mid = f"msg_{uuid.uuid4().hex[:10]}"
+    db = get_db()
+    db.execute(
+        "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
+        "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            f"tr-{uuid.uuid4().hex[:12]}",
+            sid,
+            "C1_AI",
+            1,
+            None,
+            "profile_dataset",
+            "profile_dataset",
+            json.dumps({"dataset_key": "vingroup_pilot"}),
+            json.dumps({"total_rows": 2}),
+            "2 rows",
+            4,
+            12,
+        ],
+    )
+    db.execute(
+        "INSERT INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [mid, sid, "agent", "profile_dataset", "Profile Summary", "{}", "2026-08-20T10:00:00"],
+    )
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    steps = client.get(f"/api/v1/traces/{sid}").json()["steps"]
+    assert steps
+    card = steps[0]
+    assert (card.get("tool_name") or card.get("action")) == "profile_dataset"
+    assert card.get("msgId") == mid or card.get("msg_id") == mid
+    empty = f"qa-empty-msgid-{uuid.uuid4().hex}"
+    blank = client.get(f"/api/v1/traces/{empty}")
+    assert blank.status_code == 200
+    assert blank.json().get("steps") == []

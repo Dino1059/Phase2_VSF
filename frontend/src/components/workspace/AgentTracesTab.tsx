@@ -16,6 +16,8 @@ import { tracesApi, hitlApi } from '../../services/api';
 import { actorLabel, inTimeRange, mapTraceStep, rangeStart, redactSecrets } from '../../demo/stewardLabels';
 import type { DemoBeat } from '../../demo/stewardSession';
 import type { TimeFilter } from '../../types';
+import { useChatStore } from '../../stores/chatStore';
+import { datasetStoreKey, useWorkspaceStore, type WorkspaceTraceBeat } from '../../stores/workspaceStore';
 
 export interface TraceStep {
   step: number;
@@ -74,6 +76,23 @@ function beatToTrace(beat: DemoBeat, index: number): TraceStep {
   return mapped;
 }
 
+const EMPTY_TRACES: WorkspaceTraceBeat[] = [];
+
+function attachMsgIds(steps: WorkspaceTraceBeat[], messages: Array<{ id?: string; agentId?: string; content?: string }>): WorkspaceTraceBeat[] {
+  return steps.map((s) => {
+    if (s.msgId) return s;
+    const tool = s.tool_name || s.tool || s.action || '';
+    const match = messages.find((m) => m.agentId === tool || (m.content || '').includes(tool));
+    return match?.id ? { ...s, msgId: match.id } : s;
+  });
+}
+
+function highlightChatNode(node: Element) {
+  node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  node.classList.add('dt-chat-highlight');
+  window.setTimeout(() => node.classList.remove('dt-chat-highlight'), 1600);
+}
+
 function statusKind(status?: string): 'running' | 'failed' | 'done' {
   const s = (status || '').toLowerCase();
   if (s === 'running' || s === 'in_progress') return 'running';
@@ -92,7 +111,9 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   pendingRun = false,
   active = false,
 }) => {
-  const [traces, setTraces] = useState<TraceStep[]>([]);
+  const storeKey = datasetStoreKey(datasetKey, sessionId);
+  const traces = useWorkspaceStore((s) => s.tracesByDataset[storeKey] || EMPTY_TRACES);
+  const mergeTraces = useWorkspaceStore((s) => s.mergeTraces);
   const [loading, setLoading] = useState(false);
   const [hashTrail, setHashTrail] = useState<{ latest: string; count: number } | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
@@ -109,7 +130,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 
   const loadTraces = useCallback(async () => {
     if (replayBeats && replayBeats.length > 0) {
-      setTraces(replayBeats.filter((b) => b.type === 'workflow.step').map(beatToTrace));
+      mergeTraces(storeKey, replayBeats.filter((b) => b.type === 'workflow.step').map(beatToTrace));
     } else {
       setLoading(true);
       try {
@@ -129,10 +150,13 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         const applySteps = (steps: Array<Record<string, any>>) => {
           const mapped = steps
             .map((s, idx) => mapTraceStep(s, idx))
-            .filter((s) => inTimeRange(s.timestamp, timeFilter))
             .filter((s) => !!(s.action || s.tool || s.tool_name));
-          if (mapped.length > 0) {
-            setTraces(mapped);
+          const inRange = mapped.filter((s) => inTimeRange(s.timestamp, timeFilter));
+          // tz/since mismatch must not hide beats GET already returned
+          const keep = inRange.length > 0 ? inRange : mapped;
+          if (keep.length > 0) {
+            const withIds = attachMsgIds(keep, useChatStore.getState().messages);
+            mergeTraces(storeKey, withIds);
             return true;
           }
           return false;
@@ -167,7 +191,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
             }
           }
         }
-        // empty / wrong session: keep existing steps. Do not clear the trail.
+        // Never clobber existing steps with empty GET / wrong session.
       } catch {
         // keep existing steps — empty/error must not wipe a measured trail
       } finally {
@@ -192,7 +216,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     } catch {
       // keep existing hash trail
     }
-  }, [datasetKey, effectiveSessionId, replayBeats, timeFilter]);
+  }, [datasetKey, effectiveSessionId, mergeTraces, replayBeats, storeKey, timeFilter]);
 
   useEffect(() => {
     void loadTraces();
@@ -224,7 +248,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     if (trace.msgId) {
       const node = stream.querySelector(`[data-msgid="${trace.msgId}"]`);
       if (node) {
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        highlightChatNode(node);
         return;
       }
     }
@@ -232,13 +256,13 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     if (tool) {
       const node = stream.querySelector(`[data-tool="${tool}"]`);
       if (node) {
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        highlightChatNode(node);
         return;
       }
     }
     const entries = stream.querySelectorAll('.agent-entry[data-msgid], .agent-entry[data-tool]');
     if (entries.length) {
-      entries[entries.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      highlightChatNode(entries[entries.length - 1]);
       return;
     }
     stream.scrollTo({ top: stream.scrollHeight, behavior: 'smooth' });
@@ -356,7 +380,10 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
               <div
                 key={`trace-${idx}-${trace.action}-${trace.timestamp || ''}`}
                 className="trace-step-card steward-beat"
-                onClick={() => onSelectStep?.(stepNum)}
+                onClick={() => {
+                  onSelectStep?.(stepNum);
+                  jumpToChat(trace);
+                }}
                 style={{
                   background: 'var(--bg-card)',
                   border: selected ? '1px solid #0284c7' : '1px solid var(--glass-border)',

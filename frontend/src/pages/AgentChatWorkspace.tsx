@@ -93,6 +93,16 @@ function isProfileSummary(content?: string): boolean {
   return c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát');
 }
 
+function toolFromMessage(msg: { agentId?: string; content?: string; agent?: string }): string {
+  const id = (msg.agentId || msg.agent || '').trim();
+  if (id && id !== 'orchestrator' && id !== 'human') return id;
+  const c = msg.content || '';
+  if (c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát') || c.includes('profile_dataset')) return 'profile_dataset';
+  if (c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules')) return 'propose_quality_rules';
+  if (c.includes('Cleansing & Quarantine Complete') || c.includes('clean_database')) return 'clean_database';
+  return id;
+}
+
 function messagesForStory<T extends { content?: string }>(messages: T[], story: string | null): T[] {
   const filtered = messages.filter((m) => !(m.content || '').includes('HAPPY · clean CSVs'));
   if (story !== 'unhappy') return filtered;
@@ -188,7 +198,8 @@ export function AgentChatWorkspace() {
     }
   }, [datasetKey, i18n, bootToken]);
 
-  // Context-Aware Auto-Switch: sync right panel to latest agent step
+  // Context-Aware Auto-Switch: display-only tab change.
+  // Must not reload snapshot, reset story, or clobber traces/split store.
   useEffect(() => {
     if (chatMessages.length === 0) return;
     const lastMsg = chatMessages[chatMessages.length - 1];
@@ -585,7 +596,7 @@ export function AgentChatWorkspace() {
             const Icon = AGENT_ICONS[msg.agent] || Brain;
             const isRule = !!msg.isRule && ruleCardState === 'pending';
             return (
-              <div key={`${msg.id}-${i}`} className="agent-entry">
+              <div key={`${msg.id}-${i}`} className="agent-entry" data-msgid={msg.id} data-tool={toolFromMessage({ agent: msg.agent, content: msg.text })}>
                 <div className={`agent-avatar ${AGENT_AVATAR_CLASS[msg.agent] || 'agent-orchestrator'}`}>
                   <Icon size={15} />
                 </div>
@@ -625,7 +636,7 @@ export function AgentChatWorkspace() {
             .map((msg) => {
             const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
             const Icon = AGENT_ICONS[agent] || Brain;
-            const toolName = typeof msg.agentId === 'string' ? msg.agentId : '';
+            const toolName = toolFromMessage(msg);
             const chip = catalogFor(toolName);
             const isObservation = (msg.content || '').startsWith('Observation:');
             return (
@@ -645,6 +656,8 @@ export function AgentChatWorkspace() {
                       <button
                         type="button"
                         className="used-tool-chip"
+                        data-msgid={msg.id}
+                        data-tool={toolName || undefined}
                         onClick={() => {
                           setRightTab('tab-traces');
                           setSelectedTraceTool(toolName);
@@ -821,6 +834,8 @@ export function AgentChatWorkspace() {
               <SplitDbQuarantineTab
                 datasetKey={datasetKey}
                 manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
+                active={rightTab === 'tab-split'}
+                splitResult={pipelineResult?.split}
               />
             </div>
           </div>

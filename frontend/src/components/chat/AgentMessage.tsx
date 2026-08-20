@@ -29,7 +29,13 @@ function toolNameFromMessage(message: ChatMessage): string {
   const meta = message.metadata || {};
   const fromMeta = typeof meta.tool_name === 'string' ? meta.tool_name : typeof meta.tool === 'string' ? meta.tool : '';
   if (fromMeta) return fromMeta;
-  return message.agentId || '';
+  const id = String(message.agentId || '');
+  if (id && id !== 'orchestrator') return id;
+  const c = message.content || '';
+  if (c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát') || c.includes('profile_dataset')) return 'profile_dataset';
+  if (c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules')) return 'propose_quality_rules';
+  if (c.includes('Cleansing & Quarantine Complete') || c.includes('clean_database')) return 'clean_database';
+  return id;
 }
 
 export function AgentMessage({
@@ -71,6 +77,8 @@ export function AgentMessage({
           <button
             type="button"
             className="used-tool-chip"
+            data-msgid={message.id}
+            data-tool={toolName || undefined}
             onClick={() => onSelectTrace?.(chip.name)}
             style={{
               display: 'inline-flex',

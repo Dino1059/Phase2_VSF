@@ -3073,4 +3073,10 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   color: var(--text-cyan);
 }
 
-
+.dt-chat-highlight {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.08);
+  transition: outline-color 0.3s ease, background 0.3s ease;
+}

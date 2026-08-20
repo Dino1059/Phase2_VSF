@@ -247,6 +247,6 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     actor_kind: preferActorKind(raw),
     status,
     thought: thoughtRaw || undefined,
-    msgId: raw.msgId,
+    msgId: raw.msgId || raw.msg_id || raw.message_id || undefined,
   };
 }

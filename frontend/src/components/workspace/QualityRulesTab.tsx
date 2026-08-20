@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ShieldCheck,
@@ -69,6 +69,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const [editExpression, setEditExpression] = useState('');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  // First hidden boot GET is often []. Do not treat that as a locked 0/0.
+  const emptyBootRef = useRef(true);
 
   const fetchRules = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -79,9 +81,11 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         const fromDb = res.proposals;
         setProposals((prev) => {
           // Empty queue must not wipe cards the Propose beat already put on screen.
-          if (fromDb.length === 0 && prev.length > 0) {
+          // Empty first hidden fetch must not lock 0/0 — wait for active/agent-trace refetch.
+          if (fromDb.length === 0 && (prev.length > 0 || emptyBootRef.current)) {
             return prev;
           }
+          emptyBootRef.current = false;
           const dbIds = new Set(fromDb.map((r) => r.rule_id));
           // DuckDB wins for every id it returns. Keep local APPROVED cards the queue omitted
           // so header Approved follows the pills after one Approve.

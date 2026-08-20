@@ -390,6 +390,38 @@ def resolve_trace_rows(db, session_id: str):
     return session_id, []
 
 
+
+def attach_msg_ids(db, session_id: str, cards: list[dict]) -> list[dict]:
+    """Stamp msgId from chat messages whose agent_id is the beat tool. Never invent ids."""
+    if not cards:
+        return cards
+    ids = workspace_trace_sessions(session_id)
+    rows = []
+    for sid in ids:
+        try:
+            found = db.execute(
+                "SELECT id, agent_id FROM messages WHERE session_id = ? ORDER BY timestamp",
+                [sid],
+            )
+        except Exception:
+            found = []
+        rows.extend(found or [])
+    by_tool: dict[str, str] = {}
+    for mid, agent in rows:
+        if mid and agent:
+            by_tool[str(agent)] = str(mid)
+    if not by_tool:
+        return cards
+    for card in cards:
+        if card.get("msgId") or card.get("msg_id") or card.get("message_id"):
+            continue
+        tool = str(card.get("tool_name") or card.get("tool") or card.get("action") or "")
+        if tool and tool in by_tool:
+            card["msgId"] = by_tool[tool]
+            card["msg_id"] = by_tool[tool]
+    return cards
+
+
 @traces_router.get("/{session_id}")
 async def get_trace(
     session_id: str,
@@ -420,4 +452,5 @@ async def get_trace(
     # Clock/tz mismatch must not hide beats the workspace session already wrote.
     if since_dt and not normalized and unfiltered:
         normalized = unfiltered
+    normalized = attach_msg_ids(db, resolved, normalized)
     return {"session_id": resolved, "steps": normalized}
