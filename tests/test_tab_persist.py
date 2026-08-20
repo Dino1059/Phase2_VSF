@@ -129,9 +129,10 @@ def test_unhappy_tab_state_is_critical_172_8_measured_steps_and_proposed_count()
     assert "a1b2c3d4e5f6" not in traces
     assert "I will now" not in traces
 
-    # HITL: proposed count is proposals.filter status===proposed
+    # HITL: proposed count includes pending (tool writes pending, cards say PROPOSED)
     assert "proposedCount" in rules
-    assert '=== \'proposed\'' in rules or '=== "proposed"' in rules
+    assert "'pending'" in rules
+    assert "'proposed'" in rules
     assert "{proposedCount}" in rules
 
     # Remount is what wipes the above; keep-mount is the fix
@@ -168,3 +169,52 @@ def test_persist_does_not_relax_vin_flash_hitl_approve_or_propose_once():
     guard = force.split("executed_tools", 1)[0]
     assert "if _session_has_tool_beat(session_id, tool_name)" in guard
     assert "continue" in guard
+
+def test_rules_tab_refetches_on_show_and_trace_without_rerunning_propose():
+    """Keep-mounted Rules fetched empty at boot; must GET-refetch, never POST Propose."""
+    rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    traces = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    ws = _ws()
+    panel = _right_panel(ws)
+
+    assert "active?: boolean" in rules
+    assert "datatrust:agent-trace" in rules
+    assert "hitlApi.queue" in rules
+    assert "sendChatMessage" not in rules
+    assert "/chat/send" not in rules
+    assert "proposeRules" not in rules
+    assert "['proposed', 'pending', 'draft']" in rules
+    assert "active={rightTab === 'tab-rules'}" in panel
+
+    assert "active?: boolean" in traces
+    assert "sendChatMessage" not in traces
+    assert "/chat/send" not in traces
+    assert "tracesApi.get" in traces
+    assert "active={rightTab === 'tab-traces'}" in panel
+
+    for tab_id in ("tab-traces", "tab-profiler", "tab-rules", "tab-split"):
+        assert f"onClick={{() => setRightTab('{tab_id}')}}" in panel
+    assert "sendChatMessage" not in panel
+    assert "loadSnapshot" not in panel
+    assert "sessionStorage.removeItem(bootKey)" not in ws
+    assert "hitlBootsInFlight" in ws
+    assert "_skip_duplicate_propose" in (ROOT / "src/orchestrator/engine.py").read_text()
+
+def test_traces_get_and_poll_never_force_propose():
+    """GET /traces and the tab poll must not POST chat or call missing_requested_tools."""
+    traces_py = (ROOT / "src/api/traces.py").read_text()
+    get_fn = traces_py.split("async def get_trace", 1)[1]
+    assert "missing_requested_tools" not in traces_py
+    assert "_log_trace" not in get_fn
+    assert "ProposeQualityRulesTool" not in get_fn
+    assert "/chat/send" not in get_fn
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    load = ui.split("const loadTraces", 1)[1].split("useEffect", 1)[0]
+    assert "tracesApi.get" in load
+    assert "hitlApi.history" in load
+    assert "sendChatMessage" not in load
+    assert "proposeRules" not in load
+    assert "/chat/send" not in ui
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    assert "_PROPOSE_ALIASES" in routes or "quality_rule_proposer" in routes.split("def _session_has_tool_beat", 1)[1]
+

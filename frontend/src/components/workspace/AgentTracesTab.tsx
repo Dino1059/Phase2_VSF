@@ -46,6 +46,8 @@ interface AgentTracesTabProps {
   selectedTool?: string | null;
   onSelectStep?: (step: number) => void;
   pendingRun?: boolean;
+  /** Keep-mounted: GET refresh when shown. Never POST chat / Propose. */
+  active?: boolean;
 }
 
 function isRealAuditHash(value: unknown): value is string {
@@ -88,6 +90,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   selectedTool,
   onSelectStep,
   pendingRun = false,
+  active = false,
 }) => {
   const [traces, setTraces] = useState<TraceStep[]>([]);
   const [loading, setLoading] = useState(false);
@@ -147,6 +150,10 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   useEffect(() => {
     void loadTraces();
   }, [loadTraces]);
+
+  useEffect(() => {
+    if (active) void loadTraces();
+  }, [active, loadTraces]);
 
   useEffect(() => {
     const onTrace = () => {

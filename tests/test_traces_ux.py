@@ -541,3 +541,86 @@ def test_force_log_does_not_duplicate_propose_when_already_ran(monkeypatch):
     for card in steps:
         assert card.get("thought") in (None, "")
         assert "I will now" not in str(card.get("thought") or "")
+
+def test_engine_skips_second_propose_execute_and_log(monkeypatch):
+    """Tab remount / second HITL send must not re-run Propose (live STEPS 2→3)."""
+    import pandas as pd
+    from unittest.mock import MagicMock
+
+    from src.orchestrator.engine import ReActEngine
+    from src.services.llm import GemmaLLMAdapter, LLMResponse
+    from src.tools.base import ToolRegistry
+    from src.tools import chat_tools as chat_tools_mod
+    from src.tools.chat_tools import ProposeQualityRulesTool
+
+    engine_src = (ROOT / "src/orchestrator/engine.py").read_text()
+    assert "def _skip_duplicate_propose" in engine_src
+    assert "if self._skip_duplicate_propose" in engine_src
+
+    tiny = pd.DataFrame(
+        [
+            {"soc_pct": 80.0, "battery_soc": 80.0},
+            {"soc_pct": -2.0, "battery_soc": -2.0},
+        ]
+    )
+    monkeypatch.setattr(chat_tools_mod, "load_dataset", lambda *a, **k: tiny)
+
+    sid = f"qa-skip-dup-propose-{uuid.uuid4().hex}"
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    assert client.get(f"/api/v1/traces/{sid}").json().get("steps") == []
+
+    def _llm_propose_then_finish():
+        mock_llm = MagicMock(spec=GemmaLLMAdapter)
+        mock_llm.chat.side_effect = [
+            LLMResponse(
+                content="",
+                tool_calls=[{
+                    "id": "call_propose",
+                    "type": "function",
+                    "function": {
+                        "name": "propose_quality_rules",
+                        "arguments": '{"dataset_key": "vingroup_pilot"}',
+                    },
+                }],
+                tokens_used=4,
+            ),
+            LLMResponse(content="Action: FINISH\nAction Input: {}", tokens_used=2),
+        ]
+        return mock_llm
+
+    registry = ToolRegistry()
+    registry.register(ProposeQualityRulesTool())
+    engine = ReActEngine(llm=_llm_propose_then_finish(), tools=registry)
+    engine.run(
+        "Profile this dataset and propose quality rules. Stop for HITL review.",
+        context={"dataset_key": "vingroup_pilot", "session_id": sid},
+        session_id=sid,
+    )
+
+    first = client.get(f"/api/v1/traces/{sid}").json()["steps"]
+
+    def _tool(step: dict) -> str:
+        return str(step.get("tool_name") or step.get("action") or step.get("tool") or "")
+
+    first_names = [_tool(s) for s in first]
+    assert first_names.count("propose_quality_rules") == 1, first_names
+
+    engine2 = ReActEngine(llm=_llm_propose_then_finish(), tools=registry)
+    engine2.run(
+        "Profile this dataset and propose quality rules. Stop for HITL review.",
+        context={"dataset_key": "vingroup_pilot", "session_id": sid},
+        session_id=sid,
+    )
+    second = client.get(f"/api/v1/traces/{sid}").json()["steps"]
+    names = [_tool(s) for s in second]
+    assert names.count("propose_quality_rules") == 1, (
+        "second engine run must not execute/log another Propose; got " + str(names)
+    )
+    assert "a1b2c3d4e5f6" not in str(second)
+    assert "kafka" not in str(second).lower()
+    from src.api.routes import missing_requested_tools
+    assert missing_requested_tools(
+        "Profile this dataset and propose quality rules. Stop for HITL.",
+        ["profile_dataset", "FINISH"],
+    ) == ["propose_quality_rules"]
+

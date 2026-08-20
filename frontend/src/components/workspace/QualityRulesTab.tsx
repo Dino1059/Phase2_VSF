@@ -17,6 +17,8 @@ import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
 
 interface QualityRulesTabProps {
   datasetKey?: string;
+  /** Keep-mounted tab: refetch when shown. GET queue only — never re-run Propose. */
+  active?: boolean;
   onExecuteClean?: () => void;
 }
 
@@ -46,7 +48,7 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
   };
 }
 
-export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, onExecuteClean: _onExecuteClean }) => {
+export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -58,22 +60,40 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
 
-  const fetchRules = useCallback(async () => {
-    setLoading(true);
+  const fetchRules = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setLoading(true);
     try {
       const res = await hitlApi.queue(datasetKey);
       if (res && Array.isArray(res.proposals)) {
         setProposals(res.proposals);
       }
     } catch {
-      setProposals([]);
+      if (!silent) setProposals([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [datasetKey]);
 
   useEffect(() => {
-    fetchRules();
+    void fetchRules();
+  }, [fetchRules]);
+
+  // Keep-mounted: first visit used to show the boot-time empty queue. Refetch when
+  // shown, when Profile & Propose lands (agent-trace), and via GET poll. Never POST.
+  useEffect(() => {
+    if (active) void fetchRules({ silent: true });
+  }, [active, fetchRules]);
+
+  useEffect(() => {
+    const onTrace = () => { void fetchRules({ silent: true }); };
+    window.addEventListener('datatrust:agent-trace', onTrace);
+    return () => window.removeEventListener('datatrust:agent-trace', onTrace);
+  }, [fetchRules]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => { void fetchRules({ silent: true }); }, 2000);
+    return () => window.clearInterval(id);
   }, [fetchRules]);
 
   const handleApprove = async (ruleId: string) => {
@@ -168,8 +188,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
     }
   };
 
-  const proposedCount = proposals.filter(
-    (r) => (r.status || 'proposed').toLowerCase() === 'proposed'
+  const proposedCount = proposals.filter((r) =>
+    ['proposed', 'pending', 'draft'].includes((r.status || 'proposed').toLowerCase())
   ).length;
   const approvedCount = proposals.filter(
     (r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited'
@@ -303,7 +323,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, on
           )}
           <button
             className="traces-refresh-btn"
-            onClick={fetchRules}
+            onClick={() => void fetchRules()}
             disabled={loading}
             title={isVi ? 'Làm mới danh sách bộ luật' : 'Refresh rules queue'}
             style={{

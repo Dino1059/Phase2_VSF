@@ -120,6 +120,9 @@ const AGENT_COLORS: Record<string, string> = {
 
 type RightTab = 'tab-traces' | 'tab-profiler' | 'tab-rules' | 'tab-split';
 
+/** Survives StrictMode remount. Tab show / remount must not POST a second HITL chat. */
+const hitlBootsInFlight = new Set<string>();
+
 export function AgentChatWorkspace() {
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
@@ -269,6 +272,11 @@ export function AgentChatWorkspace() {
   useEffect(() => {
     if (isNewChat) return;
     if (runStartedRef.current === bootToken) return;
+    if (hitlBootsInFlight.has(bootToken)) {
+      runStartedRef.current = bootToken;
+      return;
+    }
+    hitlBootsInFlight.add(bootToken);
     runStartedRef.current = bootToken;
     proposeStartedRef.current = false;
     resetPipeline();
@@ -303,7 +311,7 @@ export function AgentChatWorkspace() {
     const forceLive = demoMode === 'live' || story === 'unhappy';
     const bootstrap = async () => {
       if (!datasetKey) return;
-      const bootKey = `dt-hitl-boot:${datasetKey}`;
+      const bootKey = `dt-hitl-boot:${datasetKey}:${story || 'none'}:${demoMode || 'none'}`;
       try {
         const lang = i18n?.language || 'vi';
         const session = datasetKey ? `dataset:${datasetKey}` : useChatStore.getState().sessionId;
@@ -311,9 +319,7 @@ export function AgentChatWorkspace() {
         if (!forceLive && Array.isArray(existing.messages) && existing.messages.length) {
           useChatStore.getState().setMessages(existing.messages);
         }
-        if (forceLive) {
-          try { sessionStorage.removeItem(bootKey); } catch { /* ignore */ }
-        } else {
+        if (!forceLive) {
           const already =
             historyAlreadyProfiled(existing.messages) ||
             proposeStartedRef.current ||
@@ -325,6 +331,9 @@ export function AgentChatWorkspace() {
             return;
           }
         }
+        // forceLive / Unhappy: hitlBootsInFlight (sync, effect entry) blocks
+        // StrictMode remount. Do not use leftover sessionStorage — Happy→Unhappy
+        // must still Profile & Propose once. Tab show never reaches here.
         proposeStartedRef.current = true;
         try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
         store.setStepIndex(1);
@@ -787,6 +796,7 @@ export function AgentChatWorkspace() {
                 selectedStep={selectedTraceStep}
                 selectedTool={selectedTraceTool}
                 pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
+                active={rightTab === 'tab-traces'}
                 onSelectStep={(n) => {
                   setSelectedTraceStep(n);
                   setSelectedTraceTool(null);
@@ -797,7 +807,7 @@ export function AgentChatWorkspace() {
               <DataProfilerTab datasetKey={datasetKey} story={story} />
             </div>
             <div hidden={rightTab !== 'tab-rules'}>
-              <QualityRulesTab datasetKey={datasetKey} />
+              <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />
             </div>
             <div hidden={rightTab !== 'tab-split'}>
               <SplitDbQuarantineTab

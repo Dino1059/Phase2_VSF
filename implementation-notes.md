@@ -77,3 +77,11 @@
 
 - Workspace remounted Profiler/Traces/Rules/Split on tab click (`rightTab === &&`) and unmounted the aside on collapse (`rightPanelOpen &&`). That wiped Unhappy 172/8, Happy 99.1, STEPS, HITL, split counts.
 - Fix: keep all four tabs mounted (`hidden={rightTab !== …}`); collapse via CSS width/transform. Tab onClick is only `setRightTab` — no loadSnapshot / story reset.
+
+## 2026-08-20 — Tab round-trip: duplicate Propose + stale Rules queue
+
+- Live after keep-mounted: STEPS 2 (Profile + Propose) drifted to 3 after Profiler→Rules→Split→Traces. Duplicate Propose beat (842ms, "3 rules"). Rules header "0 Proposed / 0 Approved" with 2 pending cards vs trail 3 rules.
+- Cause (1): Unhappy `forceLive` stripped `dt-hitl-boot` and React StrictMode remounted the workspace, so bootstrap POSTed chat/send a second time. LLM re-executed Propose. `missing_requested_tools` only skipped the force-run, not the engine tool call. Tab show itself is GET-only; the extra beat landed while the steward was clicking tabs.
+- Cause (2): QualityRulesTab now mounts hidden at boot, `hitlApi.queue` returns empty, never refetches. Propose writes status `pending`; header counted only `=== 'proposed'`.
+- Fix: module-level `hitlBootsInFlight` (sync, before send); keep bootKey including story/demo; engine `_skip_duplicate_propose` skips execute+log when a Propose beat exists. Rules GET-refetch on `active`, `datatrust:agent-trace`, and 2s poll. Header counts pending/proposed/draft. Keep-mounted `hidden=` stays. Tab onClick still only `setRightTab`.
+

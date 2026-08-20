@@ -293,6 +293,9 @@ class ReActEngine:
                     # Empty native payload — do not write a nameless running row.
                     continue
 
+                if self._skip_duplicate_propose(result.session_id, step.action):
+                    continue
+
                 self._log_trace(result.session_id, step, status="running")
                 try:
                     try:
@@ -361,6 +364,8 @@ class ReActEngine:
                 action_name = step.action.replace("default_api:", "")
                 if context and context.get("dataset_key") and isinstance(step.action_input, dict):
                     step.action_input.setdefault("dataset_key", context["dataset_key"])
+                if self._skip_duplicate_propose(result.session_id, action_name):
+                    continue
                 self._log_trace(result.session_id, step, status="running")
                 try:
                     try:
@@ -479,6 +484,37 @@ class ReActEngine:
     def _resolve_tool_name(self, action: str | None) -> str:
         return (action or "").replace("default_api:", "").strip()
 
+    def _normalize_tool_name(self, name: str | None) -> str:
+        return (name or "").replace("default_api:", "").strip().lower()
+
+    def _has_tool_beat(self, session_id: str, tool_name: str) -> bool:
+        """True when this session already persisted a named beat (alias-aware)."""
+        want = self._normalize_tool_name(tool_name)
+        if not session_id or not want:
+            return False
+        aliases = {want}
+        if want in ("propose_quality_rules", "quality_rule_proposer"):
+            aliases.update({"propose_quality_rules", "quality_rule_proposer"})
+        try:
+            rows = get_db().execute(
+                "SELECT tool_name, action FROM agent_traces WHERE session_id = ?",
+                [session_id],
+            )
+            return any(
+                self._normalize_tool_name(tool) in aliases
+                or self._normalize_tool_name(action) in aliases
+                for tool, action in rows
+            )
+        except Exception:
+            return False
+
+    def _skip_duplicate_propose(self, session_id: str, action: str | None) -> bool:
+        """Tab/remount must not re-run Propose. Profile-then-FINISH still force-runs once."""
+        name = self._normalize_tool_name(self._resolve_tool_name(action) or action)
+        if name not in ("propose_quality_rules", "quality_rule_proposer"):
+            return False
+        return self._has_tool_beat(session_id, name)
+
     def _tool_meta(self, tool_name: str) -> tuple[str, str]:
         """Attach tool_title / tool_about from BaseTool.description when the tool exists."""
         title = _human_tool_title(tool_name)
@@ -579,6 +615,8 @@ class ReActEngine:
                 "AND coalesce(tool_name, action, '') = ? ORDER BY timestamp DESC LIMIT 1",
                 [session_id, step.step_index, tool_name],
             )
+            if not existing and self._skip_duplicate_propose(session_id, tool_name):
+                return
             params_core = [
                 thought,
                 step.action,
