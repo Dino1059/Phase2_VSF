@@ -85,3 +85,8 @@
 - Cause (2): QualityRulesTab now mounts hidden at boot, `hitlApi.queue` returns empty, never refetches. Propose writes status `pending`; header counted only `=== 'proposed'`.
 - Fix: module-level `hitlBootsInFlight` (sync, before send); keep bootKey including story/demo; engine `_skip_duplicate_propose` skips execute+log when a Propose beat exists. Rules GET-refetch on `active`, `datatrust:agent-trace`, and 2s poll. Header counts pending/proposed/draft. Keep-mounted `hidden=` stays. Tab onClick still only `setRightTab`.
 
+## 2026-08-20 — Unhappy Profiler stuck Not measured (hidden-mount hold)
+
+- Hidden-mounted Profiler fetched once (Happy / empty). `holdUnhappyHealth` stayed true until `warehouse_*` > 0; profile `data_health_score=None` mapped to "Not measured" instead of Critical. Banner already had measured SoC<0 / OPEN.
+- Fix: snapshot event + `dt-warehouse` overlay carry DuckDB counts; hold releases when faults arrive; KPI shows `— · Critical · SoC<0 = N · OPEN = M`. Happy still 99.1 Excellent when warehouse is clean. No 99.1 flash on Unhappy.
+- Traces Found: stored `health 99.1` is sample leakage. Overlay/warehouse faults → omit sample %, say Critical + counts. AgentTracesTab / keep-mounted / STEPS 2 / stop-at-HITL untouched.

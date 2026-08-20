@@ -4,9 +4,11 @@ import { systemApi, resetDemoSession } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
 import { PILOT_CLEAN, PILOT_FAULTY, PILOT_BATCH } from './pilotFacts';
+import { clearWarehouseOverlay, writeWarehouseOverlay } from './stewardLabels';
 
 function markSnapshotPending(mode: 'happy' | 'unhappy') {
   try { sessionStorage.setItem('dt-snap-pending', mode); } catch { /* ignore */ }
+  clearWarehouseOverlay();
   window.dispatchEvent(new CustomEvent('datatrust:demo-snapshot-pending', { detail: { mode } }));
 }
 
@@ -33,12 +35,15 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
       await resetDemoSession();
       useChatStore.getState().clearMessages();
       setMeasured({ soc_below_zero: res.soc_below_zero, open_incidents: res.open_incidents });
+      writeWarehouseOverlay(res.soc_below_zero, res.open_incidents);
       if (mode === 'happy') {
         navigate('/workspace?dataset_key=vingroup_pilot&story=happy');
       } else {
         navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
       }
-      window.dispatchEvent(new CustomEvent('datatrust:demo-snapshot', { detail: { mode } }));
+      window.dispatchEvent(new CustomEvent('datatrust:demo-snapshot', {
+        detail: { mode, soc_below_zero: res.soc_below_zero, open_incidents: res.open_incidents },
+      }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'snapshot failed');
     } finally {

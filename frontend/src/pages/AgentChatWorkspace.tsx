@@ -812,7 +812,7 @@ export function AgentChatWorkspace() {
               />
             </div>
             <div hidden={rightTab !== 'tab-profiler'}>
-              <DataProfilerTab datasetKey={datasetKey} story={story} />
+              <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} />
             </div>
             <div hidden={rightTab !== 'tab-rules'}>
               <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />

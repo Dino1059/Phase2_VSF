@@ -151,6 +151,8 @@ def _measured_from_output(tool_name: str | None, output: object) -> str:
         parts.append(f"{int(soc)} SoC<0")
     if open_n:
         parts.append(f"{int(open_n)} OPEN")
+    if soc or open_n:
+        parts.append("Critical")
     if cols is not None:
         parts.append(f"{int(cols)} columns")
     if health is not None and not soc and not open_n:

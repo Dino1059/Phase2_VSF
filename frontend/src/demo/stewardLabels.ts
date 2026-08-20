@@ -126,6 +126,31 @@ export function catalogFor(toolName?: string | null): { name: string; title: str
   return { name: toolName, title: row.title, about: row.about };
 }
 
+
+const WAREHOUSE_KEY = 'dt-warehouse';
+
+export function readWarehouseOverlay(): { soc: number; open: number } | null {
+  try {
+    const raw = sessionStorage.getItem(WAREHOUSE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    const soc = Number(o?.soc);
+    const open = Number(o?.open);
+    if (!Number.isFinite(soc) || !Number.isFinite(open)) return null;
+    return { soc, open };
+  } catch {
+    return null;
+  }
+}
+
+export function writeWarehouseOverlay(soc: number, open: number) {
+  try { sessionStorage.setItem(WAREHOUSE_KEY, JSON.stringify({ soc, open })); } catch { /* ignore */ }
+}
+
+export function clearWarehouseOverlay() {
+  try { sessionStorage.removeItem(WAREHOUSE_KEY); } catch { /* ignore */ }
+}
+
 function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : null;
 }
@@ -143,14 +168,16 @@ function measuredFromOutput(tool: string, output: unknown, fallbackTitle: string
     }
     return null;
   };
+  const live = readWarehouseOverlay();
   const rows = n('total_rows', 'sample_size', 'row_count', 'total_processed');
-  const soc = n('warehouse_soc_below_zero');
-  const openN = n('warehouse_open_incidents');
+  const soc = n('warehouse_soc_below_zero') || live?.soc || 0;
+  const openN = n('warehouse_open_incidents') || live?.open || 0;
   const cols = n('columns_count');
   const health = n('health_score', 'data_health_score');
   if (rows != null) parts.push(`${rows.toLocaleString()} rows`);
   if (soc) parts.push(`${soc} SoC<0`);
   if (openN) parts.push(`${openN} OPEN`);
+  if (soc || openN) parts.push('Critical');
   if (cols != null) parts.push(`${cols} columns`);
   if (health != null && !soc && !openN) parts.push(`health ${health}`);
   if (Array.isArray(data.proposals)) parts.push(`${data.proposals.length} rules`);
@@ -196,7 +223,11 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
   const output = raw.output ?? raw.tool_output;
   const storedSummary = typeof raw.summary_done === 'string' ? raw.summary_done.trim() : '';
   const theater = /completed$/i.test(storedSummary) && !/SoC|rows|rules|health/i.test(storedSummary);
-  const summary_done = (!theater && storedSummary) || measuredFromOutput(tool_name, output, tool_title);
+  const live = readWarehouseOverlay();
+  const liveFaults = !!(live && (live.soc > 0 || live.open > 0));
+  const storedHasSampleHealth = /health\s+\d/.test(storedSummary);
+  const reuseStored = !theater && !!storedSummary && !(storedHasSampleHealth && liveFaults);
+  const summary_done = reuseStored ? storedSummary : measuredFromOutput(tool_name, output, tool_title);
   const thoughtRaw = typeof raw.thought === 'string' ? raw.thought.trim() : '';
   const status = normalizeStatus(raw.status) || (output == null && !summary_done ? 'running' : 'done');
   return {

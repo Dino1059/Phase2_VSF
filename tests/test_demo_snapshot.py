@@ -112,8 +112,16 @@ def test_unhappy_health_is_critical_not_not_measured():
     assert "warehouse_soc_below_zero" in datasets
     ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
     assert "story" in ui
+    assert "Critical" in ui
+    assert "Not measured" in ui
+    assert "warehouseFaults" in ui
+    assert "SoC<0 =" in ui
+    assert "OPEN =" in ui
+    assert "&& !warehouseFaults" in ui  # hold releases once SoC<0/OPEN arrive
     ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
     assert "setStream([])" in ws
+    assert "active={rightTab === 'tab-profiler'}" in ws
+    assert "hidden={rightTab !== 'tab-profiler'}" in ws
 
 def test_story_switch_keeps_one_profile_summary():
     ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
@@ -167,6 +175,49 @@ def test_flash_hold_happy_99_1_and_unhappy_172_8():
     assert "172 SoC / 8 OPEN" in bar
     assert "socBelowZero: 172" in facts
     assert "openIncidents: 8" in facts
+    assert "writeWarehouseOverlay" in bar
+    assert "soc_below_zero: res.soc_below_zero" in bar
+    assert "datatrust:demo-snapshot'," in bar or 'datatrust:demo-snapshot"' in bar
+    assert "readWarehouseOverlay" in ui
+
+
+def test_unhappy_warehouse_faults_hide_sample_health_on_profiler_and_traces():
+    """Unhappy + SoC<0/OPEN → Critical + measured counts, never Not measured / health 99.1."""
+    ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    engine = (ROOT / "src/orchestrator/engine.py").read_text()
+    bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+
+    assert "active?: boolean" in ui
+    assert "if (active) void fetchProfile()" in ui
+    assert "SoC<0 =" in ui
+    assert "OPEN =" in ui
+    assert "warehouseFaults && !holdHealth" in ui
+    grade = ui.split("const healthGrade = useMemo", 1)[1].split("}, [", 1)[0]
+    assert "Critical" in grade
+    assert "Not measured" in grade
+    assert "warehouseFaults" in grade.split("if (holdHealth)")[1]
+
+    meas = labels.split("function measuredFromOutput", 1)[1].split("export function normalizeStatus", 1)[0]
+    assert "readWarehouseOverlay" in meas
+    assert "Critical" in meas
+    assert "health ${health}" in meas
+    assert "if (health != null && !soc && !openN)" in meas
+    assert "storedHasSampleHealth" in labels
+    assert "liveFaults" in labels
+
+    meas_py = engine.split("def _measured_from_output", 1)[1].split("HITL_ALLOWED_TOOLS", 1)[0]
+    assert "Critical" in meas_py
+    assert "if health is not None and not soc and not open_n" in meas_py
+
+    assert "writeWarehouseOverlay" in bar
+    assert "clearWarehouseOverlay" in bar
+    assert "hidden={rightTab !== 'tab-traces'}" in ws
+    assert "hidden={rightTab !== 'tab-profiler'}" in ws
+    assert "HITL_STOP_PROMPT" in ws
+    traces = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    assert "sendChatMessage" not in traces
 
 
 def test_hitl_approve_is_not_execute():

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { datasetsApi } from '../../services/api';
+import { clearWarehouseOverlay, readWarehouseOverlay, writeWarehouseOverlay } from '../../demo/stewardLabels';
 
 interface ColumnProfile {
   name: string;
@@ -41,6 +42,8 @@ interface ProfileData {
 interface DataProfilerTabProps {
   datasetKey?: string;
   story?: string | null;
+  /** Keep-mounted: refetch when shown so Unhappy warehouse can settle. */
+  active?: boolean;
 }
 
 type PendingMode = 'happy' | 'unhappy' | null;
@@ -58,12 +61,13 @@ function clearPendingMode() {
   try { sessionStorage.removeItem('dt-snap-pending'); } catch { /* ignore */ }
 }
 
-export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story }) => {
+export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story, active = false }) => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedColumn, setSelectedColumn] = useState<ColumnProfile | null>(null);
   const [pendingMode, setPendingMode] = useState<PendingMode>(() => readPendingMode());
+  const [overlay, setOverlay] = useState<{ soc: number; open: number } | null>(() => readWarehouseOverlay());
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
 
@@ -78,7 +82,9 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
           dataset: res.dataset || datasetKey,
           total_rows: rawProf.total_rows ?? res.sample_size,
           columns_count: rawProf.columns ? rawProf.columns.length : 0,
-          health_score: rawProf.data_health_score ?? rawProf.health_score ?? null,
+          health_score: Object.prototype.hasOwnProperty.call(rawProf, 'data_health_score')
+            ? rawProf.data_health_score
+            : (rawProf.health_score ?? null),
           warehouse_soc_below_zero: rawProf.warehouse_soc_below_zero,
           warehouse_open_incidents: rawProf.warehouse_open_incidents,
           columns: (rawProf.columns || []).map((c: ColumnProfile & { data_type?: string }) => ({
@@ -101,7 +107,22 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   }, [fetchProfile]);
 
   useEffect(() => {
-    const onSnap = () => { void fetchProfile(); };
+    if (active) void fetchProfile();
+  }, [active, fetchProfile]);
+
+  useEffect(() => {
+    const onSnap = (e: Event) => {
+      const d = (e as CustomEvent<{ soc_below_zero?: number; open_incidents?: number }>).detail;
+      const soc = Number(d?.soc_below_zero);
+      const open = Number(d?.open_incidents);
+      if (Number.isFinite(soc) && Number.isFinite(open)) {
+        writeWarehouseOverlay(soc, open);
+        setOverlay({ soc, open });
+      } else {
+        setOverlay(readWarehouseOverlay());
+      }
+      void fetchProfile();
+    };
     window.addEventListener('datatrust:demo-snapshot', onSnap);
     return () => window.removeEventListener('datatrust:demo-snapshot', onSnap);
   }, [fetchProfile]);
@@ -111,6 +132,8 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
       const mode = (e as CustomEvent<{ mode?: string }>).detail?.mode;
       if (mode === 'happy' || mode === 'unhappy') {
         try { sessionStorage.setItem('dt-snap-pending', mode); } catch { /* ignore */ }
+        clearWarehouseOverlay();
+        setOverlay(null);
         setPendingMode(mode);
         setProfile(null); // drop leftover Happy 99.1 / Unhappy Critical immediately
       }
@@ -133,7 +156,11 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     );
   }, [columns, searchQuery]);
 
-  const warehouseFaults = (profile?.warehouse_soc_below_zero || 0) > 0 || (profile?.warehouse_open_incidents || 0) > 0;
+  const profileSoc = Number(profile?.warehouse_soc_below_zero) || 0;
+  const profileOpen = Number(profile?.warehouse_open_incidents) || 0;
+  const soc = profileSoc || overlay?.soc || 0;
+  const open = profileOpen || overlay?.open || 0;
+  const warehouseFaults = soc > 0 || open > 0;
   // Unhappy leftover Happy score (99.1 Excellent) is not a measured Critical settle.
   const holdUnhappyHealth = story === 'unhappy' && !warehouseFaults;
   // Instant pending hold: leftover Happy 99.1 must not paint while Loading snapshot…
@@ -149,7 +176,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     }
   }, [pendingMode, warehouseFaults, story, profile]);
 
-  const holdHealth = holdPendingHealth || holdUnhappyHealth;
+  const holdHealth = (holdPendingHealth || holdUnhappyHealth) && !warehouseFaults;
   const healthGrade = useMemo(() => {
     if (holdHealth) return { text: isVi ? 'Chưa đo' : 'Not measured', color: 'var(--text-muted)', bg: 'transparent' };
     if (warehouseFaults) return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
@@ -191,6 +218,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
           </div>
           <div className="kpi-card-sub" style={{ color: healthGrade.color }}>
             ● {healthGrade.text}
+            {warehouseFaults && !holdHealth ? ` · SoC<0 = ${soc} · OPEN = ${open}` : ''}
           </div>
         </div>
       </div>
