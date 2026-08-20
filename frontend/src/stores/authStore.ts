@@ -17,6 +17,7 @@ interface AuthState {
   setAuthModalOpen: (open: boolean) => void;
   login: (username: string, password?: string, role?: string) => Promise<void>;
   quickSwitchRole: (role: string) => Promise<void>;
+  restoreSession: (token: string, user: UserProfile) => void;
   logout: () => void;
   isAdmin: () => boolean;
   isStewardOrAdmin: () => boolean;
@@ -49,6 +50,10 @@ const initialUser: UserProfile = (() => {
     const raw = localStorage.getItem(USER_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && parsed.role) return parsed as UserProfile;
+    const storedRole = String(localStorage.getItem('datatrust-role') || '').toLowerCase();
+    if (storedRole === 'admin' || storedRole === 'administrator') {
+      return { user_id: 'usr_admin_01', username: 'admin', role: 'Admin' };
+    }
     return STEWARD_USER;
   } catch {
     return STEWARD_USER;
@@ -107,6 +112,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
       set({ user: fallbackUser, isAuthModalOpen: false });
     }
+  },
+
+  restoreSession: (token, user) => {
+    persistAuthToken(token, user.role.toLowerCase());
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    set({
+      token,
+      user,
+      isAuthenticated: true,
+    });
   },
 
   logout: () => {

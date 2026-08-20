@@ -47,6 +47,7 @@ export function Header() {
   const [isSearching, setIsSearching] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const { user, isAuthenticated, isAdmin, setAuthModalOpen, logout, login } = useAuthStore();
   const { t, i18n } = useTranslation('pipeline');
@@ -93,13 +94,12 @@ export function Header() {
   }, []);
 
   const handleResetAll = async () => {
-    const confirmMsg = isVi
-      ? 'Đặt lại toàn bộ bảng DB, luật, vùng cách ly và bộ nhớ phiên về trạng thái ban đầu của VinGroup?'
-      : 'Reset all DB tables, rules, quarantine, and conversation memory back to clean VinGroup baseline?';
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
+    // In-app modal already accepted. Do not re-login as steward after wipe.
     setResetLoading(true);
+    const auth = useAuthStore.getState();
+    const wasAdmin = auth.isAdmin();
+    const keepToken = auth.token;
+    const keepUser = auth.user;
     try {
       try {
         await systemApi.resetAll();
@@ -123,6 +123,9 @@ export function Header() {
           .forEach((k) => sessionStorage.removeItem(k));
       } catch {
         /* ignore */
+      }
+      if (wasAdmin && keepToken && keepUser) {
+        useAuthStore.getState().restoreSession(keepToken, keepUser);
       }
       setResetSuccess(true);
       setTimeout(() => setResetSuccess(false), 3500);
@@ -429,7 +432,7 @@ export function Header() {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                void handleResetAll();
+                setResetConfirmOpen(true);
               }}
               disabled={resetLoading}
               title={isVi ? 'Quản trị viên: Đặt lại trạng thái runtime & khôi phục dữ liệu gốc VinGroup' : 'Admin Quick Reset: Wipe runtime state & restore VinGroup baseline'}
@@ -570,6 +573,59 @@ export function Header() {
           }}
         >
           {isVi ? 'Toast: Đã đặt lại DB · HITL 0/0 · Split 0' : 'Toast: Database reset · HITL 0/0 · Split 0'}
+        </div>
+      )}
+
+      {resetConfirmOpen && (
+        <div
+          className="modal-overlay active"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-confirm-title"
+          onClick={() => { if (!resetLoading) setResetConfirmOpen(false); }}
+        >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title" id="reset-confirm-title">
+                <AlertTriangle size={15} style={{ marginRight: 6 }} />
+                {isVi ? 'Xác nhận đặt lại DB' : 'Confirm Reset DB'}
+              </span>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setResetConfirmOpen(false)}
+                disabled={resetLoading}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body" style={{ fontSize: 13, color: 'var(--text-main)', lineHeight: 1.5 }}>
+              {isVi
+                ? 'Đặt lại toàn bộ bảng DB, luật, vùng cách ly và bộ nhớ phiên về trạng thái ban đầu của VinGroup?'
+                : 'Reset all DB tables, rules, quarantine, and conversation memory back to clean VinGroup baseline?'}
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn-modal-cancel"
+                onClick={() => setResetConfirmOpen(false)}
+                disabled={resetLoading}
+              >
+                {isVi ? 'Hủy' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="btn-modal-save"
+                onClick={() => {
+                  setResetConfirmOpen(false);
+                  void handleResetAll();
+                }}
+                disabled={resetLoading}
+              >
+                {isVi ? 'Xác nhận đặt lại' : 'Confirm Reset'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

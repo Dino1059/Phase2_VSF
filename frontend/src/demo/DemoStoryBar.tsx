@@ -28,7 +28,9 @@ export function DemoStoryBar({ isVi }: { isVi: boolean }) {
     // Instant hold: fire before login/fetch/navigate so leftover Happy 99.1 cannot paint.
     markSnapshotPending(mode);
     try {
-      await useAuthStore.getState().login('steward', undefined, 'steward');
+      if (!useAuthStore.getState().isAdmin()) {
+        await useAuthStore.getState().login('steward', undefined, 'steward');
+      }
       const res = await systemApi.loadSnapshot(mode);
       try { sessionStorage.setItem('dt-snap', mode); } catch { /* ignore */ }
       loaded.current = mode;

@@ -979,7 +979,9 @@ function NewChatLanding() {
             type="button"
             onClick={async () => {
               try {
-                await useAuthStore.getState().login('steward', undefined, 'steward');
+                if (!useAuthStore.getState().isAdmin()) {
+                  await useAuthStore.getState().login('steward', undefined, 'steward');
+                }
                 await systemApi.loadSnapshot('happy');
                 await resetDemoSession();
                 useChatStore.getState().clearMessages();
@@ -993,7 +995,9 @@ function NewChatLanding() {
             type="button"
             onClick={async () => {
               try {
-                await useAuthStore.getState().login('steward', undefined, 'steward');
+                if (!useAuthStore.getState().isAdmin()) {
+                  await useAuthStore.getState().login('steward', undefined, 'steward');
+                }
                 await systemApi.loadSnapshot('unhappy');
                 await resetDemoSession();
                 useChatStore.getState().clearMessages();

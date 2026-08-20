@@ -87,7 +87,11 @@ def test_reset_button_confirms_toasts_and_drops_kept_approved():
     split = (ROOT / "frontend/src/components/workspace/SplitDbQuarantineTab.tsx").read_text()
     api = (ROOT / "frontend/src/services/api.ts").read_text()
     reset_fn = header.split("const handleResetAll", 1)[1].split("const handleToggleLang", 1)[0]
-    assert "window.confirm" in reset_fn
+    assert "window.confirm" not in reset_fn
+    assert "window.confirm" not in header
+    assert "resetConfirmOpen" in header
+    assert "modal-overlay" in header
+    assert "Confirm Reset" in header
     assert "systemApi.resetAll" in reset_fn
     assert "resetStewardState" in reset_fn
     assert "wipeStewardBrowserKeys" in reset_fn
@@ -103,4 +107,23 @@ def test_reset_button_confirms_toasts_and_drops_kept_approved():
     assert "setProposals([])" in on_reset
     assert "replaceSplitRows" in split
     assert "datatrust:db-reset" in split
+
+def test_reset_keeps_admin_session_not_steward():
+    """After reset-all, Administrator JWT/profile stays. Reset path must not force steward."""
+    header = (ROOT / "frontend/src/components/layout/Header.tsx").read_text()
+    store = (ROOT / "frontend/src/stores/authStore.ts").read_text()
+    api = (ROOT / "frontend/src/services/api.ts").read_text()
+    bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    reset_fn = header.split("const handleResetAll", 1)[1].split("const handleToggleLang", 1)[0]
+    assert "ensureDemoAuth" not in reset_fn
+    assert "wasAdmin" in reset_fn
+    assert "restoreSession" in reset_fn
+    assert "restoreSession" in store
+    assert "STEWARD_USER" in store
+    ensure = api.split("export async function ensureDemoAuth", 1)[1].split("export const systemApi", 1)[0]
+    assert "role === 'admin'" in ensure or "actor === 'admin'" in ensure
+    assert "administrator" in ensure
+    assert "if (!useAuthStore.getState().isAdmin())" in bar
+    assert "if (!useAuthStore.getState().isAdmin())" in ws
 
