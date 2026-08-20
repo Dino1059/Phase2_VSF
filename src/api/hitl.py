@@ -81,9 +81,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     try:
         return db.execute(
             select_sql
-            + "AND (dataset_key = ? OR id LIKE ? OR "
-            "(dataset_key IS NULL AND lower(trim(cast(status AS VARCHAR))) "
-            "IN ('pending', 'proposed', 'draft', 'queued'))) "
+            + "AND (dataset_key = ? OR id LIKE ?) "
             "ORDER BY created_at DESC",
             [dataset_key, like],
         )
