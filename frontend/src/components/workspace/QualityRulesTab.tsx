@@ -16,6 +16,16 @@ import {
 import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 
+const EMPTY_SPLIT = {
+  cleanRows: [] as unknown[],
+  quarantineRows: [] as unknown[],
+  totalClean: 0,
+  totalQuarantine: 0,
+  cleanRan: false,
+  thisRun: false,
+  snapshotId: '',
+};
+
 interface QualityRulesTabProps {
   datasetKey?: string;
   /** Keep-mounted tab: refetch when shown. GET queue only — never re-run Propose. */
@@ -72,15 +82,25 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const isVi = i18n.language === 'vi';
   // First hidden boot GET is often []. Do not treat that as a locked 0/0.
   const emptyBootRef = useRef(true);
+  const dropKeptAfterResetRef = useRef(false);
+  const fetchGenRef = useRef(0);
 
   const fetchRules = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
+    const myGen = fetchGenRef.current;
     if (!silent) setLoading(true);
     try {
       const res = await hitlApi.queue(datasetKey);
+      if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
         const fromDb = res.proposals;
         setProposals((prev) => {
+          // Admin reset: drop keptApproved. Empty queue is honest 0/0.
+          if (dropKeptAfterResetRef.current) {
+            dropKeptAfterResetRef.current = false;
+            emptyBootRef.current = false;
+            return fromDb;
+          }
           // Empty queue must not wipe cards the Propose beat already put on screen.
           // Empty first hidden fetch must not lock 0/0 — wait for active/agent-trace refetch.
           if (fromDb.length === 0 && (prev.length > 0 || emptyBootRef.current)) {
@@ -121,6 +141,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
   useEffect(() => {
     const onReset = () => {
+      fetchGenRef.current += 1;
+      dropKeptAfterResetRef.current = true;
       emptyBootRef.current = false;
       setProposals([]);
       setSandboxAuthorized(false);
@@ -215,19 +237,30 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     if (approved.length === 0) return;
     setActionLoading('sandbox');
     setSandboxError(null);
+    const storeKey = datasetStoreKey(datasetKey);
     try {
       const auth = await approvalsApi.authorize(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
       for (const r of approved) {
         await hitlApi.execute(r.rule_id);
       }
       const sandbox = await hitlApi.sandbox(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
-      const storeKey = datasetStoreKey(datasetKey);
       const qRows = (sandbox && Array.isArray(sandbox.quarantine)) ? sandbox.quarantine : [];
       const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
       const qCount = sandbox?.quarantine_rows ?? qRows.length;
       const cCount = sandbox?.clean_rows ?? cRows.length;
+      useWorkspaceStore.getState().replaceSplitRows(storeKey, {
+        cleanRan: true,
+        thisRun: true,
+        snapshotId: sandbox?.snapshot_id || '',
+        quarantineRows: qRows,
+        cleanRows: cRows,
+        totalQuarantine: qCount,
+        totalClean: cCount,
+      });
       useWorkspaceStore.getState().mergeSplitRows(storeKey, {
         cleanRan: true,
+        thisRun: true,
+        snapshotId: sandbox?.snapshot_id || '',
         quarantineRows: qRows,
         cleanRows: cRows,
         totalQuarantine: qCount,
@@ -241,7 +274,14 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         status: 'done',
         observation: `${qCount} quarantined · ${cCount} clean`,
       }]);
-      const detail = { ...(sandbox || {}), sandbox: true, cleanRan: true, dataset_key: datasetKey || 'vingroup_pilot' };
+      const detail = {
+        ...(sandbox || {}),
+        sandbox: true,
+        thisRun: true,
+        cleanRan: true,
+        dataset_key: datasetKey || 'vingroup_pilot',
+        snapshot_id: sandbox?.snapshot_id,
+      };
       try {
         window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
         window.dispatchEvent(new CustomEvent('datatrust:split-refresh', { detail }));
@@ -250,7 +290,18 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       setPayloadHash(auth?.payload_hash || '');
       setSandboxAuthorized(true);
     } catch (err: any) {
-      setSandboxError(err?.message || 'sandbox execute failed');
+      const raw = String(err?.message || 'sandbox execute failed');
+      const is504 = raw.includes('504') || raw.toLowerCase().includes('timeout');
+      const msg = is504 ? (raw.startsWith('HTTP 504') ? raw : `HTTP 504: ${raw}`) : raw;
+      setSandboxError(msg);
+      setSandboxAuthorized(false);
+      // 504/empty must not keep leftover 50k as this run
+      useWorkspaceStore.getState().replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-failed', {
+          detail: { dataset_key: datasetKey || 'vingroup_pilot', error: msg, http504: is504 },
+        }));
+      } catch { /* ignore */ }
     } finally {
       setActionLoading(null);
     }
@@ -361,7 +412,28 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             {isVi ? 'Execute tắt · sandbox chưa chạy · quarantine=0' : 'Execute disabled · sandbox not run · quarantine=0'}
           </button>
         )}
-        {sandboxError && <span role="alert" style={{ color: '#dc2626', fontSize: 11 }}>{sandboxError}</span>}
+        {actionLoading === 'sandbox' && (
+          <span style={{ color: '#0284c7', fontSize: 11, fontWeight: 600 }}>
+            {isVi ? 'Sandbox đang chạy…' : 'Sandbox running…'}
+          </span>
+        )}
+        {sandboxError && (
+          <span
+            role="alert"
+            className="sandbox-error-chip"
+            style={{
+              color: '#dc2626',
+              fontSize: 11,
+              fontWeight: 700,
+              background: 'rgba(220, 38, 38, 0.1)',
+              border: '1px solid rgba(220, 38, 38, 0.35)',
+              borderRadius: 6,
+              padding: '3px 8px',
+            }}
+          >
+            {sandboxError}
+          </span>
+        )}
         <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {proposedCount > 0 && (
             <button

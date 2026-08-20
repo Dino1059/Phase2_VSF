@@ -79,3 +79,28 @@ def test_reset_all_wipes_approved_rules_and_hitl_queue():
     queue = client.get("/api/v1/hitl/queue?include_active=true&dataset_key=uploaded_vin_reset")
     assert queue.status_code == 200
     assert queue.json().get("proposals") == []
+
+def test_reset_button_confirms_toasts_and_drops_kept_approved():
+    """Admin Reset DB: confirm → reset-all + steward wipe → toast → drop leftover cards/50k."""
+    header = (ROOT / "frontend/src/components/layout/Header.tsx").read_text()
+    rules = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    split = (ROOT / "frontend/src/components/workspace/SplitDbQuarantineTab.tsx").read_text()
+    api = (ROOT / "frontend/src/services/api.ts").read_text()
+    reset_fn = header.split("const handleResetAll", 1)[1].split("const handleToggleLang", 1)[0]
+    assert "window.confirm" in reset_fn
+    assert "systemApi.resetAll" in reset_fn
+    assert "resetStewardState" in reset_fn
+    assert "wipeStewardBrowserKeys" in reset_fn
+    assert "datatrust:db-reset" in reset_fn
+    assert "role=\"status\"" in header or "role='status'" in header or 'role="status"' in header
+    assert "toast" in header.lower()
+    assert "reload_warehouse=false" in api
+    assert "dropKeptAfterResetRef" in rules
+    assert "setProposals([])" in rules
+    assert "keptApproved" in rules
+    on_reset = rules.split("const onReset", 1)[1].split("window.addEventListener('datatrust:db-reset'", 1)[0]
+    assert "dropKeptAfterResetRef.current = true" in on_reset
+    assert "setProposals([])" in on_reset
+    assert "replaceSplitRows" in split
+    assert "datatrust:db-reset" in split
+

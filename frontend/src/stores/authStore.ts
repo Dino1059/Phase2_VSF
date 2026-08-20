@@ -121,8 +121,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   isAdmin: () => {
-    const role = get().user?.role;
-    return role === 'Admin' || role === ('admin' as any);
+    const role = String(get().user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'administrator';
   },
 
   isStewardOrAdmin: () => {

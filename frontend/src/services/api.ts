@@ -76,7 +76,8 @@ export const authApi = {
 
 export async function ensureDemoAuth(): Promise<void> {
   const role = (localStorage.getItem('datatrust-role') || '').toLowerCase();
-  if (readAuthToken() && role === 'steward') return;
+  // Keep an existing steward OR admin JWT. Re-login as steward would clobber Reset DB.
+  if (readAuthToken() && (role === 'steward' || role === 'admin')) return;
   const res = await authApi.login({ username: 'steward', role: 'steward' });
   if (res?.access_token) {
     persistAuthToken(res.access_token, 'steward');
@@ -90,7 +91,7 @@ export async function ensureDemoAuth(): Promise<void> {
 
 export const systemApi = {
   resetAll: () =>
-    request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all', {
+    request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all?reload_warehouse=false', {
       method: 'POST',
     }),
   loadSnapshot: (mode: 'happy' | 'unhappy') =>
@@ -630,6 +631,9 @@ export const hitlApi = {
       clean_rows?: number;
       quarantine_rows?: number;
       manifest_hash?: string;
+      snapshot_id?: string;
+      this_run?: boolean;
+      sampled_rows?: number;
     }>('/hitl/sandbox', {
       method: 'POST',
       body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),

@@ -123,17 +123,20 @@ def approved_rules_for_clean(db, dataset_key: Optional[str] = None, rule_ids: Op
     return out
 
 
-def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: list, db=None) -> dict:
+def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: list, db=None, snapshot_id: str | None = None) -> dict:
     """Persist REAL quarantine rows into DuckDB and return the Split-tab payload.
 
     Does not invent rows. Counts come from execute_compiled_rules. Empty partitions stay empty.
+    snapshot_id tags THIS sandbox run so Split never shows leftover 50k/100 as this run.
     """
     from src.db.connection import get_db
     from src.services.dataset_engine import safe_eval_rule
 
     if db is None:
         db = get_db()
+    import uuid as _uuid
     key = (dataset_key or "").strip() or "dataset"
+    snap = (snapshot_id or "").strip() or f"sandbox:{key}:{_uuid.uuid4().hex[:12]}"
     active = [r for r in (rules or []) if str(r.get("decision") or "").lower() in ("approved", "edit", "edited")]
     q_items = []
     indices = exec_res.get("quarantine_indices") or []
@@ -179,7 +182,16 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         })
 
     import json as _json
-    import uuid as _uuid
+    try:
+        db.execute(
+            "DELETE FROM quarantine WHERE source_table = ? AND (rule_version_id = 'sandbox' OR snapshot_id LIKE ?)",
+            [key, f"sandbox:{key}:%"],
+        )
+    except Exception:
+        try:
+            db.execute("DELETE FROM quarantine WHERE source_table = ?", [key])
+        except Exception:
+            pass
     for i, item in enumerate(q_items):
         row_n = i + 1
         qid = str(item.get("id") or f"q-{_uuid.uuid4().hex[:12]}")
@@ -191,7 +203,7 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
                 "ON CONFLICT (snapshot_id, rule_version_id, source_row_id) DO NOTHING",
                 [
                     qid,
-                    key,
+                    snap,
                     key,
                     row_n,
                     item["rule_id"],
@@ -215,11 +227,14 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
     return {
         "dataset_key": key,
         "sandbox": True,
+        "snapshot_id": snap,
+        "this_run": True,
         "clean": clean_rows[:50],
         "quarantine": q_items[:100],
         "clean_rows": int(exec_res.get("clean_count") or len(clean_rows) or 0),
         "quarantine_rows": int(exec_res.get("quarantine_count") or len(q_items) or 0),
         "manifest_hash": exec_res.get("manifest_hash") or "",
+        "sampled_rows": len(rows),
     }
 
 

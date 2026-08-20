@@ -214,9 +214,15 @@ def _log_sandbox_clean_beat(dataset_key: str, payload: dict) -> None:
         pass
 
 
+# Bound the sandbox scan so POST /hitl/sandbox returns before tunnel/proxy ~90s.
+# Full 50k warehouse execute_compiled_rules is the 504 path — not the only path.
+SANDBOX_SAMPLE_CAP = 3000
+
+
 class SandboxRequest(BaseModel):
     dataset_key: str
     rule_ids: Optional[List[str]] = None
+    sample_size: Optional[int] = None
 
 
 @hitl_router.post("/sandbox")
@@ -242,8 +248,15 @@ async def sandbox_clean(req: SandboxRequest):
             status_code=403,
             detail="Rule execution denied: Rule is not approved by HITL",
         )
+    cap = SANDBOX_SAMPLE_CAP
+    if req.sample_size is not None:
+        try:
+            cap = max(1, min(int(req.sample_size), SANDBOX_SAMPLE_CAP))
+        except (TypeError, ValueError):
+            cap = SANDBOX_SAMPLE_CAP
+    snapshot_id = f"sandbox:{dataset_key}:{uuid.uuid4().hex[:12]}"
     try:
-        df = load_dataset(dataset_key=dataset_key)
+        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
         rows = df.to_dict("records")
         exec_res = execute_compiled_rules(rows, rules)
     except ValueError as exc:
@@ -255,7 +268,11 @@ async def sandbox_clean(req: SandboxRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    payload = persist_sandbox_split(dataset_key, rows, exec_res, rules, db=db)
+    payload = persist_sandbox_split(
+        dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
+    )
+    payload["sampled_rows"] = len(rows)
+    payload["sample_cap"] = cap
     AuditService.log(
         "SANDBOX_CLEAN",
         "HITL_USER",

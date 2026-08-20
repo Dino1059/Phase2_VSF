@@ -27,6 +27,8 @@ export type SplitRows = {
   totalClean: number;
   totalQuarantine: number;
   cleanRan: boolean;
+  thisRun?: boolean;
+  snapshotId?: string;
 };
 
 const EMPTY_SPLIT: SplitRows = {
@@ -35,6 +37,8 @@ const EMPTY_SPLIT: SplitRows = {
   totalClean: 0,
   totalQuarantine: 0,
   cleanRan: false,
+  thisRun: false,
+  snapshotId: '',
 };
 
 function beatKey(b: WorkspaceTraceBeat): string {
@@ -74,6 +78,7 @@ interface WorkspaceState {
   splitRowsByDataset: Record<string, SplitRows>;
   mergeTraces: (datasetKey: string, incoming: WorkspaceTraceBeat[]) => void;
   mergeSplitRows: (datasetKey: string, patch: Partial<SplitRows>) => void;
+  replaceSplitRows: (datasetKey: string, next: SplitRows) => void;
   resetStewardState: () => void;
 }
 
@@ -107,6 +112,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       const prev = state.splitRowsByDataset[key] || EMPTY_SPLIT;
       const next: SplitRows = { ...prev };
       if (patch.cleanRan) next.cleanRan = true;
+      if (patch.thisRun) next.thisRun = true;
+      if (typeof patch.snapshotId === 'string' && patch.snapshotId) next.snapshotId = patch.snapshotId;
       if (Array.isArray(patch.quarantineRows) && patch.quarantineRows.length > 0) {
         next.quarantineRows = patch.quarantineRows;
         next.totalQuarantine = patch.totalQuarantine ?? patch.quarantineRows.length;
@@ -128,6 +135,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       }
       return { splitRowsByDataset: { ...state.splitRowsByDataset, [key]: next } };
     }),
+
+  // THIS-run sandbox / 504 / reset: replace measured rows. Empty is honest 0/0.
+  replaceSplitRows: (datasetKey, next) =>
+    set((state) => ({
+      splitRowsByDataset: {
+        ...state.splitRowsByDataset,
+        [datasetKey || '_']: { ...EMPTY_SPLIT, ...next },
+      },
+    })),
 
   resetStewardState: () => {
     wipeStewardBrowserKeys();

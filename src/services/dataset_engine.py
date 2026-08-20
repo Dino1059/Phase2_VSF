@@ -185,6 +185,9 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
         settings = get_settings()
         file_path = settings.get_dataset_path(settings.default_dataset)
     
+    if not os.path.exists(file_path):
+        raise ValueError(f"Dataset file not found: {dataset_key or file_path}")
+
     source = StructuredSource(file_path)
     df = source.load_data(sample_size=sample_size)
     
@@ -193,6 +196,14 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
     
     return df
 
+
+
+_SIGNED_PHYSICAL_PREFIXES = ("accel", "acc_", "gyro", "magnet", "mag_")
+
+
+def _is_signed_physical_column(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return any(n.startswith(p) or p.rstrip("_") in n.split("_") for p in ("accel", "gyro", "magnet"))
 
 def profile_rows(rows: Any) -> Dict[str, Any]:
     if isinstance(rows, pd.DataFrame):
@@ -266,7 +277,7 @@ def profile_rows(rows: Any) -> Dict[str, Any]:
                 min_v = int(min_v) if min_v is not None else None
                 max_v = int(max_v) if max_v is not None else None
 
-            anom_cnt = neg_cnt
+            anom_cnt = 0 if _is_signed_physical_column(col_name) else neg_cnt
             total_anomalies += anom_cnt
 
             column_profiles.append({
@@ -394,8 +405,8 @@ def generate_rules_for_baseline(baseline: str, profile_data: Dict[str, Any]) -> 
 
         # 1. Numeric columns
         if data_type in ("INTEGER", "FLOAT", "INT", "NUMERIC", "DOUBLE") or negative_count > 0 or zero_count > 0:
-            # a) Non-negative constraint
-            if negative_count > 0:
+            # a) Non-negative constraint (skip signed physical sensors: accel/gyro)
+            if negative_count > 0 and not _is_signed_physical_column(col_name):
                 candidate_rules.append({
                     "rule_type": "range",
                     "column": col_name,
@@ -440,8 +451,8 @@ def generate_rules_for_baseline(baseline: str, profile_data: Dict[str, Any]) -> 
                     "confidence": 0.95,
                     "risk_level": "MEDIUM",
                 })
-            # b) Constant column
-            if unique_count == 1:
+            # b) Constant column (skip categorical coverage/status labels)
+            if unique_count == 1 and not any(k in name_lower for k in ("coverage", "status", "flag", "label")):
                 candidate_rules.append({
                     "rule_type": "variance",
                     "column": col_name,

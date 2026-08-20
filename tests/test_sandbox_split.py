@@ -91,6 +91,8 @@ def test_persist_sandbox_split_writes_measured_quarantine_only():
         pass
     payload = persist_sandbox_split("qa_sandbox", rows, exec_res, rules, db=db)
     assert payload["sandbox"] is True
+    assert payload["this_run"] is True
+    assert str(payload.get("snapshot_id") or "").startswith("sandbox:")
     assert payload["quarantine_rows"] == 1
     assert payload["clean_rows"] == 1
     assert payload["quarantine"][0]["source_row_id"] in ("VIN-DIRTY", "1")
@@ -114,3 +116,41 @@ def test_sandbox_endpoint_exists_and_requires_approved_rule():
     assert res.status_code in (403, 400, 422)
     missing = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "", "rule_ids": ["x"]})
     assert missing.status_code in (400, 422)
+
+def test_sandbox_handler_is_bounded_not_full_50k_blocking_scan():
+    """POST /hitl/sandbox must sample, not scan 50k as the only path (504 >90s)."""
+    import re
+    hitl = _hitl()
+    fn = hitl.split("async def sandbox_clean", 1)[1].split("async def get_history", 1)[0]
+    assert "SANDBOX_SAMPLE_CAP" in hitl
+    cap = int(re.search(r"SANDBOX_SAMPLE_CAP\s*=\s*(\d+)", hitl).group(1))
+    assert cap <= 8000
+    assert "sample_size=cap" in fn or "sample_size=cap" in fn.replace(" ", "")
+    assert "load_dataset(dataset_key=dataset_key, sample_size=" in fn
+    assert "load_dataset(dataset_key=dataset_key)" not in fn
+    assert "snapshot_id" in fn
+    assert "persist_sandbox_split" in fn
+
+
+def test_sandbox_504_does_not_keep_leftover_split_as_success():
+    """HTTP 504 / empty sandbox must stay 0/0 — leftover 50k is not this run."""
+    ui = _rules()
+    split = _split()
+    store = (ROOT / "frontend/src/stores/workspaceStore.ts").read_text()
+    sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const proposedCount", 1)[0]
+    assert "datatrust:sandbox-failed" in sandbox_fn
+    assert "HTTP 504" in sandbox_fn
+    assert "replaceSplitRows" in sandbox_fn
+    assert "thisRun: true" in sandbox_fn
+    fetch = split.split("const fetchData", 1)[1].split("useEffect", 1)[0]
+    assert "incomingQ.length === 0" in fetch
+    assert "thisRun" in fetch
+    assert "cleanRan" in fetch
+    assert "cRes.total_rows" not in fetch
+    assert "datasetsApi.sample(" not in split
+    assert "datatrust:sandbox-failed" in split
+    assert "replaceSplitRows" in split
+    assert "thisRun" in store
+    assert "replaceSplitRows" in store
+    assert "Empty GET must never clobber" in store
+

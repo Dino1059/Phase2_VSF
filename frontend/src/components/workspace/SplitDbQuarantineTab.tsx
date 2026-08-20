@@ -11,10 +11,18 @@ import {
   Eye,
 } from 'lucide-react';
 
-import { quarantineApi, datasetsApi } from '../../services/api';
-import { datasetStoreKey, useWorkspaceStore, type WorkspaceTraceBeat } from '../../stores/workspaceStore';
+import { quarantineApi } from '../../services/api';
+import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 
-const EMPTY_BEATS: WorkspaceTraceBeat[] = [];
+const EMPTY_SPLIT = {
+  cleanRows: [] as unknown[],
+  quarantineRows: [] as unknown[],
+  totalClean: 0,
+  totalQuarantine: 0,
+  cleanRan: false,
+  thisRun: false,
+  snapshotId: '',
+};
 
 interface SplitDbQuarantineTabProps {
   datasetKey?: string;
@@ -33,16 +41,13 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
   const storeKey = datasetStoreKey(datasetKey);
   const split = useWorkspaceStore((s) => s.splitRowsByDataset[storeKey]);
   const mergeSplitRows = useWorkspaceStore((s) => s.mergeSplitRows);
-  const traces = useWorkspaceStore((s) => s.tracesByDataset[storeKey] || EMPTY_BEATS);
+  const replaceSplitRows = useWorkspaceStore((s) => s.replaceSplitRows);
   const [viewMode, setViewMode] = useState<'clean' | 'quarantine'>('quarantine');
   const quarantineRows = (split?.quarantineRows as any[]) || [];
   const cleanRows = (split?.cleanRows as any[]) || [];
   const totalClean = split?.totalClean || 0;
   const totalQuarantine = split?.totalQuarantine || 0;
-  const cleanRan = !!(
-    split?.cleanRan
-    || traces.some((t) => (t.tool_name || t.tool || t.action) === 'clean_database')
-  );
+  const cleanRan = !!(split?.thisRun && split?.cleanRan);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -54,9 +59,12 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
     setLoading(true);
     try {
       const prev = useWorkspaceStore.getState().splitRowsByDataset[storeKey];
-      if (splitResult && ((splitResult.quarantine && splitResult.quarantine.length) || (splitResult.clean && splitResult.clean.length))) {
+      const thisRun = !!(prev?.thisRun || prev?.snapshotId);
+      // Parent splitResult is this-run sandbox only — never leftover warehouse 50k.
+      if (thisRun && splitResult && ((splitResult.quarantine && splitResult.quarantine.length) || (splitResult.clean && splitResult.clean.length))) {
         mergeSplitRows(storeKey, {
           cleanRan: true,
+          thisRun: true,
           quarantineRows: splitResult.quarantine || [],
           cleanRows: splitResult.clean || [],
           totalQuarantine: splitResult.quarantine_rows ?? (splitResult.quarantine || []).length,
@@ -66,32 +74,35 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
 
       const qRes = await quarantineApi.list(100);
       const incomingQ = (qRes && Array.isArray(qRes.quarantine)) ? qRes.quarantine : [];
-      // Empty GET must never clobber stored rows. Keep existing if already populated.
-      if (incomingQ.length === 0 && prev && prev.quarantineRows.length > 0) {
-        // keep existing quarantine — never clobber
-      } else if (qRes && Array.isArray(qRes.quarantine) && qRes.quarantine.length > 0) {
-        mergeSplitRows(storeKey, {
-          quarantineRows: qRes.quarantine,
-          totalQuarantine: qRes.quarantine.length,
-          cleanRan: true,
-        });
+      // Empty GET must never clobber stored this-run rows.
+      if (incomingQ.length === 0 && prev && (prev.quarantineRows.length > 0 || prev.cleanRan)) {
+        // keep existing this-run quarantine — never clobber
+      } else if (thisRun && incomingQ.length > 0) {
+        const snap = prev?.snapshotId || '';
+        const mine = snap
+          ? incomingQ.filter((r: any) => String(r.snapshot_id || r.lineage_hash || '') && (
+            String(r.snapshot_id || '') === snap || String(r.source_table || '') === storeKey
+          ))
+          : [];
+        // Leftover GET (pre-seeded 100) is NOT this sandbox. Do not mark cleanRan.
+        if (mine.length > 0) {
+          mergeSplitRows(storeKey, {
+            quarantineRows: mine,
+            totalQuarantine: prev?.totalQuarantine || mine.length,
+            cleanRan: true,
+            thisRun: true,
+          });
+        }
       }
 
+      // Do NOT treat leftover warehouse sample totals as this sandbox run.
       const st = useWorkspaceStore.getState();
-      const ran = !!(st.splitRowsByDataset[storeKey]?.cleanRan
-        || (st.tracesByDataset[storeKey] || []).some((t) => (t.tool_name || t.tool || t.action) === 'clean_database'));
-      if (datasetKey && ran) {
-        const cRes = await datasetsApi.sample(datasetKey, 50, 0);
-        const incomingC = (cRes && Array.isArray(cRes.rows)) ? cRes.rows : [];
-        // keep existing clean rows — never clobber with empty sample
+      const ran = !!(st.splitRowsByDataset[storeKey]?.thisRun && st.splitRowsByDataset[storeKey]?.cleanRan);
+      if (datasetKey && ran && st.splitRowsByDataset[storeKey]?.cleanRows.length === 0) {
+        // keep existing — never clobber with warehouse sample
+        const incomingC: any[] = [];
         if (incomingC.length === 0 && prev && prev.cleanRows.length > 0) {
           // keep existing — never clobber
-        } else if (incomingC.length > 0) {
-          mergeSplitRows(storeKey, {
-            cleanRows: incomingC,
-            totalClean: cRes.total_rows || incomingC.length,
-            cleanRan: true,
-          });
         }
       }
     } catch (err) {
@@ -117,29 +128,50 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
       if (incomingKey !== storeKey && d.dataset_key) return;
       const q = Array.isArray(d.quarantine) ? d.quarantine : [];
       const c = Array.isArray(d.clean) ? d.clean : [];
-      if (q.length || c.length) {
-        mergeSplitRows(storeKey, {
+      if (d.sandbox || d.thisRun) {
+        replaceSplitRows(storeKey, {
+          ...EMPTY_SPLIT,
           cleanRan: true,
+          thisRun: true,
+          snapshotId: d.snapshot_id || '',
           quarantineRows: q,
           cleanRows: c,
           totalQuarantine: d.quarantine_rows ?? q.length,
           totalClean: d.clean_rows ?? c.length,
         });
-      } else if (d.sandbox) {
-        void fetchData();
+        return;
+      }
+      if (q.length || c.length) {
+        mergeSplitRows(storeKey, {
+          cleanRan: true,
+          thisRun: true,
+          quarantineRows: q,
+          cleanRows: c,
+          totalQuarantine: d.quarantine_rows ?? q.length,
+          totalClean: d.clean_rows ?? c.length,
+        });
       }
     };
+    const onFailed = (ev: Event) => {
+      const d = (ev as CustomEvent).detail || {};
+      const incomingKey = datasetStoreKey(d.dataset_key || datasetKey);
+      if (incomingKey !== storeKey && d.dataset_key) return;
+      replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
+    };
     const onReset = () => {
-      // store reset is global; refetch cannot invent rows
-      void fetchData();
+      replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
     };
     window.addEventListener('datatrust:split-refresh', onSplit as EventListener);
+    window.addEventListener('datatrust:sandbox-split', onSplit as EventListener);
+    window.addEventListener('datatrust:sandbox-failed', onFailed as EventListener);
     window.addEventListener('datatrust:db-reset', onReset);
     return () => {
       window.removeEventListener('datatrust:split-refresh', onSplit as EventListener);
+      window.removeEventListener('datatrust:sandbox-split', onSplit as EventListener);
+      window.removeEventListener('datatrust:sandbox-failed', onFailed as EventListener);
       window.removeEventListener('datatrust:db-reset', onReset);
     };
-  }, [datasetKey, fetchData, mergeSplitRows, storeKey]);
+  }, [datasetKey, fetchData, mergeSplitRows, replaceSplitRows, storeKey]);
 
   const handleCopyHash = () => {
     navigator.clipboard.writeText(manifestHash);
