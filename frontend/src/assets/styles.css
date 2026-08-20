@@ -1984,6 +1984,17 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   display: none;
 }
 
+.agent-chat-workspace.right-panel-collapsed .right-panel {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  flex: 0 0 0;
+  overflow: hidden;
+  border-left: none;
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
 .panel-tab-collapse-btn {
   width: 32px;
   height: 32px;

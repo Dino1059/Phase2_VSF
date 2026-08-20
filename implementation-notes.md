@@ -66,3 +66,14 @@
 - Live GET `/traces/dataset:vingroup_pilot` had Profile done + two nameless `running` rows. Chat had a Propose chip; HITL had 3 rules. Frontend drops rows without action/tool_name → MEASURED STEPS 1.
 - Cause: Gemini/OpenAI tool_calls nest `function.name`. Engine read `tc.get("name")` → `""`, logged `Now: running tool…`, then session_id+step_index upsert clobbered a later Propose beat. `missing_requested_tools` was tested but not implemented, so FINISH-after-profile also skipped the write.
 - Fix: unwrap nested tool_calls; skip empty/FINISH trace writes; upsert by tool_name; after chat run, force+log missing profile/propose.
+
+## 2026-08-20 — Duplicate Propose traces beat (over-count)
+
+- Live click on 7c40468: MEASURED STEPS 3 = Profile + Propose + Propose (same 3 rules).
+- Cause: chat/send `missing_requested_tools` force-ran Propose after the LLM already persisted a named Propose beat (executed_so_far missed the exact name, or a prior Propose row already existed). Re-log of executed tools could also double if the beat check was exact-string only.
+- Fix: skip force-run and re-log when `_session_has_tool_beat` finds tool_name/action propose_quality_rules (case/alias). Profile-only FINISH still force-runs Propose once. Do not remove missing_requested_tools.
+
+## 2026-08-20 — Right-panel tabs stay mounted
+
+- Workspace remounted Profiler/Traces/Rules/Split on tab click (`rightTab === &&`) and unmounted the aside on collapse (`rightPanelOpen &&`). That wiped Unhappy 172/8, Happy 99.1, STEPS, HITL, split counts.
+- Fix: keep all four tabs mounted (`hidden={rightTab !== …}`); collapse via CSS width/transform. Tab onClick is only `setRightTab` — no loadSnapshot / story reset.

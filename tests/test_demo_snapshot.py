@@ -323,3 +323,25 @@ def test_log_trace_persists_profile_and_propose_beats():
     names = {s.get("tool_name") or s.get("tool") or s.get("action") for s in steps}
     assert "profile_dataset" in names
     assert "propose_quality_rules" in names
+
+def test_right_panel_tabs_stay_mounted():
+    """Tab click / collapse must not remount Profiler/Traces/Rules/Split (wipes numbers)."""
+    ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
+    assert "rightTab === 'tab-traces' &&" not in ws
+    assert "rightTab === 'tab-profiler' &&" not in ws
+    assert "rightTab === 'tab-rules' &&" not in ws
+    assert "rightTab === 'tab-split' &&" not in ws
+    assert "{rightPanelOpen && (" not in ws  # aside must stay mounted; expand pill may use {!rightPanelOpen
+    assert "hidden={rightTab !== 'tab-traces'}" in ws
+    assert "hidden={rightTab !== 'tab-profiler'}" in ws
+    assert "hidden={rightTab !== 'tab-rules'}" in ws
+    assert "hidden={rightTab !== 'tab-split'}" in ws
+    assert "onClick={() => setRightTab('tab-traces')}" in ws
+    assert "onClick={() => setRightTab('tab-profiler')}" in ws
+    assert "onClick={() => setRightTab('tab-rules')}" in ws
+    assert "onClick={() => setRightTab('tab-split')}" in ws
+    assert "loadSnapshot" not in ws.split("RIGHT PANEL")[1].split("RULE EDIT MODAL")[0]
+    css = (ROOT / "frontend/src/assets/styles.css").read_text()
+    assert "right-panel-collapsed .right-panel" in css
+    assert "translateX(100%)" in css or "display: none" in css
+

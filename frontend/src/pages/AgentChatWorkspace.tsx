@@ -738,9 +738,8 @@ export function AgentChatWorkspace() {
       </div>
 
       {/* RIGHT PANEL: VISUAL CONTROL ROOM & INSPECTION (4 TABS) */}
-      {rightPanelOpen && (
-
-        <aside className="right-panel">
+      {/* Keep mounted when collapsed — CSS width/transform, do not unmount tab state. */}
+      <aside className="right-panel" aria-hidden={!rightPanelOpen}>
           <div className="right-panel-tabs">
             <button
               className={`panel-tab ${rightTab === 'tab-traces' ? 'active' : ''}`}
@@ -779,7 +778,7 @@ export function AgentChatWorkspace() {
 
 
           <div className="panel-content-body">
-            {rightTab === 'tab-traces' && (
+            <div hidden={rightTab !== 'tab-traces'}>
               <AgentTracesTab
                 datasetKey={datasetKey}
                 sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
@@ -793,22 +792,21 @@ export function AgentChatWorkspace() {
                   setSelectedTraceTool(null);
                 }}
               />
-            )}
-            {rightTab === 'tab-profiler' && (
+            </div>
+            <div hidden={rightTab !== 'tab-profiler'}>
               <DataProfilerTab datasetKey={datasetKey} story={story} />
-            )}
-            {rightTab === 'tab-rules' && (
+            </div>
+            <div hidden={rightTab !== 'tab-rules'}>
               <QualityRulesTab datasetKey={datasetKey} />
-            )}
-            {rightTab === 'tab-split' && (
+            </div>
+            <div hidden={rightTab !== 'tab-split'}>
               <SplitDbQuarantineTab
                 datasetKey={datasetKey}
                 manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
               />
-            )}
+            </div>
           </div>
         </aside>
-      )}
 
 
       {/* RULE EDIT MODAL */}
