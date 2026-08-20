@@ -477,7 +477,8 @@ def format_friendly_observation(action: str, observation: str, lang: str = "vi")
                 )
     except Exception:
         pass
-    return f"Action '{action}' executed. Observation: {observation}"
+    title = (action or "tool").replace("_", " ").strip().capitalize()
+    return f"{title} finished"
 
 
 

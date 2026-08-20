@@ -137,7 +137,10 @@ CREATE TABLE IF NOT EXISTS agent_traces (
     tokens_used INT,
     cost_usd FLOAT,
     duration_ms INT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR,
+    tool_title VARCHAR,
+    tool_about VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS schedules (
