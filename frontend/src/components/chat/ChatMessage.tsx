@@ -5,10 +5,11 @@ import { SystemMessage } from './SystemMessage';
 
 interface Props {
   message: ChatMessageType;
+  onSelectTrace?: (tool: string) => void;
 }
 
-export function ChatMessage({ message }: Props) {
-  // Filter out internal ReAct thoughts from main chat (they are rendered in the Traces panel)
+export function ChatMessage({ message, onSelectTrace }: Props) {
+  // Thought stays out of chat (Technical detail on Traces). Used chip is on AgentMessage.
   if (message.content?.trim().startsWith('Thought:')) {
     return null;
   }
@@ -18,7 +19,7 @@ export function ChatMessage({ message }: Props) {
       return <UserMessage message={message} />;
     case 'agent':
     case 'proposal':
-      return <AgentMessage message={message} />;
+      return <AgentMessage message={message} onSelectTrace={onSelectTrace} />;
     case 'system':
     case 'handoff':
       return <SystemMessage message={message} />;
@@ -26,4 +27,3 @@ export function ChatMessage({ message }: Props) {
       return null;
   }
 }
-

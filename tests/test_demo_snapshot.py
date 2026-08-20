@@ -155,3 +155,74 @@ def test_vin_uses_data_new_60():
     bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
     assert "60 VIN" in bar
 
+def test_flash_hold_happy_99_1_and_unhappy_172_8():
+    ui = (ROOT / "frontend/src/components/workspace/DataProfilerTab.tsx").read_text()
+    bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()
+    facts = (ROOT / "frontend/src/demo/pilotFacts.ts").read_text()
+    assert "holdHealth" in ui
+    assert "holdPendingHealth" in ui
+    assert "holdUnhappyHealth" in ui
+    assert "99.1" in ui
+    assert "dt-snap-pending" in bar
+    assert "172 SoC / 8 OPEN" in bar
+    assert "socBelowZero: 172" in facts
+    assert "openIncidents: 8" in facts
+
+
+def test_hitl_approve_is_not_execute():
+    ui = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    approve = ui.split("const handleApprove")[1].split("const handleReject")[0]
+    assert "hitlApi.approve" in approve
+    assert "hitlApi.execute" not in approve
+    assert "approvalsApi.authorize" in ui
+    assert "hitlApi.execute" in ui
+    assert "Execute disabled · sandbox not run · quarantine=0" in ui
+
+
+
+def test_traces_api_does_not_hardcode_thought_none():
+    src = (ROOT / "src/api/traces.py").read_text()
+    assert '"thought": None' not in src
+    assert "_pass_through_thought" in src
+    assert "tool_about" in src
+    assert "tool_title" in src
+
+
+def test_log_trace_keeps_thought_and_tool_about():
+    engine = (ROOT / "src/orchestrator/engine.py").read_text()
+    assert "def _log_trace" in engine
+    assert "tool_about" in engine
+    assert "_pass_thought(step.thought)" in engine
+    assert "thought or content[:200]" not in engine
+    log_fn = engine.split("def _log_trace", 1)[1]
+    assert '""' not in log_fn.split("except Exception")[0] or "tool_about" in log_fn
+    assert "status=\"running\"" in engine or 'status="running"' in engine
+
+
+def test_traces_tab_steward_beat_and_running_card():
+    ui = (ROOT / "frontend/src/components/workspace/AgentTracesTab.tsx").read_text()
+    assert "steward-beat" in ui
+    assert "Now running" in ui
+    assert "tool_title" in ui
+    assert "tool_about" in ui
+    assert "No measured traces" in ui
+    assert "Technical detail" in ui
+    assert "Why this tool" in ui
+
+
+def test_steward_catalog_has_profile_dataset():
+    labels = (ROOT / "frontend/src/demo/stewardLabels.ts").read_text()
+    assert "TOOL_CATALOG" in labels
+    assert "profile_dataset" in labels
+    assert "scans nulls, types, health" in labels
+
+
+def test_chat_used_chip_no_observation_dump():
+    agent = (ROOT / "frontend/src/components/chat/AgentMessage.tsx").read_text()
+    chat = (ROOT / "frontend/src/components/chat/ChatMessage.tsx").read_text()
+    assert "Used " in agent
+    assert "used-tool-chip" in agent
+    assert "Used chip" in chat
+    assert "Tool Observation" not in agent
+    assert "renderFormattedContent(content.replace(/^Observation:" not in agent
+    assert "Thought:" in chat

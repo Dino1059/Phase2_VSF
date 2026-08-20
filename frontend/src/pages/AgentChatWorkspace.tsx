@@ -38,7 +38,7 @@ import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, syst
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { agentSocket } from '../services/websocket';
-import { formatSaigonTime, inTimeRange } from '../demo/stewardLabels';
+import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
 import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
@@ -152,6 +152,7 @@ export function AgentChatWorkspace() {
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [replayBeats, setReplayBeats] = useState<DemoBeat[]>([]);
   const [selectedTraceStep, setSelectedTraceStep] = useState<number | null>(null);
+  const [selectedTraceTool, setSelectedTraceTool] = useState<string | null>(null);
   const proposeStartedRef = useRef(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -602,23 +603,55 @@ export function AgentChatWorkspace() {
               </div>
             );
           })}
-          {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story).map((msg) => {
+          {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story)
+            .filter((msg) => !(msg.content || '').trim().startsWith('Thought:'))
+            .map((msg) => {
             const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
             const Icon = AGENT_ICONS[agent] || Brain;
+            const toolName = typeof msg.agentId === 'string' ? msg.agentId : '';
+            const chip = catalogFor(toolName);
+            const isObservation = (msg.content || '').startsWith('Observation:');
             return (
-              <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id}>
+              <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id} data-tool={toolName || undefined}>
                 <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
                   <Icon size={15} />
                 </div>
                 <div className="agent-content-box">
                   <div className="agent-header">
                     <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
-                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR')}
+                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || agent.replace(/_/g, ' ').toUpperCase())}
                     </span>
                     <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
                   </div>
                   <div className="agent-body">
-                    <MarkdownContent content={msg.content} />
+                    {chip ? (
+                      <button
+                        type="button"
+                        className="used-tool-chip"
+                        onClick={() => {
+                          setRightTab('tab-traces');
+                          setSelectedTraceTool(toolName);
+                          setRightPanelOpen(true);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '4px 10px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(2,132,199,0.3)',
+                          background: 'rgba(2,132,199,0.08)',
+                          color: '#0284c7',
+                          cursor: 'pointer',
+                          marginBottom: 8,
+                        }}
+                      >
+                        Used {chip.title} — {chip.about}
+                      </button>
+                    ) : null}
+                    {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
                   </div>
                 </div>
               </div>
@@ -753,7 +786,11 @@ export function AgentChatWorkspace() {
                 timeFilter={store.timeFilter}
                 replayBeats={isReplay ? replayBeats : undefined}
                 selectedStep={selectedTraceStep}
-                onSelectStep={setSelectedTraceStep}
+                selectedTool={selectedTraceTool}
+                onSelectStep={(n) => {
+                  setSelectedTraceStep(n);
+                  setSelectedTraceTool(null);
+                }}
               />
             )}
             {rightTab === 'tab-profiler' && (

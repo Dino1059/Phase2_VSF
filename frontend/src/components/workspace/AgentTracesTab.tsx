@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain,
-  Terminal,
   Clock,
   Zap,
   RefreshCw,
@@ -11,9 +10,10 @@ import {
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { tracesApi, hitlApi } from '../../services/api';
-import { actorLabel, inTimeRange, mapTraceStep, rangeStart } from '../../demo/stewardLabels';
+import { actorLabel, inTimeRange, mapTraceStep, rangeStart, redactSecrets } from '../../demo/stewardLabels';
 import type { DemoBeat } from '../../demo/stewardSession';
 import type { TimeFilter } from '../../types';
 
@@ -21,6 +21,9 @@ export interface TraceStep {
   step: number;
   action: string;
   tool?: string;
+  tool_name?: string;
+  tool_title?: string;
+  tool_about?: string;
   input?: unknown;
   output?: unknown;
   observation?: string;
@@ -40,6 +43,7 @@ interface AgentTracesTabProps {
   timeFilter?: TimeFilter;
   replayBeats?: DemoBeat[];
   selectedStep?: number | null;
+  selectedTool?: string | null;
   onSelectStep?: (step: number) => void;
 }
 
@@ -51,17 +55,27 @@ function isRealAuditHash(value: unknown): value is string {
 }
 
 function beatToTrace(beat: DemoBeat, index: number): TraceStep {
-  return {
-    step: index + 1,
-    action: beat.action || beat.type,
-    tool: beat.tool?.name,
-    output: beat.output,
-    summary_done: beat.summary,
-    duration_ms: beat.tool?.duration_ms ?? null,
-    actor_kind: beat.actor_kind,
-    status: beat.tool?.status || 'COMPLETED',
-    timestamp: null,
-  };
+  const mapped = mapTraceStep(
+    {
+      action: beat.action || beat.type,
+      tool: beat.tool?.name,
+      tool_name: beat.tool?.name,
+      output: beat.output,
+      summary_done: beat.summary,
+      duration_ms: beat.tool?.duration_ms ?? null,
+      actor_kind: beat.actor_kind,
+      status: beat.tool?.status || 'done',
+    },
+    index
+  );
+  return mapped;
+}
+
+function statusKind(status?: string): 'running' | 'failed' | 'done' {
+  const s = (status || '').toLowerCase();
+  if (s === 'running' || s === 'in_progress') return 'running';
+  if (s === 'failed' || s === 'error') return 'failed';
+  return 'done';
 }
 
 export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
@@ -70,6 +84,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   timeFilter = 'Today',
   replayBeats,
   selectedStep,
+  selectedTool,
   onSelectStep,
 }) => {
   const [traces, setTraces] = useState<TraceStep[]>([]);
@@ -99,7 +114,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
           steps
             .map((s, idx) => mapTraceStep(s, idx))
             .filter((s) => inTimeRange(s.timestamp, timeFilter))
-            .filter((s) => !!(s.action || s.tool))
+            .filter((s) => !!(s.action || s.tool || s.tool_name))
         );
       } catch {
         setTraces([]);
@@ -139,6 +154,13 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     return () => window.removeEventListener('datatrust:agent-trace', onTrace);
   }, [loadTraces]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void loadTraces();
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [loadTraces]);
+
   const jumpToChat = (trace: TraceStep) => {
     const stream = document.querySelector('.chat-stream');
     if (!stream) return;
@@ -149,11 +171,33 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         return;
       }
     }
+    const tool = trace.tool_name || trace.tool;
+    if (tool) {
+      const node = stream.querySelector(`[data-tool="${tool}"]`);
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+    const entries = stream.querySelectorAll('.agent-entry[data-msgid], .agent-entry[data-tool]');
+    if (entries.length) {
+      entries[entries.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     stream.scrollTo({ top: stream.scrollHeight, behavior: 'smooth' });
   };
 
   const measuredTokens = traces.reduce((acc, t) => acc + (typeof t.tokens === 'number' ? t.tokens : 0), 0);
   const measuredDuration = traces.reduce((acc, t) => acc + (typeof t.duration_ms === 'number' ? t.duration_ms : 0), 0);
+  const running = traces.filter((t) => statusKind(t.status) === 'running');
+
+  const isSelected = (stepNum: number, trace: TraceStep) => {
+    if (selectedStep === stepNum) return true;
+    if (selectedTool && (trace.tool_name === selectedTool || trace.tool === selectedTool || trace.action === selectedTool)) {
+      return true;
+    }
+    return false;
+  };
 
   return (
     <div className="agent-traces-tab" style={{ padding: 4 }}>
@@ -209,6 +253,22 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
         ) : null}
       </div>
 
+      {running.length > 0 ? (
+        <div className="now-running-card" style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(2,132,199,0.35)', background: 'rgba(2,132,199,0.06)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <Loader2 size={14} className="spinning" style={{ color: '#0284c7', marginTop: 2 }} />
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#0284c7' }}>
+              {isVi ? 'Đang chạy' : 'Now running'}
+            </div>
+            {running.map((t, i) => (
+              <div key={`run-${i}`} style={{ fontSize: 12, marginTop: 2 }}>
+                {t.summary_done || t.tool_title || t.tool_name || t.action}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {traces.length === 0 ? (
         <div className="empty-panel-state" style={{ textAlign: 'center', padding: '40px 16px' }}>
           <Brain size={32} style={{ opacity: 0.3, marginBottom: 8, color: 'var(--text-muted)' }} />
@@ -224,12 +284,17 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
           {traces.map((trace, idx) => {
             const stepNum = idx + 1;
             const isExpanded = !!expandedSteps[stepNum];
-            const selected = selectedStep === stepNum;
-            const failed = (trace.status || '').toUpperCase() === 'FAILED';
+            const selected = isSelected(stepNum, trace);
+            const kind = statusKind(trace.status);
+            const failed = kind === 'failed';
+            const isRun = kind === 'running';
+            const title = trace.tool_title || (trace.tool_name || trace.tool || trace.action || '').replace(/_/g, ' ');
+            const about = trace.tool_about || '';
+            const found = trace.summary_done || (isVi ? 'Không có tóm tắt đo được.' : 'No measured summary.');
             return (
               <div
                 key={`trace-${idx}-${trace.action}-${trace.timestamp || ''}`}
-                className="trace-step-card"
+                className="trace-step-card steward-beat"
                 onClick={() => onSelectStep?.(stepNum)}
                 style={{
                   background: 'var(--bg-card)',
@@ -244,6 +309,9 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                     <span style={{ fontWeight: 700, color: 'var(--text-muted)', fontSize: 11 }}>#{stepNum}</span>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: 'rgba(2,132,199,0.08)', color: '#0284c7' }}>
                       {actorLabel(trace.actor_kind, isVi)}
+                    </span>
+                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, fontWeight: 700, background: failed ? 'rgba(220,38,38,0.1)' : isRun ? 'rgba(2,132,199,0.1)' : 'rgba(5,150,105,0.1)', color: failed ? '#dc2626' : isRun ? '#0284c7' : '#059669' }}>
+                      {isRun ? (isVi ? 'đang chạy' : 'running') : failed ? (isVi ? 'lỗi' : 'failed') : (isVi ? 'xong' : 'done')}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -282,6 +350,16 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                   </div>
                 </div>
 
+                <div className="steward-beat-what" style={{ marginTop: 8, fontSize: 14, fontWeight: 700 }}>
+                  {title}
+                </div>
+                {about ? (
+                  <div className="steward-beat-why" style={{ marginTop: 2, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {isVi ? 'Vì sao: ' : 'Why this tool: '}
+                    {about}
+                  </div>
+                ) : null}
+
                 {showThought && trace.thought ? (
                   <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
                     {isVi ? 'Chi tiết kỹ thuật: ' : 'Technical detail: '}
@@ -289,23 +367,13 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                   </div>
                 ) : null}
 
-                {trace.tool ? (
-                  <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 6, background: 'var(--bg-input, rgba(0,0,0,0.03))', border: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono, monospace)', fontSize: 11 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#0284c7' }}>
-                      <Terminal size={12} />
-                      <code>{trace.tool}()</code>
-                    </span>
-                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: failed ? 'rgba(220,38,38,0.1)' : 'rgba(5,150,105,0.1)', color: failed ? '#dc2626' : '#059669', fontWeight: 700 }}>
-                      {trace.status || 'COMPLETED'}
-                    </span>
-                  </div>
-                ) : null}
-
-                <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 6, background: 'rgba(5,150,105,0.05)', border: '1px solid rgba(5,150,105,0.2)', display: 'flex', gap: 8 }}>
-                  {failed ? <AlertTriangle size={13} style={{ color: '#dc2626', flexShrink: 0, marginTop: 2 }} /> : <CheckCircle2 size={13} style={{ color: '#059669', flexShrink: 0, marginTop: 2 }} />}
+                <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, background: isRun ? 'rgba(2,132,199,0.06)' : failed ? 'rgba(220,38,38,0.05)' : 'rgba(5,150,105,0.05)', border: `1px solid ${isRun ? 'rgba(2,132,199,0.25)' : failed ? 'rgba(220,38,38,0.2)' : 'rgba(5,150,105,0.2)'}`, display: 'flex', gap: 8 }}>
+                  {failed ? <AlertTriangle size={13} style={{ color: '#dc2626', flexShrink: 0, marginTop: 2 }} /> : isRun ? <Loader2 size={13} className="spinning" style={{ color: '#0284c7', flexShrink: 0, marginTop: 2 }} /> : <CheckCircle2 size={13} style={{ color: '#059669', flexShrink: 0, marginTop: 2 }} />}
                   <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-                    <strong style={{ color: '#059669', marginRight: 4 }}>{isVi ? 'Xong:' : 'Done:'}</strong>
-                    {trace.summary_done || trace.observation || (isVi ? 'Không có tóm tắt đo được.' : 'No measured summary.')}
+                    <strong style={{ color: isRun ? '#0284c7' : failed ? '#dc2626' : '#059669', marginRight: 4 }}>
+                      {isRun ? (isVi ? 'Đang:' : 'Now:') : failed ? (isVi ? 'Lỗi:' : 'Failed:') : (isVi ? 'Tìm thấy:' : 'Found:')}
+                    </strong>
+                    {found}
                   </div>
                 </div>
 
@@ -326,12 +394,12 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                       <div style={{ marginTop: 8 }}>
                         {trace.input != null && (
                           <pre style={{ fontSize: 11, maxHeight: 140, overflow: 'auto', background: 'var(--bg-input, #f8fafc)', border: '1px solid var(--glass-border)', padding: 8, borderRadius: 6 }}>
-                            <code>{typeof trace.input === 'string' ? trace.input : JSON.stringify(trace.input, null, 2)}</code>
+                            <code>{redactSecrets(trace.input)}</code>
                           </pre>
                         )}
                         {trace.output != null && (
                           <pre style={{ fontSize: 11, maxHeight: 140, overflow: 'auto', background: 'var(--bg-input, #f8fafc)', border: '1px solid var(--glass-border)', padding: 8, borderRadius: 6, marginTop: 8 }}>
-                            <code>{typeof trace.output === 'string' ? trace.output : JSON.stringify(trace.output, null, 2)}</code>
+                            <code>{redactSecrets(trace.output)}</code>
                           </pre>
                         )}
                       </div>

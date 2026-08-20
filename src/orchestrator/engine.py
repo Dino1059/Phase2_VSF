@@ -52,6 +52,109 @@ class ReActResult:
     decision_records: list[DecisionRecord] = field(default_factory=list)
 
 
+def json_preview(value, limit: int = 1500) -> str | None:
+    """Store tool I/O as valid JSON so DuckDB JSON columns accept the row."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        try:
+            value = json.dumps(value, default=str)
+        except TypeError:
+            value = json.dumps({"preview": str(value)[:limit], "truncated": True})
+    try:
+        parsed = json.loads(value)
+        blob = json.dumps(parsed, default=str)
+    except json.JSONDecodeError:
+        blob = json.dumps({"preview": value[:limit], "truncated": True})
+    if len(blob) <= limit:
+        return blob
+    return json.dumps({"preview": blob[:limit], "truncated": True})
+
+
+def _human_tool_title(name: str | None) -> str:
+    return (name or "").replace("_", " ").strip().capitalize()
+
+
+def _pass_thought(thought: str | None) -> str | None:
+    """Keep the model thought if the step has one. Never write "" or invent."""
+    if thought is None:
+        return None
+    text = str(thought).strip()
+    return text or None
+
+
+def _running_now(tool_name: str | None, action_input: dict | None) -> str:
+    inp = action_input if isinstance(action_input, dict) else {}
+    rows = inp.get("total_rows") or inp.get("sample_size") or inp.get("row_count")
+    name = (tool_name or "").lower()
+    if "profile" in name:
+        if isinstance(rows, (int, float)):
+            return f"Now: profiling {int(rows):,} rows…"
+        return "Now: profiling dataset…"
+    if "propose" in name or "rule_proposer" in name:
+        return "Now: proposing quality rules…"
+    if "clean" in name or name == "rule_executor":
+        return "Now: applying approved rules…"
+    if "anomal" in name:
+        return "Now: scanning for anomalies…"
+    if "list_dataset" in name:
+        return "Now: listing datasets…"
+    title = _human_tool_title(tool_name) or "tool"
+    return f"Now: running {title}…"
+
+
+def _measured_from_output(tool_name: str | None, output: object) -> str:
+    data = output if isinstance(output, dict) else {}
+    prof = data.get("profile") if isinstance(data.get("profile"), dict) else {}
+    merged = {**prof, **data}
+    exec_res = data.get("execution_result") if isinstance(data.get("execution_result"), dict) else {}
+    merged.update(exec_res)
+    parts: list[str] = []
+
+    def _n(*keys: str):
+        src = merged
+        for key in keys:
+            val = src.get(key)
+            if isinstance(val, bool):
+                continue
+            if isinstance(val, (int, float)):
+                return val
+        return None
+
+    rows = _n("total_rows", "sample_size", "row_count", "total_processed")
+    soc = _n("warehouse_soc_below_zero")
+    open_n = _n("warehouse_open_incidents")
+    cols = _n("columns_count")
+    health = _n("health_score", "data_health_score")
+    if rows is not None:
+        parts.append(f"{int(rows):,} rows")
+    if soc:
+        parts.append(f"{int(soc)} SoC<0")
+    if open_n:
+        parts.append(f"{int(open_n)} OPEN")
+    if cols is not None:
+        parts.append(f"{int(cols)} columns")
+    if health is not None and not soc and not open_n:
+        parts.append(f"health {health}")
+    proposals = data.get("proposals")
+    if isinstance(proposals, list):
+        parts.append(f"{len(proposals)} rules")
+    if exec_res.get("quarantine_count") is not None:
+        try:
+            parts.append(f"{int(exec_res['quarantine_count']):,} quarantined")
+        except (TypeError, ValueError):
+            pass
+    if exec_res.get("clean_count") is not None:
+        try:
+            parts.append(f"{int(exec_res['clean_count']):,} clean")
+        except (TypeError, ValueError):
+            pass
+    if parts:
+        return " · ".join(parts)
+    title = _human_tool_title(tool_name) or "Tool"
+    return f"{title} finished"
+
+
 SYSTEM_PROMPT = """You are DataTrust OS Agent — an AI-powered data quality analyst for the VinGroup EV ecosystem.
 
 You have access to the following tools:
@@ -153,8 +256,11 @@ class ReActEngine:
             if getattr(llm_response, "tool_calls", None):
                 tc = llm_response.tool_calls[0]
                 step.action = tc.get("name", "")
-                step.action_input = tc.get("arguments", {})
+                step.action_input = tc.get("arguments", {}) or {}
+                if context and context.get("dataset_key") and isinstance(step.action_input, dict):
+                    step.action_input.setdefault("dataset_key", context["dataset_key"])
 
+                self._log_trace(result.session_id, step, status="running")
                 try:
                     try:
                         import sentry_sdk
@@ -220,6 +326,9 @@ class ReActEngine:
                 or step.action.replace("default_api:", "") in self.tools.tool_names
             ):
                 action_name = step.action.replace("default_api:", "")
+                if context and context.get("dataset_key") and isinstance(step.action_input, dict):
+                    step.action_input.setdefault("dataset_key", context["dataset_key"])
+                self._log_trace(result.session_id, step, status="running")
                 try:
                     try:
                         import sentry_sdk
@@ -315,46 +424,155 @@ class ReActEngine:
 
         return ReActStep(
             step_index=step_idx,
-            thought=thought or content[:200],
+            thought=thought,
             action=action,
             action_input=action_input
         )
 
-    def _log_trace(self, session_id: str, step: ReActStep):
-        """Log step execution trace to agent_traces table."""
+    def _resolve_tool_name(self, action: str | None) -> str:
+        return (action or "").replace("default_api:", "").strip()
+
+    def _tool_meta(self, tool_name: str) -> tuple[str, str]:
+        """Attach tool_title / tool_about from BaseTool.description when the tool exists."""
+        title = _human_tool_title(tool_name)
+        about = ""
+        if not tool_name or not hasattr(self.tools, "get"):
+            return title, about
+        try:
+            tool = self.tools.get(tool_name)
+        except Exception:
+            return title, about
+        if tool is None:
+            return title, about
+        if hasattr(tool, "steward_meta"):
+            meta = tool.steward_meta()
+            return meta.get("tool_title") or title, meta.get("tool_about") or about
+        desc = (getattr(tool, "description", None) or "").strip()
+        real_name = getattr(tool, "name", tool_name) or tool_name
+        return _human_tool_title(real_name), desc
+
+    def _ensure_steward_columns(self, db) -> None:
+        for col, typ in (("status", "VARCHAR"), ("tool_title", "VARCHAR"), ("tool_about", "VARCHAR")):
+            try:
+                db.execute(f"ALTER TABLE agent_traces ADD COLUMN {col} {typ}")
+            except Exception:
+                pass
+
+    def _actor_type(self, action: str | None) -> str:
+        action_l = (action or "").lower()
+        blob = action_l.upper()
+        if "DATA_STEWARD" in blob or "DATA STEWARD" in blob:
+            return "DATA_STEWARD"
+        if "EXECUTOR" in blob:
+            return "EXECUTOR"
+        if "L4" in blob:
+            return "L4_DETECTOR"
+        if "L3" in blob:
+            return "L3_DETECTOR"
+        if "L2" in blob:
+            return "L2_DETECTOR"
+        if "L1" in blob:
+            return "L1_DETECTOR"
+        if "C1" in blob:
+            return "C1_AI"
+        if "A1" in blob:
+            return "A1_AI"
+        if "R0" in blob:
+            return "R0"
+        if "profile" in action_l or "propose" in action_l or "rule" in action_l:
+            return "C1_AI"
+        if "detect" in action_l or "anomaly" in action_l:
+            return "L1_DETECTOR"
+        if "clean" in action_l or "quarantine" in action_l:
+            return "EXECUTOR"
+        if "hitl" in action_l or "approv" in action_l or "govern" in action_l:
+            return "DATA_STEWARD"
+        if "register" in action_l or "ingest" in action_l:
+            return "SYSTEM"
+        return "ORCHESTRATOR"
+
+    def _log_trace(self, session_id: str, step: ReActStep, status: str | None = None):
+        """Log step execution trace. Keep thought / tool_about. Upsert running → done."""
         try:
             db = get_db()
-            trace_id = str(uuid.uuid4())[:8]
-            action_l = (step.action or "").lower()
-            if "profile" in action_l or "propose" in action_l or "rule" in action_l:
-                agent_type = "C1_AI"
-            elif "detect" in action_l or "anomaly" in action_l:
-                agent_type = "L1_DETECTOR"
-            elif "clean" in action_l or "quarantine" in action_l:
-                agent_type = "EXECUTOR"
-            elif "hitl" in action_l or "approv" in action_l or "govern" in action_l:
-                agent_type = "DATA_STEWARD"
-            elif "register" in action_l or "ingest" in action_l:
-                agent_type = "SYSTEM"
+            self._ensure_steward_columns(db)
+            tool_name = self._resolve_tool_name(step.action) or (step.action or "")
+            tool_title, tool_about = self._tool_meta(tool_name)
+            thought = _pass_thought(step.thought)
+            agent_type = self._actor_type(step.action or tool_name)
+
+            output_obj = None
+            if step.observation:
+                try:
+                    output_obj = json.loads(step.observation)
+                except (json.JSONDecodeError, TypeError):
+                    output_obj = None
+
+            if status is None:
+                if (step.observation or "").startswith("Error"):
+                    status = "failed"
+                elif step.observation:
+                    status = "done"
+                else:
+                    status = "running"
+
+            if status in ("running", "in_progress"):
+                summary = _running_now(tool_name or step.action, step.action_input)
+                output_preview = None
+                duration = None
             else:
-                agent_type = "ORCHESTRATOR"
-            db.execute(
-                "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, tool_name, tool_input, tool_output, observation, tokens_used, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    trace_id,
-                    session_id,
-                    agent_type,
-                    step.step_index,
-                    "",
-                    step.action,
-                    step.action,
-                    json.dumps(step.action_input)[:500],
-                    step.observation[:500] if step.observation else None,
-                    step.observation[:500] if step.observation else None,
-                    step.tokens_used,
-                    step.duration_ms,
-                ],
+                summary = _measured_from_output(tool_name or step.action, output_obj)
+                output_preview = json_preview(step.observation, 1500)
+                duration = step.duration_ms
+
+            existing = db.execute(
+                "SELECT id FROM agent_traces WHERE session_id = ? AND step_index = ? ORDER BY timestamp DESC LIMIT 1",
+                [session_id, step.step_index],
             )
+            params_core = [
+                thought,
+                step.action,
+                tool_name,
+                json_preview(step.action_input, 1500),
+                output_preview,
+                summary,
+                step.tokens_used,
+                duration,
+                status,
+                tool_title,
+                tool_about,
+                agent_type,
+            ]
+            if existing:
+                db.execute(
+                    "UPDATE agent_traces SET thought = ?, action = ?, tool_name = ?, tool_input = ?, "
+                    "tool_output = ?, observation = ?, tokens_used = ?, duration_ms = ?, "
+                    "status = ?, tool_title = ?, tool_about = ?, agent_type = ? WHERE id = ?",
+                    params_core + [existing[0][0]],
+                )
+            else:
+                db.execute(
+                    "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
+                    "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms, "
+                    "status, tool_title, tool_about) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        str(uuid.uuid4())[:8],
+                        session_id,
+                        agent_type,
+                        step.step_index,
+                        thought,
+                        step.action,
+                        tool_name,
+                        json_preview(step.action_input, 1500),
+                        output_preview,
+                        summary,
+                        step.tokens_used,
+                        duration,
+                        status,
+                        tool_title,
+                        tool_about,
+                    ],
+                )
         except Exception:
             logging.getLogger(__name__).exception("agent_traces insert failed")
 

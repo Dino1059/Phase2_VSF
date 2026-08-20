@@ -16,6 +16,46 @@ export const ACTOR_LABELS: Record<string, { en: string; vi: string }> = {
 
 export const DEMO_TZ = 'Asia/Saigon';
 
+/** Catalog fallback titles/abouts when the API omits tool_title / tool_about. */
+export const TOOL_CATALOG: Record<string, { title: string; about: string }> = {
+  list_datasets: { title: 'List datasets', about: 'Lists registered datasets in the repository' },
+  profile_dataset: { title: 'Profile dataset', about: 'scans nulls, types, health' },
+  propose_quality_rules: { title: 'Propose quality rules', about: 'Generates quality rules for HITL review' },
+  clean_database: { title: 'Clean database', about: 'Applies approved rules and quarantines bad rows' },
+  data_profiler: { title: 'Data profiler', about: 'Column stats: types, nulls, cardinality, min/max' },
+  anomaly_detector: { title: 'Anomaly detector', about: 'Flags statistical outliers in a column' },
+  telemetry_query: { title: 'Telemetry query', about: 'Queries V-GREEN and VinFast BMS telemetry' },
+  quality_rule_proposer: { title: 'Quality rule proposer', about: 'Proposes rules from profile and anomaly findings' },
+  rule_executor: { title: 'Rule executor', about: 'Runs an approved rule; can dry-run quarantine' },
+  algolia_search: { title: 'Algolia search', about: 'Searches datasets, rules, alerts, and audit logs' },
+  vietnamese_nlp_extractor: { title: 'Vietnamese NLP extractor', about: 'Normalizes teen-code and extracts feedback aspects' },
+};
+
+const ACTOR_ALIASES: Record<string, string> = {
+  C1: 'C1_AI',
+  A1: 'A1_AI',
+  L1: 'L1_DETECTOR',
+  L2: 'L2_DETECTOR',
+  L3: 'L3_DETECTOR',
+  L4: 'L4_DETECTOR',
+  DATASTEWARD: 'DATA_STEWARD',
+  'DATA STEWARD': 'DATA_STEWARD',
+  'DATA_STEWARD': 'DATA_STEWARD',
+};
+
+const EXPLICIT_ACTOR_NEEDLES = [
+  'DATA_STEWARD',
+  'DATA STEWARD',
+  'EXECUTOR',
+  'L4',
+  'L3',
+  'L2',
+  'L1',
+  'C1',
+  'A1',
+  'R0',
+] as const;
+
 export function formatSaigonTime(iso?: string | null): string {
   const opts = { hour12: false, timeZone: DEMO_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' } as const;
   if (!iso) return new Date().toLocaleTimeString('en-GB', opts);
@@ -27,9 +67,29 @@ export function formatSaigonTime(iso?: string | null): string {
 }
 
 export function actorLabel(kind: string | undefined, isVi: boolean): string {
-  const key = (kind || 'ORCHESTRATOR').toUpperCase();
-  const row = ACTOR_LABELS[key] || ACTOR_LABELS.ORCHESTRATOR;
-  return isVi ? row.vi : row.en;
+  if (!kind) return isVi ? 'Không rõ' : 'Unknown';
+  const key = kind.toUpperCase().replace(/\s+/g, '_');
+  const mapped = ACTOR_ALIASES[kind.toUpperCase()] || ACTOR_ALIASES[key] || key;
+  const row = ACTOR_LABELS[mapped];
+  if (row) return isVi ? row.vi : row.en;
+  return kind;
+}
+
+export function preferActorKind(raw: Record<string, any>): string | undefined {
+  const blob = [raw.actor_kind, raw.agent_type, raw.action, raw.tool, raw.tool_name]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase();
+  for (const needle of EXPLICIT_ACTOR_NEEDLES) {
+    if (blob.includes(needle)) {
+      return ACTOR_ALIASES[needle] || needle.replace(' ', '_');
+    }
+  }
+  if (raw.actor_kind) return String(raw.actor_kind);
+  if (raw.agent_type && !['canonical_react_engine', 'unknown', ''].includes(String(raw.agent_type).toLowerCase())) {
+    return String(raw.agent_type);
+  }
+  return undefined;
 }
 
 export function rangeStart(filter: TimeFilter, now = Date.now()): Date {
@@ -59,24 +119,103 @@ export function inTimeRange(iso: string | null | undefined, filter: TimeFilter, 
   return ts >= rangeStart(filter, now).getTime();
 }
 
+export function catalogFor(toolName?: string | null): { name: string; title: string; about: string } | null {
+  if (!toolName) return null;
+  const row = TOOL_CATALOG[toolName];
+  if (!row) return null;
+  return { name: toolName, title: row.title, about: row.about };
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : null;
+}
+
+function measuredFromOutput(tool: string, output: unknown, fallbackTitle: string): string {
+  const data = asRecord(output) || {};
+  const prof = asRecord(data.profile) || {};
+  const execRes = asRecord(data.execution_result) || {};
+  const merged = { ...prof, ...data, ...execRes };
+  const parts: string[] = [];
+  const n = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = merged[k];
+      if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    }
+    return null;
+  };
+  const rows = n('total_rows', 'sample_size', 'row_count', 'total_processed');
+  const soc = n('warehouse_soc_below_zero');
+  const openN = n('warehouse_open_incidents');
+  const cols = n('columns_count');
+  const health = n('health_score', 'data_health_score');
+  if (rows != null) parts.push(`${rows.toLocaleString()} rows`);
+  if (soc) parts.push(`${soc} SoC<0`);
+  if (openN) parts.push(`${openN} OPEN`);
+  if (cols != null) parts.push(`${cols} columns`);
+  if (health != null && !soc && !openN) parts.push(`health ${health}`);
+  if (Array.isArray(data.proposals)) parts.push(`${data.proposals.length} rules`);
+  if (execRes.quarantine_count != null) parts.push(`${execRes.quarantine_count} quarantined`);
+  if (execRes.clean_count != null) parts.push(`${execRes.clean_count} clean`);
+  if (parts.length) return parts.join(' · ');
+  return fallbackTitle ? `${fallbackTitle} finished` : tool ? `${tool} finished` : '';
+}
+
+export function normalizeStatus(raw?: string | null): string {
+  const s = (raw || '').toLowerCase();
+  if (s === 'running' || s === 'in_progress') return 'running';
+  if (s === 'failed' || s === 'error') return 'failed';
+  if (s === 'done' || s === 'completed' || s === 'success' || s === 'finish') return 'done';
+  return s;
+}
+
+/** Follow course AI LOG redaction (scripts/ai_log_redact.py) for expanded tool I/O. */
+export function redactSecrets(value: unknown): string {
+  let text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  if (!text) return '';
+  text = text.replace(/-----BEGIN(?:[A-Z ]+)?PRIVATE KEY-----[\s\S]*?-----END(?:[A-Z ]+)?PRIVATE KEY-----/g, '[REDACTED:pem]');
+  text = text.replace(/\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi, '[REDACTED:token]');
+  text = text.replace(/\bsk-[A-Za-z0-9_-]{20,}/g, '[REDACTED:api_key]');
+  text = text.replace(/\b(?:ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[REDACTED:token]');
+  text = text.replace(/\bAKIA[0-9A-Z]{16}\b/g, '[REDACTED:api_key]');
+  text = text.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, '[REDACTED:token]');
+  text = text.replace(/\beyJhIjoi[A-Za-z0-9+/=_-]{20,}/g, '[REDACTED:token]');
+  text = text.replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[REDACTED:jwt]');
+  text = text.replace(
+    /(\b(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z0-9_]*)(\s*[=:]\s*)(["']?)([^\s"']+)(\3)/gi,
+    '$1$2$3[REDACTED:secret]$5'
+  );
+  text = text.replace(/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g, '[REDACTED:email]');
+  return text;
+}
+
 export function mapTraceStep(raw: Record<string, any>, index: number) {
-  const tool = raw.tool || raw.tool_name || raw.action || '';
+  const tool_name = raw.tool_name || raw.tool || raw.action || '';
+  const catalog = TOOL_CATALOG[tool_name] || null;
+  const tool_title = raw.tool_title || catalog?.title || (tool_name ? String(tool_name).replace(/_/g, ' ') : '');
+  const tool_about = raw.tool_about || catalog?.about || '';
   const output = raw.output ?? raw.tool_output;
-  const observation = raw.observation || raw.summary_done || '';
+  const storedSummary = typeof raw.summary_done === 'string' ? raw.summary_done.trim() : '';
+  const theater = /completed$/i.test(storedSummary) && !/SoC|rows|rules|health/i.test(storedSummary);
+  const summary_done = (!theater && storedSummary) || measuredFromOutput(tool_name, output, tool_title);
+  const thoughtRaw = typeof raw.thought === 'string' ? raw.thought.trim() : '';
+  const status = normalizeStatus(raw.status) || (output == null && !summary_done ? 'running' : 'done');
   return {
     step: raw.step ?? raw.step_index ?? index + 1,
-    action: raw.action || tool,
-    tool,
+    action: raw.action || tool_name,
+    tool: tool_name,
+    tool_name,
+    tool_title,
+    tool_about,
     input: raw.input ?? raw.tool_input,
     output,
-    observation,
-    summary_done: raw.summary_done || observation || (tool ? `${tool} completed` : ''),
+    observation: raw.observation || '',
+    summary_done,
     tokens: Number(raw.tokens ?? raw.tokens_used) > 0 ? Number(raw.tokens ?? raw.tokens_used) : null,
     duration_ms: Number(raw.duration_ms) > 0 ? Number(raw.duration_ms) : null,
     timestamp: raw.timestamp || null,
-    actor_kind: raw.actor_kind || 'ORCHESTRATOR',
-    status: raw.status || 'COMPLETED',
-    thought: raw.thought || '',
+    actor_kind: preferActorKind(raw),
+    status,
+    thought: thoughtRaw || undefined,
     msgId: raw.msgId,
   };
 }
