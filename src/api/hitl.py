@@ -80,7 +80,8 @@ def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
 
 def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     select_sql = (
-        "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+        "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at, "
+        "layer, problem_discovered, why_proposed, quality_impact, reject_reason, feedback_by, feedback_at "
         f"FROM quality_rules WHERE {where_status} "
     )
     if not dataset_key:
@@ -101,22 +102,25 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
 
 
 @hitl_router.get("/queue")
-async def get_queue(status: Optional[str] = None):
+async def get_queue(
+    status: Optional[str] = None,
+    include_active: bool = False,
+    dataset_key: Optional[str] = None,
+):
     db = get_db()
     _ensure_hitl_columns(db)
     if status and status.lower() != "all":
-        rows = db.execute(
-            """SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at,
-                      layer, problem_discovered, why_proposed, quality_impact
-               FROM quality_rules WHERE LOWER(status) = ? ORDER BY created_at DESC""",
-            [status.lower()]
-        )
+        where_status = f"LOWER(status) = '{status.lower()}'"
+    elif include_active:
+        where_status = "LOWER(TRIM(CAST(status AS VARCHAR))) IN ('pending', 'proposed', 'draft', 'queued', 'approved', 'edited', 'rejected')"
     else:
-        rows = db.execute(
-            """SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at,
-                      layer, problem_discovered, why_proposed, quality_impact
-               FROM quality_rules ORDER BY created_at DESC"""
-        )
+        where_status = "LOWER(TRIM(CAST(status AS VARCHAR))) IN ('pending', 'proposed', 'draft', 'queued')"
+
+    rows = _fetch_queue_rows(db, where_status, dataset_key)
+    if not rows and dataset_key:
+        _hydrate_queue_from_traces(db, dataset_key)
+        rows = _fetch_queue_rows(db, where_status, dataset_key)
+
     return {"proposals": [
         {
             "rule_id": r[0],
@@ -124,13 +128,16 @@ async def get_queue(status: Optional[str] = None):
             "rule_type": r[2],
             "rule_expression": r[3],
             "confidence": r[4],
-            "status": r[5],
+            "status": _norm_rule_status(r[5]) or "proposed",
             "proposed_by": r[6],
             "proposed_at": str(r[7]) if r[7] else None,
             "layer": r[8],
             "problem_discovered": r[9],
             "why_proposed": r[10],
             "quality_impact": r[11],
+            "reject_reason": r[12] if len(r) > 12 else None,
+            "feedback_by": r[13] if len(r) > 13 else None,
+            "feedback_at": str(r[14]) if len(r) > 14 and r[14] else None,
         }
         for r in rows
     ]}
@@ -151,66 +158,74 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     dataset_key = (payload or {}).get("dataset_key", "vgreen_charging_stations")
     table_name = (payload or {}).get("table_name")
-
-    # Gather available sample context from DB or profiles
-    sample_context = f"Target Dataset Key: {dataset_key}\n"
-    try:
-        if not table_name:
-            if "vgreen" in dataset_key:
-                table_name = "vgreen_telemetry"
-            elif "vinfast" in dataset_key:
-                table_name = "vinfast_bms"
-            elif "xanh" in dataset_key:
-                table_name = "xanhsm_trips"
-            else:
-                table_name = "raw_taxi_trips"
-
-        sample_rows = db.execute(f"SELECT * FROM {table_name} LIMIT 10")
-        columns = [desc[0] for desc in db.description]
-        sample_context += f"Table: {table_name}\nColumns: {', '.join(columns)}\nSample Row 1: {dict(zip(columns, sample_rows[0])) if sample_rows else 'N/A'}\n"
-    except Exception as e:
-        sample_context += f"Table context extraction notice: {e}\n"
-
-    # Prompt LLM for structured quality rules synthesis
-    system_prompt = (
-        "You are the Autonomous Data Quality ReAct Agent for DataTrust OS v5.\n"
-        "Analyze the provided dataset columns and real telemetry profile.\n"
-        "Generate 3 to 5 precise, realistic data quality rules and invariants covering L1 Data Contract, L2 Contextual/Drift, and L3 Invariant layers.\n"
-        "Output ONLY a valid JSON array of objects with the exact schema:\n"
-        "[\n"
-        "  {\n"
-        '    "rule_id": "RULE_...",\n'
-        '    "rule_name": "<Short Descriptive Title>",\n'
-        '    "rule_type": "range" | "not_null" | "contextual_drift_limit" | "relational_invariant",\n'
-        '    "rule_expression": "<Valid SQL filter condition, e.g. voltage BETWEEN 200 AND 950 or ABS(rate_of_change) < 3.5>",\n'
-        '    "layer": "L1 Data Contract Rule" | "L2 Contextual Drift" | "L3 Physical Invariant",\n'
-        '    "problem_discovered": "<Specific concrete issue identified in the telemetry or contract>",\n'
-        '    "why_proposed": "<Detailed root cause reasoning from domain knowledge>",\n'
-        '    "quality_impact": "<Explicit operational & data warehouse quality guarantee>",\n'
-        '    "confidence": 0.95\n'
-        "  }\n"
-        "]"
-    )
+    use_llm = bool((payload or {}).get("use_llm", False))
 
     proposals = []
-    try:
-        llm = LLMService()
-        resp = llm.chat([
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Synthesize quality rules for dataset:\n{sample_context}"}
-        ])
-        content = resp.content.strip()
-        # Parse JSON
-        match = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
-        if match:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, list):
-                proposals = parsed
-    except Exception as llm_err:
-        print(f"[WARN] LLM synthesis failed, using domain-grounded generator: {llm_err}")
+    model_used = "Deterministic Rule Engine (LLM Off)"
+    llm_powered = False
 
-    # Fallback to rich domain synthesis if LLM returned empty
+    if use_llm:
+        # Gather available sample context from DB or profiles
+        sample_context = f"Target Dataset Key: {dataset_key}\n"
+        try:
+            if not table_name:
+                if "vgreen" in dataset_key:
+                    table_name = "vgreen_telemetry"
+                elif "vinfast" in dataset_key:
+                    table_name = "vinfast_bms"
+                elif "xanh" in dataset_key:
+                    table_name = "xanhsm_trips"
+                else:
+                    table_name = "raw_taxi_trips"
+
+            sample_rows = db.execute(f"SELECT * FROM {table_name} LIMIT 10")
+            columns = [desc[0] for desc in db.description]
+            sample_context += f"Table: {table_name}\nColumns: {', '.join(columns)}\nSample Row 1: {dict(zip(columns, sample_rows[0])) if sample_rows else 'N/A'}\n"
+        except Exception as e:
+            sample_context += f"Table context extraction notice: {e}\n"
+
+        # Prompt LLM for structured quality rules synthesis
+        system_prompt = (
+            "You are the Autonomous Data Quality ReAct Agent for DataTrust OS v5.\n"
+            "Analyze the provided dataset columns and real telemetry profile.\n"
+            "Generate 3 to 5 precise, realistic data quality rules and invariants covering L1 Data Contract, L2 Contextual/Drift, and L3 Invariant layers.\n"
+            "Output ONLY a valid JSON array of objects with the exact schema:\n"
+            "[\n"
+            "  {\n"
+            '    "rule_id": "RULE_...",\n'
+            '    "rule_name": "<Short Descriptive Title>",\n'
+            '    "rule_type": "range" | "not_null" | "contextual_drift_limit" | "relational_invariant",\n'
+            '    "rule_expression": "<Valid SQL filter condition, e.g. voltage BETWEEN 200 AND 950 or ABS(rate_of_change) < 3.5>",\n'
+            '    "layer": "L1 Data Contract Rule" | "L2 Contextual Drift" | "L3 Physical Invariant",\n'
+            '    "problem_discovered": "<Specific concrete issue identified in the telemetry or contract>",\n'
+            '    "why_proposed": "<Detailed root cause reasoning from domain knowledge>",\n'
+            '    "quality_impact": "<Explicit operational & data warehouse quality guarantee>",\n'
+            '    "confidence": 0.95\n'
+            "  }\n"
+            "]"
+        )
+
+        try:
+            llm = LLMService()
+            model_used = llm.model
+            resp = llm.chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Synthesize quality rules for dataset:\n{sample_context}"}
+            ])
+            content = resp.content.strip()
+            # Parse JSON
+            match = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
+            if match:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    proposals = parsed
+                    llm_powered = True
+        except Exception as llm_err:
+            print(f"[WARN] LLM synthesis failed, using domain-grounded generator: {llm_err}")
+
+    # Fallback to rich domain synthesis if LLM returned empty or use_llm is False
     if not proposals:
+
         if "vgreen" in dataset_key or "charging" in dataset_key:
             proposals = [
                 {
@@ -299,8 +314,10 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
         "count": len(proposals),
         "dataset_key": dataset_key,
         "proposals": proposals,
-        "llm_powered": True
+        "llm_powered": llm_powered,
+        "model_used": model_used
     }
+
 
 
 @hitl_router.post("/approve/{rule_id}")
@@ -337,10 +354,13 @@ async def reject_rule(rule_id: str, req: RejectRequest = RejectRequest()):
     if not rules:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
 
-    db.execute("UPDATE quality_rules SET status = 'rejected' WHERE id = ?", [rule_id])
+    db.execute(
+        "UPDATE quality_rules SET status = 'rejected', reject_reason = ?, feedback_by = ?, feedback_at = ? WHERE id = ?",
+        [req.reason, req.rejected_by, datetime.now().isoformat(), rule_id]
+    )
     AuditService.log("REJECT_RULE", req.rejected_by, "quality_rules", rule_id,
                      {"reason": req.reason})
-    return {"status": "rejected", "rule_id": rule_id}
+    return {"status": "rejected", "rule_id": rule_id, "reject_reason": req.reason}
 
 
 @hitl_router.post("/edit/{rule_id}")

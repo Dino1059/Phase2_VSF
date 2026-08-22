@@ -13,7 +13,11 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
+
+import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm } from '../../services/api';
+
+
+
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 
 const EMPTY_SPLIT = {
@@ -199,13 +203,27 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
   const [editExpression, setEditExpression] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'proposed' | 'approved' | 'rejected'>('all');
+  const [rejectingRule, setRejectingRule] = useState<HITLProposal | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'proposed' | 'approved' | 'rejected'>('proposed');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   // First hidden boot GET is often []. Do not treat that as a locked 0/0.
   const emptyBootRef = useRef(true);
   const dropKeptAfterResetRef = useRef(false);
   const fetchGenRef = useRef(0);
+
+  const [, setLlmTick] = useState(0);
+
+  useEffect(() => {
+    const onLlmChange = () => setLlmTick((t) => t + 1);
+    window.addEventListener('datatrust:llm-mode-changed', onLlmChange);
+    return () => window.removeEventListener('datatrust:llm-mode-changed', onLlmChange);
+  }, []);
+
+
+
+
 
   const fetchRules = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -297,13 +315,18 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     }
   };
 
-  const handleReject = async (ruleId: string) => {
+  const handleConfirmReject = async () => {
+    if (!rejectingRule) return;
+    const ruleId = rejectingRule.rule_id;
+    const reasonText = rejectReason.trim() || (isVi ? 'Không phù hợp với đặc thù dữ liệu hiện tại' : 'Not suitable for current dataset');
     setActionLoading(ruleId);
     try {
-      await hitlApi.reject(ruleId, 'human', 'Rejected via Quality Rules Workspace');
+      await hitlApi.reject(ruleId, 'human', reasonText);
       setProposals((prev) =>
-        prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'rejected' } : r))
+        prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'rejected', reject_reason: reasonText } : r))
       );
+      setRejectingRule(null);
+      setRejectReason('');
       await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Reject error: ${err.message}`);
@@ -607,7 +630,28 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             {sandboxError}
           </span>
         )}
-        <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Active Model Indicator Badge driven by global mode */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              padding: '4px 9px',
+              borderRadius: '6px',
+              background: getGlobalUseLlm() ? 'rgba(168, 85, 247, 0.14)' : 'rgba(234, 179, 8, 0.14)',
+              border: getGlobalUseLlm() ? '1px solid rgba(168, 85, 247, 0.35)' : '1px solid rgba(234, 179, 8, 0.35)',
+              color: getGlobalUseLlm() ? '#c084fc' : '#eab308',
+              fontWeight: 600,
+            }}
+            title={isVi ? 'Chế độ hoạt động hiện tại (thay đổi tại thanh Header trên cùng)' : 'Current system execution mode (change via top header bar)'}
+          >
+            {getGlobalUseLlm() ? '🧠 Engine: LLM ON (Gemini 3.5 Flash Lite)' : '⚡ Engine: LLM OFF (Deterministic Rule Engine)'}
+          </div>
+
+
+
           {proposedCount > 0 && (
             <button
               className="btn-batch-approve"
@@ -648,6 +692,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             <RefreshCw size={13} className={loading ? 'spinning' : ''} />
           </button>
         </div>
+
       </div>
 
       {/* RULES CARDS LIST */}
@@ -807,8 +852,15 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                   </div>
                 </div>
 
+                {rule.reject_reason && (
+                  <div style={{ marginTop: '8px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '6px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#ef4444' }}>
+                    <strong>{isVi ? 'Nguyên do từ chối:' : 'Rejection Reason:'} </strong>
+                    {rule.reject_reason}
+                  </div>
+                )}
+
                 {/* RULE CARD FOOTER ACTIONS & CONFIDENCE */}
-                <div className="rule-card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div className="rule-card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
                   <div className="rule-confidence-tag" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                     {isVi ? 'Độ Tin Cậy AI:' : 'AI Confidence:'} <strong style={{ color: '#0284c7' }}>{Math.round(((rule.confidence ?? 0.95) <= 1.0 ? (rule.confidence ?? 0.95) * 100 : (rule.confidence ?? 0.95)))}%</strong>
                   </div>
@@ -864,7 +916,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     {!isRejected && (
                       <button
                         className="btn-rule-reject"
-                        onClick={() => handleReject(rule.rule_id)}
+                        onClick={() => {
+                          setRejectingRule(rule);
+                          setRejectReason('');
+                        }}
                         disabled={actionLoading === rule.rule_id}
                         title={isVi ? 'Từ chối hoặc tạm ngưng áp dụng bộ luật' : 'Reject or deactivate rule proposal'}
                         style={{
@@ -928,6 +983,54 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
               <button className="btn-modal-cancel" onClick={() => setEditingRule(null)}>{isVi ? 'Hủy' : 'Cancel'}</button>
               <button className="btn-modal-save" onClick={handleSaveEdit} disabled={actionLoading === editingRule.rule_id}>
                 {isVi ? 'Lưu Biểu Thức' : 'Save Expression'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT RULE MODAL */}
+      {rejectingRule && (
+        <div className="modal-overlay active" onClick={() => setRejectingRule(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+            <div className="modal-header">
+              <span className="modal-title" style={{ color: '#ef4444' }}>
+                <XCircle size={15} style={{ marginRight: 6 }} /> {isVi ? 'Từ Chối Bộ Luật:' : 'Reject Rule:'} <code>{rejectingRule.rule_name || rejectingRule.rule_id}</code>
+              </span>
+              <button className="modal-close" onClick={() => setRejectingRule(null)}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              {isVi
+                ? 'Nhập nguyên do từ chối bộ luật đề xuất này để ghi nhận lịch sử phản hồi và cải thiện mô hình AI.'
+                : 'Enter the reason for rejecting this proposed rule to record feedback history and train future AI proposals.'}
+            </div>
+            <div className="modal-body">
+              <textarea
+                className="rule-reject-textarea"
+                rows={3}
+                placeholder={isVi ? 'Nhập nguyên do (ví dụ: Quy tắc quá nghiêm ngặt, ngưỡng chưa phù hợp...)' : 'Enter rejection reason (e.g. Threshold too strict, invalid condition...)'}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-main)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button className="hud-btn" onClick={() => setRejectingRule(null)}>{isVi ? 'Hủy' : 'Cancel'}</button>
+              <button
+                className="hud-btn danger"
+                onClick={handleConfirmReject}
+                disabled={actionLoading === rejectingRule.rule_id}
+                style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                {isVi ? 'Xác Nhận Từ Chối' : 'Confirm Reject'}
               </button>
             </div>
           </div>

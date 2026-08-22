@@ -365,4 +365,29 @@ async def load_demo_snapshot(mode: str = Query(..., description="happy | unhappy
     )
 
 
+@router.get("/llm-status")
+def get_llm_status():
+    """Returns the active LLM provider and model name currently configured in the backend environment."""
+    try:
+        from src.services.llm import LLMService
+        llm = LLMService()
+        has_key = bool(llm.api_key and not llm.api_key.startswith("sk-your-") and not llm.api_key.startswith("test-"))
+        return {
+            "status": "online" if has_key else "fallback_ready",
+            "model": llm.model if has_key else "Deterministic Rule Engine (LLM Off)",
+            "provider": llm.preferred_provider if has_key else "heuristic",
+            "has_api_key": has_key,
+            "description": f"Active LLM: {llm.model}" if has_key else "LLM Off / Fallback to Deterministic Engine",
+        }
+    except Exception as e:
+        return {
+            "status": "offline",
+            "model": "Deterministic Rule Engine (LLM Off)",
+            "provider": "heuristic",
+            "has_api_key": False,
+            "description": f"Offline Engine: {e}",
+        }
+
+
+
 

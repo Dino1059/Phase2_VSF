@@ -178,7 +178,8 @@ class IncidentService:
                 """
                 SELECT incident_id, project_id, status, entity_ids, signal_ids,
                        admission_reason, supporting_layers, severity, time_window,
-                       confirmed_facts, evidence_refs, owner, created_at, updated_at
+                       confirmed_facts, evidence_refs, owner, created_at, updated_at,
+                       feedback_type, feedback_reason, feedback_by, feedback_at
                 FROM incidents
                 """
             )
@@ -213,7 +214,11 @@ class IncidentService:
                     evidence_refs=evidence_refs,
                     owner=row[11],
                     created_at=row[12],
-                    updated_at=row[13]
+                    updated_at=row[13],
+                    feedback_type=row[14] if len(row) > 14 else None,
+                    feedback_reason=row[15] if len(row) > 15 else None,
+                    feedback_by=row[16] if len(row) > 16 else None,
+                    feedback_at=str(row[17]) if len(row) > 17 and row[17] else None,
                 )
                 self._incidents[inc.incident_id] = inc
 
@@ -375,8 +380,9 @@ class IncidentService:
                     INSERT INTO incidents (
                         incident_id, project_id, status, entity_ids, signal_ids,
                         admission_reason, supporting_layers, severity, time_window,
-                        confirmed_facts, evidence_refs, owner, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        confirmed_facts, evidence_refs, owner, created_at, updated_at,
+                        feedback_type, feedback_reason, feedback_by, feedback_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         incident.incident_id,
@@ -393,11 +399,48 @@ class IncidentService:
                         incident.owner,
                         incident.created_at.isoformat() if isinstance(incident.created_at, datetime) else incident.created_at,
                         incident.updated_at.isoformat() if isinstance(incident.updated_at, datetime) else incident.updated_at,
+                        incident.feedback_type,
+                        incident.feedback_reason,
+                        incident.feedback_by,
+                        incident.feedback_at,
                     ]
                 )
             except Exception:
                 pass
         return incident
+
+    def record_feedback(self, incident_id: str, feedback_type: str, reason: str = "", user: str = "human") -> Optional[Incident]:
+        inc = self.get_incident(incident_id)
+        if not inc:
+            return None
+        now_str = datetime.now().isoformat()
+        inc.feedback_type = feedback_type
+        inc.feedback_reason = reason
+        inc.feedback_by = user
+        inc.feedback_at = now_str
+        if feedback_type == "FALSE_POSITIVE":
+            inc.status = "DISMISSED"
+        elif feedback_type == "TRUE_POSITIVE":
+            inc.status = "RESOLVED"
+
+        self.save_incident(inc)
+
+        try:
+            from src.reliability.models.decision import Decision
+            dec = Decision(
+                decision_id=f"dec-fb-{uuid.uuid4().hex[:8]}",
+                incident_id=incident_id,
+                action=f"FEEDBACK_{feedback_type}",
+                actor=user,
+                rationale=reason or f"User marked incident as {feedback_type}",
+                details={"feedback_type": feedback_type, "reason": reason},
+                created_at=now_str
+            )
+            self.add_decision(dec)
+        except Exception as e:
+            print(f"[WARN] Error logging decision for feedback: {e}")
+
+        return inc
 
     def create_incident(
         self, project_id: str, entity_ids: List[str], signal_ids: List[str], admission_reason: str, severity: str = "HIGH"

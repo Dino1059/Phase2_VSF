@@ -18,5 +18,9 @@ class Incident(BaseModel):
     confirmed_facts: List[str] = Field(default_factory=list)
     evidence_refs: List[str] = Field(default_factory=list)
     owner: Optional[str] = None
+    feedback_type: Optional[str] = None
+    feedback_reason: Optional[str] = None
+    feedback_by: Optional[str] = None
+    feedback_at: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

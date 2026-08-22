@@ -86,8 +86,9 @@ class UnifiedLLMAdapter:
     Priority: Gemini (4-key rotation) -> OpenAI (lowest fallback)
     """
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(self, api_key: str | None = None, model: str | None = None, use_llm: bool = True):
         load_dotenv()
+        self.use_llm = use_llm
         
         # OpenAI (Fallback)
         self.openai_key = api_key or os.environ.get("OPENAI_API_KEY", "")
@@ -174,6 +175,9 @@ class UnifiedLLMAdapter:
         """
         Send chat messages with strictly gemini-3.5-flash-lite primary (with 4-key rate-limit rotation), gpt-5-nano fallback.
         """
+        if not self.use_llm:
+            return self._heuristic_fallback(messages)
+
         if self._explicit_key == "invalid-key":
             raise LLMUnavailableException("Invalid API key provided.")
 

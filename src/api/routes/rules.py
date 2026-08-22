@@ -615,6 +615,13 @@ async def list_rules(
             if status and status != "all" and r_status.lower() != status.lower():
                 continue
 
+            proposed_by_val = r[6] or "system"
+            incident_id_val = None
+            if proposed_by_val.startswith("rca:"):
+                incident_id_val = proposed_by_val.split("rca:", 1)[1]
+            elif "INC-" in proposed_by_val.upper():
+                incident_id_val = proposed_by_val
+
             results.append({
                 "id": r_id,
                 "rule_id": r_id,
@@ -624,7 +631,8 @@ async def list_rules(
                 "rule_expression": r_expr,
                 "description": r_expr,
                 "confidence": r_conf,
-                "proposed_by": r[6] or "system",
+                "proposed_by": proposed_by_val,
+                "incident_id": incident_id_val,
                 "approved_by": r[7],
                 "created_at": str(r[8]) if r[8] else None,
                 "approved_at": str(r[9]) if r[9] else None,

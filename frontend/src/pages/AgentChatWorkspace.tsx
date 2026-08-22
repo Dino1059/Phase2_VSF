@@ -39,7 +39,7 @@ import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
-import { DemoStoryBar } from '../demo/DemoStoryBar';
+// import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
 
@@ -560,7 +560,7 @@ export function AgentChatWorkspace() {
     <div className={`agent-chat-workspace ${rightPanelOpen ? '' : 'right-panel-collapsed'}`}>
       {/* CENTER COLUMN: CHAT STREAM */}
       <div className="center-chat-pane">
-        <DemoStoryBar isVi={isVi} />
+        {/* <DemoStoryBar isVi={isVi} /> */}
         {demoMode && (
           <div
             role="status"

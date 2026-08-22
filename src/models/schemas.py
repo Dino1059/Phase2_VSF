@@ -10,6 +10,8 @@ class ChatRequest(BaseModel):
     session_id: str = Field(default="default", description="Chat session ID")
     dataset_key: Optional[str] = Field(default=None, description="Dataset context for this chat message")
     lang: Optional[str] = Field(default="vi", description="Language preference: 'vi' (Vietnamese) or 'en' (English)")
+    use_llm: Optional[bool] = Field(default=None, description="Global LLM mode flag: True for LLM ON, False for LLM OFF")
+    mode: Optional[str] = Field(default=None, description="Execution mode: 'llm' or 'deterministic'")
 
 
 

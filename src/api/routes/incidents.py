@@ -283,3 +283,32 @@ def incident_chat(incident_id: str, request: IncidentChatRequest):
         "reasoning": f"Synthesized via LLM against incident evidence & hypothesis graph.",
         "tokens_used": res.tokens_used
     }
+
+
+class IncidentFeedbackRequest(BaseModel):
+    feedback_type: str  # "TRUE_POSITIVE" | "FALSE_POSITIVE"
+    reason: Optional[str] = ""
+    user: Optional[str] = "human"
+
+
+@router.post("/{incident_id}/feedback")
+def submit_incident_feedback(incident_id: str, req: IncidentFeedbackRequest):
+    """
+    Submit user feedback for an incident/alert (TRUE_POSITIVE or FALSE_POSITIVE + reason).
+    """
+    if req.feedback_type not in ("TRUE_POSITIVE", "FALSE_POSITIVE"):
+        raise HTTPException(status_code=400, detail="feedback_type must be 'TRUE_POSITIVE' or 'FALSE_POSITIVE'")
+
+    inc = service.record_feedback(incident_id, req.feedback_type, req.reason or "", req.user or "human")
+    if not inc:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    return {
+        "status": "ok",
+        "incident_id": incident_id,
+        "feedback_type": inc.feedback_type,
+        "feedback_reason": inc.feedback_reason,
+        "feedback_by": inc.feedback_by,
+        "feedback_at": inc.feedback_at,
+        "incident_status": inc.status
+    }

@@ -80,6 +80,7 @@ class DuckDBManager:
                     self._ensure_snapshots_schema(self._master_conn)
                     self._ensure_reliability_tables(self._master_conn)
                     self._ensure_quality_rules_dataset_key(self._master_conn)
+                    self._ensure_incidents_feedback_columns(self._master_conn)
                 except Exception:
                     pass
             return self._master_conn
@@ -105,6 +106,7 @@ class DuckDBManager:
         self._ensure_snapshots_schema(conn)
         self._ensure_reliability_tables(conn)
         self._ensure_quality_rules_dataset_key(conn)
+        self._ensure_incidents_feedback_columns(conn)
 
     def _ensure_quality_rules_dataset_key(self, conn) -> None:
         try:
@@ -114,8 +116,35 @@ class DuckDBManager:
                     "SELECT column_name FROM information_schema.columns WHERE table_name='quality_rules'"
                 ).fetchall()
             ]
-            if cols and "dataset_key" not in cols:
-                conn.execute("ALTER TABLE quality_rules ADD COLUMN dataset_key VARCHAR")
+            if cols:
+                if "dataset_key" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN dataset_key VARCHAR")
+                if "reject_reason" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN reject_reason VARCHAR")
+                if "feedback_by" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN feedback_by VARCHAR")
+                if "feedback_at" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN feedback_at TIMESTAMP")
+        except Exception:
+            pass
+
+    def _ensure_incidents_feedback_columns(self, conn) -> None:
+        try:
+            cols = [
+                row[0].lower()
+                for row in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='incidents'"
+                ).fetchall()
+            ]
+            if cols:
+                if "feedback_type" not in cols:
+                    conn.execute("ALTER TABLE incidents ADD COLUMN feedback_type VARCHAR")
+                if "feedback_reason" not in cols:
+                    conn.execute("ALTER TABLE incidents ADD COLUMN feedback_reason VARCHAR")
+                if "feedback_by" not in cols:
+                    conn.execute("ALTER TABLE incidents ADD COLUMN feedback_by VARCHAR")
+                if "feedback_at" not in cols:
+                    conn.execute("ALTER TABLE incidents ADD COLUMN feedback_at TIMESTAMP")
         except Exception:
             pass
 

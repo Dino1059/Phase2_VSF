@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Search,
   CheckCircle2,
+  XCircle,
   ShieldCheck,
   Car,
   BatteryCharging,
@@ -161,8 +162,39 @@ export const OperationsWorkspace: React.FC = () => {
   const [selectedIncident, setSelectedIncident] = useState<Record<string, any> | null>(null);
   const [incidentLoading, setIncidentLoading] = useState(false);
 
+  // Alert feedback state
+  const [alertFeedbackReason, setAlertFeedbackReason] = useState('');
+  const [showFalsePositiveInput, setShowFalsePositiveInput] = useState(false);
+  const [alertFeedbackSubmitting, setAlertFeedbackSubmitting] = useState(false);
+
+  const handleAlertFeedback = async (incidentId: string, feedbackType: 'TRUE_POSITIVE' | 'FALSE_POSITIVE', reason: string = '') => {
+    setAlertFeedbackSubmitting(true);
+    try {
+      const res = await incidentsApi.submitFeedback(incidentId, feedbackType, reason, 'human');
+      if (selectedIncident && (selectedIncident.incident_id === incidentId || selectedIncident.id === incidentId)) {
+        setSelectedIncident((prev: any) => prev ? {
+          ...prev,
+          feedback_type: res.feedback_type,
+          feedback_reason: res.feedback_reason,
+          feedback_by: res.feedback_by,
+          feedback_at: res.feedback_at,
+          status: res.incident_status
+        } : null);
+      }
+      setShowFalsePositiveInput(false);
+      setAlertFeedbackReason('');
+      void loadData();
+    } catch (err: any) {
+      alert(`Feedback error: ${err.message}`);
+    } finally {
+      setAlertFeedbackSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     setSelectedIncident(null);
+    setShowFalsePositiveInput(false);
+    setAlertFeedbackReason('');
   }, [view]);
   const [modalTab, setModalTab] = useState<'rca' | 'evidence' | 'signals'>('rca');
 
@@ -934,6 +966,37 @@ export const OperationsWorkspace: React.FC = () => {
                           <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
                             {rule.rule_id || rule.id}
                           </span>
+                          {(() => {
+                            const pBy = rule.proposed_by || '';
+                            const incId = rule.incident_id || (pBy.startsWith('rca:') ? pBy.replace('rca:', '') : (pBy.includes('INC-') ? pBy : ''));
+                            if (!incId) return null;
+                            return (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  color: '#f59e0b',
+                                  background: 'rgba(245, 158, 11, 0.12)',
+                                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                                  borderRadius: '4px',
+                                  padding: '2px 6px',
+                                  marginTop: '3px',
+                                  cursor: 'pointer',
+                                  width: 'fit-content',
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenIncident(incId);
+                                }}
+                                title={isVi ? 'Bấm để xem chi tiết RCA của sự cố này' : 'Click to view RCA details for this incident'}
+                              >
+                                ⚡ {isVi ? `Từ RCA #${incId}` : `From RCA #${incId}`}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </td>
 
@@ -1787,6 +1850,171 @@ export const OperationsWorkspace: React.FC = () => {
                             {selectedIncident.llm_claim || selectedIncident.ground_truth_cause || selectedIncident.admission_reason}
                           </div>
                         </div>
+                      </div>
+
+                      {/* STEP 4: PREVENTIVE DQ RULE PROPOSAL LINK */}
+                      <div style={{ position: 'relative', marginTop: '16px' }}>
+                        <div style={{ position: 'absolute', left: '-20px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', background: '#38bdf8', border: '2px solid var(--bg-card)' }} />
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase' }}>
+                          {isVi ? 'Bước 4: Đề Xuất Luật Phòng Ngừa (Preventive Control)' : 'Step 4: Preventive Rule Proposal'}
+                        </div>
+                        <div style={{ background: 'rgba(56, 189, 248, 0.08)', padding: '12px 14px', borderRadius: '6px', marginTop: '6px', border: '1px solid rgba(56, 189, 248, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
+                              {selectedIncident.expected_action || 'PREVENTIVE_DQ_RULE_PROPOSAL'}
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {isVi ? 'RCA đề xuất tạo luật kiểm soát chất lượng dữ liệu để ngăn chặn sự cố này tái diễn.' : 'RCA recommended creating a data quality control rule to prevent recurrence.'}
+                            </div>
+                          </div>
+                          <button
+                            className="hud-btn primary"
+                            style={{ fontSize: '11.5px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => {
+                              const incId = selectedIncident.incident_id || selectedIncident.id;
+                              setSelectedIncident(null);
+                              setActiveSubTab('rules');
+                              navigate('/operations/rules');
+                              if (incId) {
+                                setFilterQuery(incId);
+                              }
+                            }}
+                          >
+                            <ShieldCheck size={14} />
+                            {isVi ? 'Xem & Duyệt Rule Đề Xuất →' : 'View & Approve Proposed Rule →'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* STEP 5: ALERT HUMAN FEEDBACK */}
+                      <div style={{ position: 'relative', marginTop: '16px' }}>
+                        <div style={{ position: 'absolute', left: '-20px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', background: '#a855f7', border: '2px solid var(--bg-card)' }} />
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#a855f7', textTransform: 'uppercase' }}>
+                          {isVi ? 'Bước 5: Thẩm Định & Phản Hồi Cảnh Báo (Human Feedback)' : 'Step 5: Alert Feedback & Verification'}
+                        </div>
+
+                        {selectedIncident.feedback_type ? (
+                          <div style={{
+                            background: selectedIncident.feedback_type === 'TRUE_POSITIVE' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            border: `1px solid ${selectedIncident.feedback_type === 'TRUE_POSITIVE' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                            padding: '12px 14px',
+                            borderRadius: '6px',
+                            marginTop: '6px',
+                            fontSize: '12.5px',
+                          }}>
+                            <div style={{ fontWeight: 700, color: selectedIncident.feedback_type === 'TRUE_POSITIVE' ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {selectedIncident.feedback_type === 'TRUE_POSITIVE' ? (
+                                <>
+                                  <CheckCircle2 size={16} />
+                                  {isVi ? 'Đã xác nhận: Cảnh báo đúng' : 'Confirmed: True Positive Alert'}
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle size={16} />
+                                  {isVi ? 'Đã xác nhận: Cảnh báo nhầm' : 'Confirmed: False Positive Alert'}
+                                </>
+                              )}
+                            </div>
+                            {selectedIncident.feedback_reason && (
+                              <div style={{ color: 'var(--text-main)', marginTop: '6px', fontSize: '12px' }}>
+                                <strong>{isVi ? 'Nguyên do:' : 'Reason:'}</strong> {selectedIncident.feedback_reason}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '6px', marginTop: '6px', border: '1px solid var(--glass-border)' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                              {isVi ? 'Bạn thẩm định cảnh báo này như thế nào?' : 'How do you evaluate this alert?'}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                className="hud-btn"
+                                disabled={alertFeedbackSubmitting}
+                                onClick={() => handleAlertFeedback(selectedIncident.incident_id || selectedIncident.id, 'TRUE_POSITIVE')}
+                                style={{
+                                  background: 'rgba(16, 185, 129, 0.12)',
+                                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                                  color: '#10b981',
+                                  fontWeight: 600,
+                                  fontSize: '11.5px',
+                                  padding: '6px 12px',
+                                  cursor: 'pointer',
+                                  borderRadius: '6px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <CheckCircle2 size={14} />
+                                {isVi ? 'Cảnh báo đúng' : 'True Positive'}
+                              </button>
+
+                              <button
+                                className="hud-btn"
+                                disabled={alertFeedbackSubmitting}
+                                onClick={() => setShowFalsePositiveInput((prev) => !prev)}
+                                style={{
+                                  background: 'rgba(239, 68, 68, 0.12)',
+                                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                                  color: '#ef4444',
+                                  fontWeight: 600,
+                                  fontSize: '11.5px',
+                                  padding: '6px 12px',
+                                  cursor: 'pointer',
+                                  borderRadius: '6px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <XCircle size={14} />
+                                {isVi ? 'Cảnh báo nhầm' : 'False Positive'}
+                              </button>
+                            </div>
+
+                            {showFalsePositiveInput && (
+                              <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <textarea
+                                  rows={2}
+                                  placeholder={isVi ? 'Nhập nguyên do cảnh báo nhầm (ví dụ: Nhiễu cảm biến tạm thời, dữ liệu môi trường đặc thù...)' : 'Enter false positive reason (e.g. Temporary sensor noise, unusual environment...)'}
+                                  value={alertFeedbackReason}
+                                  onChange={(e) => setAlertFeedbackReason(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '8px 10px',
+                                    borderRadius: '6px',
+                                    background: 'var(--bg-input)',
+                                    border: '1px solid var(--glass-border)',
+                                    color: 'var(--text-main)',
+                                    fontSize: '12px',
+                                  }}
+                                />
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                                  <button className="hud-btn" onClick={() => setShowFalsePositiveInput(false)} style={{ fontSize: '11px', padding: '4px 10px' }}>
+                                    {isVi ? 'Hủy' : 'Cancel'}
+                                  </button>
+                                  <button
+                                    className="hud-btn"
+                                    disabled={alertFeedbackSubmitting}
+                                    onClick={() => handleAlertFeedback(selectedIncident.incident_id || selectedIncident.id, 'FALSE_POSITIVE', alertFeedbackReason)}
+                                    style={{
+                                      background: '#dc2626',
+                                      color: '#fff',
+                                      border: 'none',
+                                      fontWeight: 600,
+                                      fontSize: '11px',
+                                      padding: '4px 12px',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {isVi ? 'Gửi Phản Hồi' : 'Submit Feedback'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

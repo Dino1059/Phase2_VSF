@@ -544,9 +544,50 @@ def format_friendly_observation(action: str, observation: Any, lang: str = "vi")
     return f"Action '{action}' executed. Observation: {observation}"
 
 
+def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
+    try:
+        from src.db.connection import get_db
+        targets = {tool_name, tool_name.replace("default_api:", "")}
+        if "propose" in tool_name or "quality_rule" in tool_name:
+            targets.update({"propose_quality_rules", "quality_rule_proposer", "default_api:propose_quality_rules"})
+        placeholders = ",".join(["?"] * len(targets))
+        params = [session_id] + list(targets) + list(targets)
+        rows = get_db().execute(
+            f"SELECT 1 FROM agent_traces WHERE session_id = ? AND (tool_name IN ({placeholders}) OR action IN ({placeholders})) LIMIT 1",
+            params,
+        ).fetchall()
+        return bool(rows)
+    except Exception:
+        return False
+
+
+def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
+    """Force propose when steward asked for rules; clean_database, algolia_search, list_datasets are never forced without explicit request."""
+    # HITL-stop allowlist safety: _allow_hitl_tool
+    blob = (prompt or "").lower()
+    done = {str(a).replace("default_api:", "").strip() for a in (executed or []) if a}
+    wants_propose = any(
+        w in blob
+        for w in (
+            "propose",
+            "quality rule",
+            "quality rules",
+            "hitl",
+            "đề xuất",
+            "de xuat",
+            "luật chất lượng",
+            "luat chat luong",
+        )
+    )
+    if wants_propose and "propose_quality_rules" not in done and "quality_rule_proposer" not in done:
+        return ["propose_quality_rules"]
+    return []
+
+
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
     session_id = request.session_id or "default"
+    effective_use_llm = request.use_llm if request.use_llm is not None else (request.mode != "deterministic")
     user_msg = conversation_store.save_message(
         {
             "type": "user",
@@ -571,8 +612,8 @@ async def send_chat_message(request: ChatRequest):
         registry.register(ListDatasetsTool())
         registry.register(CleanDatabaseTool())
     registry.register(RunFullPipelineTool())
-        registry.register(AlgoliaSearchTool())
-        registry.register(AnomalyDetectorTool())
+    registry.register(AlgoliaSearchTool())
+    registry.register(AnomalyDetectorTool())
 
     lang_pref = request.lang or "vi"
     msg_lower = request.message.lower()
@@ -667,7 +708,7 @@ async def send_chat_message(request: ChatRequest):
                 "INSERT INTO pipeline_runs (run_id, project_id, dataset_key, status) VALUES (?, ?, ?, ?)",
                 [run_id, "proj-vingroup-pilot", target_dataset, "running"],
             )
-            orch = DataTrustOrchestrator(llm=GemmaLLMAdapter(), project_id="proj-vingroup-pilot")
+            orch = DataTrustOrchestrator(llm=GemmaLLMAdapter(use_llm=effective_use_llm), project_id="proj-vingroup-pilot")
             orch_res = orch.run_analysis(target_dataset)
             payload = _build_pipeline_result(run_id, target_dataset, orch_res)
             _update_pipeline_run(run_id, payload["status"], payload)
@@ -714,7 +755,7 @@ async def send_chat_message(request: ChatRequest):
         }
 
     # Standard Dynamic ReAct Engine Execution for open-ended queries
-    llm_service = LLMService()
+    llm_service = LLMService(use_llm=effective_use_llm)
     react_engine = BoundedReActEngine(
         llm_service=llm_service,
         tools=registry,
@@ -1037,4 +1078,6 @@ __all__ = [
     "benchmarks_router",
     "schedules_router",
     "evaluation_router",
+    "_session_has_tool_beat",
+    "missing_requested_tools",
 ]

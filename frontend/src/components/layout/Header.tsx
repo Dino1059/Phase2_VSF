@@ -6,10 +6,11 @@ import {
   IdCard, LogOut, X, Database,
   AlertTriangle, GitBranch, ShieldCheck,
   History, Camera, LayoutDashboard, MessageSquare, ArrowRight,
-  RotateCcw, Globe, Sparkles, Shield,
+  RotateCcw, Globe, Sparkles, Shield, Zap,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { searchApi, SearchHit, systemApi, datasetsApi } from '../../services/api';
+import { searchApi, SearchHit, systemApi, datasetsApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
+
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -168,6 +169,15 @@ export function Header() {
     const next = i18n.language === 'vi' ? 'en' : 'vi';
     changeLanguage(next);
   };
+
+  const [useLlmMode, setUseLlmMode] = useState<boolean>(getGlobalUseLlm);
+
+  const handleToggleLlmMode = () => {
+    const next = !useLlmMode;
+    setUseLlmMode(next);
+    setGlobalUseLlm(next);
+  };
+
 
 
   // ⌘K / Ctrl-K opens the centered search modal
@@ -449,6 +459,46 @@ export function Header() {
             <Globe size={13} style={{ color: 'var(--neon-cyan)' }} />
             <span>{isVi ? 'VI' : 'EN'}</span>
           </button>
+
+          {/* Global System-Wide LLM Toggle Button */}
+          <button
+            type="button"
+            className="hud-action-pill"
+            onClick={handleToggleLlmMode}
+            title={
+              useLlmMode
+                ? (isVi ? 'Đang BẬT LLM toàn hệ thống (Test độ chính xác bằng Gemini ReAct). Click để TẮT.' : 'System-wide LLM ON (Live Gemini ReAct accuracy test). Click to turn OFF.')
+                : (isVi ? 'Đang TẮT LLM toàn hệ thống (Test logic 0 token bằng Rule Engine). Click để BẬT.' : 'System-wide LLM OFF (Fast 0-token logic test via Rule Engine). Click to turn ON.')
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '0 12px',
+              height: '32px',
+              borderRadius: '9999px',
+              backgroundColor: useLlmMode ? 'rgba(168, 85, 247, 0.18)' : 'rgba(234, 179, 8, 0.18)',
+              border: useLlmMode ? '1px solid rgba(168, 85, 247, 0.45)' : '1px solid rgba(234, 179, 8, 0.45)',
+              color: useLlmMode ? '#c084fc' : '#eab308',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {useLlmMode ? (
+              <>
+                <Sparkles size={13} style={{ color: '#c084fc' }} />
+                <span>LLM ON</span>
+              </>
+            ) : (
+              <>
+                <Zap size={13} style={{ color: '#eab308' }} />
+                <span>LLM OFF</span>
+              </>
+            )}
+          </button>
+
 
           {/* Admin-Only DB & Baseline Reset Button */}
           {isAuthenticated && isAdmin() && (

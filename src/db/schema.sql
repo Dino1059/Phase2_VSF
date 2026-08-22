@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS quality_rules (
     status VARCHAR DEFAULT 'proposed',
     proposed_by VARCHAR,
     approved_by VARCHAR,
+    reject_reason VARCHAR,
+    feedback_by VARCHAR,
+    feedback_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     approved_at TIMESTAMP
 );
@@ -212,6 +215,10 @@ CREATE TABLE IF NOT EXISTS incidents (
     confirmed_facts JSON,
     evidence_refs JSON,
     owner VARCHAR,
+    feedback_type VARCHAR,
+    feedback_reason VARCHAR,
+    feedback_by VARCHAR,
+    feedback_at TIMESTAMP,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );

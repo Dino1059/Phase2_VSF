@@ -8,6 +8,17 @@ export function getRoleHeader(): string {
 
 const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
 
+export function getGlobalUseLlm(): boolean {
+  const val = localStorage.getItem('datatrust-use-llm');
+  return val === 'true';
+}
+
+export function setGlobalUseLlm(useLlm: boolean) {
+  localStorage.setItem('datatrust-use-llm', useLlm ? 'true' : 'false');
+  window.dispatchEvent(new CustomEvent('datatrust:llm-mode-changed', { detail: { useLlm } }));
+}
+
+
 export function readAuthToken(): string | null {
   for (const key of TOKEN_KEYS) {
     const value = localStorage.getItem(key);
@@ -117,7 +128,16 @@ export const systemApi = {
       window_end: string;
       ingress: string;
     }>(`/system/demo-snapshot?mode=${mode}`, { method: 'POST' }),
+  getLlmStatus: () =>
+    request<{
+      status: string;
+      model: string;
+      provider: string;
+      has_api_key: boolean;
+      description: string;
+    }>('/system/llm-status'),
 };
+
 
 
 export function normalizeDatasetKey(k: string): string {
@@ -168,6 +188,7 @@ export interface QualityRuleItem {
   description?: string;
   confidence: number;
   proposed_by?: string;
+  incident_id?: string;
   approved_by?: string;
   created_at?: string;
   approved_at?: string;
@@ -432,6 +453,12 @@ export interface IncidentInfo {
   hypotheses?: IncidentHypothesis[];
   recommendations?: IncidentRecommendation[];
   benchmark_eval?: any;
+
+  // User feedback fields
+  feedback_type?: string; // "TRUE_POSITIVE" | "FALSE_POSITIVE"
+  feedback_reason?: string;
+  feedback_by?: string;
+  feedback_at?: string;
 }
 
 export const incidentsApi = {
@@ -439,13 +466,22 @@ export const incidentsApi = {
     request<IncidentInfo[]>(`/incidents?project_id=${encodeURIComponent(projectId)}`),
   get: (incidentId: string) =>
     request<IncidentInfo>(`/incidents/${encodeURIComponent(incidentId)}`),
-  investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' | string = 'A1', useLlm: boolean = false) =>
-    request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}&use_llm=${useLlm}`, { method: 'POST' }),
+  investigate: (incidentId: string, mode: 'R0' | 'C1' | 'A1' | string = 'A1', useLlm?: boolean) =>
+    request<any>(`/incidents/${encodeURIComponent(incidentId)}/investigate?mode=${mode}&use_llm=${useLlm !== undefined ? useLlm : getGlobalUseLlm()}`, { method: 'POST' }),
+
   chat: (incidentId: string, payload: any) =>
     request<{ reply: string; reasoning?: string; tokens_used?: number }>(`/incidents/${encodeURIComponent(incidentId)}/chat`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  submitFeedback: (incidentId: string, feedbackType: 'TRUE_POSITIVE' | 'FALSE_POSITIVE', reason: string = '', user: string = 'human') =>
+    request<{ status: string; incident_id: string; feedback_type: string; feedback_reason: string; feedback_by: string; feedback_at: string; incident_status: string }>(
+      `/incidents/${encodeURIComponent(incidentId)}/feedback`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ feedback_type: feedbackType, reason, user }),
+      }
+    ),
 };
 
 export async function fetchIncident(incidentId: string): Promise<IncidentInfo> {
@@ -672,18 +708,21 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string) {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
+  const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
   return request('/chat/send', {
     method: 'POST',
     body: JSON.stringify({
       message,
       session_id: sessionId,
       lang: currentLang,
+      use_llm: effectiveUseLlm,
       ...(datasetKey ? { dataset_key: datasetKey } : {}),
     }),
   });
 }
+
 
 
 export async function fetchChatHistory(sessionId: string = 'default') {
@@ -745,16 +784,21 @@ export interface HITLProposal {
   problem_discovered?: string;
   why_proposed?: string;
   quality_impact?: string;
+  reject_reason?: string;
+  feedback_by?: string;
+  feedback_at?: string | null;
 }
 
 export const hitlApi = {
   queue: () =>
     request<{ proposals: HITLProposal[] }>('/hitl/queue'),
-  synthesizeLlm: (datasetKey?: string, tableName?: string) =>
-    request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean }>('/hitl/synthesize-llm', {
+  synthesizeLlm: (datasetKey?: string, tableName?: string, useLlm?: boolean) =>
+    request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean; model_used?: string }>('/hitl/synthesize-llm', {
       method: 'POST',
-      body: JSON.stringify({ dataset_key: datasetKey, table_name: tableName }),
+      body: JSON.stringify({ dataset_key: datasetKey, table_name: tableName, use_llm: useLlm !== undefined ? useLlm : getGlobalUseLlm() }),
     }),
+
+
   approve: (ruleId: string, approvedBy: string = 'human') =>
     request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
