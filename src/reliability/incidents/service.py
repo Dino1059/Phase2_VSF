@@ -24,6 +24,29 @@ class IncidentService:
     Manages persistence and retrieval of Incidents, Evidence, Hypotheses, Decisions, and Recommendations.
     Backed by DuckDB table storage for backend restart state persistence.
     """
+    _instance: Optional["IncidentService"] = None
+
+    def __new__(cls, db: Optional[DuckDBManager] = None):
+        if cls._instance is None:
+            cls._instance = super(IncidentService, cls).__new__(cls)
+            cls._instance._db = db or get_db()
+            cls._instance._incidents = {}
+            cls._instance._evidence = {}
+            cls._instance._hypotheses = {}
+            cls._instance._decisions = {}
+            cls._instance._recommendations = {}
+            cls._instance._incident_meta = {}
+            cls._instance._load_from_db()
+        elif db is not None and db != cls._instance._db:
+            cls._instance._db = db
+            cls._instance._incidents.clear()
+            cls._instance._evidence.clear()
+            cls._instance._hypotheses.clear()
+            cls._instance._decisions.clear()
+            cls._instance._recommendations.clear()
+            cls._instance._incident_meta.clear()
+            cls._instance._load_from_db()
+        return cls._instance
 
     def __init__(self, db: Optional[DuckDBManager] = None):
         self._db = db or get_db()
@@ -297,8 +320,50 @@ class IncidentService:
                     requires_hitl_approval=bool(row[6])
                 )
                 self._recommendations[rec.recommendation_id] = rec
+
+            # Load incident metadata
+            try:
+                self._db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS incident_metadata (
+                        incident_id VARCHAR PRIMARY KEY,
+                        meta_json JSON,
+                        updated_at TIMESTAMP
+                    );
+                    """
+                )
+                meta_rows = self._db.execute("SELECT incident_id, meta_json FROM incident_metadata")
+                for row in meta_rows:
+                    m = json.loads(row[1]) if isinstance(row[1], str) else (row[1] or {})
+                    self._incident_meta[row[0]] = m
+            except Exception:
+                pass
         except Exception:
             pass
+
+    def set_incident_meta(self, incident_id: str, meta: Dict[str, Any]) -> None:
+        self._incident_meta[incident_id] = meta
+        if self._db:
+            try:
+                self._db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS incident_metadata (
+                        incident_id VARCHAR PRIMARY KEY,
+                        meta_json JSON,
+                        updated_at TIMESTAMP
+                    );
+                    """
+                )
+                self._db.execute("DELETE FROM incident_metadata WHERE incident_id = ?", [incident_id])
+                self._db.execute(
+                    "INSERT INTO incident_metadata (incident_id, meta_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    [incident_id, json.dumps(meta, default=str)]
+                )
+            except Exception:
+                pass
+
+    def get_incident_meta(self, incident_id: str) -> Optional[Dict[str, Any]]:
+        return self._incident_meta.get(incident_id)
 
     def save_incident(self, incident: Incident) -> Incident:
         self._incidents[incident.incident_id] = incident
@@ -394,12 +459,15 @@ class IncidentService:
                     continue
 
             # 4. Time window scoping
-            if inc_start is not None and inc_end is not None and ev.time_range:
-                ev_start = ev.time_range.get("start")
-                ev_end = ev.time_range.get("end") or ev_start
-                if ev_start is not None and ev_end is not None:
-                    if ev_start > inc_end or ev_end < inc_start:
-                        continue
+            if inc_start is not None and inc_end is not None:
+                if ev.time_range:
+                    ev_start = ev.time_range.get("start")
+                    ev_end = ev.time_range.get("end") or ev_start
+                    if ev_start is not None and ev_end is not None:
+                        if ev_start > inc_end or ev_end < inc_start:
+                            continue
+                elif not is_explicit_ref:
+                    continue
 
             matched.append(ev)
 
@@ -564,3 +632,22 @@ class IncidentService:
 
     def list_recommendations_for_incident(self, incident_id: str) -> List[Recommendation]:
         return [r for r in self._recommendations.values() if r.incident_id == incident_id]
+
+    def clear(self) -> None:
+        """Clear in-memory caches and DuckDB incident tables."""
+        self._incidents.clear()
+        self._evidence.clear()
+        self._hypotheses.clear()
+        self._decisions.clear()
+        self._recommendations.clear()
+        self._incident_meta.clear()
+        if self._db:
+            try:
+                self._db.execute("DELETE FROM incidents")
+                self._db.execute("DELETE FROM evidence")
+                self._db.execute("DELETE FROM hypotheses")
+                self._db.execute("DELETE FROM decisions")
+                self._db.execute("DELETE FROM recommendations")
+                self._db.execute("DELETE FROM incident_metadata")
+            except Exception:
+                pass

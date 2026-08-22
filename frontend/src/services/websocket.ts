@@ -52,7 +52,7 @@ export function parseChainOfThoughtToRecord(thoughtStr: string, agentId?: string
 }
 
 export function formatDecisionRecordSummary(record: DecisionRecord): string {
-  const confPct = Math.round(record.confidence * 100);
+  const confPct = Math.round(record.confidence <= 1.0 ? record.confidence * 100 : record.confidence);
   const evidenceSummary = record.evidence.join(' | ');
   return `⚡ [DecisionRecord] Action: ${record.action} | Confidence: ${confPct}% | Status: ${record.status}${
     evidenceSummary ? ` | Evidence: ${evidenceSummary}` : ''
@@ -69,16 +69,22 @@ export class AgentWebSocket {
   private reconnectAttempts: number = 0;
   private pingIntervalMs: number = 15000;
   private isManuallyClosed: boolean = false;
+  private currentSessionId: string = 'default';
 
-  connect() {
+  connect(overrideSessionId?: string) {
+    const sessionId = overrideSessionId || useChatStore.getState().sessionId || 'default';
+    this.currentSessionId = sessionId;
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      this.send({ type: 'subscribe', room: sessionId });
       return;
     }
 
     this.isManuallyClosed = false;
+    const token = (typeof localStorage !== 'undefined' && localStorage.getItem('datatrust-token')) || 'token_admin';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.port === '5174' ? 'localhost:8000' : window.location.host;
-    const wsUrl = `${protocol}//${host}/ws`;
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws?token=${encodeURIComponent(token)}&session_id=${encodeURIComponent(sessionId)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -90,6 +96,7 @@ export class AgentWebSocket {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
+        this.send({ type: 'subscribe', room: this.currentSessionId });
         this.startHeartbeat();
       };
 

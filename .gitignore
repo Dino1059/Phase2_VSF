@@ -71,4 +71,5 @@ package-lock.json
 
 #local-ngan
 .plan
-demo/
+demo/demo/
+

@@ -49,7 +49,25 @@ class ReliabilityOrchestrator:
 
             # 4. Run A1 on each incident
             hyp, rec, meta = self.a1.investigate_incident_dynamically(inc, ev)
-            self.incident_service.add_hypothesis(hyp)
+            if hyp:
+                self.incident_service.add_hypothesis(hyp)
+            if rec:
+                self.incident_service.add_recommendation(rec)
+            if meta:
+                self.incident_service.set_incident_meta(inc.incident_id, meta)
+                for trace_item in meta.get("tool_execution_trace", []):
+                    ref = trace_item.get("evidence_ref")
+                    if ref:
+                        tool_ev = Evidence(
+                            evidence_id=ref,
+                            source_type=trace_item.get("tool_name", "tool_output"),
+                            source_id=inc.entity_ids[0] if inc.entity_ids else "VIN-001",
+                            entity_ids=inc.entity_ids or [],
+                            content_hash=f"hash-{ref}",
+                            summary=f"Tool {trace_item.get('tool_name')} returned data: {str(trace_item.get('data'))[:300]}",
+                            provenance="REAL_OPERATIONAL"
+                        )
+                        self.incident_service.add_evidence(tool_ev, incident_id=inc.incident_id, project_id=project_id)
 
             results.append(InvestigationResult(
                 incident=inc,

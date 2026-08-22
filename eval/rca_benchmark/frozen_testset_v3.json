@@ -1,0 +1,353 @@
+[
+  {
+    "case_id": "TC-01-L1-F1-Negative-SOC",
+    "fault_family": "F1_Negative_SOC",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0006",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Telemetry anomaly detected for vehicle VF8VNF_0006: battery_soc reported negative out-of-bound values.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-001",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "VF8VNF_0006"
+        ],
+        "summary": "Telemetry anomaly detected for vehicle VF8VNF_0006: battery_soc reported negative out-of-bound values."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BMS",
+      "target_metric": "battery_soc",
+      "failure_mechanism": "SENSOR_GLITCH",
+      "ground_truth_cause": "BMS sensor glitch or telemetry pipeline corruption causing negative SOC values (battery_soc < 0)."
+    }
+  },
+  {
+    "case_id": "TC-02-L1-F2-Voltage-Overvoltage-Spike",
+    "fault_family": "F2_Voltage_Overvoltage_Spike",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0012",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Telemetry anomaly detected for vehicle VF8VNF_0012: battery_voltage reported extreme overvoltage spike (> 1000V).",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-002",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "VF8VNF_0012"
+        ],
+        "summary": "Telemetry anomaly detected for vehicle VF8VNF_0012: battery_voltage reported extreme overvoltage spike (> 1000V)."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BMS",
+      "target_metric": "battery_voltage",
+      "failure_mechanism": "SENSOR_GLITCH",
+      "ground_truth_cause": "CAN-bus electrical surge or sensor glitch causing unrealistic voltage spike (> 1000V)."
+    }
+  },
+  {
+    "case_id": "TC-03-L1-F3-RPM-Speed-Mismatch",
+    "fault_family": "F3_RPM_Speed_Mismatch",
+    "layer": "L1",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0018",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Telemetry anomaly detected for vehicle VF8VNF_0018: motor_rpm > 12000 while vehicle speed is 0 km/h.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-003",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "VF8VNF_0018"
+        ],
+        "summary": "Telemetry anomaly detected for vehicle VF8VNF_0018: motor_rpm > 12000 while vehicle speed is 0 km/h."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "MOTOR",
+      "target_metric": "motor_rpm",
+      "failure_mechanism": "DESYNCHRONIZATION",
+      "ground_truth_cause": "CAN-bus desynchronization between speed sensor and motor tachometer (speed=0 km/h but RPM > 12000)."
+    }
+  },
+  {
+    "case_id": "TC-04-L1-F5-Negative-Cost",
+    "fault_family": "F5_Negative_Cost",
+    "layer": "L1",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "CSESS_VGREEN_0042",
+    "dataset": "acn_charging_mapped",
+    "admission_observation": "Charging session anomaly detected for CSESS_VGREEN_0042: billing calculation produced negative cost_vnd.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-004",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "CSESS_VGREEN_0042"
+        ],
+        "summary": "Charging session anomaly detected for CSESS_VGREEN_0042: billing calculation produced negative cost_vnd."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BILLING_PIPELINE",
+      "target_metric": "cost_vnd",
+      "failure_mechanism": "ARITHMETIC_ERROR",
+      "ground_truth_cause": "Tariff billing engine calculation defect producing negative pricing multiplier in charging session."
+    }
+  },
+  {
+    "case_id": "TC-05-L1-F7-Negative-Fare",
+    "fault_family": "F7_Negative_Fare",
+    "layer": "L1",
+    "domain": "RIDE_HAILING",
+    "entity_id": "TRIP_XANH_0128",
+    "dataset": "ride_hailing_xanh_sm_trips",
+    "admission_observation": "Trip audit anomaly detected for TRIP_XANH_0128: fare_amount reported negative amount.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-005",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "TRIP_XANH_0128"
+        ],
+        "summary": "Trip audit anomaly detected for TRIP_XANH_0128: fare_amount reported negative amount."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "BILLING_PIPELINE",
+      "target_metric": "fare_amount",
+      "failure_mechanism": "PIPELINE_DEFECT",
+      "ground_truth_cause": "Ride-hailing billing pipeline defect producing negative trip fare amounts."
+    }
+  },
+  {
+    "case_id": "TC-06-L1-F8-Ledger-Mismatch",
+    "fault_family": "F8_Ledger_Mismatch",
+    "layer": "L1",
+    "domain": "RIDE_HAILING",
+    "entity_id": "TRIP_XANH_0542",
+    "dataset": "ride_hailing_xanh_sm_trips",
+    "admission_observation": "Trip ledger anomaly detected for TRIP_XANH_0542: total_fare does not match fare_amount + tip_amount.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-006",
+        "source_type": "detector_signal",
+        "source_id": "det-l1",
+        "entity_ids": [
+          "TRIP_XANH_0542"
+        ],
+        "summary": "Trip ledger anomaly detected for TRIP_XANH_0542: total_fare does not match fare_amount + tip_amount."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "ACCOUNTING_LEDGER",
+      "target_metric": "total_fare",
+      "failure_mechanism": "SCHEMA_MISMATCH",
+      "ground_truth_cause": "Accounting ledger schema inconsistency where total_fare does not equal fare_amount + tip_amount."
+    }
+  },
+  {
+    "case_id": "TC-07-L2-F10-SOC-Degradation-Drift",
+    "fault_family": "F10_SOC_Degradation_Drift",
+    "layer": "L2",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0025",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Contextual drift anomaly detected for vehicle VF8VNF_0025: battery_soc discharge rate significantly accelerated compared to 14-day baseline.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-007",
+        "source_type": "detector_signal",
+        "source_id": "det-l2",
+        "entity_ids": [
+          "VF8VNF_0025"
+        ],
+        "summary": "Contextual drift anomaly detected for vehicle VF8VNF_0025: battery_soc discharge rate significantly accelerated compared to 14-day baseline."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "BATTERY_CELL",
+      "target_metric": "battery_soc",
+      "failure_mechanism": "DEGRADATION_DRIFT",
+      "ground_truth_cause": "Battery cell degradation or internal resistance increase leading to accelerated SOC discharge rate over 14-day baseline."
+    }
+  },
+  {
+    "case_id": "TC-08-L2-F11-BatteryTemp-Drift",
+    "fault_family": "F11_BatteryTemp_Drift",
+    "layer": "L2",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0033",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Thermal drift anomaly detected for vehicle VF8VNF_0033: battery_temp_c exhibits persistent upward drift above baseline thermal threshold.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-008",
+        "source_type": "detector_signal",
+        "source_id": "det-l2",
+        "entity_ids": [
+          "VF8VNF_0033"
+        ],
+        "summary": "Thermal drift anomaly detected for vehicle VF8VNF_0033: battery_temp_c exhibits persistent upward drift above baseline thermal threshold."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "COOLING_SYSTEM",
+      "target_metric": "battery_temp_c",
+      "failure_mechanism": "THERMAL_DRIFT",
+      "ground_truth_cause": "Cooling system thermal degradation or heat dissipation failure leading to sustained battery pack temperature drift."
+    }
+  },
+  {
+    "case_id": "TC-09-L3-F6-GPS-Alleyway-Drift",
+    "fault_family": "F6_GPS_Alleyway_Drift",
+    "layer": "L3",
+    "domain": "RIDE_HAILING",
+    "entity_id": "TRIP_XANH_0890",
+    "dataset": "ride_hailing_xanh_sm_trips",
+    "admission_observation": "Spatial boundary anomaly detected for TRIP_XANH_0890: pickup coordinates located completely outside Hanoi operating bounding box.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-009",
+        "source_type": "detector_signal",
+        "source_id": "det-l3",
+        "entity_ids": [
+          "TRIP_XANH_0890"
+        ],
+        "summary": "Spatial boundary anomaly detected for TRIP_XANH_0890: pickup coordinates located completely outside Hanoi operating bounding box."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "GPS_SENSOR",
+      "target_metric": "pickup_latitude",
+      "failure_mechanism": "SPATIAL_DRIFT",
+      "ground_truth_cause": "Driver app GPS sensor drift or coordinate truncation placing pickup coordinates outside Hanoi bounding box."
+    }
+  },
+  {
+    "case_id": "TC-10-L3-F13-ChargingTrip-Mismatch",
+    "fault_family": "F13_ChargingTrip_Mismatch",
+    "layer": "L3",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "VF8VNF_0020",
+    "dataset": "acn_charging_mapped",
+    "admission_observation": "Cross-domain relational anomaly detected for vehicle VF8VNF_0020: vehicle recorded high charging sessions but minimal trip generation.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-010",
+        "source_type": "detector_signal",
+        "source_id": "det-l3",
+        "entity_ids": [
+          "VF8VNF_0020"
+        ],
+        "summary": "Cross-domain relational anomaly detected for vehicle VF8VNF_0020: vehicle recorded high charging sessions but minimal trip generation."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "FLEET_UTILIZATION",
+      "target_metric": "charging_sessions_vs_trips",
+      "failure_mechanism": "RELATIONAL_BREAK",
+      "ground_truth_cause": "Vehicle utilization anomaly with excessive charging frequency without corresponding trip activity (ghost charging / idle asset)."
+    }
+  },
+  {
+    "case_id": "TC-11-L3-F14-DurationEnergy-Mismatch",
+    "fault_family": "F14_DurationEnergy_Mismatch",
+    "layer": "L3",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "CSESS_VGREEN_0199",
+    "dataset": "acn_charging_mapped",
+    "admission_observation": "Relational anomaly detected for CSESS_VGREEN_0199: charging session duration increased significantly while delivered energy (kWh) remained flat.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-011",
+        "source_type": "detector_signal",
+        "source_id": "det-l3",
+        "entity_ids": [
+          "CSESS_VGREEN_0199"
+        ],
+        "summary": "Relational anomaly detected for CSESS_VGREEN_0199: charging session duration increased significantly while delivered energy (kWh) remained flat."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "MIXED",
+      "target_component": "CHARGER_METER",
+      "target_metric": "duration_vs_kwh",
+      "failure_mechanism": "RELATIONAL_BREAK",
+      "ground_truth_cause": "Relational break where charging duration increases significantly while delivered energy (kWh) remains flat, indicating power delivery stall or charger meter fault."
+    }
+  },
+  {
+    "case_id": "TC-12-L4-F15-ChargingFrequency-Shift",
+    "fault_family": "F15_ChargingFrequency_Shift",
+    "layer": "L4",
+    "domain": "CHARGING_NETWORK",
+    "entity_id": "VF8VNF_0045",
+    "dataset": "acn_charging_mapped",
+    "admission_observation": "Temporal changepoint anomaly detected for vehicle VF8VNF_0045: daily charging frequency abruptly jumped from 1 session/day to 3 sessions/day.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-012",
+        "source_type": "detector_signal",
+        "source_id": "det-l4",
+        "entity_ids": [
+          "VF8VNF_0045"
+        ],
+        "summary": "Temporal changepoint anomaly detected for vehicle VF8VNF_0045: daily charging frequency abruptly jumped from 1 session/day to 3 sessions/day."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "CHARGING_REGIME",
+      "target_metric": "charging_frequency",
+      "failure_mechanism": "CHANGEPOINT_SHIFT",
+      "ground_truth_cause": "Fleet vehicle charging operating regime shift where charging frequency persistently escalated (CUSUM shift)."
+    }
+  },
+  {
+    "case_id": "TC-13-L4-F16-FareDistribution-Regime",
+    "fault_family": "F16_FareDistribution_Regime",
+    "layer": "L4",
+    "domain": "RIDE_HAILING",
+    "entity_id": "DRV_XANH_0053",
+    "dataset": "ride_hailing_xanh_sm_trips",
+    "admission_observation": "Temporal changepoint anomaly detected for driver DRV_XANH_0053: mean daily trip distance shifted by +50% persistently.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-013",
+        "source_type": "detector_signal",
+        "source_id": "det-l4",
+        "entity_ids": [
+          "DRV_XANH_0053"
+        ],
+        "summary": "Temporal changepoint anomaly detected for driver DRV_XANH_0053: mean daily trip distance shifted by +50% persistently."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "DRIVER_ROUTE",
+      "target_metric": "trip_distance_km",
+      "failure_mechanism": "CHANGEPOINT_SHIFT",
+      "ground_truth_cause": "Driver route operating regime shift causing a persistent 50% shift in daily mean trip distance (CUSUM changepoint)."
+    }
+  }
+]

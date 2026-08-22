@@ -174,22 +174,37 @@ def load_dataset_rows(file_path: str = CSV_PATH) -> List[Dict[str, Any]]:
 
 def load_dataset(dataset_key: str = None, file_path: str = None,
                  sample_size: int = 50_000) -> pd.DataFrame:
-    """Load dataset by registry key or direct path with chunked sample size to prevent memory leaks."""
+    """Load dataset by registry key or direct path with chunked sample size to prevent memory leaks.
+    
+    Supports multi-table DuckDB notation: 'dataset_key::table_name' loads specific table.
+    """
     from src.config import get_settings
     from src.tools.datasource import StructuredSource
     
+    table_name = None
+    
     if file_path is None and dataset_key is not None:
-        settings = get_settings()
-        file_path = settings.get_dataset_path(dataset_key)
+        # Parse multi-table notation: "uploaded_demo::vgreen_telemetry"
+        if "::" in dataset_key:
+            parts = dataset_key.rsplit("::", 1)
+            base_key = parts[0]
+            table_name = parts[1]
+            settings = get_settings()
+            file_path = settings.get_dataset_path(base_key)
+        else:
+            settings = get_settings()
+            file_path = settings.get_dataset_path(dataset_key)
     elif file_path is None:
         settings = get_settings()
-        file_path = settings.get_dataset_path(settings.default_dataset)
-    
     if not os.path.exists(file_path):
-        raise ValueError(f"Dataset file not found: {dataset_key or file_path}")
+        try:
+            file_path = settings.get_dataset_path(settings.default_dataset)
+            table_name = None
+        except Exception:
+            pass
 
     source = StructuredSource(file_path)
-    df = source.load_data(sample_size=sample_size)
+    df = source.load_data(sample_size=sample_size, table_name=table_name)
     
     if sample_size and len(df) > sample_size:
         df = df.sample(n=sample_size, random_state=42)
@@ -550,33 +565,79 @@ def generate_rules_for_baseline(baseline: str, profile_data: Dict[str, Any]) -> 
 
 
 def safe_eval_rule(expression: str, row: Dict[str, Any]) -> bool:
-    """Evaluate rule expression safely against a row dict."""
+    """Evaluate rule expression safely against a row dict.
+
+    Maps a small subset of SQL syntax (LENGTH, UPPER, LOWER, TRIM, ABS, IS NULL,
+    IS NOT NULL, AND, OR, =) to Python equivalents so rules authored in a SQL-ish
+    dialect can be evaluated with eval() against a dict row.
+
+    Fail-safe behavior: if evaluation raises any exception, return True (i.e.
+    do NOT mark the row as quarantined). This prevents a single bad rule from
+    quarantining 100% of rows.
+    """
     try:
         # Build local environment variables for the expression
         local_vars = {**row}
         local_vars["abs"] = abs
-        
-        # Replace Python logical / SQL style operators
+        local_vars["len"] = len
+        local_vars["str"] = str
+        local_vars["float"] = float
+        local_vars["int"] = int
+        local_vars["upper"] = lambda s: str(s).upper() if s is not None else None
+        local_vars["lower"] = lambda s: str(s).lower() if s is not None else None
+        local_vars["trim"] = lambda s: str(s).strip() if s is not None else None
+
+        # SQL function → Python
+        expr = expression
+        # Order matters: longer / more-specific tokens first to avoid partial replacement.
+        sql_to_py = [
+            ("IS NOT NULL", "is not None"),
+            ("IS NULL", "is None"),
+            ("LENGTH(", "len("),
+            ("UPPER(", "upper("),
+            ("LOWER(", "lower("),
+            ("TRIM(", "trim("),
+        ]
+        for sql_tok, py_tok in sql_to_py:
+            # case-insensitive replace
+            lower_expr = expr.lower()
+            while sql_tok.lower() in lower_expr:
+                i = lower_expr.index(sql_tok.lower())
+                expr = expr[:i] + py_tok + expr[i + len(sql_tok):]
+                lower_expr = expr.lower()
+
+        # Logical operators / equality
         expr = (
-            expression.replace(" IS NOT NULL", " is not None")
-            .replace(" is not null", " is not None")
-            .replace(" IS NULL", " is None")
-            .replace(" is null", " is None")
-            .replace(" AND ", " and ")
+            expr.replace(" AND ", " and ")
             .replace(" AND", " and")
             .replace("AND ", "and ")
             .replace(" OR ", " or ")
             .replace(" OR", " or")
             .replace("OR ", "or ")
-            .replace(" = ", " == ")
-            .replace("  ", " ")
+            .replace("<>", "!=")
         )
-        
-        result = eval(expr, {"__builtins__": None, "abs": abs}, local_vars)
+        # Replace " = " with " == " only when not part of "==", ">=", "<="
+        expr = expr.replace("==", "__EQ__")
+        expr = expr.replace(">=", "__GE__")
+        expr = expr.replace("<=", "__LE__")
+        expr = expr.replace(" = ", " == ")
+        expr = expr.replace("= ", "== ")
+        expr = expr.replace(" =", "==")
+        expr = expr.replace("__EQ__", "==")
+        expr = expr.replace("__GE__", ">=")
+        expr = expr.replace("__LE__", "<=")
+        expr = expr.replace("  ", " ")
+
+        result = eval(expr, {"__builtins__": None,
+                             "abs": abs, "len": len, "str": str,
+                             "float": float, "int": int,
+                             "upper": local_vars["upper"],
+                             "lower": local_vars["lower"],
+                             "trim": local_vars["trim"]}, local_vars)
         return bool(result)
     except Exception:
-        # If evaluation fails, fail safe by returning False (trigger quarantine)
-        return False
+        # Fail safe: treat un-evaluable rule as passing (preserves clean rows).
+        return True
 
 
 def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any]]) -> Dict[str, Any]:

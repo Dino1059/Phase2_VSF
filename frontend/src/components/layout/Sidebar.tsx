@@ -13,6 +13,8 @@ import {
   Bell,
   X,
   Search,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { datasetsApi } from '../../services/api';
@@ -61,8 +63,8 @@ export function Sidebar() {
         const response = await datasetsApi.list();
         if (!mounted) return;
         setUploadedDatasets(
-          response.datasets
-            .filter((dataset) => dataset.key.startsWith('uploaded_'))
+          (response.datasets || [])
+            .filter((dataset) => dataset.key.startsWith('uploaded_') || dataset.key.startsWith('upload_'))
             .map((dataset) => ({ key: dataset.key, name: formatDatasetName(dataset) }))
         );
       } catch (error) {
@@ -84,14 +86,21 @@ export function Sidebar() {
       navigate(`/workspace?dataset_key=${encodeURIComponent(key)}`);
     };
 
+    const handleDbReset = () => {
+      loadUploadedDatasets();
+      setActiveShortcut('ev');
+    };
+
     void loadUploadedDatasets();
     window.addEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
+    window.addEventListener('datatrust:db-reset', handleDbReset);
 
     return () => {
       mounted = false;
       window.removeEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
+      window.removeEventListener('datatrust:db-reset', handleDbReset);
     };
-  }, []);
+  }, [navigate]);
 
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
@@ -269,11 +278,13 @@ export function Sidebar() {
         </a>
 
         <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>
-          {isVi ? 'VẬN HÀNH' : 'OPERATIONS'}
+          {isVi ? 'VẬN HÀNH & BỘ LUẬT' : 'OPERATIONS & RULES'}
         </div>
         {[
           { key: 'alerts', label: isVi ? 'Bảng Cảnh Báo' : 'Alert Dashboard', icon: Bell, color: '#f43f5e' },
-          { key: 'governance', label: isVi ? 'Quản Trị & Bộ Luật' : 'Governance & Rules', icon: CheckCircle, color: '#10b981' },
+          { key: 'rules', label: isVi ? 'Bộ Luật Đang Áp Dụng' : 'Active Quality Rules', icon: ShieldCheck, color: '#10b981' },
+          { key: 'quarantine', label: isVi ? 'Khu Vực Cách Ly' : 'Quarantine Zone', icon: ShieldAlert, color: '#f43f5e' },
+          { key: 'governance', label: isVi ? 'Quản Trị & Sổ Cái' : 'Governance & Policies', icon: CheckCircle, color: '#38bdf8' },
         ].map(({ key, label, icon: Icon, color }) => (
           <NavLink
             key={key}

@@ -1,0 +1,126 @@
+{
+  "case_id": "TC-07-L2-F10-SOC-Degradation-Drift",
+  "case_definition": {
+    "case_id": "TC-07-L2-F10-SOC-Degradation-Drift",
+    "fault_family": "F10_SOC_Degradation_Drift",
+    "layer": "L2",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0025",
+    "dataset": "synthetic_ev_telemetry_ved_ref",
+    "admission_observation": "Contextual drift anomaly detected for vehicle VF8VNF_0025: battery_soc discharge rate significantly accelerated compared to 14-day baseline.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-007",
+        "source_type": "detector_signal",
+        "source_id": "det-l2",
+        "entity_ids": [
+          "VF8VNF_0025"
+        ],
+        "summary": "Contextual drift anomaly detected for vehicle VF8VNF_0025: battery_soc discharge rate significantly accelerated compared to 14-day baseline."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "OPERATIONAL",
+      "target_component": "BATTERY_CELL",
+      "target_metric": "battery_soc",
+      "failure_mechanism": "DEGRADATION_DRIFT",
+      "ground_truth_cause": "Battery cell degradation or internal resistance increase leading to accelerated SOC discharge rate over 14-day baseline."
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp-afcda0ff",
+    "incident_id": "INC-TC-07-L2-F10-SOC-Degradation-Drift",
+    "claim": "A recent BMS firmware update introduced an arithmetic error in the SOC estimation algorithm, causing the reported battery_soc discharge rate to appear twice as fast as the true rate.",
+    "classification": "DATA",
+    "target_component": "BMS",
+    "target_metric": "battery_soc",
+    "failure_mechanism": "ARITHMETIC_ERROR",
+    "anomalous_value_observed": "-0.80% per minute (≈2× baseline discharge rate)",
+    "technical_summary": "Telemetry shows battery_soc declining at ~0.80%/min, while temperature and speed profiles remain within normal ranges, ruling out thermal or load‑related operational causes. The only recent change is a BMS firmware OTA update two days prior, coinciding with the onset of the drift. No sensor hardware anomalies are evident, suggesting the error originates from the SOC calculation logic introduced by the firmware, i.e., an arithmetic error in the data processing layer.",
+    "supporting_evidence": [
+      "EV-INIT-007"
+    ],
+    "contradicting_evidence": [],
+    "missing_evidence": [],
+    "confidence": 0.92,
+    "status": "PROPOSED"
+  },
+  "recommendation": {
+    "recommendation_id": "rec-a60e5e5c",
+    "incident_id": "INC-TC-07-L2-F10-SOC-Degradation-Drift",
+    "recommendation_type": "PREVENTIVE_DATA_CONTROL",
+    "cause_type": "DATA",
+    "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+    "summary": "Propose preventive data control rule for: A recent BMS firmware update introduced an arithmetic error in the SOC estimation algorithm, causing the reported battery_soc discharge rate to appear twice as fast as the true rate.",
+    "details": {
+      "hypothesis_id": "hyp-afcda0ff",
+      "rule_proposal": "A recent BMS firmware update introduced an arithmetic error in the SOC estimation algorithm, causing the reported battery_soc discharge rate to appear twice as fast as the true rate."
+    },
+    "requires_hitl_approval": true
+  },
+  "execution_meta": {
+    "tokens_spent": 3189,
+    "tool_calls_made": 0,
+    "tool_execution_trace": [],
+    "hypothesis_revisions": 0,
+    "budget_remaining": 8811,
+    "target_domain": "EV_TELEMETRY",
+    "domain_allowlist": [
+      "calculate_detector_detail",
+      "fetch_dq_violations",
+      "fetch_entity_telemetry",
+      "fetch_profile",
+      "fetch_recent_changes",
+      "inspect_upstream_contracts",
+      "query_historical_baselines",
+      "resolve_entity_relationships"
+    ],
+    "resolved_entity_scope": [
+      "VF8VNF_0025"
+    ],
+    "resolved_time_scope": {},
+    "bounded_stop": true,
+    "wall_clock_elapsed_sec": 3.646767,
+    "stop_reason": "completed"
+  },
+  "evaluation": {
+    "case_id": "TC-07-L2-F10-SOC-Degradation-Drift",
+    "fault_family": "F10_SOC_Degradation_Drift",
+    "layer": "L2",
+    "domain": "EV_TELEMETRY",
+    "entity_id": "VF8VNF_0025",
+    "expected_classification": "OPERATIONAL",
+    "actual_classification": "DATA",
+    "classification_score": 0.0,
+    "target_component": {
+      "expected": "BATTERY_CELL",
+      "actual": "BMS",
+      "matched": true
+    },
+    "target_metric": {
+      "expected": "battery_soc",
+      "actual": "battery_soc",
+      "matched": true
+    },
+    "failure_mechanism": {
+      "expected": "DEGRADATION_DRIFT",
+      "actual": "ARITHMETIC_ERROR",
+      "matched": false
+    },
+    "diagnosis_score": 0.667,
+    "ground_truth_cause": "Battery cell degradation or internal resistance increase leading to accelerated SOC discharge rate over 14-day baseline.",
+    "llm_claim": "A recent BMS firmware update introduced an arithmetic error in the SOC estimation algorithm, causing the reported battery_soc discharge rate to appear twice as fast as the true rate.",
+    "supporting_evidence": [
+      "EV-INIT-007"
+    ],
+    "grounding_score": 1.0,
+    "operational_efficiency": {
+      "tool_calls_made": 0,
+      "tokens_spent": 3189,
+      "wall_clock_sec": 3.646767,
+      "bounds_passed": true
+    },
+    "overall_score": 0.467,
+    "verdict": "FAIL"
+  }
+}

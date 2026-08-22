@@ -218,27 +218,35 @@ class A1BoundedInvestigator:
 
         system_msg = (
             "You are A1, an autonomous root cause analysis (RCA) ReAct investigator for enterprise telemetry, charging networks, ride hailing, and data pipelines.\n"
-            "Your objective: Investigate the incident, gather evidence dynamically using diagnostic tools, and formulate an accurate root cause diagnosis.\n\n"
+            "Your objective: Investigate the incident, gather empirical evidence dynamically using diagnostic tools, and formulate an accurate root cause diagnosis.\n\n"
             f"Allowed Diagnostic Tools for domain {target_domain}:\n{tools_text}\n\n"
             "Investigation Instructions:\n"
             "1. Read the Admission Observation and Initial Evidence carefully.\n"
-            "2. If additional evidence is needed, execute an ACTION.\n"
-            "3. Formulate your FINAL_HYPOTHESIS promptly once sufficient evidence is gathered (typically within 1-2 tool calls).\n"
-            "4. In 'claim', clearly describe the specific technical root cause: state the exact metric, affected component/sensor/subsystem, and the failure mechanism (e.g. negative battery SOC sensor glitch, CAN-bus voltage overvoltage spike, tachometer speed desynchronization mismatch, tariff billing calculation negative cost, ride-hailing pipeline negative fare amount, accounting ledger inconsistency, GPS bounding box drift, relational charging duration vs kWh delivered stall, charging frequency CUSUM shift, or driver trip distance regime shift).\n"
-            "5. Set 'classification' accurately to one of: 'DATA' (pipeline defects, sensor corruptions, schema violations, negative bounds), 'OPERATIONAL' (battery cell degradation, cooling failure, physical charging stall, fleet route regime shift), or 'MIXED'.\n\n"
+            "2. The Admission Observation is only an unverified trigger. You must actively inspect raw telemetry, baseline drift, contracts, or data quality violations using diagnostic tools to differentiate between DATA corruption, SENSOR glitch, and OPERATIONAL degradation.\n"
+            "3. Execute an ACTION to query relevant diagnostic tools. When you have gathered sufficient empirical evidence, synthesize your FINAL_HYPOTHESIS with concrete supporting evidence references.\n"
+            "4. Your diagnosis must be precise and derived strictly from observed evidence:\n"
+            "   - 'classification': 'DATA' (pipeline defect, sensor corruption, schema violation, negative bound), 'OPERATIONAL' (physical degradation, cooling failure, route regime shift), or 'MIXED'.\n"
+            "   - 'target_component': The specific subsystem/component/domain affected (e.g. 'BMS', 'BATTERY', 'MOTOR', 'TACHOMETER', 'CHARGING_STATION', 'GPS', 'BILLING_PIPELINE', 'ACCOUNTING_LEDGER', 'DRIVER_REGIME').\n"
+            "   - 'target_metric': The exact metric or column exhibiting abnormal behavior (e.g. 'battery_soc', 'battery_voltage', 'motor_rpm', 'cost_vnd', 'fare_amount', 'total_fare', 'pickup_latitude', 'battery_temp_c', 'charging_duration_vs_kwh', 'charging_frequency', 'trip_distance_km').\n"
+            "   - 'failure_mechanism': The hypothesized failure mode (e.g. 'SENSOR_GLITCH', 'RANGE_VIOLATION', 'DESYNCHRONIZATION', 'ARITHMETIC_ERROR', 'SCHEMA_MISMATCH', 'DEGRADATION_DRIFT', 'THERMAL_DRIFT', 'SPATIAL_DRIFT', 'RELATIONAL_BREAK', 'CHANGEPOINT_SHIFT').\n"
+            "   - 'claim': A concise technical statement detailing the exact root cause, component, and observed anomaly.\n\n"
             "Response Format Rules:\n"
             "- To call a tool, respond with:\n"
             "ACTION: <tool_name>\n"
             "ARGS: {\"arg_name\": \"value\"}\n\n"
-            "- When ready to conclude, respond with:\n"
+            "- When ready to conclude, respond strictly in JSON:\n"
             "FINAL_HYPOTHESIS: {\n"
-            '  "claim": "Specific concise root cause statement with technical details",\n'
-            '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
+            '  "classification": "DATA" | "OPERATIONAL" | "MIXED",\n'
+            '  "target_component": "<affected_component>",\n'
+            '  "target_metric": "<specific_metric_or_column>",\n'
+            '  "failure_mechanism": "<failure_mode>",\n'
+            '  "anomalous_value_observed": "<value_or_null>",\n'
+            '  "claim": "<concise_root_cause_statement>",\n'
             '  "supporting_evidence_ids": ["<evidence_id_1>", "<evidence_id_2>"],\n'
             '  "contradicting_evidence_ids": [],\n'
             '  "missing_evidence": [],\n'
             '  "confidence": 0.90,\n'
-            '  "reasoning": "Technical explanation of observed evidence and root cause conclusion"\n'
+            '  "reasoning": "<technical_explanation>"\n'
             "}"
         )
 
@@ -248,7 +256,7 @@ class A1BoundedInvestigator:
             f"Entity ID: {entity_id}\n"
             f"Admission Observation: {incident.admission_reason}\n"
             f"Initial Evidence:\n{ev_lines}\n\n"
-            "Begin your investigation. Choose an ACTION or provide FINAL_HYPOTHESIS."
+            "Begin your investigation. Formulate your diagnostic query and execute an ACTION using the allowed diagnostic tools."
         )
 
         messages = [
@@ -280,6 +288,14 @@ class A1BoundedInvestigator:
             if "FINAL_HYPOTHESIS:" in content or ('"classification"' in content and '"claim"' in content):
                 parsed = extract_json(content)
                 if parsed and ("claim" in parsed or "classification" in parsed):
+                    # If model jumped to conclusion on turn 1 without any tool calls, prompt to verify first
+                    if tool_calls_made == 0:
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({
+                            "role": "user",
+                            "content": f"Observation: You have not inspected the raw data or baseline distributions for entity '{entity_id}'. Please execute an ACTION to inspect the signals before finalizing."
+                        })
+                        continue
                     final_parsed_hypothesis = parsed
                     break
 
@@ -358,13 +374,15 @@ class A1BoundedInvestigator:
             synth_prompt = (
                 "Based on all observations and evidence collected above, synthesize and provide your FINAL_HYPOTHESIS strictly in JSON:\n"
                 "{\n"
-                '  "claim": "Specific concise root cause description detailing the exact technical cause, component, and metric",\n'
-                '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
-                '  "supporting_evidence_ids": ["ev_id1", "ev_id2"],\n'
-                '  "contradicting_evidence_ids": [],\n'
-                '  "missing_evidence": [],\n'
+                '  "classification": "DATA" | "OPERATIONAL" | "MIXED",\n'
+                '  "target_component": "<affected_component>",\n'
+                '  "target_metric": "<specific_metric_or_column>",\n'
+                '  "failure_mechanism": "<failure_mode>",\n'
+                '  "anomalous_value_observed": "<value_or_null>",\n'
+                '  "claim": "<concise_root_cause_statement>",\n'
+                '  "supporting_evidence_ids": ["<ev_id1>", "<ev_id2>"],\n'
                 '  "confidence": 0.90,\n'
-                '  "reasoning": "summary rationale"\n'
+                '  "reasoning": "<summary_rationale>"\n'
                 "}"
             )
             messages.append({"role": "user", "content": synth_prompt})
@@ -387,10 +405,21 @@ class A1BoundedInvestigator:
                 sup = [gathered_evidence[-1].evidence_id]
             con = [eid for eid in final_parsed_hypothesis.get("contradicting_evidence_ids", []) if eid in valid_ev_ids]
             missing = final_parsed_hypothesis.get("missing_evidence", [])
+            target_comp = final_parsed_hypothesis.get("target_component")
+            target_met = final_parsed_hypothesis.get("target_metric")
+            fail_mech = final_parsed_hypothesis.get("failure_mechanism")
+            anom_val = final_parsed_hypothesis.get("anomalous_value_observed")
+            tech_sum = final_parsed_hypothesis.get("reasoning") or claim
+
             hyp = Hypothesis(
                 incident_id=incident.incident_id,
                 claim=claim,
                 classification=classification,
+                target_component=target_comp,
+                target_metric=target_met,
+                failure_mechanism=fail_mech,
+                anomalous_value_observed=anom_val,
+                technical_summary=tech_sum,
                 supporting_evidence=sup,
                 contradicting_evidence=con,
                 missing_evidence=missing,
@@ -399,6 +428,7 @@ class A1BoundedInvestigator:
             )
         else:
             hyp, _, _ = self._execute_deterministic_loop(incident, initial_evidence, target_domain, allowlist, start_time)
+
 
         rec = self.router.route_hypothesis(incident.incident_id, hyp)
         wall_clock_elapsed = round(time.perf_counter() - start_time, 6)

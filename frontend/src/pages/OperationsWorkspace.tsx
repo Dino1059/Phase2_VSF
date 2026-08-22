@@ -2,29 +2,33 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Bell,
   TriangleAlert,
-  Activity,
-  GitBranch,
   Shield,
-  ListChecks,
-  Camera,
   RefreshCw,
   Search,
   CheckCircle2,
-  Layers,
-  Brain,
-  Sparkles,
-  ExternalLink,
   ShieldCheck,
-  Zap,
+  Car,
+  BatteryCharging,
+  CarTaxiFront,
+  MessageSquare,
+  Database,
+  Check,
+  X,
+  Info,
+  Lock,
+  Eye,
+  Clock,
 } from 'lucide-react';
+import { QuarantineZoneTab } from '../components/workspace/QuarantineZoneTab';
 import {
   approvalsApi,
   auditApi,
   authorizationsApi,
   executionsApi,
   incidentsApi,
+  rulesApi,
+  QualityRuleItem,
   quarantineApi,
   signalsApi,
   snapshotsApi,
@@ -56,21 +60,18 @@ function thisRunAuditCount(entries: Array<{ action?: string; target_table?: stri
 }
 
 type DashboardGroup = 'alerts' | 'governance';
-type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'governance' | 'executions' | 'snapshots';
+type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'rules' | 'quarantine' | 'governance' | 'executions' | 'snapshots';
 type Row = Record<string, any>;
 
-const ALERT_SUBTABS: Array<{ key: SubTabKey; label: { en: string; vi: string }; icon: any; color: string }> = [
-  { key: 'alerts', label: { en: 'Alert Center', vi: 'Trung Tâm Cảnh Báo' }, icon: Bell, color: '#f43f5e' },
-  { key: 'incidents', label: { en: 'Incidents & RCA Triage', vi: 'Phân Loại Sự Cố & RCA' }, icon: TriangleAlert, color: '#f59e0b' },
-  { key: 'signals', label: { en: 'Signal Explorer', vi: 'Khám Phá Tín Hiệu Telemetry' }, icon: Activity, color: '#a855f7' },
-  { key: 'traces', label: { en: 'Agent Traces', vi: 'Dấu Vết Thực Thi Agent' }, icon: GitBranch, color: '#10b981' },
+const MULTI_DATASET_OPTIONS = [
+  { key: 'all', label: { en: 'All Sources', vi: 'Tất Cả Nguồn Dữ Liệu' }, icon: Database, color: 'var(--neon-cyan)' },
+  { key: 'vinfast_ev_telemetry', label: { en: 'VinFast EV Telemetry', vi: 'VinFast EV Telemetry' }, icon: Car, color: '#0284c7' },
+  { key: 'vgreen_charging_stations', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
+  { key: 'xanh_sm_trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
+  { key: 'xanh_sm_customer_feedback', label: { en: 'Xanh SM Customer Feedback', vi: 'Phản Hồi Xanh SM' }, icon: MessageSquare, color: '#8b5cf6' },
+  { key: 'vietnam_trips', label: { en: 'Vietnam Trips Benchmark', vi: 'Tập Chuẩn Vietnam Trips' }, icon: Database, color: '#f59e0b' },
 ];
 
-const GOVERNANCE_SUBTABS: Array<{ key: SubTabKey; label: { en: string; vi: string }; icon: any; color: string }> = [
-  { key: 'governance', label: { en: 'Governance & Policies', vi: 'Quản Trị & Chính Sách' }, icon: Shield, color: '#38bdf8' },
-  { key: 'executions', label: { en: 'Execution History', vi: 'Lịch Sử Thực Thi' }, icon: ListChecks, color: '#3b82f6' },
-  { key: 'snapshots', label: { en: 'Data Snapshots', vi: 'Ảnh Chụp Dữ Liệu' }, icon: Camera, color: '#6366f1' },
-];
 
 const COLUMN_TRANSLATIONS: Record<string, { en: string; vi: string }> = {
   incident_id: { en: 'INCIDENT ID', vi: 'MÃ SỰ CỐ' },
@@ -102,6 +103,13 @@ const COLUMN_TRANSLATIONS: Record<string, { en: string; vi: string }> = {
   column_count: { en: 'COLUMN COUNT', vi: 'SỐ CỘT' },
   sha256_hash: { en: 'SHA-256 HASH', vi: 'MÃ BĂM SHA-256' },
   ingested_at: { en: 'INGESTED AT', vi: 'THỜI ĐIỂM NẠP' },
+  llm_claim: { en: 'AI REASONING CONCLUSION', vi: 'SUY LUẬN / KẾT LUẬN CUỐI' },
+  confidence: { en: 'CLASSIFICATION & CONFIDENCE', vi: 'PHÂN LOẠI & ĐỘ TIN CẬY' },
+  rule_id: { en: 'RULE ID', vi: 'MÃ BỘ LUẬT' },
+  dataset_name: { en: 'DATASET SOURCE', vi: 'NGUỒN DỮ LIỆU' },
+  target_column: { en: 'TARGET COLUMN', vi: 'CỘT MỤC TIÊU' },
+  rule_expression: { en: 'RULE EXPRESSION', vi: 'BIỂU THỨC RÀNG BUỘC' },
+  quarantined_count: { en: 'QUARANTINED VIOLATIONS', vi: 'BẢN GHI ĐÃ CÁCH LY' },
 };
 
 function formatCell(row: Row, ...keys: string[]) {
@@ -119,22 +127,35 @@ export const OperationsWorkspace: React.FC = () => {
   const isVi = i18n.language === 'vi';
 
   // Determine main dashboard group and active subtab
-  const isGovernanceView = view === 'governance' || view === 'executions' || view === 'snapshots';
+  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots';
   const mainGroup: DashboardGroup = isGovernanceView ? 'governance' : 'alerts';
 
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>(() => {
     if (view && (view === 'incidents' || view === 'signals' || view === 'traces')) return view;
-    if (view && (view === 'executions' || view === 'snapshots')) return view;
-    return isGovernanceView ? 'governance' : 'alerts';
+    if (view && (view === 'rules' || view === 'quarantine' || view === 'executions' || view === 'snapshots')) return view;
+    return isGovernanceView ? 'rules' : 'alerts';
   });
 
   const [data, setData] = useState<Row[]>([]);
   const [_summary, setSummary] = useState<Row | null>(null);
-  const [quarantineCount, setQuarantineCount] = useState(0);
-  const [auditCount, setAuditCount] = useState(0);
+  const [_quarantineCount, setQuarantineCount] = useState(0);
+  const [_auditCount, setAuditCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
+
+  // Rules-specific filters & states
+  const [datasetFilter, setDatasetFilter] = useState<string>('all');
+  const [layerFilter, setLayerFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [actionLoadingRuleId, setActionLoadingRuleId] = useState<string | null>(null);
+  const [approvalFeedback, setApprovalFeedback] = useState<{
+    ruleId: string;
+    ruleName: string;
+    quarantinedCount: number;
+    datasetKey: string;
+  } | null>(null);
+  const [selectedRuleForDetail, setSelectedRuleForDetail] = useState<QualityRuleItem | null>(null);
 
   // Selected incident for interactive RCA deep-dive modal
   const [selectedIncident, setSelectedIncident] = useState<Record<string, any> | null>(null);
@@ -143,13 +164,11 @@ export const OperationsWorkspace: React.FC = () => {
   useEffect(() => {
     setSelectedIncident(null);
   }, [view]);
-  const [modalTab, setModalTab] = useState<'rca' | 'evidence' | 'raw_json'>('rca');
-  const [investigating, setInvestigating] = useState(false);
-  const [investigationResult, setInvestigationResult] = useState<any>(null);
+  const [modalTab, setModalTab] = useState<'rca' | 'evidence' | 'signals'>('rca');
 
   // Sync URL view param with active subtab
   useEffect(() => {
-    if (view && ['alerts', 'incidents', 'signals', 'traces', 'governance', 'executions', 'snapshots'].includes(view)) {
+    if (view && ['alerts', 'incidents', 'signals', 'traces', 'rules', 'quarantine', 'governance', 'executions', 'snapshots'].includes(view)) {
       setActiveSubTab(view as SubTabKey);
     }
   }, [view]);
@@ -189,6 +208,9 @@ export const OperationsWorkspace: React.FC = () => {
       } else if (activeSubTab === 'traces') {
         const tracesRes = await tracesApi.list().catch(() => ({ sessions: [] }));
         setData(tracesRes.sessions || []);
+      } else if (activeSubTab === 'rules') {
+        const rulesRes = await rulesApi.list().catch(() => []);
+        setData(rulesRes || []);
       } else if (activeSubTab === 'governance') {
         const [approvals, authorizations, audit] = await Promise.all([
           approvalsApi.list().catch(() => []),
@@ -252,7 +274,6 @@ export const OperationsWorkspace: React.FC = () => {
     setIncidentLoading(true);
     setSelectedIncident(initialRow || { incident_id: incidentId });
     setModalTab('rca');
-    setInvestigationResult(null);
 
     try {
       const full = await incidentsApi.get(incidentId);
@@ -266,24 +287,88 @@ export const OperationsWorkspace: React.FC = () => {
     }
   };
 
-  const handleRunInvestigation = async (incidentId: string) => {
-    setInvestigating(true);
+  // Rule Approval & Non-destructive Quarantine Action
+  const handleApproveRule = async (ruleId: string, ruleName?: string, datasetKey?: string) => {
+    setActionLoadingRuleId(ruleId);
     try {
-      const res = await incidentsApi.investigate(incidentId, 'A1');
-      setInvestigationResult(res);
-    } catch (err) {
-      console.error('Investigation failed:', err);
+      const res = await rulesApi.approve(ruleId);
+      const qCount = res.quarantined_count ?? 0;
+
+      // Update local state
+      setData((prev) =>
+        prev.map((r) => (r.id === ruleId || r.rule_id === ruleId ? { ...r, status: 'approved', quarantined_count: qCount } : r))
+      );
+
+      // Show celebratory feedback banner
+      setApprovalFeedback({
+        ruleId,
+        ruleName: ruleName || res.rule_name || ruleId,
+        quarantinedCount: qCount,
+        datasetKey: datasetKey || res.dataset_key || 'dataset',
+      });
+
+      // Dispatch event for other tabs to refresh
+      window.dispatchEvent(new CustomEvent('datatrust:quarantine-updated', { detail: { ruleId, qCount } }));
+    } catch (err: any) {
+      alert(`Approval error: ${err.message}`);
     } finally {
-      setInvestigating(false);
+      setActionLoadingRuleId(null);
+    }
+  };
+
+  const handleRejectRule = async (ruleId: string) => {
+    setActionLoadingRuleId(ruleId);
+    try {
+      await rulesApi.reject(ruleId);
+      setData((prev) =>
+        prev.map((r) => (r.id === ruleId || r.rule_id === ruleId ? { ...r, status: 'rejected' } : r))
+      );
+    } catch (err: any) {
+      alert(`Reject error: ${err.message}`);
+    } finally {
+      setActionLoadingRuleId(null);
+    }
+  };
+
+  const handleBatchApproveRules = async () => {
+    const pending = (data as QualityRuleItem[]).filter(
+      (r) => (r.status || '').toLowerCase() === 'proposed' || (r.status || '').toLowerCase() === 'pending'
+    );
+    if (pending.length === 0) return;
+
+    setActionLoadingRuleId('batch');
+    try {
+      const res = await rulesApi.batchApprove(pending.map((r) => r.id || r.rule_id));
+      setData((prev) =>
+        prev.map((r) => {
+          if ((r.status || '').toLowerCase() === 'proposed' || (r.status || '').toLowerCase() === 'pending') {
+            return { ...r, status: 'approved' };
+          }
+          return r;
+        })
+      );
+      setApprovalFeedback({
+        ruleId: 'BATCH_APPROVAL',
+        ruleName: isVi ? `${res.processed_count} bộ luật được duyệt` : `${res.processed_count} rules approved`,
+        quarantinedCount: res.total_quarantined || 0,
+        datasetKey: 'multi_dataset',
+      });
+      loadData();
+    } catch (err: any) {
+      alert(`Batch approval error: ${err.message}`);
+    } finally {
+      setActionLoadingRuleId(null);
     }
   };
 
   const currentColumns = useMemo(() => {
     const map: Record<SubTabKey, string[]> = {
-      alerts: ['incident_id', 'fault_family', 'layer', 'target_entity', 'severity', 'status', 'verdict', 'ground_truth_cause'],
-      incidents: ['incident_id', 'fault_family', 'domain', 'layer', 'target_entity', 'severity', 'status', 'verdict'],
+      alerts: ['incident_id', 'target_entity', 'layer', 'severity', 'status', 'llm_claim', 'confidence'],
+      incidents: ['incident_id', 'target_entity', 'domain', 'layer', 'severity', 'status', 'llm_claim', 'confidence'],
       signals: ['signal_id', 'layer', 'signal_type', 'severity', 'detector', 'details'],
       traces: ['session_id', 'agent_type', 'steps', 'total_tokens', 'started'],
+      rules: ['rule_id', 'dataset_name', 'layer', 'target_column', 'rule_expression', 'status', 'quarantined_count'],
+      quarantine: ['group_id', 'source_table', 'rule_name', 'severity', 'total_rows', 'status'],
       governance: ['record_type', 'id', 'status', 'actor', 'action', 'timestamp'],
       executions: ['event_type', 'actor', 'timestamp', 'details'],
       snapshots: ['id', 'source_file', 'row_count', 'column_count', 'sha256_hash', 'ingested_at'],
@@ -291,30 +376,132 @@ export const OperationsWorkspace: React.FC = () => {
     return map[activeSubTab] || ['id', 'status', 'timestamp'];
   }, [activeSubTab]);
 
+  const operationalStats = useMemo(() => {
+    if (!Array.isArray(data)) {
+      return {
+        total: 0,
+        critical: 0,
+        high: 0,
+        dataDefects: 0,
+        opDefects: 0,
+        l1: 0,
+        l2: 0,
+        l3: 0,
+        l4: 0,
+        quarantineCount: 0,
+        openCount: 0,
+        approvedRulesCount: 0,
+        proposedRulesCount: 0,
+        totalQuarantinedRows: 0,
+      };
+    }
+
+    let critical = 0;
+    let high = 0;
+    let dataDefects = 0;
+    let opDefects = 0;
+    let l1 = 0;
+    let l2 = 0;
+    let l3 = 0;
+    let l4 = 0;
+    let quarantineCount = 0;
+    let openCount = 0;
+    let approvedRulesCount = 0;
+    let proposedRulesCount = 0;
+    let totalQuarantinedRows = 0;
+
+    data.forEach((row: any) => {
+      const sev = String(row.severity || '').toUpperCase();
+      if (sev === 'CRITICAL') critical++;
+      else if (sev === 'HIGH') high++;
+
+      const cls = String(row.llm_classification || row.classification || '').toUpperCase();
+      if (cls.includes('DATA')) dataDefects++;
+      else if (cls.includes('OPERATIONAL') || cls.includes('OP')) opDefects++;
+
+      const layers = Array.isArray(row.supporting_layers)
+        ? row.supporting_layers
+        : [row.layer || ''];
+      layers.forEach((ly: string) => {
+        const u = String(ly).toUpperCase();
+        if (u.includes('L1')) l1++;
+        if (u.includes('L2')) l2++;
+        if (u.includes('L3')) l3++;
+        if (u.includes('L4')) l4++;
+      });
+
+      const act = String(row.expected_action || row.action_type || '').toUpperCase();
+      if (act.includes('QUARANTINE')) quarantineCount++;
+
+      const st = String(row.status || '').toUpperCase();
+      if (st === 'OPEN' || st === 'PENDING' || st === 'PROPOSED') {
+        openCount++;
+        proposedRulesCount++;
+      } else if (st === 'APPROVED' || st === 'ACTIVE') {
+        approvedRulesCount++;
+      }
+
+      if (row.quarantined_count) {
+        totalQuarantinedRows += Number(row.quarantined_count) || 0;
+      }
+    });
+
+    return {
+      total: data.length,
+      critical,
+      high,
+      dataDefects,
+      opDefects,
+      l1,
+      l2,
+      l3,
+      l4,
+      quarantineCount,
+      openCount,
+      approvedRulesCount,
+      proposedRulesCount,
+      totalQuarantinedRows,
+    };
+  }, [data]);
+
   const filteredData = useMemo(() => {
-    if (!filterQuery.trim()) return data;
+    let list = Array.isArray(data) ? data : [];
+
+    if (activeSubTab === 'rules') {
+      if (datasetFilter !== 'all') {
+        list = list.filter((r) => r.dataset_key === datasetFilter);
+      }
+      if (layerFilter !== 'all') {
+        list = list.filter((r) => String(r.layer || '').toUpperCase().includes(layerFilter.toUpperCase()));
+      }
+      if (statusFilter !== 'all') {
+        list = list.filter((r) => String(r.status || '').toLowerCase() === statusFilter.toLowerCase());
+      }
+    }
+
+    if (!filterQuery.trim()) return list;
     const q = filterQuery.toLowerCase().trim();
-    return data.filter((row) =>
+    return list.filter((row) =>
       Object.values(row).some((val) => String(val).toLowerCase().includes(q))
     );
-  }, [data, filterQuery]);
-
-  const subTabs = mainGroup === 'alerts' ? ALERT_SUBTABS : GOVERNANCE_SUBTABS;
+  }, [data, activeSubTab, datasetFilter, layerFilter, statusFilter, filterQuery]);
 
   return (
-    <section className="dash-main" style={{ minHeight: '100%', overflowY: 'auto', padding: '24px 32px' }}>
+    <section className="dash-main" style={{ padding: '24px 32px' }}>
       {/* TOP HEADER & TITLE */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div className="menu-label" style={{ padding: 0, color: 'var(--neon-cyan)', letterSpacing: '0.08em' }}>
             {mainGroup === 'alerts'
               ? (isVi ? 'VẬN HÀNH & GIÁM SÁT' : 'OPERATIONS & OBSERVABILITY')
-              : (isVi ? 'QUẢN TRỊ & TUÂN THỦ' : 'GOVERNANCE & COMPLIANCE')}
+              : (isVi ? 'QUẢN TRỊ & BỘ LUẬT CHẤT LƯỢNG' : 'GOVERNANCE & QUALITY RULES')}
           </div>
           <h1 style={{ margin: '4px 0 0', color: 'var(--text-main)', fontSize: '24px', fontWeight: 600 }}>
-            {mainGroup === 'alerts'
-              ? (isVi ? 'Bảng Cảnh Báo Điều Hành' : 'Alert Dashboard')
-              : (isVi ? 'Bảng Quản Trị & Chính Sách' : 'Governance Dashboard')}
+            {activeSubTab === 'rules'
+              ? (isVi ? 'Bộ Luật Đang Áp Dụng (Multi-Dataset Quality Rules)' : 'Active Quality Rules Control Room')
+              : mainGroup === 'alerts'
+                ? (isVi ? 'Bảng Cảnh Báo Điều Hành' : 'Alert Dashboard')
+                : (isVi ? 'Bảng Quản Trị & Chính Sách' : 'Governance Dashboard')}
           </h1>
         </div>
 
@@ -323,7 +510,7 @@ export const OperationsWorkspace: React.FC = () => {
             <Search size={14} style={{ position: 'absolute', left: '10px', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder={isVi ? 'Lọc hàng trong bảng...' : 'Filter table rows...'}
+              placeholder={isVi ? 'Lọc theo tên, cột, biểu thức...' : 'Filter rules, columns, expressions...'}
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
               style={{
@@ -333,7 +520,7 @@ export const OperationsWorkspace: React.FC = () => {
                 backgroundColor: 'var(--bg-card)',
                 color: 'var(--text-main)',
                 fontSize: '12px',
-                width: '220px',
+                width: '240px',
               }}
             />
           </div>
@@ -352,23 +539,116 @@ export const OperationsWorkspace: React.FC = () => {
       </div>
 
       {/* KPI METRICS BAR */}
-      {mainGroup === 'alerts' ? (
-        <div className="kpi-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'SoC < 0 (data_new)' : 'SoC < 0 (data_new)'}</div>
-            <div className="kpi-value" style={{ color: 'var(--alert-magenta)' }}>172</div>
+      {activeSubTab === 'rules' ? (
+        <div className="kpi-grid" style={{ marginBottom: '20px', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+          <div className="kpi-card" style={{ borderLeft: '3px solid var(--neon-cyan)' }}>
+            <div className="kpi-label">{isVi ? 'Tổng Số Quy Luật Đa Nguồn' : 'Total Multi-Dataset Rules'}</div>
+            <div className="kpi-value" style={{ color: 'var(--neon-cyan)', fontSize: '22px' }}>
+              {operationalStats.total} {isVi ? 'Quy Luật' : 'Rules'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {isVi ? 'Bao phủ 5 tập dữ liệu cốt lõi & custom DB' : 'Covering 5 core datasets & custom uploads'}
+            </div>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Sự cố OPEN' : 'OPEN incidents'}</div>
-            <div className="kpi-value" style={{ color: 'var(--electric-green)', fontSize: '20px' }}>8</div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid #10b981' }}>
+            <div className="kpi-label">{isVi ? 'Bộ Luật Đang Áp Dụng (Approved)' : 'Active & Enforced Rules'}</div>
+            <div className="kpi-value" style={{ color: '#10b981', fontSize: '22px' }}>
+              {operationalStats.approvedRulesCount} {isVi ? 'Đang Thực Thi' : 'Enforced'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {isVi ? 'Đang tự động bảo vệ kho dữ liệu' : 'Actively guarding warehouse storage'}
+            </div>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Voltage > 1000' : 'Voltage > 1000'}</div>
-            <div className="kpi-value" style={{ color: 'var(--neon-cyan)', fontSize: '20px' }}>131</div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid #f59e0b' }}>
+            <div className="kpi-label">{isVi ? 'Bộ Luật Chờ Phê Duyệt (HITL)' : 'Pending Steward Approval'}</div>
+            <div className="kpi-value" style={{ color: '#f59e0b', fontSize: '22px' }}>
+              {operationalStats.proposedRulesCount} {isVi ? 'Chờ Phê Duyệt' : 'Pending'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {operationalStats.proposedRulesCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleBatchApproveRules}
+                  disabled={actionLoadingRuleId === 'batch'}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: '#38bdf8',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {isVi ? '⚡ Phê duyệt tất cả ngay' : '⚡ Batch approve all now'}
+                </button>
+              ) : (
+                <span>{isVi ? 'Tất cả luật đã được phê duyệt' : 'All proposed rules approved'}</span>
+              )}
+            </div>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">{isVi ? 'Quarantine / Audit' : 'Quarantine / Audit'}</div>
-            <div className="kpi-value" style={{ color: '#a78bfa', fontSize: '20px' }}>{quarantineCount} / {auditCount}</div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid #f43f5e' }}>
+            <div className="kpi-label">{isVi ? 'Bản Ghi Đã Đưa Vào Cách Ly' : 'Total Quarantined Violations'}</div>
+            <div className="kpi-value" style={{ color: '#f43f5e', fontSize: '22px' }}>
+              {operationalStats.totalQuarantinedRows.toLocaleString()} {isVi ? 'Bản Ghi' : 'Rows'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              <span style={{ color: '#10b981', fontWeight: 600 }}>100% {isVi ? 'Dữ liệu gốc giữ nguyên' : 'Raw Data Preserved'}</span>
+            </div>
+          </div>
+        </div>
+      ) : mainGroup === 'alerts' ? (
+        <div className="kpi-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <div className="kpi-card" style={{ borderLeft: '3px solid #f43f5e' }}>
+            <div className="kpi-label">{isVi ? 'Tổng Sự Cố & Cảnh Báo' : 'Total Incidents & Alerts'}</div>
+            <div className="kpi-value" style={{ color: '#f43f5e', fontSize: '22px' }}>
+              {operationalStats.total} {isVi ? 'Ca Sự Cố' : 'Cases'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {operationalStats.critical > 0 || operationalStats.high > 0 ? (
+                <span>
+                  <strong style={{ color: '#f43f5e' }}>{operationalStats.critical}</strong> {isVi ? 'Khẩn cấp' : 'Critical'} · <strong style={{ color: '#f59e0b' }}>{operationalStats.high}</strong> {isVi ? 'Mức cao' : 'High'}
+                </span>
+              ) : (
+                <span>{isVi ? 'Không có sự cố khẩn cấp' : 'No critical issues'}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid #a855f7' }}>
+            <div className="kpi-label">{isVi ? 'Phân Loại Lỗi (Agent A1)' : 'Root Cause Triage (A1)'}</div>
+            <div className="kpi-value" style={{ color: '#a855f7', fontSize: '18px' }}>
+              {operationalStats.dataDefects} DATA · {operationalStats.opDefects} OP
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {isVi ? 'Phân loại nguyên nhân gốc tự động' : 'Autonomous root-cause triage'}
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid var(--neon-cyan)' }}>
+            <div className="kpi-label">{isVi ? 'Bao Phủ Tầng Detector' : 'Multi-Layer Detector Coverage'}</div>
+            <div className="kpi-value" style={{ color: 'var(--neon-cyan)', fontSize: '16px', letterSpacing: '0.02em' }}>
+              L1:{operationalStats.l1} · L2:{operationalStats.l2} · L3:{operationalStats.l3} · L4:{operationalStats.l4}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {isVi ? 'Ràng buộc · Trôi dạt · Tương quan · PELT' : 'Invariant · Drift · Relational · PELT'}
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ borderLeft: '3px solid #10b981' }}>
+            <div className="kpi-label">{isVi ? 'Hành Động Khắc Phục Đề Xuất' : 'Prescribed Remediation'}</div>
+            <div className="kpi-value" style={{ color: '#10b981', fontSize: '18px' }}>
+              {operationalStats.quarantineCount} {isVi ? 'Cần Cách Ly' : 'Quarantine'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              {operationalStats.openCount > 0
+                ? (isVi ? `${operationalStats.openCount} ca chờ phê duyệt HITL` : `${operationalStats.openCount} cases pending HITL`)
+                : (isVi ? 'Tất cả hành động đã xử lý' : 'All actions processed')}
+            </div>
           </div>
         </div>
       ) : (
@@ -390,41 +670,168 @@ export const OperationsWorkspace: React.FC = () => {
         </div>
       )}
 
-      {/* CONSOLIDATED SUB-TAB NAVIGATION BAR */}
-      <div
-        className="operations-subtabs-bar"
-        style={{
-          display: 'flex',
-          gap: '8px',
-          borderBottom: '1px solid var(--glass-border)',
-          marginBottom: '20px',
-          paddingBottom: '10px',
-          flexWrap: 'wrap',
-        }}
-      >
-        {subTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeSubTab === tab.key;
-          const label = tab.label[isVi ? 'vi' : 'en'];
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => {
-                setActiveSubTab(tab.key);
-                navigate(`/operations/${tab.key}`);
-              }}
-              className={`operations-subtab-btn ${isActive ? 'active' : ''}`}
-              style={{
-                borderColor: isActive ? tab.color : 'transparent',
-              }}
-            >
-              <Icon size={15} style={{ color: isActive ? tab.color : 'var(--text-muted)' }} />
-              <span style={{ color: isActive ? 'var(--text-main)' : 'var(--text-muted)' }}>{label}</span>
-            </button>
-          );
-        })}
-      </div>
+
+
+
+      {/* APPROVAL FEEDBACK CELEBRATION TOAST */}
+      {approvalFeedback && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(16, 185, 129, 0.15))',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            animation: 'fadeIn 0.3s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <CheckCircle2 size={18} style={{ color: '#10b981' }} />
+            <div>
+              <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '12.5px' }}>
+                {isVi ? `Đã đồng ý áp dụng rule "${approvalFeedback.ruleName}"!` : `Approved rule "${approvalFeedback.ruleName}"!`}
+              </span>{' '}
+              <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                {approvalFeedback.quarantinedCount > 0
+                  ? (isVi
+                    ? `Đã phát hiện và đưa ${approvalFeedback.quarantinedCount} bản ghi vi phạm vào Khu Vực Cách Ly (Dữ liệu gốc được bảo toàn 100%).`
+                    : `Isolated ${approvalFeedback.quarantinedCount} violating records into the Quarantine Zone (Raw data intact).`)
+                  : (isVi
+                    ? 'Tất cả các bản ghi trong tập dữ liệu đều đạt chuẩn kiểm tra.'
+                    : 'All records in target dataset conform to this rule specification.')}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setApprovalFeedback(null)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* MULTI-DATASET & LAYER FILTER BAR FOR RULES TAB */}
+      {activeSubTab === 'rules' && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            marginBottom: '16px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+          }}
+        >
+          {/* Multi-Dataset Source Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '110px' }}>
+              {isVi ? 'Nguồn Dữ Liệu:' : 'Dataset Source:'}
+            </span>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {MULTI_DATASET_OPTIONS.map((ds) => {
+                const Icon = ds.icon;
+                const isSelected = datasetFilter === ds.key;
+                return (
+                  <button
+                    key={ds.key}
+                    type="button"
+                    onClick={() => setDatasetFilter(ds.key)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11.5px',
+                      fontWeight: isSelected ? 600 : 400,
+                      cursor: 'pointer',
+                      border: isSelected ? `1px solid ${ds.color}` : '1px solid var(--glass-border)',
+                      background: isSelected ? 'rgba(2, 132, 199, 0.12)' : 'transparent',
+                      color: isSelected ? 'var(--text-main)' : 'var(--text-muted)',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <Icon size={13} style={{ color: ds.color }} />
+                    <span>{ds.label[isVi ? 'vi' : 'en']}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Layer & Status Filters */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+            {/* Layer Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', minWidth: '110px' }}>
+                {isVi ? 'Tầng Kiểm Soát:' : 'Detection Layer:'}
+              </span>
+              {[
+                { key: 'all', label: isVi ? 'Tất Cả Tầng' : 'All Layers' },
+                { key: 'L1', label: isVi ? 'L1 Bất Biến' : 'L1 Invariants' },
+                { key: 'L2', label: isVi ? 'L2 Trôi Dạt' : 'L2 Drift' },
+                { key: 'L3', label: isVi ? 'L3 Tương Quan' : 'L3 Relational' },
+                { key: 'L4', label: isVi ? 'L4 Đổi Điểm' : 'L4 Change-point' },
+              ].map((ly) => (
+                <button
+                  key={ly.key}
+                  type="button"
+                  onClick={() => setLayerFilter(ly.key)}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    border: layerFilter === ly.key ? '1px solid var(--neon-cyan)' : '1px solid transparent',
+                    background: layerFilter === ly.key ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                    color: layerFilter === ly.key ? 'var(--neon-cyan)' : 'var(--text-muted)',
+                  }}
+                >
+                  {ly.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Status Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                {isVi ? 'Trạng Thái:' : 'Status:'}
+              </span>
+              {[
+                { key: 'all', label: isVi ? 'Tất Cả' : 'All' },
+                { key: 'approved', label: isVi ? 'Đang Áp Dụng' : 'Approved' },
+                { key: 'proposed', label: isVi ? 'Chờ Duyệt' : 'Proposed' },
+                { key: 'rejected', label: isVi ? 'Từ Chối' : 'Rejected' },
+              ].map((st) => (
+                <button
+                  key={st.key}
+                  type="button"
+                  onClick={() => setStatusFilter(st.key)}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    border: statusFilter === st.key ? '1px solid #10b981' : '1px solid transparent',
+                    background: statusFilter === st.key ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+                    color: statusFilter === st.key ? '#10b981' : 'var(--text-muted)',
+                  }}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TABLE PANEL */}
       {error && (
@@ -433,8 +840,23 @@ export const OperationsWorkspace: React.FC = () => {
         </div>
       )}
 
-      <div className="panel-card" style={{ padding: '0', overflow: 'hidden' }}>
-        {loading ? (
+      <div
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 'var(--radius-card)',
+          padding: '0',
+          overflow: 'visible',
+          display: 'block',
+          height: 'auto',
+          maxHeight: 'none',
+        }}
+      >
+        {activeSubTab === 'quarantine' ? (
+          <div style={{ padding: '16px' }}>
+            <QuarantineZoneTab initialDatasetKey={datasetFilter} />
+          </div>
+        ) : loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <RefreshCw size={24} className="spinning" style={{ marginBottom: '12px', opacity: 0.5 }} />
             <div>{isVi ? 'Đang tải dữ liệu vận hành...' : 'Loading operational data...'}</div>
@@ -449,8 +871,368 @@ export const OperationsWorkspace: React.FC = () => {
                 : (isVi ? 'Tất cả các hệ thống đang hoạt động trong ngưỡng cho phép.' : 'All systems operating within acceptable parameters.')}
             </div>
           </div>
+        ) : activeSubTab === 'rules' ? (
+          /* ACTIVE RULES SPECIALIZED TABLE */
+          <div style={{ width: '100%', overflowX: 'auto', overflowY: 'visible', height: 'auto', maxHeight: 'none', borderRadius: 'var(--radius-card)' }}>
+            <table className="data-table" style={{ width: '100%', minWidth: '1050px', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '18%', minWidth: '160px' }}>{isVi ? 'MÃ BỘ LUẬT & TÊN' : 'RULE ID & NAME'}</th>
+                  <th style={{ width: '14%', minWidth: '130px' }}>{isVi ? 'NGUỒN DỮ LIỆU' : 'DATASET SOURCE'}</th>
+                  <th style={{ width: '8%', minWidth: '80px' }}>{isVi ? 'TẦNG' : 'LAYER'}</th>
+                  <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'CỘT MỤC TIÊU' : 'TARGET COLUMN'}</th>
+                  <th style={{ width: '17%', minWidth: '150px' }}>{isVi ? 'BIỂU THỨC RÀNG BUỘC' : 'RULE EXPRESSION'}</th>
+                  <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'TRẠNG THÁI' : 'STATUS'}</th>
+                  <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'BẢN GHI ĐÃ CÁCH LY' : 'QUARANTINED ROWS'}</th>
+                  <th style={{ width: '16%', minWidth: '150px', textAlign: 'right' }}>{isVi ? 'THAO TÁC' : 'ACTIONS'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.map((ruleItem: any) => {
+                  const rule = ruleItem as QualityRuleItem;
+                  const isApproved = (rule.status || '').toLowerCase() === 'approved';
+                  const isProposed = (rule.status || '').toLowerCase() === 'proposed' || (rule.status || '').toLowerCase() === 'pending';
+                  const isRejected = (rule.status || '').toLowerCase() === 'rejected';
+                  const isActionLoading = actionLoadingRuleId === rule.id || actionLoadingRuleId === rule.rule_id;
+
+                  const dsMeta = MULTI_DATASET_OPTIONS.find((d) => d.key === rule.dataset_key) || {
+                    label: { en: rule.dataset_name || rule.dataset_key, vi: rule.dataset_name || rule.dataset_key },
+                    icon: Database,
+                    color: rule.dataset_color || '#0284c7',
+                  };
+                  const Icon = dsMeta.icon;
+                  const brandColor = dsMeta.color === 'var(--neon-cyan)' ? '#0284c7' : dsMeta.color;
+
+                  // Dynamic Layer Badge Styling with Warm Accents
+                  const getLayerBadgeStyle = (ly: string) => {
+                    const u = String(ly || '').toUpperCase();
+                    if (u.includes('L1')) {
+                      return { color: '#0891b2', bg: 'rgba(6, 182, 212, 0.12)', border: 'rgba(6, 182, 212, 0.35)' };
+                    }
+                    if (u.includes('L2')) {
+                      return { color: '#7c3aed', bg: 'rgba(124, 58, 237, 0.12)', border: 'rgba(124, 58, 237, 0.35)' };
+                    }
+                    if (u.includes('L3')) {
+                      return { color: '#c2410c', bg: 'rgba(249, 115, 22, 0.12)', border: 'rgba(249, 115, 22, 0.35)' };
+                    }
+                    return { color: '#be123c', bg: 'rgba(244, 63, 94, 0.12)', border: 'rgba(244, 63, 94, 0.35)' };
+                  };
+                  const layerStyle = getLayerBadgeStyle(rule.layer || 'L1');
+
+                  return (
+                    <tr
+                      key={rule.id || rule.rule_id}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSelectedRuleForDetail(rule)}
+                    >
+                      {/* Rule ID & Name */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '100%' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '12.5px', lineHeight: '1.3', wordBreak: 'break-word' }}>
+                            {rule.rule_name || rule.id}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                            {rule.rule_id || rule.id}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Dataset Source Badge (Strict Overflow Fix) */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            background: 'rgba(2, 132, 199, 0.12)',
+                            border: '1px solid rgba(2, 132, 199, 0.35)',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            maxWidth: '100%',
+                            overflow: 'hidden',
+                          }}
+                          title={dsMeta.label[isVi ? 'vi' : 'en']}
+                        >
+                          <Icon size={12} style={{ color: brandColor, flexShrink: 0 }} />
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: brandColor,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '110px',
+                            }}
+                          >
+                            {dsMeta.label[isVi ? 'vi' : 'en']}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Layer */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <span
+                          style={{
+                            background: layerStyle.bg,
+                            color: layerStyle.color,
+                            border: `1px solid ${layerStyle.border}`,
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            display: 'inline-block',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {rule.layer || 'L1 Bất Biến'}
+                        </span>
+                      </td>
+
+                      {/* Target Column */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <code
+                          style={{
+                            fontSize: '11px',
+                            color: '#4f46e5',
+                            background: 'rgba(99, 102, 241, 0.1)',
+                            border: '1px solid rgba(99, 102, 241, 0.3)',
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            fontWeight: 700,
+                            fontFamily: 'var(--font-mono)',
+                            display: 'inline-block',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100%',
+                          }}
+                        >
+                          {rule.target_column || 'field'}
+                        </code>
+                      </td>
+
+                      {/* Rule Expression (WARM AMBER HIGHLIGHT) */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <code
+                          style={{
+                            fontSize: '11px',
+                            color: '#b45309',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            display: 'inline-block',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100%',
+                            boxShadow: '0 1px 2px rgba(245, 158, 11, 0.05)',
+                          }}
+                          title={rule.rule_expression}
+                        >
+                          {rule.rule_expression}
+                        </code>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        {isApproved ? (
+                          <span
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: '#047857',
+                              border: '1px solid rgba(16, 185, 129, 0.4)',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Check size={12} strokeWidth={2.5} /> {isVi ? 'Đang Áp Dụng' : 'Approved'}
+                          </span>
+                        ) : isRejected ? (
+                          <span
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              color: '#b91c1c',
+                              border: '1px solid rgba(239, 68, 68, 0.4)',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <X size={12} strokeWidth={2.5} /> {isVi ? 'Đã Từ Chối' : 'Rejected'}
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              background: 'rgba(245, 158, 11, 0.15)',
+                              color: '#b45309',
+                              border: '1px solid rgba(245, 158, 11, 0.4)',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Clock size={12} strokeWidth={2.5} /> {isVi ? 'Chờ Phê Duyệt' : 'Proposed'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Quarantined Rows */}
+                      <td style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        {rule.quarantined_count && rule.quarantined_count > 0 ? (
+                          <span
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              color: '#b91c1c',
+                              border: '1px solid rgba(239, 68, 68, 0.4)',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Shield size={11} />
+                            {rule.quarantined_count.toLocaleString()} {isVi ? 'dòng cách ly' : 'rows'}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>0 {isVi ? 'vi phạm' : 'violations'}</span>
+                        )}
+                      </td>
+
+                      {/* Action Buttons (16% Width Fit) */}
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', justifyContent: 'flex-end' }}>
+                          {isProposed && (
+                            <button
+                              type="button"
+                              onClick={() => handleApproveRule(rule.id || rule.rule_id, rule.rule_name, rule.dataset_key)}
+                              disabled={isActionLoading}
+                              style={{
+                                background: 'linear-gradient(135deg, #059669, #047857)',
+                                color: '#ffffff',
+                                border: 'none',
+                                padding: '4px 9px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap',
+                                boxShadow: '0 2px 4px rgba(5, 150, 105, 0.25)',
+                              }}
+                              title={isVi ? 'Đồng ý rule & chuyển bản ghi vi phạm vào Khu Vực Cách Ly' : 'Approve rule and isolate non-conforming rows to Quarantine'}
+                            >
+                              <Check size={12} className={isActionLoading ? 'spinning' : ''} />
+                              <span>{isVi ? 'Đồng Ý & Cách Ly' : 'Approve & Quarantine'}</span>
+                            </button>
+                          )}
+
+                          {isApproved && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveSubTab('quarantine');
+                                navigate('/operations/quarantine');
+                              }}
+                              style={{
+                                background: 'rgba(2, 132, 199, 0.15)',
+                                color: '#0284c7',
+                                border: '1px solid rgba(2, 132, 199, 0.4)',
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              <Eye size={12} />
+                              <span>{isVi ? 'Xem Cách Ly' : 'View Quarantine'}</span>
+                            </button>
+                          )}
+
+                          {!isRejected && (
+                            <button
+                              type="button"
+                              onClick={() => handleRejectRule(rule.id || rule.rule_id)}
+                              disabled={isActionLoading}
+                              style={{
+                                background: 'var(--bg-darker)',
+                                color: 'var(--text-main)',
+                                border: '1px solid var(--glass-border-bright)',
+                                padding: '4px 6px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title={isVi ? 'Từ chối quy luật này' : 'Reject this rule'}
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRuleForDetail(rule)}
+                            style={{
+                              background: 'var(--bg-darker)',
+                              color: 'var(--text-main)',
+                              border: '1px solid var(--glass-border-bright)',
+                              padding: '4px 6px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            title={isVi ? 'Xem chi tiết quy luật' : 'Inspect rule specifications'}
+                          >
+                            <Info size={12} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <div className="data-table-wrapper" style={{ maxHeight: 'calc(100vh - 360px)', overflow: 'auto' }}>
+          /* STANDARD OPERATIONS DATA TABLE */
+          <div style={{ width: '100%', overflowX: 'auto', overflowY: 'visible', height: 'auto', maxHeight: 'none', borderRadius: 'var(--radius-card)' }}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -544,45 +1326,85 @@ export const OperationsWorkspace: React.FC = () => {
                             </td>
                           );
                         }
-                        if (col === 'verdict') {
-                          const verdict = String(row.verdict || cellVal || 'PASS').toUpperCase();
-                          const score = row.benchmark_score || row.score_pct;
-                          const isPass = verdict.includes('PASS');
-                          const isPartial = verdict.includes('PARTIAL');
+                        if (col === 'domain' && cellVal !== '—') {
+                          return (
+                            <td key={col}>
+                              <span style={{ fontSize: '11px', color: 'var(--neon-cyan)', fontWeight: 600 }}>
+                                {cellVal}
+                              </span>
+                            </td>
+                          );
+                        }
+                        if (col === 'llm_claim') {
+                          const claimText = row.llm_claim || row.admission_reason || '—';
+                          return (
+                            <td key={col} style={{ maxWidth: '320px', minWidth: '220px' }}>
+                              <div
+                                title={String(claimText)}
+                                style={{
+                                  fontSize: '11.5px',
+                                  color: 'var(--text-muted)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {claimText}
+                              </div>
+                            </td>
+                          );
+                        }
+                        if (col === 'confidence') {
+                          const raw = row.confidence;
+                          const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
+                          const conf = isNaN(num) ? 0.92 : num;
+                          const pct = Math.round(conf <= 1.0 ? conf * 100 : conf);
                           return (
                             <td key={col}>
                               <span
                                 style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '8px',
+                                  color: pct >= 90 ? 'var(--electric-green)' : pct >= 75 ? 'var(--warning-amber)' : 'var(--alert-magenta)',
                                   fontSize: '11px',
-                                  fontWeight: 700,
-                                  backgroundColor: isPass ? 'rgba(16, 185, 129, 0.12)' : isPartial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(225, 29, 72, 0.12)',
-                                  color: isPass ? '#059669' : isPartial ? '#d97706' : '#e11d48',
-                                  border: `1px solid ${isPass ? 'rgba(16, 185, 129, 0.25)' : isPartial ? 'rgba(245, 158, 11, 0.25)' : 'rgba(225, 29, 72, 0.25)'}`,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
+                                  fontWeight: 600,
                                 }}
                               >
-                                {isPass ? (isVi ? '✓ ĐẠT' : '✓ PASS') : isPartial ? (isVi ? '⚠ MỘT PHẦN' : '⚠ PARTIAL') : (isVi ? '✗ KHÔNG ĐẠT' : '✗ FAIL')} {score ? `(${score}%)` : ''}
+                                {pct}%
+                              </span>
+                            </td>
+                          );
+                        }
+                        if (col === 'status') {
+                          const st = String(cellVal).toUpperCase();
+                          const isOk = st === 'ACTIVE' || st === 'VALID' || st === 'RESOLVED' || st === 'EXECUTED';
+                          return (
+                            <td key={col}>
+                              <span
+                                style={{
+                                  background: isOk ? 'rgba(16, 185, 129, 0.12)' : 'rgba(244, 63, 94, 0.12)',
+                                  color: isOk ? '#10b981' : '#f43f5e',
+                                  border: `1px solid ${isOk ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)'}`,
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {cellVal}
                               </span>
                             </td>
                           );
                         }
                         if (col === 'severity') {
-                          const isCrit = cellVal.toUpperCase() === 'CRITICAL';
+                          const sev = String(cellVal).toUpperCase();
+                          const isCrit = sev === 'CRITICAL';
+                          const isHigh = sev === 'HIGH';
                           return (
                             <td key={col}>
                               <span
                                 style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '10px',
-                                  fontSize: '11px',
+                                  color: isCrit ? '#f43f5e' : isHigh ? '#f59e0b' : '#38bdf8',
                                   fontWeight: 700,
-                                  backgroundColor: isCrit ? 'rgba(244, 63, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                  color: isCrit ? '#f43f5e' : '#f59e0b',
-                                  border: `1px solid ${isCrit ? 'rgba(244, 63, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                                  fontSize: '11px',
                                 }}
                               >
                                 {cellVal}
@@ -593,28 +1415,14 @@ export const OperationsWorkspace: React.FC = () => {
                         return <td key={col}>{cellVal}</td>;
                       })}
                       {(activeSubTab === 'alerts' || activeSubTab === 'incidents') && (
-                        <td>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (incId) handleOpenIncident(incId, row);
-                            }}
-                            style={{
-                              background: 'rgba(56, 189, 248, 0.1)',
-                              border: '1px solid rgba(56, 189, 248, 0.25)',
-                              color: '#38bdf8',
-                              borderRadius: '6px',
-                              padding: '3px 8px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
+                            className="hud-btn"
+                            style={{ height: '26px', fontSize: '11px', padding: '0 8px' }}
+                            onClick={() => incId && handleOpenIncident(incId, row)}
                           >
-                            <ExternalLink size={11} /> {isVi ? 'Xem RCA' : 'View RCA'}
+                            {isVi ? 'Phân Tích' : 'Triage'}
                           </button>
                         </td>
                       )}
@@ -627,403 +1435,501 @@ export const OperationsWorkspace: React.FC = () => {
         )}
       </div>
 
-      {/* INTERACTIVE INCIDENT RCA REASONING MODAL */}
+      {/* RULE DETAIL & QUARANTINE SPECIFICATION MODAL */}
+      {selectedRuleForDetail && (
+        <div className="modal-overlay active" onClick={() => setSelectedRuleForDetail(null)}>
+          <div
+            className="modal-card"
+            style={{ maxWidth: '640px', width: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={18} style={{ color: '#10b981' }} />
+                <span className="modal-title">
+                  {selectedRuleForDetail.rule_name || selectedRuleForDetail.id}
+                </span>
+              </div>
+              <button className="modal-close" onClick={() => setSelectedRuleForDetail(null)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '12px' }}>
+              {/* Dataset & Layer Banner */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--glass-border)',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    {isVi ? 'Nguồn Dữ Liệu' : 'Dataset Source'}
+                  </div>
+                  <div style={{ fontWeight: 600, color: 'var(--neon-cyan)', fontSize: '12.5px', marginTop: '2px' }}>
+                    {selectedRuleForDetail.dataset_name} ({selectedRuleForDetail.dataset_key})
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    {isVi ? 'Tầng Kiểm Soát' : 'Layer'}
+                  </div>
+                  <div style={{ fontWeight: 600, color: '#38bdf8', fontSize: '12.5px', marginTop: '2px' }}>
+                    {selectedRuleForDetail.layer}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    {isVi ? 'Trạng Thái' : 'Status'}
+                  </div>
+                  <div style={{ fontWeight: 600, color: selectedRuleForDetail.status === 'approved' ? '#10b981' : '#f59e0b', fontSize: '12.5px', marginTop: '2px' }}>
+                    {selectedRuleForDetail.status === 'approved' ? (isVi ? 'Đang Áp Dụng' : 'Approved') : (isVi ? 'Chờ Duyệt' : 'Proposed')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Expression Box */}
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600 }}>
+                  {isVi ? 'Biểu Thức Ràng Buộc (SQL / Evaluator Logic):' : 'Constraint Expression (SQL / Evaluator Logic):'}
+                </div>
+                <div className="terminal-block" style={{ padding: '10px 14px', background: '#0a0d14' }}>
+                  <code style={{ color: 'var(--neon-cyan)', fontFamily: 'monospace', fontSize: '12.5px' }}>
+                    {selectedRuleForDetail.rule_expression}
+                  </code>
+                </div>
+              </div>
+
+              {/* Physical / Statistical Rationale */}
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600 }}>
+                  {isVi ? 'Căn Cứ Kỹ Thuật & Tác Động:' : 'Technical Rationale & Impact:'}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-main)', background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                  {selectedRuleForDetail.description || (isVi ? 'Quy luật bảo vệ tính bất biến và chuẩn hóa chất lượng dữ liệu.' : 'Enforces data invariant and schema contract compliance.')}
+                </div>
+              </div>
+
+              {/* Non-Destructive Quarantine Guarantee */}
+              <div
+                style={{
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <Lock size={16} style={{ color: '#10b981', flexShrink: 0 }} />
+                <span style={{ fontSize: '11.5px', color: 'var(--text-main)' }}>
+                  {isVi
+                    ? 'Cam kết bảo toàn: Bản ghi không hợp lệ được lưu trong bảng quarantine kèm chữ ký SHA-256. Dữ liệu gốc trong kho được bảo toàn 100% không chỉnh sửa.'
+                    : 'Preservation Guarantee: Violations are routed to quarantine ledger with SHA-256 lineage hash. Raw source table is 100% untouched.'}
+                </span>
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                <button className="hud-btn" onClick={() => setSelectedRuleForDetail(null)}>
+                  {isVi ? 'Đóng' : 'Close'}
+                </button>
+                {selectedRuleForDetail.status !== 'approved' && (
+                  <button
+                    type="button"
+                    className="hud-btn"
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#ffffff',
+                      border: 'none',
+                      padding: '6px 14px',
+                      fontWeight: 600,
+                    }}
+                    onClick={() => {
+                      handleApproveRule(
+                        selectedRuleForDetail.id || selectedRuleForDetail.rule_id,
+                        selectedRuleForDetail.rule_name,
+                        selectedRuleForDetail.dataset_key
+                      );
+                      setSelectedRuleForDetail(null);
+                    }}
+                  >
+                    <Check size={13} style={{ display: 'inline', marginRight: 4 }} />
+                    {isVi ? 'Đồng Ý & Cách Ly' : 'Approve & Quarantine'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INTERACTIVE RCA TRIAGE MODAL */}
       {selectedIncident && (
         <div className="modal-overlay active" onClick={() => setSelectedIncident(null)}>
           <div
             className="modal-card"
+            style={{ maxWidth: '840px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '820px', width: '90%', maxHeight: '88vh', overflowY: 'auto' }}
           >
-            {/* MODAL HEADER */}
-            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <TriangleAlert size={18} style={{ color: '#f59e0b' }} />
-                <span className="modal-title" style={{ fontSize: '16px', fontWeight: 700 }}>
-                  {isVi ? 'Phân Tích RCA Sự Cố:' : 'Incident RCA:'} <code>{selectedIncident.incident_id}</code>
+                <span className="modal-title">
+                  {isVi ? 'Chẩn Đoán Sự Cố & Nguyên Nhân Gốc (RCA)' : 'Incident Diagnosis & Root Cause Analysis'}
                 </span>
-                {selectedIncident.fault_family && (
-                  <span
-                    style={{
-                      background: 'rgba(168, 85, 247, 0.15)',
-                      color: '#c084fc',
-                      border: '1px solid rgba(168, 85, 247, 0.3)',
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {selectedIncident.fault_family}
-                  </span>
-                )}
-                {selectedIncident.severity && (
-                  <span
-                    style={{
-                      background: selectedIncident.severity === 'CRITICAL' ? 'rgba(244, 63, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                      color: selectedIncident.severity === 'CRITICAL' ? '#f43f5e' : '#f59e0b',
-                      border: `1px solid ${selectedIncident.severity === 'CRITICAL' ? 'rgba(244, 63, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {selectedIncident.severity}
-                  </span>
-                )}
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    background: selectedIncident.severity === 'CRITICAL' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                    color: selectedIncident.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b',
+                    border: selectedIncident.severity === 'CRITICAL' ? '1px solid #ef4444' : '1px solid #f59e0b',
+                  }}
+                >
+                  {selectedIncident.severity || 'MEDIUM'}
+                </span>
               </div>
-              <button className="modal-close" onClick={() => setSelectedIncident(null)}>✕</button>
-            </div>
-
-            {/* TAB SELECTOR INSIDE MODAL */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>
-              <button
-                type="button"
-                onClick={() => setModalTab('rca')}
-                style={{
-                  background: modalTab === 'rca' ? 'rgba(14, 165, 233, 0.12)' : 'transparent',
-                  border: modalTab === 'rca' ? '1px solid rgba(14, 165, 233, 0.3)' : '1px solid transparent',
-                  color: modalTab === 'rca' ? 'var(--neon-cyan)' : 'var(--text-muted)',
-                  padding: '5px 14px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Brain size={13} /> {isVi ? 'Nguyên Nhân Gốc' : 'Causal Root Cause'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalTab('evidence')}
-                style={{
-                  background: modalTab === 'evidence' ? 'rgba(14, 165, 233, 0.12)' : 'transparent',
-                  border: modalTab === 'evidence' ? '1px solid rgba(14, 165, 233, 0.3)' : '1px solid transparent',
-                  color: modalTab === 'evidence' ? 'var(--neon-cyan)' : 'var(--text-muted)',
-                  padding: '5px 14px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Layers size={13} /> {isVi ? 'Bằng Chứng Hỗ Trợ' : 'Supporting Evidence'} ({selectedIncident.evidence?.length || selectedIncident.evidence_refs?.length || 1})
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalTab('raw_json')}
-                style={{
-                  background: modalTab === 'raw_json' ? 'rgba(14, 165, 233, 0.12)' : 'transparent',
-                  border: modalTab === 'raw_json' ? '1px solid rgba(14, 165, 233, 0.3)' : '1px solid transparent',
-                  color: modalTab === 'raw_json' ? 'var(--neon-cyan)' : 'var(--text-muted)',
-                  padding: '5px 14px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Sparkles size={13} /> {isVi ? 'JSON Điểm Chuẩn Gold' : 'Gold Benchmark JSON'}
+              <button className="modal-close" onClick={() => setSelectedIncident(null)}>
+                <X size={16} />
               </button>
             </div>
 
-            {/* MODAL BODY */}
-            <div className="modal-body" style={{ marginTop: '14px' }}>
+            <div style={{ marginTop: '12px' }}>
+              {/* MODAL NAVIGATION TABS */}
+              <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px', marginBottom: '16px' }}>
+                {(['rca', 'evidence', 'signals'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setModalTab(tab)}
+                    style={{
+                      background: modalTab === tab ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                      color: modalTab === tab ? 'var(--neon-cyan)' : 'var(--text-muted)',
+                      border: modalTab === tab ? '1px solid var(--neon-cyan)' : '1px solid transparent',
+                      padding: '5px 14px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    {tab === 'rca' ? (
+                      <>{isVi ? 'Hành Trình RCA & Suy Luận' : 'RCA Reasoning & Journey'}</>
+                    ) : tab === 'evidence' ? (
+                      <>{isVi ? 'Chứng Cứ Điều Tra' : 'Evidence'} ({Array.isArray(selectedIncident.evidence) ? selectedIncident.evidence.length : 0})</>
+                    ) : (
+                      <>{isVi ? 'Tín Hiệu Gốc (Signals)' : 'Signals'} ({Array.isArray(selectedIncident.signals) ? selectedIncident.signals.length : (selectedIncident.signal_ids?.length || 0)})</>
+                    )}
+                  </button>
+                ))}
+              </div>
+
               {incidentLoading ? (
-                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                  <RefreshCw size={20} className="spinning" style={{ marginBottom: '8px' }} />
-                  <div>{isVi ? 'Đang tải dữ liệu suy luận RCA...' : 'Loading causal RCA trajectory...'}</div>
+                <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <RefreshCw size={22} className="spinning" style={{ marginBottom: '10px' }} />
+                  <div>{isVi ? 'Đang nạp chi tiết hành trình sự cố...' : 'Loading incident journey & trace details...'}</div>
                 </div>
               ) : modalTab === 'rca' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {/* OVERVIEW GRID */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* TOP KPI CARDS */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-                    <div style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{isVi ? 'Thực Thể / Số Khung VIN' : 'Target Entity / VIN'}</div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>
-                        {selectedIncident.target_entity || (selectedIncident.entity_ids ? (Array.isArray(selectedIncident.entity_ids) ? selectedIncident.entity_ids.join(', ') : selectedIncident.entity_ids) : 'VF8VNF_0006')}
+                    <div style={{ background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>{isVi ? 'Phân Loại Lỗi' : 'Fault Family'}</div>
+                      <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#c084fc', marginTop: '3px' }}>
+                        {selectedIncident.fault_family || 'DATA_INVARIANT_VIOLATION'}
                       </div>
                     </div>
-                    <div style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{isVi ? 'Miền Hoạt Động' : 'Operational Domain'}</div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--neon-cyan)', marginTop: '2px' }}>
-                        {selectedIncident.domain || 'EV_TELEMETRY'}
+
+                    <div style={{ background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>{isVi ? 'Bản Chất Nguyên Nhân' : 'Cause Classification'}</div>
+                      <div style={{ fontSize: '12.5px', fontWeight: 600, color: selectedIncident.llm_classification === 'OPERATIONAL' ? '#f59e0b' : '#38bdf8', marginTop: '3px' }}>
+                        {selectedIncident.llm_classification || 'DATA'}
                       </div>
                     </div>
-                    <div style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{isVi ? 'Phủ Đa Tầng' : 'Multi-Layer Coverage'}</div>
-                      <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                        {(selectedIncident.supporting_layers || ['L1', 'L2', 'L3', 'L4']).map((l: string) => (
-                          <span key={l} style={{ background: 'rgba(14, 165, 233, 0.1)', color: 'var(--neon-cyan)', border: '1px solid rgba(14, 165, 233, 0.25)', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
-                            {l}
+
+                    <div style={{ background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>{isVi ? 'Hành Động Đề Xuất' : 'Prescribed Action'}</div>
+                      <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '3px' }}>
+                        {selectedIncident.expected_action || 'QUARANTINE_NON_DESTRUCTIVE'}
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>{isVi ? 'Độ Tin Cậy & Metrics' : 'Confidence & Metrics'}</div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', marginTop: '3px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: '#10b981' }}>{selectedIncident.confidence || 88.0}%</span>
+                        {selectedIncident.latency_sec !== undefined && (
+                          <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                            ⏱️ {Number(selectedIncident.latency_sec).toFixed(2)}s
                           </span>
-                        ))}
+                        )}
+                        {selectedIncident.tokens_spent !== undefined && (
+                          <span style={{ fontSize: '10.5px', color: '#a855f7' }}>
+                            🪙 {selectedIncident.tokens_spent}t
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{isVi ? 'Đánh Giá Điểm Chuẩn' : 'Benchmark Verdict'}</div>
-                      <div style={{ marginTop: '2px' }}>
-                        {(() => {
-                          const score = selectedIncident.benchmark_score ?? selectedIncident.benchmark_eval?.score_pct;
-                          const verdict = selectedIncident.verdict ?? selectedIncident.benchmark_eval?.verdict ?? 'PASS';
-                          const isPass = String(verdict).includes('PASS');
-                          const isPartial = String(verdict).includes('PARTIAL');
-                          return (
-                            <span
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: '6px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                backgroundColor: isPass ? 'rgba(16, 185, 129, 0.12)' : isPartial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(225, 29, 72, 0.12)',
-                                color: isPass ? '#059669' : isPartial ? '#d97706' : '#e11d48',
-                                border: `1px solid ${isPass ? 'rgba(16, 185, 129, 0.25)' : isPartial ? 'rgba(245, 158, 11, 0.25)' : 'rgba(225, 29, 72, 0.25)'}`,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                            >
-                              {isPass ? (isVi ? '✓ ĐẠT' : '✓ PASS') : isPartial ? (isVi ? '⚠ MỘT PHẦN' : '⚠ PARTIAL') : (isVi ? '✗ KHÔNG ĐẠT' : '✗ FAIL')} {score ? `(${score}%)` : ''}
+                  </div>
+
+                  {/* END-TO-END INVESTIGATION TIMELINE */}
+                  <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--neon-cyan)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '14px' }}>
+                      {isVi ? 'Quá Trình Phát Hiện Signal → Suy Luận Tool → Kết Luận Root Cause' : 'End-to-End Incident Journey: Signal → Reasoning → Root Cause'}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative', paddingLeft: '20px' }}>
+                      {/* Vertical line connector */}
+                      <div style={{ position: 'absolute', left: '7px', top: '10px', bottom: '10px', width: '2px', background: 'rgba(56, 189, 248, 0.25)' }} />
+
+                      {/* STEP 1: SIGNAL DETECTION & ADMISSION */}
+                      <div style={{ position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: '-20px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b', border: '2px solid var(--bg-card)' }} />
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase' }}>
+                          {isVi ? 'Bước 1: Tiếp Nhận Tín Hiệu & Điều Kiện Admission' : 'Step 1: Signal Admission & Trigger'}
+                        </div>
+                        <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px 12px', borderRadius: '6px', marginTop: '6px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: 500, lineHeight: 1.4 }}>
+                            {selectedIncident.admission_reason || (isVi ? 'Tín hiệu bất thường được phát hiện từ tầng telemetry' : 'Anomaly signal detected across telemetry')}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                            <span style={{ fontSize: '10px', background: 'rgba(56, 189, 248, 0.1)', color: 'var(--neon-cyan)', padding: '2px 6px', borderRadius: '4px' }}>
+                              Entity: {selectedIncident.target_entity || selectedIncident.entity_ids?.[0] || 'N/A'}
                             </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* BENCHMARK EVALUATION SCORECARD METRICS */}
-                  {selectedIncident.benchmark_eval?.evaluation && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
-                      <div style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '8px 10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{isVi ? 'Phân Loại' : 'Classification'}</div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#059669' }}>
-                          {Math.round((selectedIncident.benchmark_eval.evaluation.classification_accuracy ?? 1) * 100)}%
-                        </div>
-                      </div>
-                      <div style={{ background: 'rgba(14, 165, 233, 0.06)', border: '1px solid rgba(14, 165, 233, 0.25)', padding: '8px 10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{isVi ? 'Căn Chỉnh Nguyên Nhân Gốc' : 'Root Cause Alignment'}</div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#0284c7' }}>
-                          {Math.round((selectedIncident.benchmark_eval.evaluation.root_cause_alignment ?? 0.8) * 100)}%
-                        </div>
-                      </div>
-                      <div style={{ background: 'rgba(147, 51, 234, 0.06)', border: '1px solid rgba(147, 51, 234, 0.25)', padding: '8px 10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{isVi ? 'Căn Cứ Bằng Chứng' : 'Evidence Grounding'}</div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#7c3aed' }}>
-                          {Math.round((selectedIncident.benchmark_eval.evaluation.evidence_grounding ?? 1) * 100)}%
-                        </div>
-                      </div>
-                      <div style={{ background: 'rgba(225, 29, 72, 0.06)', border: '1px solid rgba(225, 29, 72, 0.25)', padding: '8px 10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{isVi ? 'Điểm Tổng Hợp' : 'Overall Composite'}</div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#e11d48' }}>
-                          {selectedIncident.benchmark_eval.score_pct ?? Math.round((selectedIncident.benchmark_eval.evaluation.composite_score ?? 0.8) * 100)}%
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* REACT TOOL EXECUTION TRACE */}
-                  {(selectedIncident.tool_trace?.length > 0 || selectedIncident.benchmark_eval?.tool_trace?.length > 0) && (
-                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--glass-border)', borderRadius: '8px', padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--neon-cyan)' }}>
-                          <Activity size={13} /> {isVi ? 'Dấu Vết Thực Thi Công Cụ ReAct Tự Chủ' : 'ReAct Autonomous Tool Execution Trace'}
-                        </div>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                          {selectedIncident.tokens_spent || selectedIncident.benchmark_eval?.tokens_spent ? `${(selectedIncident.tokens_spent || selectedIncident.benchmark_eval?.tokens_spent).toLocaleString()} tokens` : ''}
-                          {selectedIncident.benchmark_eval?.latency_sec ? ` · ${selectedIncident.benchmark_eval.latency_sec}s latency` : ''}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
-                        {((selectedIncident.tool_trace || selectedIncident.benchmark_eval?.tool_trace) || []).map((t: string, tIdx: number, arr: string[]) => (
-                          <React.Fragment key={tIdx}>
-                            <span style={{ background: 'rgba(14, 165, 233, 0.08)', color: 'var(--neon-cyan)', border: '1px solid rgba(14, 165, 233, 0.25)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace' }}>
-                              {t}
+                            <span style={{ fontSize: '10px', background: 'rgba(168, 85, 247, 0.1)', color: '#c084fc', padding: '2px 6px', borderRadius: '4px' }}>
+                              Detector Layer: {selectedIncident.layer || 'L1'}
                             </span>
-                            {tIdx < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>➔</span>}
-                          </React.Fragment>
-                        ))}
+                            <span style={{ fontSize: '10px', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '2px 6px', borderRadius: '4px' }}>
+                              Signals Count: {selectedIncident.signal_ids?.length || 1}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* GROUND TRUTH ROOT CAUSE */}
-                  <div
-                    style={{
-                      background: 'rgba(239, 68, 68, 0.06)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)',
-                      borderRadius: '8px',
-                      padding: '12px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#dc2626', fontWeight: 700, fontSize: '12px', marginBottom: '6px' }}>
-                      <TriangleAlert size={14} /> {isVi ? 'Nguyên Nhân Gốc Chuẩn' : 'Ground Truth Causal Root Cause'}
-                    </div>
-                    <div style={{ fontSize: '13px', color: 'var(--text-main)', lineHeight: 1.5 }}>
-                      {selectedIncident.ground_truth_cause || selectedIncident.admission_reason || (isVi ? 'Lỗi cảm biến BMS hoặc dữ liệu telemetry bị hỏng gây ra giá trị ngoài ngưỡng.' : 'BMS sensor glitch or telemetry pipeline corruption causing out-of-bound values.')}
+                      {/* STEP 2: DYNAMIC REACT TOOL EXECUTION TRACE */}
+                      <div style={{ position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: '-20px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', background: 'var(--neon-cyan)', border: '2px solid var(--bg-card)' }} />
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--neon-cyan)', textTransform: 'uppercase' }}>
+                          {isVi ? 'Bước 2: Quá Trình Agent Khảo Sát & Thực Thi Tools (ReAct Trace)' : 'Step 2: LLM ReAct Tool Calls & Investigation Trace'}
+                        </div>
+                        <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {Array.isArray(selectedIncident.meta?.tool_execution_trace) && selectedIncident.meta.tool_execution_trace.length > 0 ? (
+                            selectedIncident.meta.tool_execution_trace.map((trace: any, idx: number) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  background: 'rgba(56, 189, 248, 0.05)',
+                                  border: '1px solid rgba(56, 189, 248, 0.15)',
+                                  borderRadius: '6px',
+                                  padding: '8px 12px',
+                                  fontSize: '11.5px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                  <span style={{ fontWeight: 700, color: 'var(--neon-cyan)', fontFamily: 'monospace' }}>
+                                    ⚙️ {trace.tool_name || trace.tool}
+                                  </span>
+                                  <div style={{ display: 'flex', gap: '6px', fontSize: '10px', color: 'var(--text-muted)' }}>
+                                    {trace.wall_clock_sec && <span>⏱️ {trace.wall_clock_sec}s</span>}
+                                    {trace.tokens_used && <span>🪙 {trace.tokens_used}t</span>}
+                                    <span style={{ color: trace.success !== false ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                                      {trace.success !== false ? 'SUCCESS' : 'FAILED'}
+                                    </span>
+                                  </div>
+                                </div>
+                                {trace.args && Object.keys(trace.args).length > 0 && (
+                                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: '4px' }}>
+                                    Input: {JSON.stringify(trace.args)}
+                                  </div>
+                                )}
+                                <div style={{ fontSize: '11px', color: 'var(--text-main)', lineHeight: 1.4 }}>
+                                  {trace.data ? (typeof trace.data === 'string' ? trace.data : JSON.stringify(trace.data)) : (isVi ? 'Kiểm tra thành công, tạo chứng cứ.' : 'Execution completed, compiled evidence.')}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.06)', fontSize: '11.5px' }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                                🛠️ {isVi ? 'Rule-Based Dynamic Heuristic Verification' : 'Rule-Based Dynamic Heuristic Verification'}
+                              </div>
+                              <div style={{ color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                                {isVi
+                                  ? 'Agent đã đối soát phân bố baseline lịch sử, kiểm tra ràng buộc schema upstream contract và thẩm định mức độ đột biến của sensor.'
+                                  : 'Agent executed deterministic baseline checks, upstream schema contract audits, and sensor variance verification.'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* STEP 3: ROOT CAUSE CONCLUSION */}
+                      <div style={{ position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: '-20px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)' }} />
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', textTransform: 'uppercase' }}>
+                          {isVi ? 'Bước 3: Kết Luận Nguyên Nhân Gốc (Root Cause Diagnosis)' : 'Step 3: Root Cause Conclusion & Claim'}
+                        </div>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '12px 14px', borderRadius: '6px', marginTop: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                          <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: 600, lineHeight: 1.5 }}>
+                            {selectedIncident.llm_claim || selectedIncident.ground_truth_cause || selectedIncident.admission_reason}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* AUTONOMOUS REACT AGENT DIAGNOSTIC HYPOTHESIS */}
-                  <div
-                    style={{
-                      background: 'rgba(147, 51, 234, 0.06)',
-                      border: '1px solid rgba(147, 51, 234, 0.25)',
-                      borderRadius: '8px',
-                      padding: '12px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7c3aed', fontWeight: 700, fontSize: '12px' }}>
-                        <Brain size={14} /> {isVi ? 'Giả Thuyết & Khẳng Định Chẩn Đoán AI' : 'AI Diagnostic Hypothesis & Claim'}
-                      </div>
-                      <span style={{ fontSize: '11px', color: '#059669', fontWeight: 700, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '2px 8px', borderRadius: '4px' }}>
-                        {selectedIncident.llm_classification || selectedIncident.benchmark_eval?.hypothesis?.classification || 'DATA'} {isVi ? 'Lỗi Đã Xác Minh' : 'Defect Verified'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-main)', lineHeight: 1.5 }}>
-                      {selectedIncident.llm_claim ||
-                        selectedIncident.hypotheses?.[0]?.claim ||
-                        selectedIncident.benchmark_eval?.hypothesis?.claim ||
-                        (isVi
-                          ? `Agent A1 đã xác minh vi phạm hợp đồng dữ liệu tại thực thể ${selectedIncident.entity_ids?.[0] || 'mục tiêu'}: Xác nhận vượt ngưỡng bất biến trên luồng cảm biến telemetry.`
-                          : `Dynamic A1 verified data contract violation in entity ${selectedIncident.entity_ids?.[0] || 'target'}: Invariant threshold breach confirmed across telemetry sensor pipelines.`)}
-                    </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button className="hud-btn" onClick={() => setSelectedIncident(null)}>
+                      {isVi ? 'Đóng' : 'Close'}
+                    </button>
                   </div>
-
-                  {/* PRESCRIBED REMEDIATION ACTION */}
-                  <div
-                    style={{
-                      background: 'rgba(16, 185, 129, 0.06)',
-                      border: '1px solid rgba(16, 185, 129, 0.25)',
-                      borderRadius: '8px',
-                      padding: '12px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 700, fontSize: '12px', marginBottom: '4px' }}>
-                      <ShieldCheck size={14} /> {isVi ? 'Hành Động Khắc Phục Được Chỉ Định' : 'Prescribed Remediation Action'}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-main)', lineHeight: 1.5 }}>
-                      <strong>{isVi ? 'Hành Động:' : 'Action:'}</strong> <code style={{ color: '#059669', background: 'rgba(16, 185, 129, 0.1)', padding: '1px 6px', borderRadius: '4px' }}>{selectedIncident.expected_action || selectedIncident.recommendations?.[0]?.action_type || 'QUARANTINE_DATA'}</code> — {isVi ? 'Cô lập các dòng vi phạm vào phân vùng cách ly bất biến và tổng hợp luật ràng buộc chất lượng.' : 'Isolate violating records into immutable quarantine partition and synthesize quality constraint rule.'}
-                    </div>
-                  </div>
-
-                  {/* INVESTIGATION EXECUTION RESULT IF TRIGGERED */}
-                  {investigationResult && (
-                    <div style={{ background: 'rgba(14, 165, 233, 0.06)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '8px', padding: '12px' }}>
-                      <div style={{ color: 'var(--neon-cyan)', fontWeight: 700, fontSize: '12px', marginBottom: '4px' }}>
-                        ⚡ {isVi ? 'Điều Tra ReAct A1 Hoàn Tất' : 'Dynamic A1 ReAct Investigation Complete'}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-main)' }}>
-                        {isVi ? 'Giả thuyết:' : 'Hypothesis:'} {investigationResult.hypothesis?.claim || (isVi ? 'Đã xác nhận vi phạm dữ liệu.' : 'Confirmed data violation.')}
-                      </div>
-                    </div>
-                  )}
                 </div>
               ) : modalTab === 'evidence' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(selectedIncident.evidence && selectedIncident.evidence.length > 0) ? (
-                    selectedIncident.evidence.map((ev: any, i: number) => (
-                      <div key={ev.evidence_id || i} style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--neon-cyan)', marginBottom: '4px' }}>
-                          <span><code>{ev.evidence_id}</code> · {ev.source_type}</span>
-                          <span style={{ color: 'var(--text-muted)' }}>{ev.provenance || 'REAL_INGESTION_BENCHMARK'}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {Array.isArray(selectedIncident.evidence) && selectedIncident.evidence.length > 0 ? (
+                    selectedIncident.evidence.map((ev: any, idx: number) => (
+                      <div
+                        key={ev.evidence_id || idx}
+                        style={{
+                          background: 'var(--bg-card)',
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--glass-border)',
+                          fontSize: '11.5px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--neon-cyan)', fontFamily: 'monospace' }}>
+                            📁 {ev.evidence_id || `EV-${idx + 1}`}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                            {ev.source_type || 'TOOL_OUTPUT'} ({ev.source_id || 'telemetry'})
+                          </span>
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-main)' }}>{ev.summary}</div>
+                        <div style={{ color: 'var(--text-main)', lineHeight: 1.5, fontSize: '12px' }}>
+                          {ev.summary || (typeof ev === 'string' ? ev : JSON.stringify(ev))}
+                        </div>
                       </div>
                     ))
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {['ev-sig-sig-3490', 'ev-sig-sig-552e', 'ev-contract-VF8VNF_0006', 'ev-dq-violations-VF8VNF_0006'].map((ref) => (
-                        <div key={ref} style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--neon-cyan)', fontWeight: 600 }}><code>{ref}</code></div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-main)', marginTop: '2px' }}>
-                            {isVi ? 'Mẫu gói tin telemetry & bản ghi vi phạm chất lượng dữ liệu được kiểm chứng trong DuckDB.' : 'Telemetry packet sample & data quality violation record grounded in DuckDB.'}
-                          </div>
-                        </div>
-                      ))}
+                    <div style={{ background: 'var(--bg-card)', padding: '32px', textAlign: 'center', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '12.5px' }}>
+                        {isVi ? 'Chưa có chứng cứ trực tiếp được thu thập.' : 'No direct evidence records collected yet.'}
+                      </div>
                     </div>
                   )}
                 </div>
               ) : (
-                <div>
-                  <pre style={{ maxHeight: '360px', overflow: 'auto', background: 'var(--bg-card)', border: '1px solid var(--glass-border)', padding: '12px', borderRadius: '8px', fontSize: '11px', color: 'var(--text-main)' }}>
-                    <code>{JSON.stringify(selectedIncident, null, 2)}</code>
-                  </pre>
+                /* TAB SIGNALS (REPLACING RAW JSON) */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {Array.isArray(selectedIncident.signals) && selectedIncident.signals.length > 0 ? (
+                    selectedIncident.signals.map((sig: any, idx: number) => (
+                      <div
+                        key={sig.signal_id || idx}
+                        style={{
+                          background: 'var(--bg-card)',
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--glass-border)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--neon-cyan)', fontFamily: 'monospace', fontSize: '12px' }}>
+                              ⚡ {sig.signal_id || `SIG-${idx + 1}`}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                background: sig.layer === 'L1' ? 'rgba(239, 68, 68, 0.15)' : sig.layer === 'L2' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+                                color: sig.layer === 'L1' ? '#ef4444' : sig.layer === 'L2' ? '#f59e0b' : '#c084fc',
+                              }}
+                            >
+                              Layer {sig.layer || 'L1'} ({sig.detector || 'Validation'})
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: 'var(--text-main)', marginTop: '2px' }}>
+                            <strong>Metric/Target:</strong> <code style={{ color: 'var(--neon-cyan)' }}>{sig.metric_or_relationship || 'telemetry_value'}</code>
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: sig.severity === 'CRITICAL' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                              color: sig.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b',
+                            }}
+                          >
+                            {sig.severity || 'MEDIUM'}
+                          </span>
+                          {sig.score !== undefined && (
+                            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                              Score: <strong style={{ color: 'var(--text-main)' }}>{sig.score}</strong>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : Array.isArray(selectedIncident.signal_ids) && selectedIncident.signal_ids.length > 0 ? (
+                    selectedIncident.signal_ids.map((sigId: string, idx: number) => (
+                      <div
+                        key={sigId || idx}
+                        style={{
+                          background: 'var(--bg-card)',
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--glass-border)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--neon-cyan)', fontFamily: 'monospace', fontSize: '12px' }}>
+                            ⚡ {sigId}
+                          </span>
+                          <span style={{ fontSize: '10px', background: 'rgba(56, 189, 248, 0.1)', color: 'var(--neon-cyan)', padding: '1px 6px', borderRadius: '4px' }}>
+                            {selectedIncident.layer || 'L1'} Detector Signal
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {selectedIncident.admission_reason?.split(':')[0] || 'Telemetry Anomaly'}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ background: 'var(--bg-card)', padding: '32px', textAlign: 'center', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '12.5px' }}>
+                        {isVi ? 'Không tìm thấy tín hiệu bất thường nào.' : 'No signal records found.'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-
-            {/* MODAL ACTIONS FOOTER */}
-            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--glass-border)' }}>
-              <button
-                type="button"
-                onClick={() => handleRunInvestigation(selectedIncident.incident_id)}
-                disabled={investigating}
-                style={{
-                  background: 'rgba(147, 51, 234, 0.08)',
-                  border: '1px solid rgba(147, 51, 234, 0.3)',
-                  color: '#7c3aed',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Zap size={13} className={investigating ? 'spinning' : ''} />
-                {investigating ? (isVi ? 'Đang Điều Tra Với ReAct...' : 'Investigating with ReAct...') : (isVi ? 'Chạy Điều Tra ReAct (A1)' : 'Run ReAct Investigation (A1)')}
-              </button>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedIncident(null)}
-                  style={{
-                    background: 'var(--bg-card)',
-                    color: 'var(--text-main)',
-                    border: '1px solid var(--glass-border)',
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isVi ? 'Đóng' : 'Close'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    alert(isVi ? `Đã phê duyệt hành động cách ly cho ${selectedIncident.incident_id}. Dòng dữ liệu lỗi đã được đưa vào sổ cái cách ly.` : `Quarantine action approved for ${selectedIncident.incident_id}. Corrupt rows partitioned into quarantine ledger.`);
-                    setSelectedIncident(null);
-                  }}
-                  style={{
-                    background: '#059669',
-                    color: '#ffffff',
-                    border: 'none',
-                    padding: '6px 16px',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(5, 150, 105, 0.3)',
-                  }}
-                >
-                  {isVi ? 'Phê Duyệt Cách Ly Dữ Liệu' : 'Approve Quarantine Action'}
-                </button>
-              </div>
             </div>
           </div>
         </div>

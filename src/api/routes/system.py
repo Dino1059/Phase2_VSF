@@ -107,6 +107,27 @@ async def reset_all_db(
         raise HTTPException(status_code=403, detail="Forbidden: Only administrators can execute full system reset")
 
     db = get_db()
+    cleared = []
+    tables_to_clear = [
+        "quality_rules",
+        "quarantine",
+        "audit_log",
+        "execution_authorizations",
+        "decisions",
+        "evidence",
+        "hypotheses",
+        "recommendations",
+        "agent_traces",
+        "incidents",
+        "incident_metadata",
+    ]
+
+    for tbl in tables_to_clear:
+        try:
+            db.execute(f"DELETE FROM {tbl}")
+            cleared.append(tbl)
+        except Exception as e:
+            logger.warning(f"Could not clear table {tbl}: {e}")
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     cleared = wipe_steward_runtime(db)
 
@@ -148,6 +169,16 @@ async def reset_all_db(
     except Exception as e:
         logger.warning(f"Could not clear conversation store: {e}")
 
+    # 2b. Clear in-memory incident / evidence / hypothesis caches so the
+    # Alert Dashboard starts empty after a reset and does not leak the
+    # previous session's incidents into a fresh upload.
+    try:
+        from src.reliability.incidents.service import IncidentService
+        IncidentService().clear()
+    except Exception as e:
+        logger.warning(f"Could not clear IncidentService cache: {e}")
+
+    # 4. Verify / Ingest VinGroup baseline tables
     # 3. Reload VinGroup warehouse from data_new (same live DuckDB connection)
     reloaded = {}
     if reload_warehouse:
@@ -332,3 +363,6 @@ async def load_demo_snapshot(mode: str = Query(..., description="happy | unhappy
         fault_injected=mode == "unhappy",
         **measured,
     )
+
+
+

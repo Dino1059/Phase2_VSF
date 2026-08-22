@@ -40,7 +40,7 @@
   "activeAgents": "Active Agents",
   "rcaTitle": "AI Diagnosis & Root Cause",
   "activeRca": "Active RCA",
-  "rootCause": "Root Cause:",
+  "rootCause": "AI Reasoning & Conclusion:",
   "recommendedAction": "Recommended Action:",
   "noIncidents": "No active incidents — system nominal.",
   "noIncidentsHint": "RCA cards appear when the diagnosis agent flags anomalies.",

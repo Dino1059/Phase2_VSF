@@ -96,38 +96,6 @@ def list_signals(
                 })
     except Exception:
         pass
-
-    if not signals:
-        import os
-        from pathlib import Path
-        import json
-
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent
-        gold_path = base_dir / "eval" / "fault_RCA_benchamark" / "v2-optimized_token_prompt" / "gold_rca_cases.json"
-        if gold_path.exists():
-            try:
-                with open(gold_path, "r", encoding="utf-8") as f:
-                    cases = json.load(f)
-                for case in cases:
-                    sig_layer = case.get("layer", "L1")
-                    inc_id = case.get("incident_id", "inc-gold")
-                    cause = case.get("ground_truth_cause", "")
-                    signals.append({
-                        "signal_id": f"sig-{sig_layer.lower()}-{inc_id[-4:]}",
-                        "project_id": project_id,
-                        "entity_ids": case.get("entity_ids", ["VIN-001"]),
-                        "layer": sig_layer,
-                        "signal_type": "RANGE_VIOLATION" if sig_layer == "L1" else ("CONTEXTUAL_DRIFT" if sig_layer == "L2" else "RELATIONAL_MISMATCH"),
-                        "metric_or_relationship": case.get("domain", "EV_TELEMETRY"),
-                        "score": 1.0,
-                        "severity": case.get("severity", "CRITICAL"),
-                        "detector": f"{sig_layer}_Reliability_Detector",
-                        "provenance": "REAL_INGESTION_BENCHMARK",
-                        "details": cause,
-                    })
-            except Exception:
-                pass
-
     if layer:
         return [s for s in signals if s.get("layer") == layer]
     return signals

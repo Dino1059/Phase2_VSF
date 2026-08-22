@@ -69,7 +69,7 @@ class StructuredSource(DataSource):
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def load_data(self, sample_size: Optional[int] = None) -> pd.DataFrame:
+    def load_data(self, sample_size: Optional[int] = None, table_name: Optional[str] = None) -> pd.DataFrame:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Source file not found: {self.file_path}")
 
@@ -129,35 +129,28 @@ class StructuredSource(DataSource):
                     should_close = True
 
             try:
-                tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
-                if not tables:
+                candidate_tables = self._get_user_tables(conn)
+                if not candidate_tables:
                     raise ValueError(f"DuckDB file contains no tables: {self.file_path}")
 
-                system_tables = {
-                    "agent_traces", "audit_log", "datasets", "decisions",
-                    "evidence", "execution_authorizations", "hypotheses",
-                    "incidents", "job_runs", "messages", "profile_results",
-                    "quality_rules", "quarantine", "raw_snapshots",
-                    "recommendations", "schedules", "sqlite_master",
-                    "sqlite_sequence", "duckdb_tables", "duckdb_columns"
-                }
-                user_tables = [t for t in tables if t.lower() not in system_tables]
-                candidate_tables = user_tables if user_tables else tables
+                # Use explicit table_name if provided, otherwise pick largest
+                if table_name:
+                    target = table_name
+                else:
+                    target = candidate_tables[0]
+                    max_rows = -1
+                    for t in candidate_tables:
+                        try:
+                            safe_name = t.replace('"', '""')
+                            cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+                            if cnt > max_rows:
+                                max_rows = cnt
+                                target = t
+                        except Exception:
+                            continue
 
-                best_table = candidate_tables[0]
-                max_rows = -1
-                for t in candidate_tables:
-                    try:
-                        safe_name = t.replace('"', '""')
-                        cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
-                        if cnt > max_rows:
-                            max_rows = cnt
-                            best_table = t
-                    except Exception:
-                        continue
-
-                table_name = best_table.replace('"', '""')
-                query = f'SELECT * FROM "{table_name}"'
+                safe_target = target.replace('"', '""')
+                query = f'SELECT * FROM "{safe_target}"'
                 if sample_size:
                     query += f" LIMIT {int(sample_size)}"
                 return conn.execute(query).fetchdf()
@@ -172,6 +165,51 @@ class StructuredSource(DataSource):
                 return pd.read_csv(self.file_path, nrows=sample_size) if sample_size else pd.read_csv(self.file_path)
             except Exception as e:
                 raise ValueError(f"Unsupported structured format '{fmt}' for file {self.file_path}: {e}")
+
+    _SYSTEM_TABLES = {
+        "agent_traces", "audit_log", "datasets", "decisions",
+        "evidence", "execution_authorizations", "hypotheses",
+        "incidents", "incident_metadata", "job_runs", "messages",
+        "profile_results", "quality_rules", "quarantine", "raw_snapshots",
+        "recommendations", "schedules", "sqlite_master",
+        "sqlite_sequence", "duckdb_tables", "duckdb_columns"
+    }
+
+    @staticmethod
+    def _get_user_tables(conn) -> List[str]:
+        """Return non-system table names from a DuckDB connection."""
+        tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
+        user = [t for t in tables if t.lower() not in StructuredSource._SYSTEM_TABLES]
+        return user if user else tables
+
+    def list_tables(self) -> List[str]:
+        """List user tables in a DuckDB file."""
+        if self.file_format != "duckdb":
+            return []
+        import duckdb
+        conn = duckdb.connect(str(self.file_path), read_only=True)
+        try:
+            return self._get_user_tables(conn)
+        finally:
+            conn.close()
+
+    def load_all_tables(self, sample_size: Optional[int] = None) -> Dict[str, pd.DataFrame]:
+        """Load all user tables from a DuckDB file as {table_name: DataFrame}."""
+        if self.file_format != "duckdb":
+            return {"default": self.load_data(sample_size=sample_size)}
+        import duckdb
+        conn = duckdb.connect(str(self.file_path), read_only=True)
+        try:
+            result = {}
+            for t in self._get_user_tables(conn):
+                safe = t.replace('"', '""')
+                q = f'SELECT * FROM "{safe}"'
+                if sample_size:
+                    q += f" LIMIT {int(sample_size)}"
+                result[t] = conn.execute(q).fetchdf()
+            return result
+        finally:
+            conn.close()
 
     def get_metadata(self) -> Dict[str, Any]:
         checksum = self.get_checksum()

@@ -35,51 +35,13 @@ import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
 import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth, resetDemoSession } from '../services/api';
+import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
-import { agentSocket } from '../services/websocket';
 import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
 import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
-
-const HITL_STOP_PROMPT_EN =
-  'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
-const HITL_STOP_PROMPT_VI =
-  'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
-
-const AGENT_AVATAR_CLASS: Record<string, string> = {
-  orchestrator: 'agent-orchestrator',
-  profiler: 'agent-profiler',
-  anomaly: 'agent-anomaly',
-  diagnosis: 'agent-diagnosis',
-  proposer: 'agent-proposer',
-  executor: 'agent-executor',
-  human: 'agent-human',
-};
-
-const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }>> = {
-  orchestrator: Brain,
-  profiler: ScanSearch,
-  anomaly: AlertTriangle,
-  diagnosis: Stethoscope,
-  proposer: Lightbulb,
-  executor: FlaskConical,
-  human: UserShield,
-};
-
-const AGENT_TITLES: Record<string, string> = {
-  orchestrator: 'ORCHESTRATOR',
-  profiler: 'C1 AI',
-  profile_dataset: 'C1 AI',
-  proposer: 'C1 AI',
-  propose_quality_rules: 'C1 AI',
-  anomaly: 'L1 DETECTOR',
-  diagnosis: 'C1 AI',
-  executor: 'EXECUTOR',
-  clean_database: 'EXECUTOR',
-  human: 'DATA STEWARD',
-};
 
 function historyAlreadyProfiled(messages: Array<{ content?: string; type?: string }> | undefined): boolean {
   return (messages || []).some((m) => {
@@ -118,13 +80,64 @@ function messagesForStory<T extends { content?: string }>(messages: T[], story: 
   return out;
 }
 
+const HITL_STOP_PROMPT_EN =
+  'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
+const HITL_STOP_PROMPT_VI =
+  'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
+
+const AGENT_AVATAR_CLASS: Record<string, string> = {
+  orchestrator: 'agent-orchestrator',
+  profiler: 'agent-profiler',
+  profile_dataset: 'agent-profiler',
+  anomaly: 'agent-anomaly',
+  detect_anomalies: 'agent-anomaly',
+  diagnosis: 'agent-diagnosis',
+  proposer: 'agent-proposer',
+  propose_quality_rules: 'agent-proposer',
+  executor: 'agent-executor',
+  clean_database: 'agent-executor',
+  human: 'agent-human',
+};
+
+const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }>> = {
+  orchestrator: Brain,
+  profiler: ScanSearch,
+  profile_dataset: ScanSearch,
+  anomaly: AlertTriangle,
+  detect_anomalies: AlertTriangle,
+  diagnosis: Stethoscope,
+  proposer: Lightbulb,
+  propose_quality_rules: Lightbulb,
+  executor: FlaskConical,
+  clean_database: FlaskConical,
+  human: UserShield,
+};
+
+const AGENT_TITLES: Record<string, string> = {
+  orchestrator: 'ORCHESTRATOR AGENT',
+  profiler: 'DATA PROFILER AGENT',
+  profile_dataset: 'DATA PROFILER AGENT',
+  anomaly: 'ANOMALY DETECTOR AGENT',
+  detect_anomalies: 'ANOMALY DETECTOR AGENT',
+  diagnosis: 'RCA DIAGNOSIS AGENT',
+  proposer: 'RULE PROPOSER AGENT',
+  propose_quality_rules: 'RULE PROPOSER AGENT',
+  executor: 'PIPELINE EXECUTOR AGENT',
+  clean_database: 'PIPELINE EXECUTOR AGENT',
+  human: 'HUMAN STEWARD GOVERNANCE',
+};
+
 const AGENT_COLORS: Record<string, string> = {
   orchestrator: 'var(--text-main)',
   profiler: 'var(--royal-purple)',
+  profile_dataset: 'var(--royal-purple)',
   anomaly: 'var(--warning-amber)',
+  detect_anomalies: 'var(--warning-amber)',
   diagnosis: 'var(--alert-magenta)',
   proposer: 'var(--electric-green)',
+  propose_quality_rules: 'var(--electric-green)',
   executor: 'var(--electric-green)',
+  clean_database: 'var(--electric-green)',
   human: 'var(--text-main)',
 };
 
@@ -174,18 +187,13 @@ export function AgentChatWorkspace() {
   const bootToken = `${datasetKey || 'none'}:${story || 'none'}:${demoMode || 'none'}`;
 
   const handleRunFullPipeline = useCallback(async () => {
-    // Auto-bootstrap already POSTs HITL chat. Button / StrictMode must not send a second.
-    if (hitlBootsInFlight.has(bootToken) || proposeStartedRef.current) {
-      return;
-    }
-    hitlBootsInFlight.add(bootToken);
-    proposeStartedRef.current = true;
+    if (isRunningPipeline) return;
     setIsRunningPipeline(true);
     try {
       const lang = i18n?.language || 'vi';
       const prompt = lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN;
       const currentSession = useChatStore.getState().sessionId;
-      await ensureDemoAuth();
+      agentSocket.connect(currentSession);
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
       const history = await fetchChatHistory(currentSession);
       if (history.messages && Array.isArray(history.messages)) {
@@ -196,20 +204,22 @@ export function AgentChatWorkspace() {
     } finally {
       setIsRunningPipeline(false);
     }
-  }, [datasetKey, i18n, bootToken]);
+  }, [datasetKey, i18n, isRunningPipeline]);
 
   // Context-Aware Auto-Switch: display-only tab change.
   // Must not reload snapshot, reset story, or clobber traces/split store.
   useEffect(() => {
     if (chatMessages.length === 0) return;
     const lastMsg = chatMessages[chatMessages.length - 1];
-    if (lastMsg.type === 'agent' || lastMsg.agentId === 'orchestrator') {
+    if (lastMsg.type === 'agent') {
       const content = lastMsg.content || '';
-      if (content.includes('Profile Summary') || content.includes('profile_dataset')) {
+      if (content.includes('Profile Summary') || content.includes('profile_dataset') || content.includes('Khảo sát') || content.includes('Khảo Sát')) {
         setRightTab('tab-profiler');
-      } else if (content.includes('Quality Rule Proposals') || content.includes('propose_quality_rules')) {
+      } else if (content.includes('Dị Thường') || content.includes('detect_anomalies') || content.includes('Anomaly') || content.includes('Incidents')) {
+        setRightTab('tab-traces');
+      } else if (content.includes('Quality Rule Proposals') || content.includes('propose_quality_rules') || content.includes('Đề Xuất Luật') || content.includes('Đề xuất luật')) {
         setRightTab('tab-rules');
-      } else if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database')) {
+      } else if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database') || content.includes('Làm Sạch') || content.includes('Làm sạch')) {
         setRightTab('tab-split');
       }
     }
@@ -236,12 +246,13 @@ export function AgentChatWorkspace() {
       resetPipeline();
       setChatSessionId('default');
       useChatStore.getState().clearMessages();
+      agentSocket.connect('default');
       return;
     }
     const sessionId = datasetKey ? `dataset:${datasetKey}` : 'default';
     setChatSessionId(sessionId);
     useChatStore.getState().clearMessages();
-    if (story) return;
+    agentSocket.connect(sessionId);
     void fetchChatHistory(sessionId).then((history) => {
       if (Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
@@ -249,7 +260,18 @@ export function AgentChatWorkspace() {
     }).catch((error) => {
       console.error('Failed to load chat history:', error);
     });
-  }, [datasetKey, isNewChat, story, resetPipeline, setChatSessionId]);
+  }, [datasetKey, isNewChat, resetPipeline, setChatSessionId]);
+
+  useEffect(() => {
+    const handleDbReset = () => {
+      resetPipeline();
+      setStream([]);
+      setPipelineResult(null);
+      useChatStore.getState().clearMessages();
+    };
+    window.addEventListener('datatrust:db-reset', handleDbReset);
+    return () => window.removeEventListener('datatrust:db-reset', handleDbReset);
+  }, [resetPipeline]);
 
   // Poll the persisted backend result so all right-panel tabs share one run_id.
   useEffect(() => {
@@ -648,59 +670,59 @@ export function AgentChatWorkspace() {
           {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story)
             .filter((msg) => !(msg.content || '').trim().startsWith('Thought:'))
             .map((msg) => {
-            const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
-            const Icon = AGENT_ICONS[agent] || Brain;
-            const toolName = toolFromMessage(msg);
-            const chip = catalogFor(toolName);
-            const isObservation = (msg.content || '').startsWith('Observation:');
-            return (
-              <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id} data-tool={toolName || undefined}>
-                <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
-                  <Icon size={15} />
-                </div>
-                <div className="agent-content-box">
-                  <div className="agent-header">
-                    <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
-                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || agent.replace(/_/g, ' ').toUpperCase())}
-                    </span>
-                    <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
+              const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
+              const Icon = AGENT_ICONS[agent] || Brain;
+              const toolName = toolFromMessage(msg);
+              const chip = catalogFor(toolName);
+              const isObservation = (msg.content || '').startsWith('Observation:');
+              return (
+                <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id} data-tool={toolName || undefined}>
+                  <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
+                    <Icon size={15} />
                   </div>
-                  <div className="agent-body">
-                    {chip ? (
-                      <button
-                        type="button"
-                        className="used-tool-chip"
-                        data-msgid={msg.id}
-                        data-tool={toolName || undefined}
-                        onClick={() => {
-                          setRightTab('tab-traces');
-                          setSelectedTraceTool(toolName);
-                          setRightPanelOpen(true);
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '4px 10px',
-                          borderRadius: 999,
-                          border: '1px solid rgba(2,132,199,0.3)',
-                          background: 'rgba(2,132,199,0.08)',
-                          color: '#0284c7',
-                          cursor: 'pointer',
-                          marginBottom: 8,
-                        }}
-                      >
-                        Used {chip.title} — {chip.about}
-                      </button>
-                    ) : null}
-                    {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
+                  <div className="agent-content-box">
+                    <div className="agent-header">
+                      <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
+                        {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || agent.replace(/_/g, ' ').toUpperCase())}
+                      </span>
+                      <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
+                    </div>
+                    <div className="agent-body">
+                      {chip ? (
+                        <button
+                          type="button"
+                          className="used-tool-chip"
+                          data-msgid={msg.id}
+                          data-tool={toolName || undefined}
+                          onClick={() => {
+                            setRightTab('tab-traces');
+                            setSelectedTraceTool(toolName);
+                            setRightPanelOpen(true);
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            border: '1px solid rgba(2,132,199,0.3)',
+                            background: 'rgba(2,132,199,0.08)',
+                            color: '#0284c7',
+                            cursor: 'pointer',
+                            marginBottom: 8,
+                          }}
+                        >
+                          Used {chip.title} — {chip.about}
+                        </button>
+                      ) : null}
+                      {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           {store.runStatus === 'awaiting_hitl' && !stream.some((m) => m.isRule) && (
             <div className="agent-entry">
               <div className="agent-avatar agent-human"><UserShield size={15} /></div>
@@ -784,76 +806,76 @@ export function AgentChatWorkspace() {
       {/* RIGHT PANEL: VISUAL CONTROL ROOM & INSPECTION (4 TABS) */}
       {/* Keep mounted when collapsed — CSS width/transform, do not unmount tab state. */}
       <aside className="right-panel" aria-hidden={!rightPanelOpen}>
-          <div className="right-panel-tabs">
-            <button
-              className={`panel-tab ${rightTab === 'tab-traces' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-traces')}
-            >
-              <Brain size={13} /> {isVi ? 'Dấu Vết' : 'Traces'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-profiler' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-profiler')}
-            >
-              <ScanSearch size={13} /> {isVi ? 'Khảo Sát' : 'Profiler'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-rules' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-rules')}
-            >
-              <ShieldCheck size={13} /> {isVi ? 'Bộ Luật & HITL' : 'Rules & HITL'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-split' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-split')}
-            >
-              <Database size={13} /> {isVi ? 'Phân Tách DB' : 'Split DB'}
-            </button>
-            <button
-              type="button"
-              className="panel-tab-collapse-btn"
-              onClick={() => setRightPanelOpen(false)}
-              title={isVi ? 'Thu gọn bảng kiểm tra' : 'Collapse Inspector Panel'}
-              aria-label="Collapse Inspector Panel"
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
+        <div className="right-panel-tabs">
+          <button
+            className={`panel-tab ${rightTab === 'tab-traces' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-traces')}
+          >
+            <Brain size={13} /> {isVi ? 'Dấu Vết' : 'Traces'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-profiler' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-profiler')}
+          >
+            <ScanSearch size={13} /> {isVi ? 'Khảo Sát' : 'Profiler'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-rules' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-rules')}
+          >
+            <ShieldCheck size={13} /> {isVi ? 'Bộ Luật & HITL' : 'Rules & HITL'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-split' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-split')}
+          >
+            <Database size={13} /> {isVi ? 'Phân Tách DB' : 'Split DB'}
+          </button>
+          <button
+            type="button"
+            className="panel-tab-collapse-btn"
+            onClick={() => setRightPanelOpen(false)}
+            title={isVi ? 'Thu gọn bảng kiểm tra' : 'Collapse Inspector Panel'}
+            aria-label="Collapse Inspector Panel"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
 
 
-          <div className="panel-content-body">
-            <div hidden={rightTab !== 'tab-traces'}>
-              <AgentTracesTab
-                datasetKey={datasetKey}
-                sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
-                timeFilter={store.timeFilter}
-                replayBeats={isReplay ? replayBeats : undefined}
-                selectedStep={selectedTraceStep}
-                selectedTool={selectedTraceTool}
-                pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
-                active={rightTab === 'tab-traces'}
-                onSelectStep={(n) => {
-                  setSelectedTraceStep(n);
-                  setSelectedTraceTool(null);
-                }}
-              />
-            </div>
-            <div hidden={rightTab !== 'tab-profiler'}>
-              <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} />
-            </div>
-            <div hidden={rightTab !== 'tab-rules'}>
-              <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />
-            </div>
-            <div hidden={rightTab !== 'tab-split'}>
-              <SplitDbQuarantineTab
-                datasetKey={datasetKey}
-                manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
-                active={rightTab === 'tab-split'}
-                splitResult={pipelineResult?.split}
-              />
-            </div>
+        <div className="panel-content-body">
+          <div hidden={rightTab !== 'tab-traces'}>
+            <AgentTracesTab
+              datasetKey={datasetKey}
+              sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
+              timeFilter={store.timeFilter}
+              replayBeats={isReplay ? replayBeats : undefined}
+              selectedStep={selectedTraceStep}
+              selectedTool={selectedTraceTool}
+              pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
+              active={rightTab === 'tab-traces'}
+              onSelectStep={(n) => {
+                setSelectedTraceStep(n);
+                setSelectedTraceTool(null);
+              }}
+            />
           </div>
-        </aside>
+          <div hidden={rightTab !== 'tab-profiler'}>
+            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} />
+          </div>
+          <div hidden={rightTab !== 'tab-rules'}>
+            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />
+          </div>
+          <div hidden={rightTab !== 'tab-split'}>
+            <SplitDbQuarantineTab
+              datasetKey={datasetKey}
+              manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
+              active={rightTab === 'tab-split'}
+              splitResult={pipelineResult?.split}
+            />
+          </div>
+        </div>
+      </aside>
 
 
       {/* RULE EDIT MODAL */}

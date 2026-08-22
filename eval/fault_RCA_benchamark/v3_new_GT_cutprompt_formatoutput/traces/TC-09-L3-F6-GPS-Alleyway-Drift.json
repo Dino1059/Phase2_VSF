@@ -1,0 +1,127 @@
+{
+  "case_id": "TC-09-L3-F6-GPS-Alleyway-Drift",
+  "case_definition": {
+    "case_id": "TC-09-L3-F6-GPS-Alleyway-Drift",
+    "fault_family": "F6_GPS_Alleyway_Drift",
+    "layer": "L3",
+    "domain": "RIDE_HAILING",
+    "entity_id": "TRIP_XANH_0890",
+    "dataset": "ride_hailing_xanh_sm_trips",
+    "admission_observation": "Spatial boundary anomaly detected for TRIP_XANH_0890: pickup coordinates located completely outside Hanoi operating bounding box.",
+    "initial_evidence": [
+      {
+        "evidence_id": "EV-INIT-009",
+        "source_type": "detector_signal",
+        "source_id": "det-l3",
+        "entity_ids": [
+          "TRIP_XANH_0890"
+        ],
+        "summary": "Spatial boundary anomaly detected for TRIP_XANH_0890: pickup coordinates located completely outside Hanoi operating bounding box."
+      }
+    ],
+    "ground_truth": {
+      "expected_classification": "DATA",
+      "target_component": "GPS_SENSOR",
+      "target_metric": "pickup_latitude",
+      "failure_mechanism": "SPATIAL_DRIFT",
+      "ground_truth_cause": "Driver app GPS sensor drift or coordinate truncation placing pickup coordinates outside Hanoi bounding box."
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp-9023e371",
+    "incident_id": "INC-TC-09-L3-F6-GPS-Alleyway-Drift",
+    "claim": "A recent GPS ingestion pipeline update swapped latitude and longitude fields, causing coordinates to be recorded in reverse order, which violates the spatial boundary contract and triggers the spatial anomaly detector.",
+    "classification": "DATA",
+    "target_component": "GPS_INGESTION_PIPELINE",
+    "target_metric": "pickup_latitude",
+    "failure_mechanism": "SCHEMA_MISMATCH",
+    "anomalous_value_observed": "105.8432 (latitude field contains longitude value)",
+    "technical_summary": "The trip record shows pickup_latitude=21.0215 and pickup_longitude=105.8432, both within the defined contract bounds. However, DQ violations flag these values as out of range, indicating they are interpreted opposite to the contract (latitude value 105.8432 exceeds max 21.1). The recent change log reveals a pipeline update that swapped field mappings for latitude and longitude. This field swap explains the out-of-bound detections and the spatial boundary anomaly, pinpointing a data pipeline schema mismatch as the root cause.",
+    "supporting_evidence": [
+      "EV-INIT-009"
+    ],
+    "contradicting_evidence": [],
+    "missing_evidence": [],
+    "confidence": 0.96,
+    "status": "PROPOSED"
+  },
+  "recommendation": {
+    "recommendation_id": "rec-35eb2314",
+    "incident_id": "INC-TC-09-L3-F6-GPS-Alleyway-Drift",
+    "recommendation_type": "PREVENTIVE_DATA_CONTROL",
+    "cause_type": "DATA",
+    "action_type": "PREVENTIVE_DQ_RULE_PROPOSAL",
+    "summary": "Propose preventive data control rule for: A recent GPS ingestion pipeline update swapped latitude and longitude fields, causing coordinates to be recorded in reverse order, which violates the spatial boundary contract and triggers the spatial anomaly detector.",
+    "details": {
+      "hypothesis_id": "hyp-9023e371",
+      "rule_proposal": "A recent GPS ingestion pipeline update swapped latitude and longitude fields, causing coordinates to be recorded in reverse order, which violates the spatial boundary contract and triggers the spatial anomaly detector."
+    },
+    "requires_hitl_approval": true
+  },
+  "execution_meta": {
+    "tokens_spent": 4139,
+    "tool_calls_made": 0,
+    "tool_execution_trace": [],
+    "hypothesis_revisions": 0,
+    "budget_remaining": 7861,
+    "target_domain": "RIDE_HAILING",
+    "domain_allowlist": [
+      "calculate_detector_detail",
+      "fetch_dq_violations",
+      "fetch_entity_telemetry",
+      "fetch_profile",
+      "fetch_recent_changes",
+      "fetch_trip_history",
+      "inspect_upstream_contracts",
+      "query_historical_baselines",
+      "resolve_entity_relationships"
+    ],
+    "resolved_entity_scope": [
+      "TRIP_XANH_0890"
+    ],
+    "resolved_time_scope": {},
+    "bounded_stop": true,
+    "wall_clock_elapsed_sec": 5.265666,
+    "stop_reason": "completed"
+  },
+  "evaluation": {
+    "case_id": "TC-09-L3-F6-GPS-Alleyway-Drift",
+    "fault_family": "F6_GPS_Alleyway_Drift",
+    "layer": "L3",
+    "domain": "RIDE_HAILING",
+    "entity_id": "TRIP_XANH_0890",
+    "expected_classification": "DATA",
+    "actual_classification": "DATA",
+    "classification_score": 1.0,
+    "target_component": {
+      "expected": "GPS_SENSOR",
+      "actual": "GPS_INGESTION_PIPELINE",
+      "matched": true
+    },
+    "target_metric": {
+      "expected": "pickup_latitude",
+      "actual": "pickup_latitude",
+      "matched": true
+    },
+    "failure_mechanism": {
+      "expected": "SPATIAL_DRIFT",
+      "actual": "SCHEMA_MISMATCH",
+      "matched": false
+    },
+    "diagnosis_score": 0.667,
+    "ground_truth_cause": "Driver app GPS sensor drift or coordinate truncation placing pickup coordinates outside Hanoi bounding box.",
+    "llm_claim": "A recent GPS ingestion pipeline update swapped latitude and longitude fields, causing coordinates to be recorded in reverse order, which violates the spatial boundary contract and triggers the spatial anomaly detector.",
+    "supporting_evidence": [
+      "EV-INIT-009"
+    ],
+    "grounding_score": 1.0,
+    "operational_efficiency": {
+      "tool_calls_made": 0,
+      "tokens_spent": 4139,
+      "wall_clock_sec": 5.265666,
+      "bounds_passed": true
+    },
+    "overall_score": 0.867,
+    "verdict": "PASS"
+  }
+}

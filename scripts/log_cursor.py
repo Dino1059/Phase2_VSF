@@ -229,8 +229,8 @@ def main() -> None:
     )
     parser.add_argument("--auto", action="store_true",
                         help="Default mode: scan recent conversations.")
-    parser.add_argument("--hours", type=int, default=24,
-                        help="Window in hours (default: 24).")
+    parser.add_argument("--hours", type=int, default=168,
+                        help="Window in hours (default: 168 for 7 days).")
     parser.add_argument("--all", action="store_true",
                         help="Ignore the time window; scan everything.")
     parser.add_argument("--conv-id",

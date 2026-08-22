@@ -156,16 +156,32 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         avgResolutionTime = 'No incidents';
       }
 
-      const formattedInsights: DiagnosisInsight[] = incidents.map((inc) => ({
-        id: inc.incident_id,
-        title: inc.admission_reason || `Incident ${inc.incident_id}`,
-        confidence: `Severity: ${inc.severity || 'MEDIUM'}`,
-        rootCause: `Entity Targets: ${inc.entity_ids?.join(', ') || 'N/A'} | Signals: ${
-          inc.signal_ids?.join(', ') || 'None'
-        }`,
-        recommendedAction: `Status: ${inc.status}. Execute automated investigation (R0/C1/A1) or trigger control.`,
-        severity: inc.severity || 'MEDIUM',
-      }));
+      const formattedInsights: DiagnosisInsight[] = incidents.map((inc) => {
+        const aiReasoning =
+          inc.llm_claim ||
+          (inc.hypotheses && inc.hypotheses.length > 0 ? inc.hypotheses[0].claim : null) ||
+          inc.ground_truth_cause ||
+          inc.admission_reason ||
+          `Phát hiện bất thường dữ liệu trên thực thể ${inc.target_entity || inc.entity_ids?.[0] || 'hệ thống'}.`;
+
+        const actionText =
+          inc.expected_action
+            ? (inc.expected_action === 'QUARANTINE_DATA' || inc.expected_action.includes('QUARANTINE')
+                ? 'Đưa bản ghi vi phạm vào Khu Vực Cách Ly (Quarantine Zone).'
+                : inc.expected_action)
+            : (inc.recommendations && inc.recommendations.length > 0 && inc.recommendations[0].summary
+                ? inc.recommendations[0].summary
+                : `Trạng thái: ${inc.status || 'OPEN'}. Kích hoạt quy trình kiểm tra tự động (R0/C1/A1) hoặc áp dụng bộ luật.`);
+
+        return {
+          id: inc.incident_id,
+          title: inc.fault_family || inc.admission_reason || `Sự Cố ${inc.incident_id}`,
+          confidence: `Severity: ${inc.severity || 'MEDIUM'}`,
+          rootCause: aiReasoning,
+          recommendedAction: actionText,
+          severity: inc.severity || 'MEDIUM',
+        };
+      });
 
       const formattedActivityFeed: ActivityFeedItem[] = auditLogs.map((entry) => ({
         id: entry.id,

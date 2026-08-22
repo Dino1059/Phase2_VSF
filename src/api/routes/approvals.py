@@ -39,8 +39,15 @@ async def list_pending_approvals():
 async def approve_rule(rule_id: str):
     db = get_db()
     try:
-        db.execute("UPDATE quality_rules SET status = 'approved' WHERE id = ?", [rule_id])
-        return {"status": "approved", "rule_id": rule_id}
+        db.execute("UPDATE quality_rules SET status = 'approved', approved_at = CURRENT_TIMESTAMP WHERE id = ?", [rule_id])
+        quarantined_count = 0
+        try:
+            from src.api.routes.rules import quarantine_violating_data_for_rule
+            q_res = quarantine_violating_data_for_rule(rule_id, db=db)
+            quarantined_count = q_res.get("quarantined_count", 0)
+        except Exception as qe:
+            print(f"[WARN] Error executing quarantine on approval: {qe}")
+        return {"status": "approved", "rule_id": rule_id, "quarantined_count": quarantined_count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -61,13 +68,22 @@ async def batch_approval(request: BatchApprovalRequest):
         raise HTTPException(status_code=400, detail="Action must be 'approve' or 'reject'")
     target_status = "approved" if request.action == "approve" else "rejected"
     db = get_db()
+    total_quarantined = 0
     try:
         for rid in request.rule_ids:
-            db.execute("UPDATE quality_rules SET status = ? WHERE id = ?", [target_status, rid])
+            db.execute("UPDATE quality_rules SET status = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?", [target_status, rid])
+            if target_status == "approved":
+                try:
+                    from src.api.routes.rules import quarantine_violating_data_for_rule
+                    q_res = quarantine_violating_data_for_rule(rid, db=db)
+                    total_quarantined += q_res.get("quarantined_count", 0)
+                except Exception:
+                    pass
         return {
             "status": "success",
             "processed_count": len(request.rule_ids),
             "new_status": target_status,
+            "total_quarantined": total_quarantined,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

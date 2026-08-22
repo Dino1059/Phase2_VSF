@@ -83,14 +83,16 @@ export function Header() {
       try {
         const res = await datasetsApi.list();
         if (res && Array.isArray(res.datasets)) {
-          const dynamic = res.datasets.map((d: { key: string; filename?: string; path?: string }) => {
-            const fileName = d.filename || (d.path ? d.path.split('/').pop() : '') || d.key;
-            return {
-              key: d.key,
-              name: fileName || d.key.replace(/^uploaded_/, '').replace(/_/g, ' '),
-              path: d.path || '',
-            };
-          });
+          const dynamic = res.datasets
+            .filter((d: { key: string }) => d.key.startsWith('uploaded_') || d.key.startsWith('upload_'))
+            .map((d: { key: string; filename?: string; path?: string }) => {
+              const fileName = d.filename || (d.path ? d.path.split('/').pop() : '') || d.key;
+              return {
+                key: d.key,
+                name: fileName || d.key.replace(/^uploaded_/, '').replace(/_/g, ' '),
+                path: d.path || '',
+              };
+            });
           setUploadedDatasets(dynamic);
         }
       } catch {

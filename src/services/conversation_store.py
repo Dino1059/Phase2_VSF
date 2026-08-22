@@ -111,7 +111,21 @@ class ConversationStore:
 
     def clear_all(self):
         conn = self.db.get_connection()
-        conn.execute("DELETE FROM messages")
+        try:
+            conn.execute("DROP TABLE IF EXISTS messages")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id VARCHAR PRIMARY KEY,
+                    session_id VARCHAR,
+                    type VARCHAR,
+                    agent_id VARCHAR,
+                    content TEXT,
+                    metadata_json TEXT,
+                    timestamp VARCHAR
+                )
+            """)
+        except Exception:
+            pass
 
 
 conversation_store = ConversationStore()

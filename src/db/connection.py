@@ -3,7 +3,7 @@ import duckdb, os, threading
 
 class DuckDBManager:
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls, db_path: str = None):
         with cls._lock:
@@ -310,6 +310,14 @@ class DuckDBManager:
                     conn.execute("ALTER TABLE quarantine ADD COLUMN snapshot_id VARCHAR")
                 if "rule_version_id" not in cols:
                     conn.execute("ALTER TABLE quarantine ADD COLUMN rule_version_id VARCHAR")
+                if "status" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN status VARCHAR DEFAULT 'QUARANTINED'")
+                if "user_action" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN user_action VARCHAR DEFAULT 'NONE'")
+                if "action_at" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN action_at TIMESTAMP")
+                if "action_by" not in cols:
+                    conn.execute("ALTER TABLE quarantine ADD COLUMN action_by VARCHAR")
         except Exception:
             pass
 

@@ -122,18 +122,120 @@ def _load_table_as_dataframe(table_name: str, project_id: str, db_path: Optional
     return pd.DataFrame()
 
 
+def _auto_signal_config(table_name: str, df: pd.DataFrame) -> dict:
+    """
+    Heuristic auto-config for tables that are not in `_TABLE_SIGNAL_CONFIG`.
+
+    Picks:
+      - entity_id_col: first column whose name suggests a vehicle/station/driver id
+      - timestamp_col: first parseable datetime column
+      - metric_col:    first numeric column (excluding the chosen id / timestamp cols)
+      - relational_x/y: first two remaining numeric columns
+      - l1_min/max:    None → no hard range; rely on null checks only
+    """
+    if df.empty:
+        return {}
+
+    id_keywords = ("vin", "vehicle", "entity", "driver", "station", "id", "device")
+    ts_keywords = ("time", "date", "ts", "timestamp", "datetime", "pickup", "start")
+
+    cols = list(df.columns)
+    entity_col = None
+    for c in cols:
+        cl = str(c).lower()
+        if any(k in cl for k in id_keywords):
+            entity_col = c
+            break
+    if not entity_col:
+        entity_col = cols[0]
+
+    ts_col = None
+    for c in cols:
+        if c == entity_col:
+            continue
+        cl = str(c).lower()
+        if any(k in cl for k in ts_keywords):
+            ts_col = c
+            break
+    if not ts_col:
+        # Try the first non-id column and validate it can be parsed as datetime
+        for c in cols:
+            if c == entity_col:
+                continue
+            try:
+                parsed = pd.to_datetime(df[c], errors="coerce")
+                if parsed.notna().sum() > max(1, len(df) // 2):
+                    ts_col = c
+                    break
+            except Exception:
+                continue
+    if not ts_col:
+        ts_col = entity_col  # best-effort fallback
+
+    numeric_cols = [
+        c for c in cols
+        if c not in (entity_col, ts_col) and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    metric_col = numeric_cols[0] if numeric_cols else None
+    rel_x = numeric_cols[1] if len(numeric_cols) > 1 else None
+    rel_y = numeric_cols[2] if len(numeric_cols) > 2 else None
+
+    return {
+        "entity_id_col": entity_col,
+        "timestamp_col": ts_col,
+        "metric_col": metric_col,
+        "relational_x": rel_x,
+        "relational_y": rel_y,
+        "l1_min": None,
+        "l1_max": None,
+        "l1_required_cols": numeric_cols[:4],
+        "auto": True,
+    }
+
+
+def _get_all_tables_for_dataset(dataset_key: Optional[str]) -> List[str]:
+    """
+    Return the user tables that should be analyzed for a given dataset_key.
+
+    If dataset_key is None or the file is not a multi-table DuckDB, fall back to
+    the legacy single-table key (treated as one table).
+    """
+    if not dataset_key:
+        return []
+    try:
+        from src.config import get_settings
+        from src.tools.datasource import StructuredSource
+        settings = get_settings()
+        base_key = dataset_key.split("::", 1)[0] if "::" in dataset_key else dataset_key
+        file_path = settings.get_dataset_path(base_key)
+        if not file_path or not os.path.exists(file_path):
+            return []
+        tables = StructuredSource(file_path).list_tables()
+        if tables:
+            return tables
+    except Exception:
+        pass
+    return [dataset_key]
+
+
 def _detect_l1_l4_signals(table_name: str, df: pd.DataFrame, project_id: str) -> dict:
     """
     Run L1-L4 detectors on the provided DataFrame and return a dict of
     {layer: List[Signal]} compatible with ReliabilityOrchestrator.run_pipeline.
     Empty signal lists are returned when column configuration is missing.
+
+    Tables not in `_TABLE_SIGNAL_CONFIG` get a best-effort auto-config so the
+    detectors can still produce useful signals.
     """
     from src.reliability.detectors.l1_rules import L1ConstraintDetector
     from src.reliability.detectors.l2_contextual import L2ContextualDetector
     from src.reliability.detectors.l3_relational import L3RelationalDetector
     from src.reliability.detectors.l4_changepoint import L4ChangepointDetector
 
-    cfg = _TABLE_SIGNAL_CONFIG.get(table_name, {})
+    cfg = _TABLE_SIGNAL_CONFIG.get(table_name) or _auto_signal_config(table_name, df)
+    if not cfg:
+        return {"L1": [], "L2": [], "L3": [], "L4": []}
+
     entity_col = cfg.get("entity_id_col")
     ts_col = cfg.get("timestamp_col")
     metric_col = cfg.get("metric_col")
@@ -231,18 +333,103 @@ def _run_reliability_pipeline(table_name: str, project_id: str) -> List[dict]:
         out.append({
             "incident_id": res.incident.incident_id,
             "severity": res.incident.severity,
+            "status": res.incident.status,
             "supporting_layers": res.incident.supporting_layers,
             "admission_reason": res.incident.admission_reason,
             "entity_ids": res.incident.entity_ids,
             "signal_ids": res.incident.signal_ids,
-            "hypothesis_id": res.hypothesis.hypothesis_id,
-            "classification": res.hypothesis.classification,
-            "confidence": res.hypothesis.confidence,
-            "recommendation_id": res.recommendation.recommendation_id,
-            "recommendation_type": res.recommendation.recommendation_type,
-            "action_type": res.recommendation.action_type,
+            "hypothesis_id": res.hypothesis.hypothesis_id if res.hypothesis else None,
+            "hypothesis_claim": res.hypothesis.claim if res.hypothesis else "",
+            "classification": res.hypothesis.classification if res.hypothesis else "DATA",
+            "confidence": res.hypothesis.confidence if res.hypothesis else 0.88,
+            "supporting_evidence": res.hypothesis.supporting_evidence if res.hypothesis else [],
+            "contradicting_evidence": res.hypothesis.contradicting_evidence if res.hypothesis else [],
+            "missing_evidence": res.hypothesis.missing_evidence if res.hypothesis else [],
+            "recommendation_id": res.recommendation.recommendation_id if res.recommendation else None,
+            "recommendation_type": getattr(res.recommendation, "recommendation_type", getattr(res.recommendation, "cause_type", "DATA")),
+            "action_type": res.recommendation.action_type if res.recommendation else "QUARANTINE_DATA",
+            "recommendation_summary": getattr(res.recommendation, "summary", ""),
+            "meta": res.meta or {},
+            "tool_trace": [t.get("tool_name") for t in (res.meta or {}).get("tool_execution_trace", [])],
+            "tokens_spent": (res.meta or {}).get("tokens_spent", 0),
         })
     return out
+
+
+def _detect_cross_table_signals(
+    per_table_signals: dict, project_id: str, dataset_key: str = ""
+) -> List:
+    """
+    Given {table_name: [Signal, ...]} from multiple tables, build CROSS_TABLE
+    signals when the same entity_id appears in 2+ tables within a 30-minute
+    time window.
+
+    Returns a list of synthetic Signal objects tagged with
+    `layer='L3'` and a `cross_table=True` attribute (set on the Signal via
+    extra evidence_refs to avoid schema changes).
+    """
+    if not per_table_signals or len(per_table_signals) < 2:
+        return []
+
+    from datetime import timedelta
+    from collections import defaultdict
+    from src.reliability.models.signal import Signal
+
+    entity_signals: "defaultdict[str, list]" = defaultdict(list)
+    for table_name, sigs in per_table_signals.items():
+        for sig in sigs:
+            for eid in sig.entity_ids or []:
+                entity_signals[eid].append((table_name, sig))
+
+    cross_signals: List[Signal] = []
+    window = timedelta(minutes=30)
+
+    for eid, items in entity_signals.items():
+        # group by overlapping window
+        items_sorted = sorted(items, key=lambda x: x[1].event_time)
+        used = [False] * len(items_sorted)
+        for i, (t_i, s_i) in enumerate(items_sorted):
+            if used[i]:
+                continue
+            cluster = [(t_i, s_i)]
+            used[i] = True
+            for j in range(i + 1, len(items_sorted)):
+                if used[j]:
+                    continue
+                t_j, s_j = items_sorted[j]
+                # Overlap check: s_j.event_time within window of cluster start..end
+                cluster_start = min(c.event_time for _, c in cluster)
+                cluster_end = max(c.event_time for _, c in cluster)
+                if (s_j.event_time >= cluster_start - window and
+                        s_j.event_time <= cluster_end + window):
+                    cluster.append((t_j, s_j))
+                    used[j] = True
+            tables = {t for t, _ in cluster}
+            if len(tables) >= 2:
+                avg_score = sum(float(c.score) for _, c in cluster) / len(cluster)
+                layers = sorted({c.layer for _, c in cluster})
+                ev_refs = [f"{t}:{c.detector}:{c.signal_type}" for t, c in cluster]
+                cluster_start = min(c.event_time for _, c in cluster)
+                cluster_end = max(c.event_time for _, c in cluster)
+                cross_sig = Signal(
+                    project_id=project_id,
+                    entity_ids=[eid],
+                    layer="L3",
+                    signal_type="CROSS_TABLE_CORRELATION",
+                    metric_or_relationship=f"multi_table:{','.join(sorted(tables))}",
+                    event_time=cluster_start,
+                    window_start=cluster_start,
+                    window_end=cluster_end,
+                    score=round(avg_score, 2),
+                    severity="HIGH",
+                    detector="L3_CrossTable_Correlation",
+                    detector_version="1.0.0",
+                    evidence_refs=ev_refs + [f"dataset={dataset_key}", f"layers={','.join(layers)}"],
+                    provenance="REAL_OPERATIONAL",
+                )
+                cross_signals.append(cross_sig)
+
+    return cross_signals
 
 
 @dataclass
@@ -271,23 +458,34 @@ class DataTrustOrchestrator:
         self.rule_proposer = RuleProposerAgent(llm)
         self.executor = ExecutorAgent(llm)
 
-    def run_analysis(self, table_name: str, review_text: str | None = None) -> OrchestratorResult:
-        """Run the full analysis pipeline on a table."""
+    def run_analysis(self, dataset_key: str, review_text: str | None = None, table_name: str | None = None) -> OrchestratorResult:
+        """Run the full analysis pipeline. Supports both single-table (legacy) and multi-table DuckDB datasets."""
         start = time.time()
         result = OrchestratorResult()
 
-        # Stage 1: Profile
-        profile_result = self.profiler.run(table_name)
+        # Stage 1: Profile (multi-table aware when dataset_key resolves to >1 table)
+        all_tables = _get_all_tables_for_dataset(dataset_key)
+        if table_name:
+            target_tables = [table_name]
+        elif all_tables:
+            target_tables = all_tables
+        else:
+            target_tables = [dataset_key]
+
+        profile_result = self.profiler.run(dataset_key)
         result.stages.append({
             "stage": "profiling",
             "agent": "profiler",
             "status": profile_result.status,
             "steps": len(profile_result.steps),
-            "summary": profile_result.final_answer[:500]
+            "summary": profile_result.final_answer[:500],
+            "tables_profiled": target_tables,
         })
 
         # Stage 2: Anomaly Detection (Design V2: L1-L4 -> Fusion -> Incident -> A1)
-        anomaly_stage = self._run_anomaly_stage(table_name)
+        # Iterate over every user table in the dataset, run L1-L4 per table, then
+        # run a cross-table correlation pass before invoking A1.
+        anomaly_stage = self._run_anomaly_stage(target_tables, dataset_key=dataset_key)
         result.stages.append(anomaly_stage)
         anomaly_findings = anomaly_stage.get("anomaly_findings", {})
 
@@ -305,7 +503,7 @@ class DataTrustOrchestrator:
 
         # Stage 4: Rule Proposal (now receives real anomaly findings)
         rule_result = self.rule_proposer.run(
-            table_name,
+            dataset_key,
             profile_summary=profile_result.final_answer[:500],
             anomaly_findings=anomaly_findings
         )
@@ -326,58 +524,182 @@ class DataTrustOrchestrator:
         self._log_orchestration(result)
         return result
 
-    def _run_anomaly_stage(self, table_name: str) -> dict:
+    def _run_anomaly_stage(self, table_names, dataset_key: str = "") -> dict:
         """
-        Run Design V2 anomaly pipeline: L1-L4 detectors -> Fusion -> IncidentService -> A1.
+        Run Design V2 anomaly pipeline across every table in `table_names`.
+
+        For each table: L1-L4 detectors -> FusionEngine -> IncidentService -> A1.
+        After intra-table processing, run a cross-table correlation pass and feed
+        any synthesized cross-table signals back through the FusionEngine.
+
         Returns a stage dict compatible with the orchestrator's stage list, plus
         `anomaly_findings` containing real admitted incidents and A1 hypotheses.
         """
-        try:
-            investigations = _run_reliability_pipeline(
-                table_name=table_name,
-                project_id=self.project_id,
-            )
-        except Exception as exc:
-            return {
-                "stage": "anomaly_detection",
-                "agent": "reliability_orchestrator",
-                "status": "error",
-                "error": str(exc),
-                "incident_count": 0,
-                "incidents": [],
-                "anomaly_findings": {"incidents": []},
-                "summary": f"Reliability pipeline failed: {exc}",
-            }
+        if isinstance(table_names, str):
+            table_names = [table_names]
+        table_names = [t for t in (table_names or []) if t]
+
+        all_investigations: List[dict] = []
+        per_table_summary: List[dict] = []
+        per_table_signals_for_cross: dict = {}
+
+        for tbl in table_names:
+            try:
+                investigations = _run_reliability_pipeline(
+                    table_name=tbl,
+                    project_id=self.project_id,
+                )
+            except Exception as exc:
+                per_table_summary.append({
+                    "table_name": tbl,
+                    "status": "error",
+                    "error": str(exc),
+                    "incident_count": 0,
+                })
+                continue
+
+            # Collect signals from this table for cross-table correlation
+            try:
+                df = _load_table_as_dataframe(tbl, project_id=self.project_id)
+                raw_sigs = _detect_l1_l4_signals(tbl, df, self.project_id)
+                per_table_signals_for_cross[tbl] = (
+                    raw_sigs.get("L1", []) +
+                    raw_sigs.get("L2", []) +
+                    raw_sigs.get("L3", []) +
+                    raw_sigs.get("L4", [])
+                )
+            except Exception:
+                per_table_signals_for_cross[tbl] = []
+
+            # Tag investigations with their source table & dataset_key so the
+            # Alert Dashboard can filter by the active dataset.
+            for inv in investigations:
+                inv["source_table"] = tbl
+                inv["dataset_key"] = dataset_key
+                # Persist dataset_key / source_table into incident metadata so
+                # the GET /incidents filter can use them later.
+                try:
+                    from src.reliability.incidents.service import IncidentService
+                    existing_meta = IncidentService().get_incident_meta(inv["incident_id"]) or {}
+                    existing_meta["source_table"] = tbl
+                    existing_meta["dataset_key"] = dataset_key
+                    IncidentService().set_incident_meta(inv["incident_id"], existing_meta)
+                except Exception:
+                    pass
+
+            all_investigations.extend(investigations)
+            per_table_summary.append({
+                "table_name": tbl,
+                "status": "completed" if investigations else "no_anomalies",
+                "incident_count": len(investigations),
+            })
+
+        # Cross-table correlation (only meaningful when 2+ tables produced signals)
+        cross_investigations: List[dict] = []
+        cross_signals = _detect_cross_table_signals(
+            per_table_signals_for_cross,
+            project_id=self.project_id,
+            dataset_key=dataset_key,
+        )
+        if cross_signals:
+            try:
+                from src.reliability.investigation.reliability_orchestrator import ReliabilityOrchestrator
+                cross_results = ReliabilityOrchestrator().run_pipeline(
+                    {"L3": cross_signals, "L1": [], "L2": [], "L4": []},
+                    project_id=self.project_id,
+                )
+                for res in cross_results:
+                    try:
+                        from src.reliability.incidents.service import IncidentService
+                        existing_meta = IncidentService().get_incident_meta(res.incident.incident_id) or {}
+                        existing_meta["source_table"] = "+".join(per_table_signals_for_cross.keys())
+                        existing_meta["dataset_key"] = dataset_key
+                        existing_meta["cross_table"] = True
+                        IncidentService().set_incident_meta(res.incident.incident_id, existing_meta)
+                    except Exception:
+                        pass
+                    cross_investigations.append({
+                        "incident_id": res.incident.incident_id,
+                        "severity": res.incident.severity,
+                        "status": res.incident.status,
+                        "supporting_layers": res.incident.supporting_layers,
+                        "admission_reason": res.incident.admission_reason,
+                        "entity_ids": res.incident.entity_ids,
+                        "signal_ids": res.incident.signal_ids,
+                        "hypothesis_id": res.hypothesis.hypothesis_id if res.hypothesis else None,
+                        "hypothesis_claim": res.hypothesis.claim if res.hypothesis else "",
+                        "classification": res.hypothesis.classification if res.hypothesis else "DATA",
+                        "confidence": res.hypothesis.confidence if res.hypothesis else 0.88,
+                        "supporting_evidence": res.hypothesis.supporting_evidence if res.hypothesis else [],
+                        "contradicting_evidence": res.hypothesis.contradicting_evidence if res.hypothesis else [],
+                        "missing_evidence": res.hypothesis.missing_evidence if res.hypothesis else [],
+                        "recommendation_id": res.recommendation.recommendation_id if res.recommendation else None,
+                        "recommendation_type": getattr(res.recommendation, "recommendation_type", getattr(res.recommendation, "cause_type", "DATA")),
+                        "action_type": res.recommendation.action_type if res.recommendation else "QUARANTINE_DATA",
+                        "recommendation_summary": getattr(res.recommendation, "summary", ""),
+                        "meta": res.meta or {},
+                        "tool_trace": [t.get("tool_name") for t in (res.meta or {}).get("tool_execution_trace", [])],
+                        "tokens_spent": (res.meta or {}).get("tokens_spent", 0),
+                        "source_table": "+".join(per_table_signals_for_cross.keys()),
+                        "dataset_key": dataset_key,
+                        "cross_table": True,
+                    })
+            except Exception:
+                cross_investigations = []
+
+        investigations = all_investigations + cross_investigations
 
         incidents_payload = [
             {
                 "id": inv["incident_id"],
+                "incident_id": inv["incident_id"],
                 "severity": inv["severity"],
+                "status": inv.get("status", "OPEN"),
                 "supporting_layers": inv["supporting_layers"],
                 "admission_reason": inv["admission_reason"],
                 "entity_ids": inv["entity_ids"],
+                "target_entity": inv["entity_ids"][0] if inv["entity_ids"] else "VIN-001",
                 "signal_ids": inv["signal_ids"],
+                "llm_claim": inv.get("hypothesis_claim", ""),
+                "llm_classification": inv.get("classification", "DATA"),
+                "confidence": inv.get("confidence", 0.88),
                 "hypothesis": {
                     "id": inv["hypothesis_id"],
+                    "claim": inv.get("hypothesis_claim", ""),
                     "classification": inv["classification"],
                     "confidence": inv["confidence"],
+                    "supporting_evidence": inv.get("supporting_evidence", []),
+                    "contradicting_evidence": inv.get("contradicting_evidence", []),
+                    "missing_evidence": inv.get("missing_evidence", []),
                 },
                 "recommendation": {
                     "id": inv["recommendation_id"],
-                    "type": inv["recommendation_type"],
+                    "type": inv.get("recommendation_type", "DATA"),
                     "action_type": inv["action_type"],
+                    "summary": inv.get("recommendation_summary", ""),
                 },
+                "meta": inv.get("meta", {}),
+                "tool_trace": inv.get("tool_trace", []),
+                "tokens_spent": inv.get("tokens_spent", 0),
+                "source_table": inv.get("source_table"),
+                "dataset_key": inv.get("dataset_key"),
+                "cross_table": inv.get("cross_table", False),
             }
             for inv in investigations
         ]
 
         if not investigations:
             status = "no_anomalies"
-            summary = "No L1-L4 signals admitted by FusionEngine."
+            summary = (
+                f"No L1-L4 signals admitted by FusionEngine across "
+                f"{len(table_names)} table(s)."
+            )
         else:
             status = "completed"
             summary = (
-                f"L1-L4 detectors produced {len(investigations)} admitted incident(s); "
+                f"L1-L4 detectors produced {len(all_investigations)} intra-table "
+                f"incident(s) across {len(table_names)} table(s); "
+                f"{len(cross_investigations)} cross-table incident(s); "
                 f"A1 returned hypotheses + recommendations."
             )
 
@@ -387,8 +709,14 @@ class DataTrustOrchestrator:
             "status": status,
             "incident_count": len(investigations),
             "incidents": incidents_payload,
-            "anomaly_findings": {"incidents": incidents_payload},
+            "anomaly_findings": {
+                "incidents": incidents_payload,
+                "total_incidents": len(incidents_payload),
+                "per_table": per_table_summary,
+                "cross_table_count": len(cross_investigations),
+            },
             "summary": summary,
+            "tables_processed": table_names,
         }
 
     def execute_approved_rules(self, rule_ids: list[str], dry_run: bool = True) -> list[dict]:

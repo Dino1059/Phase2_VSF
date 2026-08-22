@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   Boxes,
   Layers,
@@ -36,6 +37,7 @@ const SEVERITY_BADGE: Record<string, string> = {
 };
 
 export const ExecutiveDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const metrics = useDashboardStore((s) => s.metrics);
@@ -68,6 +70,24 @@ export const ExecutiveDashboard: React.FC = () => {
         setPipelineProposals(pending);
       })
       .catch(() => setProposals([]));
+  }, [fetchDashboardData, setPipelineProposals]);
+
+  useEffect(() => {
+    const handleReset = () => {
+      fetchDashboardData();
+      hitlApi
+        .queue()
+        .then((res) => {
+          const pending = (res.proposals || []).filter(
+            (p) => p.status === 'pending' || p.status === 'proposed'
+          );
+          setProposals(pending);
+          setPipelineProposals(pending);
+        })
+        .catch(() => setProposals([]));
+    };
+    window.addEventListener('datatrust:db-reset', handleReset);
+    return () => window.removeEventListener('datatrust:db-reset', handleReset);
   }, [fetchDashboardData, setPipelineProposals]);
 
   const isDark = () =>
@@ -231,12 +251,32 @@ export const ExecutiveDashboard: React.FC = () => {
       <div className="panels-grid">
         {/* PANEL 1: AI SUGGESTED RULES */}
         <div className="panel-card panel-suggested-rules">
-          <div className="panel-header">
+          <div className="panel-header" style={{ cursor: 'pointer' }} onClick={() => navigate('/operations/rules')}>
             <div className="panel-title-group">
               <Lightbulb size={18} className="text-primary" />
               <h2>{t('suggestedRules')}</h2>
             </div>
-            <span className="badge-count">{proposals.length} {t('pendingReviewCount')}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="badge-count">{proposals.length} {t('pendingReviewCount')}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate('/operations/rules');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--neon-cyan)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                {isVi ? 'Xem tất cả →' : 'View all →'}
+              </button>
+            </div>
           </div>
 
           <div className="rules-list">
@@ -248,7 +288,7 @@ export const ExecutiveDashboard: React.FC = () => {
               </div>
             )}
 
-            {proposals.map((rule) => {
+            {proposals.slice(0, 2).map((rule) => {
               const sev = (rule.rule_type || '').toUpperCase().includes('HIGH') || (rule.rule_name || '').toLowerCase().includes('high')
                 ? 'danger'
                 : (rule.rule_type || '').toUpperCase().includes('MEDIUM')
@@ -265,7 +305,7 @@ export const ExecutiveDashboard: React.FC = () => {
                     <code>{rule.rule_expression}</code>
                   </div>
                   <div className="rule-desc">
-                    {rule.proposed_by || 'AI Steward'} · {t('confidence')} {((rule.confidence ?? 0) * 100).toFixed(1)}% · {rule.proposed_at ? new Date(rule.proposed_at).toLocaleString() : t('justNow')}
+                    {rule.proposed_by || 'AI Steward'} · {t('confidence')} {(((rule.confidence ?? 0) <= 1.0 ? (rule.confidence ?? 0) * 100 : (rule.confidence ?? 0))).toFixed(1)}% · {rule.proposed_at ? new Date(rule.proposed_at).toLocaleString() : t('justNow')}
                   </div>
                   <div className="rule-actions">
                     <button className="btn-rule approve" onClick={() => handleRuleAction(rule, 'approve')}><Check size={13} /> {t('approveRule')}</button>
@@ -284,6 +324,29 @@ export const ExecutiveDashboard: React.FC = () => {
                 </span>
               </div>
             ))}
+
+            {proposals.length > 2 && (
+              <div style={{ textAlign: 'center', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => navigate('/operations/rules')}
+                  style={{
+                    background: 'rgba(2, 132, 199, 0.08)',
+                    border: '1px solid rgba(2, 132, 199, 0.25)',
+                    color: '#0284c7',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    width: '100%',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {isVi ? `Xem thêm ${proposals.length - 2} bộ luật khác →` : `View remaining ${proposals.length - 2} rules →`}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -342,12 +405,32 @@ export const ExecutiveDashboard: React.FC = () => {
 
         {/* PANEL 4: AI DIAGNOSIS & ROOT CAUSE */}
         <div className="panel-card panel-rca">
-          <div className="panel-header">
+          <div className="panel-header" style={{ cursor: 'pointer' }} onClick={() => navigate('/operations/alerts')}>
             <div className="panel-title-group">
               <Microchip size={18} className="text-primary" />
               <h2>{t('rcaTitle')}</h2>
             </div>
-            <span className="confidence-badge"><Fingerprint size={12} /> {insights.length} {t('activeRca')}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="confidence-badge"><Fingerprint size={12} /> {insights.length} {t('activeRca')}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate('/operations/alerts');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--neon-cyan)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                {isVi ? 'Xem tất cả →' : 'View all →'}
+              </button>
+            </div>
           </div>
           <div className="rca-cards-list">
             {insights.length === 0 ? (
@@ -356,16 +439,51 @@ export const ExecutiveDashboard: React.FC = () => {
                 <div style={{ fontSize: 12, marginTop: 6 }}>{t('noIncidentsHint')}</div>
               </div>
             ) : (
-              insights.map((insight) => (
-                <div key={insight.id} className="insight-card">
-                  <div className="insight-header">
-                    <span className="insight-title"><Microchip size={14} /> {insight.title}</span>
-                    <span className={`badge ${SEVERITY_BADGE[insight.severity?.toUpperCase()] || 'info'}`}>{insight.severity || 'MEDIUM'}</span>
-                  </div>
-                  <div className="insight-body"><strong>{t('rootCause')}</strong> {insight.rootCause}</div>
-                  <div className="insight-action"><strong>{t('recommendedAction')}</strong> {insight.recommendedAction}</div>
-                </div>
-              ))
+              (() => {
+                const sevOrder: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+                const sorted = [...insights].sort((a, b) => {
+                  const sA = sevOrder[String(a.severity || '').toUpperCase()] || 0;
+                  const sB = sevOrder[String(b.severity || '').toUpperCase()] || 0;
+                  return sB - sA;
+                });
+                const top2 = sorted.slice(0, 2);
+                return (
+                  <>
+                    {top2.map((insight) => (
+                      <div key={insight.id} className="insight-card">
+                        <div className="insight-header">
+                          <span className="insight-title"><Microchip size={14} /> {insight.title}</span>
+                          <span className={`badge ${SEVERITY_BADGE[insight.severity?.toUpperCase()] || 'info'}`}>{insight.severity || 'MEDIUM'}</span>
+                        </div>
+                        <div className="insight-body"><strong>{t('rootCause')}</strong> {insight.rootCause}</div>
+                        <div className="insight-action"><strong>{t('recommendedAction')}</strong> {insight.recommendedAction}</div>
+                      </div>
+                    ))}
+                    {sorted.length > 2 && (
+                      <div style={{ textAlign: 'center', marginTop: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/operations/alerts')}
+                          style={{
+                            background: 'rgba(2, 132, 199, 0.08)',
+                            border: '1px solid rgba(2, 132, 199, 0.25)',
+                            color: '#0284c7',
+                            borderRadius: '6px',
+                            padding: '6px 12px',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            width: '100%',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {isVi ? `Xem thêm ${sorted.length - 2} sự cố & RCA khác →` : `View remaining ${sorted.length - 2} RCA cases →`}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()
             )}
           </div>
         </div>

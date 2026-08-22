@@ -106,6 +106,10 @@ CREATE TABLE IF NOT EXISTS quarantine (
     original_data JSON,
     quarantined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     lineage_hash VARCHAR,
+    status VARCHAR DEFAULT 'QUARANTINED',
+    user_action VARCHAR DEFAULT 'NONE',
+    action_at TIMESTAMP,
+    action_by VARCHAR,
     UNIQUE (snapshot_id, rule_version_id, source_row_id)
 );
 
