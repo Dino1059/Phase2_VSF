@@ -51,8 +51,22 @@ class DuckDBManager:
                     try:
                         self._master_conn = duckdb.connect(self.db_path)
                         break
-                    except duckdb.IOException as e:
+                    except Exception as e:
                         err_str = str(e).lower()
+                        if "wal file" in err_str or "getdefaultdatabase" in err_str:
+                            wal_path = self.db_path + ".wal"
+                            if os.path.exists(wal_path):
+                                try:
+                                    os.remove(wal_path)
+                                except Exception:
+                                    pass
+                            if os.path.exists(self.db_path):
+                                try:
+                                    os.remove(self.db_path)
+                                except Exception:
+                                    pass
+                            if attempt < 4:
+                                continue
                         if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
                             if attempt < 4:
                                 time.sleep(0.3)
@@ -63,7 +77,10 @@ class DuckDBManager:
                                 except Exception:
                                     raise e
                         else:
-                            raise
+                            if attempt < 4:
+                                time.sleep(0.2)
+                            else:
+                                raise
 
                 try:
                     self._master_conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
