@@ -70,4 +70,5 @@ package-lock.json
 .cursor-scratch/
 
 #local-ngan
-.plan
+.plan
+demo/
