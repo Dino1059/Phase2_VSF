@@ -132,6 +132,18 @@ def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> 
     )
 
 
+def _this_run_quarantine_count(db) -> int:
+    """Sandbox this-run rows only — leftover warehouse 50k is not this run."""
+    try:
+        q = db.execute(
+            "SELECT COUNT(*) FROM quarantine "
+            "WHERE CAST(snapshot_id AS VARCHAR) LIKE 'sandbox:%' OR rule_version_id = 'sandbox'"
+        )
+        return int(q[0][0]) if q else 0
+    except Exception:
+        return 0
+
+
 @quarantine_router.get("/")
 async def list_quarantine(
     limit: int = 100,

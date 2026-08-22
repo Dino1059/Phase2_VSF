@@ -63,6 +63,16 @@ def get_summary(dataset_key: Optional[str] = Query(None)):
     except Exception:
         pass
 
+    this_run_quarantined = 0
+    try:
+        tr = db.execute(
+            "SELECT COUNT(*) FROM quarantine "
+            "WHERE CAST(snapshot_id AS VARCHAR) LIKE 'sandbox:%' OR rule_version_id = 'sandbox'"
+        )
+        this_run_quarantined = int(tr[0][0]) if tr else 0
+    except Exception:
+        this_run_quarantined = 0
+
     clean_records = max(0, total_data_records - quarantined_count)
     pass_validation_rate = (
         round((1 - quarantined_count / max(total_data_records, 1)) * 100, 1)
@@ -78,6 +88,7 @@ def get_summary(dataset_key: Optional[str] = Query(None)):
         "total_data_records": total_data_records,
         "clean_records": clean_records,
         "quarantined_records": quarantined_count,
+        "this_run_quarantined": this_run_quarantined,
         "pass_validation_rate": f"{pass_validation_rate}%",
         "system_status": "OPERATIONAL",
         "tables_scoped": tables,

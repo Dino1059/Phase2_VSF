@@ -12,23 +12,22 @@ const SEVERITY_CONFIG = {
 
 export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
   const { t } = useTranslation('rules');
+  const sessionId = useChatStore((s) => s.sessionId);
   const updateProposalStatus = useChatStore((s) => s.updateProposalStatus);
   const sevKey = (proposal.severity || 'warning').toLowerCase();
   const severity = SEVERITY_CONFIG[sevKey as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.warning;
   const SeverityIcon = severity.icon;
 
-  const isPipelineGate = proposal.type === 'AUTONOMOUS_PIPELINE';
+  const isPipelineGate = proposal.type === 'AUTONOMOUS_PIPELINE' || proposal.type === 'HITL_PREFIX';
 
   const handleApprove = async () => {
     updateProposalStatus(proposal.id, 'approved');
     if (isPipelineGate) {
-      const match = proposal.expression.match(/AUTONOMOUS_GOVERNANCE\((.*?)\)/);
+      const match = proposal.expression.match(/(?:HITL_PROFILE_PROPOSE|AUTONOMOUS_GOVERNANCE)\((.*?)\)/);
       const datasetKey = match ? match[1] : '';
-      const cmd = datasetKey
-        ? `Detect anomalies and propose quality rules for ${datasetKey}`
-        : 'Propose quality rules for uploaded dataset';
+      const cmd = 'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
       try {
-        await sendChatMessage(cmd);
+        await sendChatMessage(cmd, sessionId, datasetKey);
       } catch (e) {
         console.error('Failed to start pipeline:', e);
       }
@@ -78,7 +77,7 @@ export function RuleProposalCard({ proposal }: { proposal: RuleProposal }) {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-status-success hover:bg-status-success/80 rounded-md transition-colors"
         >
           {isPipelineGate ? <Play className="w-3.5 h-3.5 fill-current" /> : <Check className="w-3.5 h-3.5" />}
-          {isPipelineGate ? 'Accept & Run Governance Pipeline' : t('approve')}
+          {isPipelineGate ? 'Approve profile & propose' : t('approve')}
         </button>
         <button
           onClick={() => updateProposalStatus(proposal.id, 'rejected')}

@@ -66,8 +66,12 @@ async def lifespan(app: FastAPI):
         except ImportError:
             print("sentry-sdk not installed; skipping Sentry initialization")
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
-    # Pre-seed dataset if not exists
-    seed_dataset()
+    # Pre-seed dataset only when explicitly opted in
+    if os.getenv("DATATRUST_DEMO_SEED", "").strip().lower() in ("1", "true"):
+        print("Demo seed enabled")
+        seed_dataset()
+    else:
+        print("Demo seed skipped (set DATATRUST_DEMO_SEED=1 to seed taxi demo)")
     # Initialize DuckDB schema
     db = get_db()
     db.init_schema()

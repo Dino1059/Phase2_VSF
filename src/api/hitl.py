@@ -1,7 +1,9 @@
+import json
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from src.db.connection import get_db
 from src.models.hitl import RuleProposalCard, ApproveRequest, RejectRequest, EditRequest
@@ -28,6 +30,74 @@ def _ensure_hitl_columns(db):
             db.execute(f"ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS {col} VARCHAR")
         except Exception:
             pass
+
+
+def _norm_rule_status(raw) -> str:
+    return (str(raw) if raw is not None else "").strip().lower()
+
+
+def _parse_json_blob(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", errors="replace")
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
+    """Recover HITL rows from the Propose beat the run already wrote. Never re-run Propose."""
+    if not dataset_key:
+        return
+    try:
+        rows = db.execute(
+            "SELECT tool_output, observation FROM agent_traces "
+            "WHERE (tool_name IN ('propose_quality_rules', 'quality_rule_proposer') "
+            "   OR action IN ('propose_quality_rules', 'quality_rule_proposer')) "
+            "AND (session_id = ? OR session_id = ? OR CAST(tool_input AS VARCHAR) LIKE ?) "
+            "ORDER BY timestamp DESC LIMIT 8",
+            [f"dataset:{dataset_key}", dataset_key, f"%{dataset_key}%"],
+        )
+    except Exception:
+        return
+    from src.tools.chat_tools import persist_hitl_proposals
+    for row in rows or []:
+        for blob in row:
+            data = _parse_json_blob(blob)
+            if not isinstance(data, dict):
+                continue
+            proposals = data.get("proposals")
+            if isinstance(proposals, list) and proposals:
+                persist_hitl_proposals(dataset_key, proposals, db=db)
+                return
+
+
+def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
+    select_sql = (
+        "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at "
+        f"FROM quality_rules WHERE {where_status} "
+    )
+    if not dataset_key:
+        return db.execute(select_sql + "ORDER BY created_at DESC")
+    like = f"{dataset_key}__%"
+    try:
+        return db.execute(
+            select_sql
+            + "AND (dataset_key = ? OR id LIKE ?) "
+            "ORDER BY created_at DESC",
+            [dataset_key, like],
+        )
+    except Exception:
+        return db.execute(
+            select_sql + "AND id LIKE ? ORDER BY created_at DESC",
+            [like],
+        )
 
 
 @hitl_router.get("/queue")
@@ -239,7 +309,8 @@ async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
     rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
     if not rules:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
-    if rules[0][1] not in ("proposed", "pending", "draft"):
+    current = _norm_rule_status(rules[0][1])
+    if current not in ("proposed", "pending", "draft", "queued"):
         raise HTTPException(status_code=400, detail=f"Rule {rule_id} is '{rules[0][1]}', not 'proposed'")
 
     db.execute("UPDATE quality_rules SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
@@ -304,6 +375,114 @@ async def execute_hitl_rules(payload: Optional[dict] = None):
     return {"status": "executed", "rule_id": rule_id}
 
 
+
+def _log_sandbox_clean_beat(dataset_key: str, payload: dict) -> None:
+    """Honest clean_database beat — sandbox did run after Approve. Never invent counts."""
+    try:
+        from src.orchestrator.engine import ReActEngine, ReActStep
+        observation = {
+            "dataset_key": dataset_key,
+            "sandbox": True,
+            "execution_result": {
+                "clean_count": payload.get("clean_rows") or 0,
+                "quarantine_count": payload.get("quarantine_rows") or 0,
+                "manifest_hash": payload.get("manifest_hash") or "",
+                "status": "CLEAN_DATABASE_CREATED",
+            },
+        }
+        import json
+        eng = ReActEngine(tools=type("T", (), {"get": lambda self, n: None})())
+        eng.tools = type("T", (), {"get": lambda self, n: None})()
+        sid = f"dataset:{dataset_key}"
+        eng._log_trace(
+            sid,
+            ReActStep(
+                2,
+                "",
+                "clean_database",
+                {"dataset_key": dataset_key, "sandbox": True},
+                observation=json.dumps(observation),
+            ),
+            status="done",
+        )
+    except Exception:
+        pass
+
+
+# Bound the sandbox scan so POST /hitl/sandbox returns before tunnel/proxy ~90s.
+# Full 50k warehouse execute_compiled_rules is the 504 path — not the only path.
+SANDBOX_SAMPLE_CAP = 3000
+
+
+class SandboxRequest(BaseModel):
+    dataset_key: str
+    rule_ids: Optional[List[str]] = None
+    sample_size: Optional[int] = None
+
+
+@hitl_router.post("/sandbox")
+async def sandbox_clean(req: SandboxRequest):
+    """Run the sandbox/clean path for approved HITL rules and persist Split rows.
+
+    Prod Execute stays gated. This still writes visible sandbox output into
+    quarantine + the payload Split reads. Never invents quarantine/clean rows.
+    """
+    dataset_key = (req.dataset_key or "").strip()
+    if not dataset_key:
+        raise HTTPException(status_code=400, detail="dataset_key is required")
+    db = get_db()
+    from src.tools.chat_tools import approved_rules_for_clean, persist_sandbox_split
+    from src.services.dataset_engine import load_dataset, execute_compiled_rules
+
+    rule_ids = list(req.rule_ids or [])
+    for rid in rule_ids:
+        check_rule_approved(rid)
+    rules = approved_rules_for_clean(db, dataset_key, rule_ids or None)
+    if not rules:
+        raise HTTPException(
+            status_code=403,
+            detail="Rule execution denied: Rule is not approved by HITL",
+        )
+    cap = SANDBOX_SAMPLE_CAP
+    if req.sample_size is not None:
+        try:
+            cap = max(1, min(int(req.sample_size), SANDBOX_SAMPLE_CAP))
+        except (TypeError, ValueError):
+            cap = SANDBOX_SAMPLE_CAP
+    snapshot_id = f"sandbox:{dataset_key}:{uuid.uuid4().hex[:12]}"
+    try:
+        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
+        rows = df.to_dict("records")
+        exec_res = execute_compiled_rules(rows, rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload = persist_sandbox_split(
+        dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
+    )
+    payload["sampled_rows"] = len(rows)
+    payload["sample_cap"] = cap
+    AuditService.log(
+        "SANDBOX_CLEAN",
+        "HITL_USER",
+        "quarantine",
+        dataset_key,
+        {
+            "clean_rows": payload.get("clean_rows"),
+            "quarantine_rows": payload.get("quarantine_rows"),
+            "manifest_hash": payload.get("manifest_hash"),
+        },
+    )
+    _log_sandbox_clean_beat(dataset_key, payload)
+    return payload
+
+
 @hitl_router.get("/history")
 async def get_history():
     return {"history": AuditService.get_history(limit=100)}
@@ -313,15 +492,30 @@ async def get_history():
 async def reset_hitl_and_rules():
     db = get_db()
     deleted_counts = {}
-    for tbl in ["quality_rules", "audit_log", "quarantine", "execution_authorizations", "decisions", "evidence"]:
+    for tbl in [
+        "quality_rules",
+        "audit_log",
+        "quarantine",
+        "execution_authorizations",
+        "decisions",
+        "evidence",
+        "agent_traces",
+        "messages",
+        "profile_results",
+    ]:
         try:
             db.execute(f"DELETE FROM {tbl}")
             deleted_counts[tbl] = "cleared"
         except Exception as e:
             deleted_counts[tbl] = str(e)
+    try:
+        from src.services.conversation_store import conversation_store
+        conversation_store.clear_all()
+        deleted_counts["conversation_store"] = "cleared"
+    except Exception as e:
+        deleted_counts["conversation_store"] = str(e)
     return {
         "status": "success",
         "message": "DB rule history and audit log reset successfully",
         "details": deleted_counts
     }
-

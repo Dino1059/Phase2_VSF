@@ -10,14 +10,14 @@ import { LandingPage } from './pages/LandingPage';
 export const App: React.FC = () => {
   return (
     <Routes>
+      <Route path="/" element={<Navigate to="/workspace?dataset_key=vingroup_pilot&story=happy" replace />} />
       <Route path="/landing" element={<LandingPage />} />
       <Route element={<AppLayout />}>
-        <Route path="/" element={<ExecutiveDashboard />} />
         <Route path="/dashboard" element={<ExecutiveDashboard />} />
         <Route path="/workspace" element={<AgentChatWorkspace />} />
         <Route path="/chat/:id" element={<AgentChatWorkspace />} />
         <Route path="/operations/:view" element={<OperationsWorkspace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

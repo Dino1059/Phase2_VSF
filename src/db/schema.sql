@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS profile_results (
 CREATE TABLE IF NOT EXISTS quality_rules (
     id VARCHAR PRIMARY KEY,
     snapshot_id VARCHAR,
+    dataset_key VARCHAR,
     rule_name VARCHAR,
     rule_type VARCHAR,
     rule_expression VARCHAR,
@@ -140,7 +141,10 @@ CREATE TABLE IF NOT EXISTS agent_traces (
     tokens_used INT,
     cost_usd FLOAT,
     duration_ms INT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR,
+    tool_title VARCHAR,
+    tool_about VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS schedules (

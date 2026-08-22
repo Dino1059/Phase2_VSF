@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
+import { formatSaigonTime, catalogFor } from '../../demo/stewardLabels';
 import { AgentAvatar } from '../agents/AgentAvatar';
 import { RuleProposalCard } from '../hitl/RuleProposalCard';
 import { AGENTS } from '../../types';
 import type { ChatMessage, RuleProposal } from '../../types';
-import { Brain, Terminal, ShieldCheck } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 
 const AGENT_ALIASES: Record<string, keyof typeof AGENTS> = {
   'rule_proposer': 'ruleProposer',
@@ -14,19 +15,36 @@ const AGENT_ALIASES: Record<string, keyof typeof AGENTS> = {
   'anomalydetector': 'anomalyDetector',
   'diagnostics': 'diagnosis',
   'diagnosis_agent': 'diagnosis',
+  'profile_dataset': 'profiler',
+  'propose_quality_rules': 'ruleProposer',
+  'clean_database': 'orchestrator',
+  'list_datasets': 'orchestrator',
 };
 
 function safeFormatTime(timestamp?: string) {
-  try {
-    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const d = new Date(timestamp);
-    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  return formatSaigonTime(timestamp || null);
 }
 
-export function AgentMessage({ message }: { message: ChatMessage }) {
+function toolNameFromMessage(message: ChatMessage): string {
+  const meta = message.metadata || {};
+  const fromMeta = typeof meta.tool_name === 'string' ? meta.tool_name : typeof meta.tool === 'string' ? meta.tool : '';
+  if (fromMeta) return fromMeta;
+  const id = String(message.agentId || '');
+  if (id && id !== 'orchestrator') return id;
+  const c = message.content || '';
+  if (c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát') || c.includes('profile_dataset')) return 'profile_dataset';
+  if (c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules')) return 'propose_quality_rules';
+  if (c.includes('Cleansing & Quarantine Complete') || c.includes('clean_database')) return 'clean_database';
+  return id;
+}
+
+export function AgentMessage({
+  message,
+  onSelectTrace,
+}: {
+  message: ChatMessage;
+  onSelectTrace?: (tool: string) => void;
+}) {
   const { t } = useTranslation();
   const rawAgentId = message.agentId || 'orchestrator';
   const agentId = (AGENT_ALIASES[rawAgentId] || (AGENTS[rawAgentId as keyof typeof AGENTS] ? rawAgentId : 'orchestrator')) as keyof typeof AGENTS;
@@ -37,49 +55,60 @@ export function AgentMessage({ message }: { message: ChatMessage }) {
   const isThought = content.startsWith('Thought:');
   const isObservation = content.startsWith('Observation:');
   const proposals: RuleProposal[] = Array.isArray(message.metadata?.proposals) ? message.metadata.proposals : [];
+  const toolName = toolNameFromMessage(message);
+  const chip = catalogFor(toolName);
+
+  if (isThought) {
+    return null;
+  }
 
   return (
-    <div id={`chat-msg-${message.id}`} className="chat-msg-entry flex gap-2.5 my-1.5 transition-all duration-500 rounded-xl">
+    <div id={`chat-msg-${message.id}`} className="chat-msg-entry flex gap-2.5 my-1.5 transition-all duration-500 rounded-xl" data-msgid={message.id} data-tool={toolName || undefined}>
       <AgentAvatar agentId={agentId} size="sm" />
       <div className="max-w-[88%] flex-1">
-        {/* Header */}
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xs font-semibold" style={{ color: agent.color }}>
             {t(agent.nameKey)}
           </span>
           <span className="text-[10px] text-text-muted">{time}</span>
-          {isThought && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 text-[9px] font-medium text-cyan-400 bg-cyan-950/60 border border-cyan-800/40 rounded-full">
-              <Brain className="w-2.5 h-2.5" /> ReAct Reasoning
-            </span>
-          )}
-          {isObservation && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 text-[9px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/40 rounded-full">
-              <Terminal className="w-2.5 h-2.5" /> Tool Observation
-            </span>
-          )}
         </div>
 
-        {/* Message Bubble Body */}
-        {isThought ? (
-          <div className="bg-cyan-950/20 border border-cyan-800/30 rounded-xl rounded-tl-md px-3.5 py-2 text-xs italic text-cyan-200/90 leading-relaxed">
-            {content.replace(/^Thought:\s*/, '')}
-          </div>
-        ) : isObservation ? (
-          <div className="bg-surface/90 border border-border/80 rounded-xl rounded-tl-md px-3.5 py-2 text-xs text-text-primary leading-relaxed shadow-inner space-y-1">
-            {renderFormattedContent(content.replace(/^Observation:\s*/, ''))}
-          </div>
-        ) : (
+        {chip ? (
+          <button
+            type="button"
+            className="used-tool-chip"
+            data-msgid={message.id}
+            data-tool={toolName || undefined}
+            onClick={() => onSelectTrace?.(chip.name)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '4px 10px',
+              borderRadius: 999,
+              border: '1px solid rgba(2,132,199,0.3)',
+              background: 'rgba(2,132,199,0.08)',
+              color: '#0284c7',
+              cursor: 'pointer',
+              marginBottom: 8,
+            }}
+          >
+            <Wrench size={11} />
+            Used {chip.title} — {chip.about}
+          </button>
+        ) : null}
+
+        {!isObservation && content ? (
           <div className="bg-chat-agent-bubble border border-border/70 rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-text-primary leading-relaxed space-y-1.5 shadow-sm">
             {renderFormattedContent(content)}
           </div>
-        )}
+        ) : null}
 
-        {/* Inline Rule Proposal Cards for HITL */}
         {proposals.length > 0 && (
           <div className="mt-3 space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-medium text-agent-rule-proposer mb-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
               <span>Pending Governance Review ({proposals.length} rules):</span>
             </div>
             {proposals.map((prop) => (

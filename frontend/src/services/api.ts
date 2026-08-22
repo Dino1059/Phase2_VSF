@@ -2,18 +2,34 @@ const API_BASE = '/api/v1';
 
 export function getRoleHeader(): string {
   const role = localStorage.getItem('datatrust-role');
-  if (!role) return 'Admin';
+  if (!role) return 'Steward';
   return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
+
+export function readAuthToken(): string | null {
+  for (const key of TOKEN_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value) return value;
+  }
+  return null;
+}
+
+export function persistAuthToken(token: string, role?: string) {
+  localStorage.setItem('datatrust-token', token);
+  localStorage.setItem('datatrust_jwt_token', token);
+  if (role) localStorage.setItem('datatrust-role', role);
 }
 
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const customHeaders = (options.headers as Record<string, string>) || {};
-  const token = localStorage.getItem('datatrust-token') || 'mock-jwt-token-datatrust-v3';
+  const token = readAuthToken();
   const headers: Record<string, string> = {
     'X-User-Role': getRoleHeader(),
-    'Authorization': `Bearer ${token}`,
     ...customHeaders,
   };
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
@@ -58,20 +74,56 @@ export const authApi = {
     }),
 };
 
+export async function ensureDemoAuth(): Promise<void> {
+  const role = (localStorage.getItem('datatrust-role') || '').toLowerCase();
+  let profileRole = '';
+  try {
+    const raw = localStorage.getItem('datatrust_user_profile');
+    const parsed = raw ? JSON.parse(raw) : null;
+    profileRole = String(parsed?.role || '').toLowerCase();
+  } catch {
+    profileRole = '';
+  }
+  const actor = role || profileRole;
+  // Keep an existing steward OR admin JWT. Re-login as steward would clobber Reset DB.
+  if (readAuthToken() && (role === 'steward' || role === 'admin' || actor === 'admin' || actor === 'administrator')) return;
+  if (actor === 'admin' || actor === 'administrator') return;
+  const res = await authApi.login({ username: 'steward', role: 'steward' });
+  if (res?.access_token) {
+    persistAuthToken(res.access_token, 'steward');
+    const profile = (res as { user_profile?: { user_id: string; username: string; role: string } }).user_profile
+      || (res.user && typeof res.user === 'object' ? res.user : null)
+      || { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
+    localStorage.setItem('datatrust_user_profile', JSON.stringify(profile));
+  }
+}
+
+
 export const systemApi = {
   resetAll: () =>
-    request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all', {
+    request<{ status: string; message: string; cleared_tables: string[]; reloaded_records: Record<string, number> }>('/system/reset-all?reload_warehouse=false', {
       method: 'POST',
     }),
+  loadSnapshot: (mode: 'happy' | 'unhappy') =>
+    request<{
+      mode: string;
+      source: string;
+      fault_injected: boolean;
+      telemetry: number;
+      charging_sessions: number;
+      trips: number;
+      soc_below_zero: number;
+      open_incidents: number;
+      window_end: string;
+      ingress: string;
+    }>(`/system/demo-snapshot?mode=${mode}`, { method: 'POST' }),
 };
 
 
-function normalizeDatasetKey(k: string): string {
-  if (!k) return 'vingroup_pilot';
-  let cleaned = k.trim();
-  if (cleaned.startsWith('uploaded_')) cleaned = cleaned.slice('uploaded_'.length);
-  if (cleaned.startsWith('upload_')) cleaned = cleaned.slice('upload_'.length);
-  if (cleaned.endsWith('.db')) cleaned = cleaned.slice(0, -3);
+export function normalizeDatasetKey(k: string): string {
+  // Keep uploaded_* keys intact so the profiler hits the registered file,
+  // not the bundled vingroup_pilot DuckDB (wrong table, e.g. vgreen).
+  const cleaned = (k || '').trim();
   return cleaned || 'vingroup_pilot';
 }
 
@@ -79,19 +131,19 @@ export const datasetsApi = {
   list: () =>
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
-    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${normalizeDatasetKey(key)}`),
+    request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}`),
   profile: (key: string, sampleSize: number = 100000) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${normalizeDatasetKey(key)}/profile?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   proposeRules: (key: string, variant: string = 'A1', sampleSize: number = 100000) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
-      `/datasets/${normalizeDatasetKey(key)}/propose?variant=${variant}&sample_size=${sampleSize}`,
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}&sample_size=${sampleSize}`,
       { method: 'POST' }
     ),
   executeRules: (key: string, sampleSize?: number) =>
     request<{ dataset: string; input_rows: number; clean_rows: number; quarantine_rows: number; rules_applied: number; execution_result: any }>(
-      `/datasets/${normalizeDatasetKey(key)}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/execute${sampleSize ? `?sample_size=${sampleSize}` : ''}`,
       { method: 'POST' }
     ),
   sample: (key: string, limit: number = 50, offset: number = 0) =>
@@ -99,7 +151,7 @@ export const datasetsApi = {
       `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/sample?limit=${limit}&offset=${offset}`
     ),
   benchmark: (key: string, sampleSize: number = 50000) =>
-    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${normalizeDatasetKey(key)}/benchmark?sample_size=${sampleSize}`, {
+    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/benchmark?sample_size=${sampleSize}`, {
       method: 'POST',
     }),
   upload: (file: File) => uploadDatasetFile(file),
@@ -175,6 +227,11 @@ export const approvalsApi = {
     request<{ status: string; processed_count: number; new_status: string; total_quarantined?: number }>('/approvals/batch', {
       method: 'POST',
       body: JSON.stringify({ rule_ids: ruleIds, action }),
+    }),
+  authorize: (datasetKey: string, ruleIds: string[]) =>
+    request<{ authorization_id: string; payload_hash: string; status: string; rule_ids: string[] }>('/approvals/authorize', {
+      method: 'POST',
+      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
     }),
 };
 
@@ -263,6 +320,7 @@ export interface SummaryInfo {
   total_data_records: number;
   clean_records: number;
   quarantined_records: number;
+  this_run_quarantined?: number;
   pass_validation_rate: string;
   system_status: string;
 }
@@ -539,8 +597,10 @@ export interface TraceSession {
 export const tracesApi = {
   list: (limit: number = 20) =>
     request<{ sessions: TraceSession[] }>(`/traces/?limit=${limit}`),
-  get: (sessionId: string) =>
-    request<{ session_id: string; steps: Array<Record<string, any>> }>(`/traces/${encodeURIComponent(sessionId)}`),
+  get: (sessionId: string, since?: string) =>
+    request<{ session_id: string; steps: Array<Record<string, any>> }>(
+      `/traces/${encodeURIComponent(sessionId)}${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
 };
 
 export const executionsApi = {
@@ -645,6 +705,21 @@ export async function clearChatDatabase(sessionId?: string) {
   });
 }
 
+export const DEMO_SESSION_ID = 'dataset:vingroup_pilot';
+
+export async function resetDemoSession(): Promise<void> {
+  try {
+    await clearChatDatabase(DEMO_SESSION_ID);
+  } catch {
+    /* snapshot already wiped traces/chat */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function uploadDatasetFile(file: File, lang?: string) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const formData = new FormData();
@@ -699,6 +774,24 @@ export const hitlApi = {
     request<{ status: string; rule_id: string }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
     }),
+  sandbox: (datasetKey: string, ruleIds: string[]) =>
+    request<{
+      dataset_key: string;
+      sandbox?: boolean;
+      clean?: any[];
+      quarantine?: any[];
+      clean_rows?: number;
+      quarantine_rows?: number;
+      manifest_hash?: string;
+      snapshot_id?: string;
+      this_run?: boolean;
+      sampled_rows?: number;
+    }>('/hitl/sandbox', {
+      method: 'POST',
+      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
+    }),
+  history: () =>
+    request<{ history: Array<{ event_hash?: string; previous_event_hash?: string; action?: string; timestamp?: string }> }>('/hitl/history'),
 };
 
 export const pipelineApi = {
@@ -815,7 +908,7 @@ export const quarantineApi = {
       }
     ),
   count: () =>
-    request<{ counts: Record<string, number> }>('/quarantine/count'),
+    request<{ counts: Record<string, number>; this_run?: number }>('/quarantine/count'),
 };
 
 export const anomaliesApi = {

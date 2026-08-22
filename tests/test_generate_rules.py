@@ -10,7 +10,7 @@ def test_schema_agnostic_rule_generation():
             "age": 25,
             "balance": -50.0,  # negative_count > 0
             "zero_col": 0,      # zero_count / total = 1.0 > 0.5
-            "status": "active", # constant column unique_count == 1
+            "const_code": "X1",  # constant unique_count == 1 (not status/label)
             "notes": None,      # null_count > 0
             "pickup_time": "2026-08-01 10:00:00",
             "dropoff_time": "2026-08-01 10:30:00",
@@ -22,7 +22,7 @@ def test_schema_agnostic_rule_generation():
             "age": 30,
             "balance": 150.0,
             "zero_col": 0,
-            "status": "active",
+            "const_code": "X1",
             "notes": "some note",
             "pickup_time": "2026-08-01 11:00:00",
             "dropoff_time": "2026-08-01 11:45:00",
@@ -72,6 +72,6 @@ def test_schema_agnostic_rule_generation():
     assert len(zero_rules) > 0
     assert "zero_col != 0" in zero_rules[0]["expression"]
 
-    # Verify constant column semantic rule
-    const_rules = [r for r in a1_rules if r["rule_type"] == "semantic" and r["column"] == "status"]
+    # Verify constant column variance/semantic rule
+    const_rules = [r for r in a1_rules if r["rule_type"] in ("semantic", "variance") and r["column"] == "const_code"]
     assert len(const_rules) > 0

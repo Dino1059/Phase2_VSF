@@ -226,7 +226,7 @@ def create_tables(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""
         CREATE OR REPLACE VIEW vinfast_bms AS
         SELECT vehicle_vin, timestamp, battery_soc AS soc_pct, battery_voltage AS voltage,
-               battery_temp_c AS temp_c, NULL AS charging_rate_kw, NULL AS fault_code
+               battery_temp_c AS temp_c
         FROM raw.ev_telemetry
         ORDER BY vehicle_vin, timestamp
     """)
@@ -288,10 +288,12 @@ def create_tables(con: duckdb.DuckDBPyConnection) -> None:
 
 # ─── Ingest ──────────────────────────────────────────────────────────────────
 
-def ingest(source_dir: Path, db_path: Path) -> None:
+def ingest(source_dir: Path, db_path: Path, con=None) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    con = duckdb.connect(str(db_path))
+    close_after = con is None
+    if con is None:
+        con = duckdb.connect(str(db_path))
     create_tables(con)
 
     # ── raw snapshots ──────────────────────────────────────────────────────────
@@ -351,6 +353,10 @@ def ingest(source_dir: Path, db_path: Path) -> None:
     fault_injected = fault_path.exists()
 
     if fault_injected:
+        try:
+            con.execute("DELETE FROM raw.fault_manifest")
+        except Exception:
+            pass
         with open(fault_path, encoding="utf-8") as f:
             faults = json.load(f)
         faults_data = faults.get("faults", faults) if isinstance(faults, dict) else faults
@@ -371,6 +377,10 @@ def ingest(source_dir: Path, db_path: Path) -> None:
         print(f"  [OK]   Fault manifest: {len(faults_data)} faults")
 
     if prov_path.exists():
+        try:
+            con.execute("DELETE FROM raw.provenance_manifest")
+        except Exception:
+            pass
         with open(prov_path, encoding="utf-8") as f:
             prov = json.load(f)
         # provenance_manifest.json is a dict, not a list
@@ -419,7 +429,8 @@ def ingest(source_dir: Path, db_path: Path) -> None:
         json.dumps({"source_dir": str(source_dir)}),
     ])
 
-    con.close()
+    if close_after:
+        con.close()
     print(f"\n[OK] Ingest complete: {db_path}")
     print(f"     Snapshot ID: {snap_id}")
     print(f"     Telemetry: {tel_count} rows | Trips: {trip_count} | Charging: {chg_count}")

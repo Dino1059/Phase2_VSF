@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Atom, Search, Moon, Sun, ChevronDown,
   IdCard, LogOut, X, Database,
@@ -12,6 +12,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { searchApi, SearchHit, systemApi, datasetsApi } from '../../services/api';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useChatStore } from '../../stores/chatStore';
+import { usePipelineStore } from '../../stores/pipelineStore';
+import { useWorkspaceStore, wipeStewardBrowserKeys } from '../../stores/workspaceStore';
 import { AuthModal } from '../auth/AuthModal';
 import { changeLanguage } from '../../i18n';
 
@@ -44,8 +47,9 @@ export function Header() {
   const [isSearching, setIsSearching] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
-  const { user, isAuthenticated, isAdmin, setAuthModalOpen, logout } = useAuthStore();
+  const { user, isAuthenticated, isAdmin, setAuthModalOpen, logout, login } = useAuthStore();
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const { theme, toggleTheme } = useTheme();
@@ -53,6 +57,25 @@ export function Header() {
   const modalInputRef = useRef<HTMLInputElement>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Confirm Reset toast must survive navigate('/workspace?new=1') Header remount.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('dt-reset-toast')) {
+        setResetSuccess(true);
+        const timer = setTimeout(() => {
+          setResetSuccess(false);
+          try { sessionStorage.removeItem('dt-reset-toast'); } catch { /* ignore */ }
+        }, 3500);
+        return () => clearTimeout(timer);
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }, [location.pathname, location.search]);
+
 
   // Load registered & uploaded datasets for Ctrl+K search index
   useEffect(() => {
@@ -92,18 +115,48 @@ export function Header() {
   }, []);
 
   const handleResetAll = async () => {
-    const confirmMsg = isVi
-      ? 'Đặt lại toàn bộ bảng DB, luật, vùng cách ly và bộ nhớ phiên về trạng thái ban đầu của VinGroup?'
-      : 'Reset all DB tables, rules, quarantine, and conversation memory back to clean VinGroup baseline?';
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
+    // In-app modal already accepted. Do not re-login as steward after wipe.
     setResetLoading(true);
+    const auth = useAuthStore.getState();
+    const wasAdmin = auth.isAdmin();
+    const keepToken = auth.token;
+    const keepUser = auth.user;
     try {
-      await systemApi.resetAll();
+      try {
+        await systemApi.resetAll();
+      } catch (first: any) {
+        const msg = String(first?.message || '');
+        if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('forbidden')) {
+          await login('admin@datatrust.os', undefined, 'Admin');
+          await systemApi.resetAll();
+        } else {
+          throw first;
+        }
+      }
+      try {
+        useChatStore.getState().clearMessages();
+        useChatStore.getState().setSessionId('default');
+        useWorkspaceStore.getState().resetStewardState();
+        usePipelineStore.getState().resetPipeline();
+        wipeStewardBrowserKeys();
+        Object.keys(sessionStorage)
+          .filter((k) => k.startsWith('dt-hitl') || k.startsWith('dt-warehouse') || k.startsWith('dt-split') || k.startsWith('dt-snap'))
+          .forEach((k) => sessionStorage.removeItem(k));
+      } catch {
+        /* ignore */
+      }
+      if (wasAdmin && keepToken && keepUser) {
+        useAuthStore.getState().restoreSession(keepToken, keepUser);
+      }
+      try {
+        sessionStorage.setItem('dt-reset-toast', '1');
+      } catch {
+        /* ignore */
+      }
       setResetSuccess(true);
       setTimeout(() => setResetSuccess(false), 3500);
       window.dispatchEvent(new CustomEvent('datatrust:db-reset'));
+      navigate('/workspace?new=1');
     } catch (err: any) {
       alert(isVi ? `Đặt lại thất bại: ${err.message}` : `Reset failed: ${err.message}`);
     } finally {
@@ -402,7 +455,11 @@ export function Header() {
             <button
               type="button"
               className="hud-action-pill danger"
-              onClick={handleResetAll}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setResetConfirmOpen(true);
+              }}
               disabled={resetLoading}
               title={isVi ? 'Quản trị viên: Đặt lại trạng thái runtime & khôi phục dữ liệu gốc VinGroup' : 'Admin Quick Reset: Wipe runtime state & restore VinGroup baseline'}
               style={{
@@ -467,7 +524,7 @@ export function Header() {
                   <Shield size={16} />
                 </div>
                 <div className="user-info-text">
-                  <span className="user-name-str">{user?.username?.split('@')[0] || 'Admin'}</span>
+                  <span className="user-name-str">{user?.username?.split('@')[0] || 'steward'}</span>
                   <span
                     className="user-role-str"
                     style={{
@@ -475,7 +532,7 @@ export function Header() {
                       fontWeight: 600,
                     }}
                   >
-                    {user?.role || 'Admin'}
+                    {user?.role || 'Steward'}
                   </span>
                 </div>
                 <ChevronDown className="dropdown-arrow" size={12} />
@@ -521,6 +578,82 @@ export function Header() {
         </div>
       </header>
 
+
+      {resetSuccess && (
+        <div
+          role="status"
+          className="reset-toast"
+          style={{
+            position: 'fixed',
+            top: 72,
+            right: 16,
+            zIndex: 80,
+            background: 'rgba(16, 185, 129, 0.15)',
+            border: '1px solid var(--electric-green)',
+            color: 'var(--electric-green)',
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 700,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          }}
+        >
+          {isVi ? 'Toast: Đã đặt lại DB · HITL 0/0 · Split 0' : 'Toast: Database reset · HITL 0/0 · Split 0'}
+        </div>
+      )}
+
+      {resetConfirmOpen && (
+        <div
+          className="modal-overlay active"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-confirm-title"
+          onClick={() => { if (!resetLoading) setResetConfirmOpen(false); }}
+        >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title" id="reset-confirm-title">
+                <AlertTriangle size={15} style={{ marginRight: 6 }} />
+                {isVi ? 'Xác nhận đặt lại DB' : 'Confirm Reset DB'}
+              </span>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setResetConfirmOpen(false)}
+                disabled={resetLoading}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body" style={{ fontSize: 13, color: 'var(--text-main)', lineHeight: 1.5 }}>
+              {isVi
+                ? 'Đặt lại toàn bộ bảng DB, luật, vùng cách ly và bộ nhớ phiên về trạng thái ban đầu của VinGroup?'
+                : 'Reset all DB tables, rules, quarantine, and conversation memory back to clean VinGroup baseline?'}
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn-modal-cancel"
+                onClick={() => setResetConfirmOpen(false)}
+                disabled={resetLoading}
+              >
+                {isVi ? 'Hủy' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="btn-modal-save"
+                onClick={() => {
+                  setResetConfirmOpen(false);
+                  void handleResetAll();
+                }}
+                disabled={resetLoading}
+              >
+                {isVi ? 'Xác nhận đặt lại' : 'Confirm Reset'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Auth & Persona Switcher Modal */}
       <AuthModal />

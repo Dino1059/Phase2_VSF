@@ -35,6 +35,15 @@ class BaseTool(ABC):
     output_schema: dict | Type[BaseModel] = {}
     target_workflow_state: Optional[Any] = None
 
+    def steward_meta(self) -> dict[str, str]:
+        """Human card from the real tool name + .description (never invented)."""
+        title = (self.name or "").replace("_", " ").strip().capitalize()
+        return {
+            "tool_name": self.name,
+            "tool_title": title,
+            "tool_about": (self.description or "").strip(),
+        }
+
     @abstractmethod
     def execute(self, input_data: dict) -> dict | ToolResult | BaseModel:
         ...

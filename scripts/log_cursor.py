@@ -25,6 +25,14 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from ai_log_redact import redact_obj
+except ImportError:
+    import sys
+    from pathlib import Path as _RedactPath
+    sys.path.insert(0, str(_RedactPath(__file__).resolve().parent))
+    from ai_log_redact import redact_obj
+
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -296,6 +304,7 @@ def main() -> None:
     new_entries: list[dict] = []
     for msg in iter_cursor_conversations(project_dir, cutoff, args.conv_id, repo_root_n):
         entry = build_entry(msg, repo or Path.cwd().name, branch, commit, student, project_id)
+        entry = redact_obj(entry)
         if entry["entry_id"] in logged_ids:
             continue
         new_entries.append(entry)

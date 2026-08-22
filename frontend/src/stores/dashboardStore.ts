@@ -63,7 +63,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     avgResolutionTime: 'N/A',
     cleanRecords: 0,
     quarantinedRecords: 0,
-    passValidationRate: '98%',
+    passValidationRate: '—',
     rulesExecuted: 0,
     latestLedgerHash: '0x00000000000000000000000000000000',
     activeIncidentsCount: 0,
@@ -110,7 +110,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
           : '0.00%';
 
       const cleanRecordsCalc = summary?.clean_records ?? Math.max(0, totalDataRecords - quarantinedCount);
-      const qualityScoreCalc = '98%';
+      const qualityScoreCalc = '—';
       const rulesExecutedCalc = stats.rule_stats
         ? Object.values(stats.rule_stats).reduce((a: number, b: number) => a + b, 0)
         : stats.tables?.quality_rules || 0;

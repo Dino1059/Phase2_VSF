@@ -21,24 +21,13 @@ import {
   CheckCircle2,
   UserCheck,
   Search,
-  Stethoscope,
-  FlaskConical,
-  ScanSearch,
   Fingerprint,
 } from 'lucide-react';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { usePipelineStore } from '../stores/pipelineStore';
 import { hitlApi, summaryApi } from '../services/api';
 import type { HITLProposal } from '../services/api';
-import type { AgentId } from '../types';
-
-const AGENT_HEALTH: Array<{ id: AgentId; label: { en: string; vi: string }; icon: React.ComponentType<{ size?: number | string; className?: string; style?: React.CSSProperties }>; color: string; latency: string }> = [
-  { id: 'profiler', label: { en: 'Data Profiling Agent', vi: 'Agent Khảo Sát Dữ Liệu' }, icon: ScanSearch, color: 'var(--royal-purple)', latency: '0.4ms' },
-  { id: 'anomalyDetector', label: { en: 'Anomaly Detection Agent', vi: 'Agent Phát Hiện Bất Thường' }, icon: AlertTriangle, color: 'var(--warning-amber)', latency: '1.2ms' },
-  { id: 'ruleProposer', label: { en: 'Rule Proposer Agent', vi: 'Agent Đề Xuất Bộ Luật' }, icon: Lightbulb, color: 'var(--electric-green)', latency: '0.8ms' },
-  { id: 'diagnosis', label: { en: 'Diagnosis & RCA Agent', vi: 'Agent Chẩn Đoán & RCA' }, icon: Stethoscope, color: 'var(--alert-magenta)', latency: '2.1ms' },
-  { id: 'orchestrator', label: { en: 'Pytest Integration Engine', vi: 'Động Cơ Tích Hợp Pytest' }, icon: FlaskConical, color: 'var(--electric-green)', latency: '1.4ms' },
-];
+import { PILOT_FAULTY, PILOT_BATCH } from '../demo/pilotFacts';
 
 const SEVERITY_BADGE: Record<string, string> = {
   HIGH: 'danger',
@@ -55,6 +44,7 @@ export const ExecutiveDashboard: React.FC = () => {
   const insights = useDashboardStore((s) => s.insights);
   const activityFeed = useDashboardStore((s) => s.activityFeed);
   const signals = useDashboardStore((s) => s.signals);
+  const incidents = useDashboardStore((s) => s.incidents);
   const summary = useDashboardStore((s) => s.summary);
   const loading = useDashboardStore((s) => s.loading);
   const fetchDashboardData = useDashboardStore((s) => s.fetchDashboardData);
@@ -225,7 +215,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <span className="kpi-title">{t('enterpriseDatasets')}</span>
             <div className="kpi-icon blue"><Boxes size={15} /></div>
           </div>
-          <div className="kpi-value">{loading ? '...' : summary?.projects_count ?? '4'}<span className="unit"> {t('active')}</span></div>
+          <div className="kpi-value">{loading ? '...' : (incidents.filter((i) => i.status === 'OPEN').length || PILOT_FAULTY.openIncidents)}<span className="unit"> OPEN</span></div>
           <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? 'SEMI_SYNTHETIC'} {isVi ? 'nguồn gốc' : 'provenance'}</div>
         </div>
 
@@ -235,7 +225,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <div className="kpi-icon green"><Layers size={15} /></div>
           </div>
           <div className="kpi-value">{loading ? '...' : metrics.cleanRecords.toLocaleString()}<span className="unit"> {t('rows')}</span></div>
-          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {metrics.passValidationRate} {t('dataQuality')}</div>
+          <div className="kpi-subtext warning"><AlertTriangle size={13} /> {PILOT_FAULTY.socBelowZero} SoC&lt;0 · {PILOT_FAULTY.voltageOver1000} V&gt;1000 · {PILOT_FAULTY.gpsOutsideHanoi} GPS</div>
         </div>
 
         <div className="kpi-card">
@@ -387,24 +377,27 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* PANEL 3: AGENT HEALTH & LATENCY */}
+        {/* PANEL 3: data_new steward findings (not fake agent latency) */}
         <div className="panel-card panel-agent-health">
           <div className="panel-header">
             <div className="panel-title-group">
               <Bot size={18} className="text-primary" />
-              <h2>{t('agentHealth')}</h2>
+              <h2>{isVi ? 'Hàng đợi steward (data_new)' : 'Steward queue (data_new)'}</h2>
             </div>
-            <span className="status-pill online"><Check size={12} /> {t('activeAgents')}</span>
+            <span className="status-pill online">{PILOT_BATCH.ingress}</span>
           </div>
           <div className="agents-status-list">
-            {AGENT_HEALTH.map((agent) => (
-              <div key={agent.id} className="agent-row">
-                <div className="agent-name">
-                  <agent.icon size={14} style={{ color: agent.color }} />
-                  {agent.label[isVi ? 'vi' : 'en']}
-                </div>
-                <span className="agent-badge">{isVi ? 'Hoạt Động' : 'Active'}</span>
-                <span className="stat-val">{agent.latency}</span>
+            {[
+              { label: isVi ? 'SoC < 0' : 'SoC < 0', val: String(PILOT_FAULTY.socBelowZero) },
+              { label: isVi ? 'Voltage > 1000' : 'Voltage > 1000', val: String(PILOT_FAULTY.voltageOver1000) },
+              { label: isVi ? 'GPS ngoài Hà Nội' : 'GPS outside Hà Nội', val: String(PILOT_FAULTY.gpsOutsideHanoi) },
+              { label: isVi ? 'Phiên sạc trùng' : 'Duplicate sessions', val: String(PILOT_FAULTY.duplicateSessions) },
+              { label: 'OPEN', val: String(PILOT_FAULTY.openIncidents) },
+              { label: 'Quarantine', val: String(PILOT_FAULTY.quarantine) },
+            ].map((row) => (
+              <div key={row.label} className="agent-row">
+                <div className="agent-name">{row.label}</div>
+                <span className="stat-val">{row.val}</span>
               </div>
             ))}
           </div>

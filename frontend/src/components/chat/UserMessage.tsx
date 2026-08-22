@@ -1,20 +1,15 @@
+import { formatSaigonTime } from '../../demo/stewardLabels';
 import type { ChatMessage } from '../../types';
 
 function safeFormatTime(timestamp?: string) {
-  try {
-    if (!timestamp) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const d = new Date(timestamp);
-    return isNaN(d.getTime()) ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  return formatSaigonTime(timestamp || null);
 }
 
 export function UserMessage({ message }: { message: ChatMessage }) {
   const time = safeFormatTime(message.timestamp);
 
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end" data-msgid={message.id}>
       <div className="max-w-[80%]">
         <div className="bg-chat-user-bubble text-text-primary rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
           {message.content}

@@ -27,7 +27,7 @@ async def list_datasets():
         settings = get_settings()
         result = settings.list_available_datasets()
         return {"datasets": result}
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -43,7 +43,7 @@ async def profile_dataset(
 ):
     """Profile a registered dataset with server-side file loading and multi-table support."""
     try:
-        from src.services.dataset_engine import load_dataset
+        from src.services.dataset_engine import load_dataset, profile_rows
         from src.tools.profiler import Profiler
         from src.tools.datasource import StructuredSource
 
@@ -190,7 +190,7 @@ async def profile_dataset(
             "health_score": health_score,
             "profile": profile_data,
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -222,7 +222,7 @@ async def sample_dataset(
             "records": records,
             "rows": records,
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -273,7 +273,7 @@ async def propose_rules_for_dataset(
             "rules": _sanitize_nans(rules),
             "generation_time_seconds": round(duration, 3),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -328,7 +328,7 @@ async def execute_rules_on_dataset(
         }
     except HTTPException:
         raise
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -356,7 +356,7 @@ async def benchmark_dataset(dataset_key: str, sample_size: int = 50_000):
             "sample_size": len(df),
             "results": _sanitize_nans(results),
         }
-    except ValueError as e:
+    except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
@@ -469,12 +469,12 @@ async def upload_dataset_endpoint(
         )
     else:
         declaration_content = (
-            f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
-            f"**Dataset Key**: `{dataset_key}` | **Schema**: {total_cols} columns, {total_rows:,} total rows."
-            f"{tables_summary}\n\n"
-            f"⚖️ **Declaration & Permission Gate**:\n"
-            f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
-            f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+            f"📥 **Registered dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
+            f"**Key**: `{dataset_key}` | **Schema**: {total_cols} columns, {total_rows:,} total rows."
+            f"{tables_summary}\n"
+            f"**Provenance**: `user_upload`\n\n"
+            f"Next step: profile + propose rules, then stop at HITL for steward review.\n"
+            f"Nothing written to clean/quarantine."
         )
 
     msg = conversation_store.save_message(
@@ -492,10 +492,10 @@ async def upload_dataset_endpoint(
                 "proposals": [
                     {
                         "id": f"prop_upload_{dataset_key}",
-                        "type": "AUTONOMOUS_PIPELINE",
+                        "type": "HITL_PREFIX",
                         "column": "dataset_pipeline",
-                        "expression": f"AUTONOMOUS_GOVERNANCE({dataset_key})",
-                        "description": f"Execute automated DataTrust OS cleaning pipeline for '{dataset_key}'",
+                        "expression": f"HITL_PROFILE_PROPOSE({dataset_key})",
+                        "description": f"Profile and propose quality rules for '{dataset_key}'. Stop for steward review. Do not clean.",
                         "severity": "info",
                         "status": "pending",
                         "agentId": "orchestrator",

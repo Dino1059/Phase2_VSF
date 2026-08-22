@@ -1989,6 +1989,17 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   display: none;
 }
 
+.agent-chat-workspace.right-panel-collapsed .right-panel {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  flex: 0 0 0;
+  overflow: hidden;
+  border-left: none;
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
 .panel-tab-collapse-btn {
   width: 32px;
   height: 32px;
@@ -3149,4 +3160,10 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   color: var(--text-cyan);
 }
 
-
+.dt-chat-highlight {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.08);
+  transition: outline-color 0.3s ease, background 0.3s ease;
+}

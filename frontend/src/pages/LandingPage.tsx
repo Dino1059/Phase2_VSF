@@ -724,9 +724,9 @@ export const LandingPage: React.FC = () => {
             }}
           >
             {[
-              { val: '< 10%', label: 'SLA Quarantine Target' },
-              { val: '99.8%', label: 'Automated RCA Accuracy' },
-              { val: '100%', label: 'Cryptographic SHA-256 Audit Trail' },
+              { val: '172', label: 'SoC < 0 on faulty BMS (data_new)' },
+              { val: '8', label: 'OPEN fused incidents' },
+              { val: '60 VIN', label: '15-day batch window, ends 2026-01-15' },
             ].map((metric, i) => (
               <motion.div
                 key={metric.label}

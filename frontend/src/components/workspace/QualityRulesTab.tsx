@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ShieldCheck,
@@ -13,10 +13,23 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { hitlApi, HITLProposal } from '../../services/api';
+import { approvalsApi, hitlApi, HITLProposal } from '../../services/api';
+import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
+
+const EMPTY_SPLIT = {
+  cleanRows: [] as unknown[],
+  quarantineRows: [] as unknown[],
+  totalClean: 0,
+  totalQuarantine: 0,
+  cleanRan: false,
+  thisRun: false,
+  snapshotId: '',
+};
 
 interface QualityRulesTabProps {
   datasetKey?: string;
+  /** Keep-mounted tab: refetch when shown. GET queue only — never re-run Propose. */
+  active?: boolean;
   onExecuteClean?: () => void;
 }
 
@@ -150,50 +163,121 @@ function getRuleReasoning(rule: HITLProposal, isVi: boolean): EnrichedRuleReason
         : 'Prevents ghost sessions from inflating station occupancy duration metrics.',
     };
   }
-
+  const col = rule.rule_name || rule.rule_id || 'column';
+  const fallbackExpr = rule.rule_expression || '—';
   return {
-    layer: isVi ? 'L1 Quy Luật Hợp Đồng Dữ Liệu' : 'L1 Data Contract Rule',
+    layer: isVi ? 'L1 Hợp đồng dữ liệu' : 'L1 Data contract',
     problem: isVi
-      ? `Giá trị dữ liệu trong ${rule.rule_name || rule.rule_id} lệch khỏi ngưỡng thống kê tiêu chuẩn.`
-      : `Data values in ${rule.rule_name || rule.rule_id} deviate from established statistical baseline.`,
+      ? `Luật đề xuất cho ${col}. Chưa thực thi.`
+      : `Proposed constraint on ${col}. Not executed yet.`,
     why: isVi
-      ? 'ReAct Agent tự chủ phát hiện vi phạm ràng buộc schema trong tập dữ liệu mẫu.'
-      : 'Autonomous ReAct Agent identified schema constraint violations in sampled dataset.',
-    guarantee: isVi
-      ? `Thực thi biểu thức ràng buộc: ${rule.rule_expression}.`
-      : `Enforces constraint expression: ${rule.rule_expression}.`,
+      ? 'Sinh từ profile cột của dataset đang chọn, không dùng số liệu demo.'
+      : 'Synthesized from this dataset’s column profile. No demo counts.',
+    guarantee: isVi ? `Ràng buộc: ${fallbackExpr}` : `Constraint: ${fallbackExpr}`,
     impact: isVi
-      ? 'Phân tách các dòng vi phạm vào sổ cái cách ly, bảo toàn dữ liệu kho.'
-      : 'Segregates violating rows into quarantine ledger, preserving warehouse baseline.',
+      ? 'Steward duyệt xong mới được clean/quarantine.'
+      : 'Clean/quarantine runs only after steward approval.',
   };
 }
 
-export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _datasetKey, onExecuteClean: _onExecuteClean }) => {
+
+/** Same status the card pill uses. Header counts MUST use this (count what you show). */
+function ruleCardStatus(rule: { status?: string | null }): 'approved' | 'rejected' | 'proposed' {
+  const raw = String(rule.status ?? '').trim().toLowerCase();
+  if (raw === 'approved' || raw === 'edited') return 'approved';
+  if (raw === 'rejected') return 'rejected';
+  // unlabeled / whitespace / Proposed / pending / draft / queued → PROPOSED pill
+  return 'proposed';
+}
+
+export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [sandboxAuthorized, setSandboxAuthorized] = useState(false);
+  const [payloadHash, setPayloadHash] = useState<string | null>(null);
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
   const [editExpression, setEditExpression] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'proposed' | 'approved' | 'rejected'>('all');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  // First hidden boot GET is often []. Do not treat that as a locked 0/0.
+  const emptyBootRef = useRef(true);
+  const dropKeptAfterResetRef = useRef(false);
+  const fetchGenRef = useRef(0);
 
-  const fetchRules = useCallback(async () => {
-    setLoading(true);
+  const fetchRules = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    const myGen = fetchGenRef.current;
+    if (!silent) setLoading(true);
     try {
       const res = await hitlApi.queue();
+      if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
-        setProposals(res.proposals);
+        const fromDb = res.proposals;
+        setProposals((prev) => {
+          // Admin reset: drop keptApproved. Empty queue is honest 0/0.
+          if (dropKeptAfterResetRef.current) {
+            dropKeptAfterResetRef.current = false;
+            emptyBootRef.current = false;
+            return fromDb;
+          }
+          // Empty queue must not wipe cards the Propose beat already put on screen.
+          // Empty first hidden fetch must not lock 0/0 — wait for active/agent-trace refetch.
+          if (fromDb.length === 0 && (prev.length > 0 || emptyBootRef.current)) {
+            return prev;
+          }
+          emptyBootRef.current = false;
+          const dbIds = new Set(fromDb.map((r) => r.rule_id));
+          // DuckDB wins for every id it returns. Keep local APPROVED cards the queue omitted
+          // so header Approved follows the pills after one Approve.
+          const keptApproved = prev.filter(
+            (r) => ruleCardStatus(r) === 'approved' && !dbIds.has(r.rule_id)
+          );
+          return [...fromDb, ...keptApproved];
+        });
       }
     } catch {
-      // Fallback
+      // keep existing cards — empty/error must not zero the header
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  }, [datasetKey]);
+
+  useEffect(() => {
+    void fetchRules();
+  }, [fetchRules]);
+
+  // Keep-mounted: first visit used to show the boot-time empty queue. Refetch when
+  // shown, when Profile & Propose lands (agent-trace), and via GET poll. Never POST.
+  useEffect(() => {
+    if (active) void fetchRules({ silent: true });
+  }, [active, fetchRules]);
+
+  useEffect(() => {
+    const onTrace = () => { void fetchRules({ silent: true }); };
+    window.addEventListener('datatrust:agent-trace', onTrace);
+    return () => window.removeEventListener('datatrust:agent-trace', onTrace);
+  }, [fetchRules]);
+
+  useEffect(() => {
+    const onReset = () => {
+      fetchGenRef.current += 1;
+      dropKeptAfterResetRef.current = true;
+      emptyBootRef.current = false;
+      setProposals([]);
+      setSandboxAuthorized(false);
+      setPayloadHash(null);
+      setSandboxError(null);
+    };
+    window.addEventListener('datatrust:db-reset', onReset);
+    return () => window.removeEventListener('datatrust:db-reset', onReset);
   }, []);
 
   useEffect(() => {
-    fetchRules();
+    const id = window.setInterval(() => { void fetchRules({ silent: true }); }, 2000);
+    return () => window.clearInterval(id);
   }, [fetchRules]);
 
   const handleApprove = async (ruleId: string) => {
@@ -205,6 +289,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'approved' } : r))
       );
       window.dispatchEvent(new CustomEvent('datatrust:quarantine-updated', { detail: { ruleId, qCount } }));
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Approval error: ${err.message}`);
     } finally {
@@ -219,6 +304,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
       setProposals((prev) =>
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'rejected' } : r))
       );
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Reject error: ${err.message}`);
     } finally {
@@ -242,6 +328,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
       setProposals((prev) =>
         prev.map((r) => ({ ...r, status: 'approved' }))
       );
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Batch approval error: ${err.message}`);
     } finally {
@@ -262,8 +349,83 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
         )
       );
       setEditingRule(null);
+      await fetchRules({ silent: true });
     } catch (err: any) {
       alert(`Save edit error: ${err.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSandboxExecute = async () => {
+    const approved = proposals.filter((r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited');
+    if (approved.length === 0) return;
+    setActionLoading('sandbox');
+    setSandboxError(null);
+    const storeKey = datasetStoreKey(datasetKey);
+    try {
+      const auth = await approvalsApi.authorize(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      for (const r of approved) {
+        await hitlApi.execute(r.rule_id);
+      }
+      const sandbox = await hitlApi.sandbox(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      const qRows = (sandbox && Array.isArray(sandbox.quarantine)) ? sandbox.quarantine : [];
+      const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
+      const qCount = sandbox?.quarantine_rows ?? qRows.length;
+      const cCount = sandbox?.clean_rows ?? cRows.length;
+      useWorkspaceStore.getState().replaceSplitRows(storeKey, {
+        cleanRan: true,
+        thisRun: true,
+        snapshotId: sandbox?.snapshot_id || '',
+        quarantineRows: qRows,
+        cleanRows: cRows,
+        totalQuarantine: qCount,
+        totalClean: cCount,
+      });
+      useWorkspaceStore.getState().mergeSplitRows(storeKey, {
+        cleanRan: true,
+        thisRun: true,
+        snapshotId: sandbox?.snapshot_id || '',
+        quarantineRows: qRows,
+        cleanRows: cRows,
+        totalQuarantine: qCount,
+        totalClean: cCount,
+      });
+      useWorkspaceStore.getState().mergeTraces(storeKey, [{
+        step: 2,
+        action: 'clean_database',
+        tool: 'clean_database',
+        tool_name: 'clean_database',
+        status: 'done',
+        observation: `${qCount} quarantined · ${cCount} clean`,
+      }]);
+      const detail = {
+        ...(sandbox || {}),
+        sandbox: true,
+        thisRun: true,
+        cleanRan: true,
+        dataset_key: datasetKey || 'vingroup_pilot',
+        snapshot_id: sandbox?.snapshot_id,
+      };
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
+        window.dispatchEvent(new CustomEvent('datatrust:split-refresh', { detail }));
+        window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+      } catch { /* ignore */ }
+      setPayloadHash(auth?.payload_hash || '');
+      setSandboxAuthorized(true);
+    } catch (err: any) {
+      const raw = String(err?.message || 'sandbox execute failed');
+      const is504 = raw.includes('504') || raw.toLowerCase().includes('timeout');
+      const msg = is504 ? (raw.startsWith('HTTP 504') ? raw : `HTTP 504: ${raw}`) : raw;
+      setSandboxError(msg);
+      setSandboxAuthorized(false);
+      useWorkspaceStore.getState().replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-failed', {
+          detail: { dataset_key: datasetKey || 'vingroup_pilot', error: msg, http504: is504 },
+        }));
+      } catch { /* ignore */ }
     } finally {
       setActionLoading(null);
     }
@@ -369,6 +531,82 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
           </button>
         </div>
 
+        {sandboxAuthorized && payloadHash ? (
+          <span
+            title={payloadHash}
+            style={{
+              background: 'rgba(5, 150, 105, 0.1)',
+              border: '1px solid rgba(5, 150, 105, 0.25)',
+              color: '#059669',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
+            {isVi ? 'Sandbox đã chạy · authorized' : 'Sandbox run · authorized'}{' '}
+            <code>{payloadHash.length > 16 ? `${payloadHash.slice(0, 12)}…` : payloadHash}</code>
+          </span>
+        ) : approvedCount >= 1 ? (
+          <button
+            type="button"
+            onClick={() => void handleSandboxExecute()}
+            disabled={actionLoading === 'sandbox'}
+            title="Sandbox execute"
+            style={{
+              background: 'rgba(2, 132, 199, 0.12)',
+              border: '1px solid rgba(2, 132, 199, 0.3)',
+              color: '#0284c7',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: actionLoading === 'sandbox' ? 'wait' : 'pointer',
+            }}
+          >
+            {isVi ? 'Chạy sandbox' : 'Run sandbox'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title={isVi ? 'Execute tắt đến khi sandbox + authorize đúng version' : 'Execute stays off until sandbox + exact-version authorize'}
+            style={{
+              background: 'none',
+              border: '1px dashed var(--glass-border)',
+              color: 'var(--text-muted)',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'not-allowed',
+            }}
+          >
+            {isVi ? 'Execute tắt · sandbox chưa chạy · quarantine=0' : 'Execute disabled · sandbox not run · quarantine=0'}
+          </button>
+        )}
+        {actionLoading === 'sandbox' && (
+          <span style={{ color: '#0284c7', fontSize: 11, fontWeight: 600 }}>
+            {isVi ? 'Sandbox đang chạy…' : 'Sandbox running…'}
+          </span>
+        )}
+        {sandboxError && (
+          <span
+            role="alert"
+            className="sandbox-error-chip"
+            style={{
+              color: '#dc2626',
+              fontSize: 11,
+              fontWeight: 700,
+              background: 'rgba(220, 38, 38, 0.1)',
+              border: '1px solid rgba(220, 38, 38, 0.35)',
+              borderRadius: 6,
+              padding: '3px 8px',
+            }}
+          >
+            {sandboxError}
+          </span>
+        )}
         <div className="rules-actions-right" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {proposedCount > 0 && (
             <button
@@ -395,7 +633,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey: _d
           )}
           <button
             className="traces-refresh-btn"
-            onClick={fetchRules}
+            onClick={() => void fetchRules()}
             disabled={loading}
             title={isVi ? 'Làm mới danh sách bộ luật' : 'Refresh rules queue'}
             style={{

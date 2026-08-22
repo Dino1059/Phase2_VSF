@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -71,6 +72,7 @@ from src.tools.algolia_tool import AlgoliaSearchTool
 from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
+from src.orchestrator.engine import ReActStep, is_hitl_stop_prompt, _is_hitl_stop, _allow_hitl_tool, HITL_REFUSED_TOOLS, HITL_STOP_ALLOWED_TOOLS
 from src.models.schemas import (
     AlertCreateRequest,
     AnomalyDetectRequest,
@@ -560,15 +562,17 @@ async def send_chat_message(request: ChatRequest):
         session_id=session_id,
     )
 
+    hitl_stop = is_hitl_stop_prompt(request.message)
     registry = ToolRegistry()
-    registry.register(ListDatasetsTool())
     registry.register(ProfileDatasetTool())
     registry.register(DetectAnomaliesTool())
     registry.register(ProposeQualityRulesTool())
-    registry.register(CleanDatabaseTool())
+    if not hitl_stop:
+        registry.register(ListDatasetsTool())
+        registry.register(CleanDatabaseTool())
     registry.register(RunFullPipelineTool())
-    registry.register(AlgoliaSearchTool())
-    registry.register(AnomalyDetectorTool())
+        registry.register(AlgoliaSearchTool())
+        registry.register(AnomalyDetectorTool())
 
     lang_pref = request.lang or "vi"
     msg_lower = request.message.lower()
@@ -711,7 +715,11 @@ async def send_chat_message(request: ChatRequest):
 
     # Standard Dynamic ReAct Engine Execution for open-ended queries
     llm_service = LLMService()
-    react_engine = BoundedReActEngine(llm_service=llm_service, tools=registry)
+    react_engine = BoundedReActEngine(
+        llm_service=llm_service,
+        tools=registry,
+        tool_allowlist=HITL_STOP_ALLOWED_TOOLS if hitl_stop else None,
+    )
     
     try:
         import sentry_sdk
@@ -728,6 +736,8 @@ async def send_chat_message(request: ChatRequest):
         lang_instruction = "IMPORTANT: Respond and summarize all findings and observations in professional English. Format technical tables clearly."
 
     context = {"lang": lang_pref, "session_id": session_id}
+    if hitl_stop:
+        context["stop_at_hitl"] = True
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
         task = (
@@ -737,23 +747,69 @@ async def send_chat_message(request: ChatRequest):
         )
     else:
         task = f"{lang_instruction}\nUser request: {request.message}"
+    if hitl_stop:
+        task += (
+            "\nHITL GATE: After propose_quality_rules succeeds, Action: FINISH. "
+            "Do not call clean_database, list_datasets, algolia_search, or any write tool."
+        )
 
     with sentry_ctx:
-        result = react_engine.run(task, context=context)
+        # Offload blocking ReAct so GET /traces can serve the seeded running Profile beat.
+        result = await asyncio.to_thread(lambda: react_engine.run(task, context=context))
 
-    # Broadcast step thoughts as traces for the right panel; save only action observations & final response
+    executed_so_far = [
+        s.action for s in getattr(result, "steps", [])
+        if getattr(s, "action", None) and s.action not in ("FINISH", "ABSTAIN")
+    ]
+    if hasattr(react_engine, "_log_trace"):
+        for step in getattr(result, "steps", []) or []:
+            action = getattr(step, "action", None)
+            if action and action not in ("FINISH", "ABSTAIN", "FINISH_DEFAULT"):
+                if not _session_has_tool_beat(session_id, action):
+                    react_engine._log_trace(session_id, step)
+        for tool_name in missing_requested_tools(request.message, executed_so_far):
+            if _session_has_tool_beat(session_id, tool_name):
+                continue
+            if getattr(react_engine, "_skip_duplicate_propose", lambda *_a, **_k: False)(session_id, tool_name):
+                continue
+            # do not force-run clean / search / list (HITL-stop allowlist)
+            if tool_name in HITL_REFUSED_TOOLS or not _allow_hitl_tool(tool_name):
+                if _is_hitl_stop(request.message) or tool_name in ("clean_database", "algolia_search", "list_datasets"):
+                    continue
+            step = ReActStep(
+                step_index=max((getattr(s, "step_index", -1) for s in result.steps), default=-1) + 1,
+                thought="",
+                action=tool_name,
+                action_input={"dataset_key": request.dataset_key} if request.dataset_key else {},
+            )
+            react_engine._log_trace(session_id, step, status="running")
+            try:
+                tool_result = registry.execute(tool_name, step.action_input)
+                output_data = getattr(tool_result, "output_data", {}) or {}
+                step.observation = json.dumps(output_data, default=str)
+                step.duration_ms = int(getattr(tool_result, "duration_ms", 0) or 0)
+            except Exception as exc:
+                step.observation = f"Error: {exc}"
+            result.steps.append(step)
+            react_engine._log_trace(session_id, step)
+
+    # Broadcast steward summaries (never raw thought) for the traces panel.
+    emitted_actions: set[str] = set()
     for step in result.steps:
-        if step.thought:
-            await ws_manager.broadcast({
-                "type": "agent.trace",
-                "data": {
-                    "agentId": "orchestrator",
-                    "thought": step.thought,
-                    "action": step.action,
-                }
-            }, session_id=session_id)
+        await ws_manager.broadcast({
+            "type": "agent.trace",
+            "data": {
+                "actor_kind": "ORCHESTRATOR",
+                "action": step.action,
+                "summary": (step.observation or step.action or "")[:280],
+                "status": "COMPLETED" if step.action else "RUNNING",
+            }
+        }, session_id=session_id)
 
         if step.action and step.action not in ("FINISH", "ABSTAIN"):
+            if step.action == "profile_dataset" and "profile_dataset" in emitted_actions:
+                continue
+            emitted_actions.add(step.action)
             friendly_content = format_friendly_observation(step.action, step.observation, lang=lang_pref)
             obs_msg = conversation_store.save_message(
                 {
@@ -793,7 +849,7 @@ async def send_chat_message(request: ChatRequest):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
+    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
         final_content += "\nAvailable registered datasets include: `vietnam_trips_dirty`, `vgreen_telemetry`, `vinfast_bms`, `xanhsm_trips`."
 
     agent_msg = conversation_store.save_message(
@@ -898,16 +954,14 @@ async def upload_dataset(
             f"📥 **Đã Nạp & Đăng Ký Tập Dữ Liệu**: `{file.filename}` ({file_size_mb} MB)\n\n"
             f"**Mã Tập Dữ Liệu**: `{dataset_key}` | **Schema**: {len(df.columns)} cột, {len(df):,} dòng lấy mẫu.\n\n"
             f"⚖️ **Cổng Tuyên Bố & Phê Duyệt Quản Trị**:\n"
-            f"Agent Điều Phối Orchestrator yêu cầu quyền khởi chạy **Quy Trình Quản Trị Tự Động** "
-            f"(Khảo Sát ➔ Phát Hiện Bất Thường ➔ Chẩn Đoán ➔ Tổng Hợp Luật ➔ Tạo DB Sạch)."
+            f"Orchestrator sẽ **khảo sát + đề xuất**, dừng tại HITL, không làm sạch."
         )
     else:
         declaration_content = (
             f"📥 **Uploaded & Registered Dataset**: `{file.filename}` ({file_size_mb} MB)\n\n"
             f"**Dataset Key**: `{dataset_key}` | **Schema**: {len(df.columns)} columns, {len(df):,} sampled rows.\n\n"
             f"⚖️ **Declaration & Permission Gate**:\n"
-            f"Orchestrator Agent requests permission to initiate the **Autonomous Governance Pipeline** "
-            f"(Profiling ➔ Anomaly Detection ➔ Diagnosis ➔ Rule Synthesis ➔ Clean DB Creation)."
+            f"Orchestrator will **profile + propose**, stop at HITL, nothing cleaned."
         )
 
     msg = conversation_store.save_message({
@@ -922,10 +976,10 @@ async def upload_dataset(
             "total_rows": len(df),
             "proposals": [{
                 "id": f"prop_upload_{dataset_key}",
-                "type": "AUTONOMOUS_PIPELINE",
+                "type": "HITL_PREFIX",
                 "column": "dataset_pipeline",
-                "expression": f"AUTONOMOUS_GOVERNANCE({dataset_key})",
-                "description": f"Execute automated DataTrust OS cleaning pipeline for '{dataset_key}'",
+                "expression": f"HITL_PROFILE_PROPOSE({dataset_key})",
+                "description": f"Profile and propose quality rules for '{dataset_key}'. Stop for steward review. Do not clean.",
                 "severity": "info",
                 "status": "pending",
                 "agentId": "orchestrator"

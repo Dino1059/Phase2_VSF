@@ -47,6 +47,14 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from ai_log_redact import redact_obj
+except ImportError:
+    import sys
+    from pathlib import Path as _RedactPath
+    sys.path.insert(0, str(_RedactPath(__file__).resolve().parent))
+    from ai_log_redact import redact_obj
+
 # Fix Windows console encoding so VN diacritics in prompts print cleanly.
 if sys.platform == "win32":
     try:
@@ -387,6 +395,7 @@ def main() -> None:
     for msg in iter_user_inputs(brain_dirs, cutoff, args.conv_id, repo_root_n):
         entry = build_entry(msg, repo or Path.cwd().name, branch, commit,
                             student)
+        entry = redact_obj(entry)
         if entry["entry_id"] in logged_ids:
             continue
         new_entries.append(entry)
@@ -436,11 +445,12 @@ def _legacy_log(summary: str, model: str) -> None:
         "prompt": summary[:1000],
         "response_summary": f"[Antigravity] {summary[:500]}",
     }
+    entry = redact_obj(entry)
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
     log_dir.mkdir(exist_ok=True)
     with open(log_dir / "session.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    print(f"[antigravity-log] Logged manual: {summary[:80]}...", file=sys.stderr)
+    print(f"[antigravity-log] Logged manual: {entry['prompt'][:80]}...", file=sys.stderr)
 
 
 if __name__ == "__main__":

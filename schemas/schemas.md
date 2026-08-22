@@ -34,10 +34,15 @@ Dưới đây là danh sách và chức năng của từng Schema đang có mặ
 *   **Giá trị v4:** Ứng dụng **SHA-256 Hash Chain** (giống mini-blockchain). Mỗi sự kiện sẽ lưu mã hash của chính nó và sự kiện trước đó.
 *   **Sử dụng:** Chứng minh tính toàn vẹn (Immutability). Dùng để kiểm toán (audit) hoặc cảnh báo nếu Database bị can thiệp trái phép.
 
-### 4. `agent-trace.schema.json` (Nhật ký Suy luận của Agent)
-*   **Mục đích:** Ghi lại từng bước chạy của ReAct loop của hệ thống Agent.
-*   **Giá trị v4:** Rất quan trọng để **chứng minh Agentic Necessity**. Nó lưu trữ `thought` (Agent nghĩ gì), `action` (gọi tool gì), `observation` (kết quả tool trả về), cộng thêm tracking về `tokens_used`, `cost_usd`, `duration_ms`.
-*   **Sử dụng:** Dùng cho quá trình Benchmark (ở thư mục `eval/`), render Traces timeline ở Frontend, và tracking chi phí LLM.
+### 4. `agent-trace.schema.json` (Nhật ký bước ReAct)
+*   **Mục đích:** Ghi lại từng bước tool của ReAct loop.
+*   **Giá trị v5.1:** Steward UI dùng `action`, `tool_name`, `observation`, `tokens_used`, `duration_ms`. `thought` có thể lưu rỗng — không phát sóng chain-of-thought (PLAN §1.6).
+*   **Sử dụng:** Benchmark (`eval/`), tab Traces, chi phí LLM.
+
+### 4b. `workflow-event.schema.json` (Canonical timeline)
+*   **Mục đích:** Sự kiện vận hành cho timeline / inspector (PLAN §9).
+*   **Bắt buộc:** `event_id`, `sequence_number`, `project_id`, `phase`, `actor_kind`, `actor_id`, `event_type`, `summary`, `created_at`, `correlation_id`.
+*   **Sử dụng:** Nguồn sự thật cho Workspace. Chat chỉ là projection.
 
 ### 5. `raw-snapshot.schema.json` (Lineage Tracking Dữ liệu Gốc)
 *   **Mục đích:** Lưu lại dấu vết (Fingerprint) của dữ liệu thô (raw data) ngay khi vừa được ingest từ các domain (Google Maps, V-GREEN, VinFast...).

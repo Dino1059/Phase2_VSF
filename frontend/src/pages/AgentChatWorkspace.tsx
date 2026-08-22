@@ -20,13 +20,12 @@ import {
   Mic,
   ArrowUp,
   CloudUpload,
-  Cable,
   ChevronLeft,
   ChevronRight,
   Play,
   Sparkles,
 } from 'lucide-react';
-import { usePipelineStore, DOMAINS, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
+import { usePipelineStore, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
 
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -35,10 +34,56 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { datasetsApi, fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth, resetDemoSession } from '../services/api';
 import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
+import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
+import { DemoStoryBar } from '../demo/DemoStoryBar';
+import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 import type { TimeFilter } from '../types';
+
+function historyAlreadyProfiled(messages: Array<{ content?: string; type?: string }> | undefined): boolean {
+  return (messages || []).some((m) => {
+    const c = m.content || '';
+    return c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules');
+  });
+}
+
+function isProfileSummary(content?: string): boolean {
+  const c = content || '';
+  return c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát');
+}
+
+function toolFromMessage(msg: { agentId?: string; content?: string; agent?: string }): string {
+  const id = (msg.agentId || msg.agent || '').trim();
+  if (id && id !== 'orchestrator' && id !== 'human') return id;
+  const c = msg.content || '';
+  if (c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát') || c.includes('profile_dataset')) return 'profile_dataset';
+  if (c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules')) return 'propose_quality_rules';
+  if (c.includes('Cleansing & Quarantine Complete') || c.includes('clean_database')) return 'clean_database';
+  return id;
+}
+
+function messagesForStory<T extends { content?: string }>(messages: T[], story: string | null): T[] {
+  const filtered = messages.filter((m) => !(m.content || '').includes('HAPPY · clean CSVs'));
+  if (story !== 'unhappy') return filtered;
+  let keptSummary = false;
+  const out: T[] = [];
+  for (let i = filtered.length - 1; i >= 0; i -= 1) {
+    if (isProfileSummary(filtered[i].content)) {
+      if (keptSummary) continue;
+      keptSummary = true;
+    }
+    out.unshift(filtered[i]);
+  }
+  return out;
+}
+
+const HITL_STOP_PROMPT_EN =
+  'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
+const HITL_STOP_PROMPT_VI =
+  'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
 
 const AGENT_AVATAR_CLASS: Record<string, string> = {
   orchestrator: 'agent-orchestrator',
@@ -98,12 +143,19 @@ const AGENT_COLORS: Record<string, string> = {
 
 type RightTab = 'tab-traces' | 'tab-profiler' | 'tab-rules' | 'tab-split';
 
+/** Survives StrictMode remount. Tab show / remount must not POST a second HITL chat. */
+const hitlBootsInFlight = new Set<string>();
+
 export function AgentChatWorkspace() {
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const datasetKey = searchParams.get('dataset_key') || undefined;
+  const demoMode = searchParams.get('demo');
+  const story = searchParams.get('story');
+  const isHappy = story === 'happy';
+  const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
   const setChatSessionId = useChatStore((s) => s.setSessionId);
   const chatMessages = useChatStore((s) => s.messages);
@@ -113,7 +165,7 @@ export function AgentChatWorkspace() {
   const currentRuleLogic = store.currentRuleLogic;
   const setDomain = usePipelineStore((s) => s.setDomain);
   const resetPipeline = usePipelineStore((s) => s.resetPipeline);
-  const { startAutoRun, acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
+  const { acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
   const [stream, setStream] = useState<StreamMessage[]>([]);
   const [rightTab, setRightTab] = useState<RightTab>('tab-profiler');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -124,17 +176,22 @@ export function AgentChatWorkspace() {
   const [pipelineResult, setPipelineResult] = useState<Awaited<ReturnType<typeof pipelineApi.result>> | null>(null);
   const [waitingForBackendAgentEvents, setWaitingForBackendAgentEvents] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
+  const [replayBeats, setReplayBeats] = useState<DemoBeat[]>([]);
+  const [selectedTraceStep, setSelectedTraceStep] = useState<number | null>(null);
+  const [selectedTraceTool, setSelectedTraceTool] = useState<string | null>(null);
+  const proposeStartedRef = useRef(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const rcaCanvasRef = useRef<HTMLCanvasElement>(null);
   const telemetryCanvasRef = useRef<HTMLCanvasElement>(null);
-  const runStartedRef = useRef(false);
+  const runStartedRef = useRef<string | false>(false);
+  const bootToken = `${datasetKey || 'none'}:${story || 'none'}:${demoMode || 'none'}`;
 
   const handleRunFullPipeline = useCallback(async () => {
     if (isRunningPipeline) return;
     setIsRunningPipeline(true);
     try {
       const lang = i18n?.language || 'vi';
-      const prompt = lang === 'vi' ? 'Chạy toàn bộ pipeline cho tôi' : 'run full pipeline for me';
+      const prompt = lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN;
       const currentSession = useChatStore.getState().sessionId;
       agentSocket.connect(currentSession);
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
@@ -149,7 +206,8 @@ export function AgentChatWorkspace() {
     }
   }, [datasetKey, i18n, isRunningPipeline]);
 
-  // Context-Aware Auto-Switch: sync right panel to latest agent step
+  // Context-Aware Auto-Switch: display-only tab change.
+  // Must not reload snapshot, reset story, or clobber traces/split store.
   useEffect(() => {
     if (chatMessages.length === 0) return;
     const lastMsg = chatMessages[chatMessages.length - 1];
@@ -167,6 +225,20 @@ export function AgentChatWorkspace() {
     }
   }, [chatMessages]);
 
+  useEffect(() => {
+    const onSandbox = (ev: Event) => {
+      const d = (ev as CustomEvent).detail || {};
+      if (d.sandbox || d.cleanRan || (Array.isArray(d.quarantine) && d.quarantine.length) || (Array.isArray(d.clean) && d.clean.length)) {
+        setRightTab('tab-split');
+      }
+    };
+    window.addEventListener('datatrust:sandbox-split', onSandbox as EventListener);
+    window.addEventListener('datatrust:split-refresh', onSandbox as EventListener);
+    return () => {
+      window.removeEventListener('datatrust:sandbox-split', onSandbox as EventListener);
+      window.removeEventListener('datatrust:split-refresh', onSandbox as EventListener);
+    };
+  }, []);
 
   // Keep the selected dataset scoped to a stable temporary chat session.
   useEffect(() => {
@@ -245,111 +317,101 @@ export function AgentChatWorkspace() {
     setStream((prev) => [...prev, m]);
   }, []);
 
-  const profileUploadedDataset = useCallback(async () => {
-    if (!datasetKey) return;
+  useEffect(() => {
+    agentSocket.connect();
+  }, []);
 
-    // TODO(backend-agent-events): The upload/profile API currently returns only
-    // the final profile payload; it does not expose agent events, timestamps,
-    // or an ordered stream. Do not synthesize progress cards here.
-    setWaitingForBackendAgentEvents(true);
-
-    try {
-      let result;
-      try {
-        result = await datasetsApi.profile(datasetKey, 50_000);
-      } catch {
-        const fallbackKey = datasetKey.startsWith('uploaded_') ? datasetKey.replace('uploaded_', '') : 'vingroup_pilot';
-        result = await datasetsApi.profile(fallbackKey, 50_000);
-      }
-      const profile = result.profile || {};
-      const columns = Array.isArray(profile.columns) ? profile.columns : [];
-      const flags = Array.isArray(profile.quality_flags) ? profile.quality_flags : [];
-
-      const colRows = columns.slice(0, 10).map((col: any) => {
-        const nullPct = (Number(col.null_pct || 0) * 100).toFixed(1);
-        return `| \`${col.name}\` | \`${col.dtype || col.data_type || 'str'}\` | ${nullPct}% | ${(col.unique_count ?? 0).toLocaleString()} |`;
-      }).join('\n');
-
-      const colTable = isVi
-        ? `#### 📋 Schema Cột & Chất Lượng\n| Cột | Kiểu | Tỷ Lệ Null | Giá Trị Riêng Biệt |\n| :--- | :--- | :--- | :--- |\n${colRows}`
-        : `#### 📋 Column Schema & Quality\n| Column | Type | Null Rate | Unique Values |\n| :--- | :--- | :--- | :--- |\n${colRows}`;
-
-      const profileMarkdown = isVi
-        ? `### 📊 Khảo Sát Tập Dữ Liệu: \`${result.dataset}\`\n\n` +
-          `| Chỉ Số | Giá Trị | Phân Hạng Sức Khỏe |\n` +
-          `| :--- | :--- | :--- |\n` +
-          `| **Tổng Số Dòng Lấy Mẫu** | \`${result.sample_size.toLocaleString()}\` | 🟢 Đã Xác Thực Nạp Dữ Liệu |\n` +
-          `| **Số Cột Đã Phân Tích** | \`${columns.length}\` | 🟢 Đã Ánh Xạ Schema |\n` +
-          `| **Số Dòng Trùng Lặp** | \`${profile.duplicate_count ?? 0}\` | 🟢 Không Trùng Lặp |\n` +
-          `| **Điểm Sức Khỏe Dữ Liệu** | \`${profile.health_score ? Number(profile.health_score).toFixed(1) : '99.0'}%\` | 🟢 Đã Xác Thực |\n\n` +
-          `${colTable}` +
-          (flags.length > 0
-            ? `\n\n> ⚠️ **Phát Hiện Chất Lượng**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*`
-            : `\n\n💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*`)
-        : `### 📊 Dataset Profile: \`${result.dataset}\`\n\n` +
-          `| Metric | Value | Health Grade |\n` +
-          `| :--- | :--- | :--- |\n` +
-          `| **Total Sampled Rows** | \`${result.sample_size.toLocaleString()}\` | 🟢 Verified Ingestion |\n` +
-          `| **Columns Analyzed** | \`${columns.length}\` | 🟢 Schema Mapped |\n` +
-          `| **Duplicate Rows** | \`${profile.duplicate_count ?? 0}\` | 🟢 Zero Collision |\n` +
-          `| **Dataset Health Score** | \`${profile.health_score ? Number(profile.health_score).toFixed(1) : '99.0'}%\` | 🟢 Verified |\n\n` +
-          `${colTable}` +
-          (flags.length > 0
-            ? `\n\n> ⚠️ **Quality Findings**: ${flags.map((f: any) => `\`${f.column || 'dataset'}\`: ${f.message || f.flag_type}`).join('; ')}\n\n💡 *Full deep-profile details synced to the **Data Profiler** panel.*`
-            : `\n\n💡 *Full deep-profile details synced to the **Data Profiler** panel.*`);
-
-      pushMessage({
-        id: `profile-done-${datasetKey}`,
-        agent: 'profiler',
-        text: profileMarkdown,
-      });
-
-    } catch (error) {
-      pushMessage({
-        id: `profile-error-${datasetKey}`,
-        agent: 'profiler',
-        text: isVi
-          ? `Khảo sát thất bại cho <strong>${datasetKey}</strong>: ${String((error as Error).message || error)}`
-          : `Profiling failed for <strong>${datasetKey}</strong>: ${String((error as Error).message || error)}`,
-      });
-      throw error;
-    } finally {
-      setWaitingForBackendAgentEvents(false);
-    }
-  }, [datasetKey, pushMessage]);
-
-  // Kick off initial pipeline run once per session
+  // Re-run when story/demo flips (Happy → Unhappy must start a real LLM profile).
   useEffect(() => {
     if (isNewChat) return;
-    if (runStartedRef.current) return;
-    runStartedRef.current = true;
-    resetPipeline();
-    const domain = DOMAINS[domainId];
-    if (!datasetKey) {
-      pushMessage({
-        id: `init-${Date.now()}`,
-        agent: 'orchestrator',
-        text: `Command Session Initialized for ${domain.name} (Database: ${domain.dbName}). Auto-ingesting live telemetry from Kafka topic ${domain.topic}.`,
-      });
+    if (runStartedRef.current === bootToken) return;
+    if (hitlBootsInFlight.has(bootToken)) {
+      runStartedRef.current = bootToken;
+      return;
     }
-    // Uploaded datasets run real metadata/profile first; the legacy static steps are not used here.
+    hitlBootsInFlight.add(bootToken);
+    runStartedRef.current = bootToken;
+    proposeStartedRef.current = false;
+    resetPipeline();
+    setStream([]);
+    useChatStore.getState().clearMessages();
+    void resetDemoSession();
+
+    if (isHappy) {
+      setRightTab('tab-profiler');
+      pushMessage({
+        id: 'happy-snapshot',
+        agent: 'orchestrator',
+        text: '**HAPPY · clean CSVs** — `data_new/vingroup_pilot_dataset` (fault_injected=False). 86,400 / 1,331 / 10,382. SoC<0 = 0. OPEN = 0. Nothing to approve. Batch window ends 2026-01-15 — not a live stream.',
+      });
+      return () => clearTimers();
+    }
+
+    if (isReplay) {
+      setReplayBeats(STEWARD_SESSION_BEATS);
+      STEWARD_SESSION_BEATS.forEach((beat, i) => {
+        if (beat.type === 'workflow.step') return;
+        pushMessage({
+          id: `replay-${i}`,
+          agent: beat.actor_kind === 'DATA_STEWARD' ? 'human' : 'orchestrator',
+          text: `**DEMO · simulation** — ${beat.summary}`,
+        });
+      });
+      setRightTab('tab-traces');
+      return () => clearTimers();
+    }
+
+    const forceLive = demoMode === 'live' || story === 'unhappy';
     const bootstrap = async () => {
-      if (datasetKey) {
-        try {
-          await profileUploadedDataset();
-          store.setStepStatus(1, 'completed');
-          store.setStepIndex(1);
-        } catch {
-          return;
+      if (!datasetKey) return;
+      const bootKey = `dt-hitl-boot:${datasetKey}:${story || 'none'}:${demoMode || 'none'}`;
+      try {
+        const lang = i18n?.language || 'vi';
+        const session = datasetKey ? `dataset:${datasetKey}` : useChatStore.getState().sessionId;
+        const existing = forceLive ? { messages: [] } : await fetchChatHistory(session);
+        if (!forceLive && Array.isArray(existing.messages) && existing.messages.length) {
+          useChatStore.getState().setMessages(existing.messages);
         }
+        if (!forceLive) {
+          const already =
+            historyAlreadyProfiled(existing.messages) ||
+            proposeStartedRef.current ||
+            (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(bootKey));
+          if (already) {
+            proposeStartedRef.current = true;
+            try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
+            setRightTab('tab-rules');
+            return;
+          }
+        }
+        // forceLive / Unhappy: hitlBootsInFlight (sync, effect entry) blocks
+        // StrictMode remount. Do not use leftover sessionStorage — Happy→Unhappy
+        // must still Profile & Propose once. Tab show never reaches here.
+        proposeStartedRef.current = true;
+        try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
+        store.setStepIndex(1);
+        setRightTab('tab-traces');
+        setWaitingForBackendAgentEvents(true);
+        setIsRunningPipeline(true);
+        await ensureDemoAuth();
+        await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
+        const history = await fetchChatHistory(session);
+        if (Array.isArray(history.messages)) {
+          useChatStore.getState().setMessages(history.messages);
+        }
+        window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+        setRightTab('tab-traces');
+      } catch {
         return;
+      } finally {
+        setWaitingForBackendAgentEvents(false);
+        setIsRunningPipeline(false);
       }
-      await startAutoRun(pushMessage);
     };
-    bootstrap();
+    void bootstrap();
     return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [domainId, datasetKey, isNewChat]);
+  }, [domainId, datasetKey, isNewChat, isReplay, isHappy, bootToken]);
 
   // Auto-scroll stream
   useEffect(() => {
@@ -469,11 +531,9 @@ export function AgentChatWorkspace() {
 
   const handleTimeFilter = (filter: TimeFilter) => {
     store.setTimeFilter(filter);
-    pushMessage({
-      id: `filter-${Date.now()}`,
-      agent: 'orchestrator',
-      text: `TIME FILTER ACTIVE: ${filter.toUpperCase()} — Loaded operational logs and rule approval audit history for ${TIME_FILTERS[filter].date}. Audit Manifest Hash: ${TIME_FILTERS[filter].hash}`,
-    });
+    const next = new URLSearchParams(searchParams);
+    next.set('range', filter);
+    setSearchParams(next, { replace: true });
   };
 
   const handleAccept = () => {
@@ -500,6 +560,26 @@ export function AgentChatWorkspace() {
     <div className={`agent-chat-workspace ${rightPanelOpen ? '' : 'right-panel-collapsed'}`}>
       {/* CENTER COLUMN: CHAT STREAM */}
       <div className="center-chat-pane">
+        <DemoStoryBar isVi={isVi} />
+        {demoMode && (
+          <div
+            role="status"
+            style={{
+              margin: '8px 16px 0',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'rgba(217,119,6,0.12)',
+              border: '1px solid rgba(217,119,6,0.35)',
+              color: 'var(--text-main)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {demoMode === 'replay'
+              ? (isVi ? 'DEMO · simulation — băng ghi, không phải số liệu production.' : 'DEMO · simulation — recorded tape, not production metrics.')
+              : (isVi ? 'DEMO · bundled — chạy trên vingroup_pilot có sẵn trong repo.' : 'DEMO · bundled — live run on the repo VinGroup pilot.')}
+          </div>
+        )}
         {/* In-Stream Time Filter Bar */}
         <div className="in-stream-filter-bar">
           <div className="time-filter-left">
@@ -541,7 +621,7 @@ export function AgentChatWorkspace() {
               </div>
               <div className="agent-content-box">
                 <div className="agent-header">
-                  <span className="agent-name" style={{ color: 'var(--royal-purple)' }}>DATA PROFILER AGENT</span>
+                  <span className="agent-name" style={{ color: 'var(--royal-purple)' }}>C1 AI</span>
                   <span className="agent-timestamp">—</span>
                 </div>
                 <div className="agent-body">Waiting for backend agent events...</div>
@@ -552,7 +632,7 @@ export function AgentChatWorkspace() {
             const Icon = AGENT_ICONS[msg.agent] || Brain;
             const isRule = !!msg.isRule && ruleCardState === 'pending';
             return (
-              <div key={`${msg.id}-${i}`} className="agent-entry">
+              <div key={`${msg.id}-${i}`} className="agent-entry" data-msgid={msg.id} data-tool={toolFromMessage({ agent: msg.agent, content: msg.text })}>
                 <div className={`agent-avatar ${AGENT_AVATAR_CLASS[msg.agent] || 'agent-orchestrator'}`}>
                   <Icon size={15} />
                 </div>
@@ -561,7 +641,7 @@ export function AgentChatWorkspace() {
                     <span className="agent-name" style={{ color: AGENT_COLORS[msg.agent] || 'var(--text-main)' }}>
                       {AGENT_TITLES[msg.agent] || 'AGENT'}
                     </span>
-                    <span className="agent-timestamp">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+                    <span className="agent-timestamp">{formatSaigonTime()}</span>
                   </div>
                   <div className="agent-body">
                     <MarkdownContent content={msg.text} />
@@ -587,35 +667,69 @@ export function AgentChatWorkspace() {
               </div>
             );
           })}
-          {chatMessages.map((msg) => {
-            const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
-            const Icon = AGENT_ICONS[agent] || Brain;
-            return (
-              <div key={`chat-${msg.id}`} className="agent-entry">
-                <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
-                  <Icon size={15} />
-                </div>
-                <div className="agent-content-box">
-                  <div className="agent-header">
-                    <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
-                      {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || 'ORCHESTRATOR AGENT')}
-                    </span>
-                    <span className="agent-timestamp">{new Date(msg.timestamp).toLocaleTimeString('en-US', { hour12: false })}</span>
+          {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story)
+            .filter((msg) => !(msg.content || '').trim().startsWith('Thought:'))
+            .map((msg) => {
+              const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
+              const Icon = AGENT_ICONS[agent] || Brain;
+              const toolName = toolFromMessage(msg);
+              const chip = catalogFor(toolName);
+              const isObservation = (msg.content || '').startsWith('Observation:');
+              return (
+                <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id} data-tool={toolName || undefined}>
+                  <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
+                    <Icon size={15} />
                   </div>
-                  <div className="agent-body">
-                    <MarkdownContent content={msg.content} />
+                  <div className="agent-content-box">
+                    <div className="agent-header">
+                      <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
+                        {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || agent.replace(/_/g, ' ').toUpperCase())}
+                      </span>
+                      <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
+                    </div>
+                    <div className="agent-body">
+                      {chip ? (
+                        <button
+                          type="button"
+                          className="used-tool-chip"
+                          data-msgid={msg.id}
+                          data-tool={toolName || undefined}
+                          onClick={() => {
+                            setRightTab('tab-traces');
+                            setSelectedTraceTool(toolName);
+                            setRightPanelOpen(true);
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            border: '1px solid rgba(2,132,199,0.3)',
+                            background: 'rgba(2,132,199,0.08)',
+                            color: '#0284c7',
+                            cursor: 'pointer',
+                            marginBottom: 8,
+                          }}
+                        >
+                          Used {chip.title} — {chip.about}
+                        </button>
+                      ) : null}
+                      {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           {store.runStatus === 'awaiting_hitl' && !stream.some((m) => m.isRule) && (
             <div className="agent-entry">
               <div className="agent-avatar agent-human"><UserShield size={15} /></div>
               <div className="agent-content-box" style={{ borderColor: 'var(--warning-amber)' }}>
                 <div className="agent-header">
                   <span className="agent-name" style={{ color: 'var(--warning-amber)' }}>{t('governanceGate')}</span>
-                  <span className="agent-timestamp">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+                  <span className="agent-timestamp">{formatSaigonTime()}</span>
                 </div>
                 <div className="agent-body">
                   ⏸ {t('pipelinePaused')}
@@ -651,7 +765,9 @@ export function AgentChatWorkspace() {
                     {isVi ? 'Dataset Đã Sẵn Sàng:' : 'Dataset Ready:'} <code>{datasetKey}</code>
                   </div>
                   <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {isVi ? 'Tự động phân tích, đề xuất luật chất lượng L1-L4 và làm sạch cách ly dữ liệu.' : 'Automatically profile, synthesize L1-L4 quality rules, and quarantine corrupt records.'}
+                    {isVi
+                      ? 'Tự động khảo sát + đề xuất luật, rồi dừng HITL. Không làm sạch cho đến khi steward duyệt.'
+                      : 'Auto profile + propose, then stop at HITL. Nothing is cleaned until you approve.'}
                   </div>
                 </div>
               </div>
@@ -675,7 +791,7 @@ export function AgentChatWorkspace() {
                 }}
               >
                 <Play size={13} style={{ fill: '#ffffff' }} />
-                <span>{isRunningPipeline ? (isVi ? 'Đang thực thi...' : 'Executing...') : (isVi ? '🚀 Chạy Toàn Bộ Pipeline' : '🚀 Run Full Pipeline')}</span>
+                <span>{isRunningPipeline ? (isVi ? 'Đang chạy...' : 'Running...') : (isVi ? 'Khảo sát + đề xuất (dừng HITL)' : 'Profile & Propose (stop at HITL)')}</span>
               </button>
             </div>
           )}
@@ -688,65 +804,78 @@ export function AgentChatWorkspace() {
       </div>
 
       {/* RIGHT PANEL: VISUAL CONTROL ROOM & INSPECTION (4 TABS) */}
-      {rightPanelOpen && (
+      {/* Keep mounted when collapsed — CSS width/transform, do not unmount tab state. */}
+      <aside className="right-panel" aria-hidden={!rightPanelOpen}>
+        <div className="right-panel-tabs">
+          <button
+            className={`panel-tab ${rightTab === 'tab-traces' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-traces')}
+          >
+            <Brain size={13} /> {isVi ? 'Dấu Vết' : 'Traces'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-profiler' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-profiler')}
+          >
+            <ScanSearch size={13} /> {isVi ? 'Khảo Sát' : 'Profiler'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-rules' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-rules')}
+          >
+            <ShieldCheck size={13} /> {isVi ? 'Bộ Luật & HITL' : 'Rules & HITL'}
+          </button>
+          <button
+            className={`panel-tab ${rightTab === 'tab-split' ? 'active' : ''}`}
+            onClick={() => setRightTab('tab-split')}
+          >
+            <Database size={13} /> {isVi ? 'Phân Tách DB' : 'Split DB'}
+          </button>
+          <button
+            type="button"
+            className="panel-tab-collapse-btn"
+            onClick={() => setRightPanelOpen(false)}
+            title={isVi ? 'Thu gọn bảng kiểm tra' : 'Collapse Inspector Panel'}
+            aria-label="Collapse Inspector Panel"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
 
-        <aside className="right-panel">
-          <div className="right-panel-tabs">
-            <button
-              className={`panel-tab ${rightTab === 'tab-traces' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-traces')}
-            >
-              <Brain size={13} /> {isVi ? 'Dấu Vết' : 'Traces'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-profiler' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-profiler')}
-            >
-              <ScanSearch size={13} /> {isVi ? 'Khảo Sát' : 'Profiler'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-rules' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-rules')}
-            >
-              <ShieldCheck size={13} /> {isVi ? 'Bộ Luật & HITL' : 'Rules & HITL'}
-            </button>
-            <button
-              className={`panel-tab ${rightTab === 'tab-split' ? 'active' : ''}`}
-              onClick={() => setRightTab('tab-split')}
-            >
-              <Database size={13} /> {isVi ? 'Phân Tách DB' : 'Split DB'}
-            </button>
-            <button
-              type="button"
-              className="panel-tab-collapse-btn"
-              onClick={() => setRightPanelOpen(false)}
-              title={isVi ? 'Thu gọn bảng kiểm tra' : 'Collapse Inspector Panel'}
-              aria-label="Collapse Inspector Panel"
-            >
-              <ChevronRight size={14} />
-            </button>
+
+        <div className="panel-content-body">
+          <div hidden={rightTab !== 'tab-traces'}>
+            <AgentTracesTab
+              datasetKey={datasetKey}
+              sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
+              timeFilter={store.timeFilter}
+              replayBeats={isReplay ? replayBeats : undefined}
+              selectedStep={selectedTraceStep}
+              selectedTool={selectedTraceTool}
+              pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
+              active={rightTab === 'tab-traces'}
+              onSelectStep={(n) => {
+                setSelectedTraceStep(n);
+                setSelectedTraceTool(null);
+              }}
+            />
           </div>
-
-
-          <div className="panel-content-body">
-            {rightTab === 'tab-traces' && (
-              <AgentTracesTab datasetKey={datasetKey} sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'} />
-            )}
-            {rightTab === 'tab-profiler' && (
-              <DataProfilerTab datasetKey={datasetKey} />
-            )}
-            {rightTab === 'tab-rules' && (
-              <QualityRulesTab datasetKey={datasetKey} />
-            )}
-            {rightTab === 'tab-split' && (
-              <SplitDbQuarantineTab
-                datasetKey={datasetKey}
-                manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
-              />
-            )}
+          <div hidden={rightTab !== 'tab-profiler'}>
+            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} />
           </div>
-        </aside>
-      )}
+          <div hidden={rightTab !== 'tab-rules'}>
+            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />
+          </div>
+          <div hidden={rightTab !== 'tab-split'}>
+            <SplitDbQuarantineTab
+              datasetKey={datasetKey}
+              manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
+              active={rightTab === 'tab-split'}
+              splitResult={pipelineResult?.split}
+            />
+          </div>
+        </div>
+      </aside>
 
 
       {/* RULE EDIT MODAL */}
@@ -776,11 +905,29 @@ function NewChatLanding() {
   const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [resetToast, setResetToast] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const sessionId = useChatStore((s) => s.sessionId);
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+
+  // Header toast is local state; navigate to ?new=1 remounts it. Re-show from sessionStorage.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('dt-reset-toast')) {
+        setResetToast(true);
+        const timer = setTimeout(() => {
+          setResetToast(false);
+          try { sessionStorage.removeItem('dt-reset-toast'); } catch { /* ignore */ }
+        }, 3500);
+        return () => clearTimeout(timer);
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }, []);
 
   const handleSubmit = async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
@@ -868,14 +1015,69 @@ function NewChatLanding() {
         </form>
         <div className="new-chat-shortcuts">
           <input ref={fileInputRef} type="file" accept=".csv,.db,.json" hidden onChange={handleUpload} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải Lên Database' : 'Upload Database')}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                if (!useAuthStore.getState().isAdmin()) {
+                  await useAuthStore.getState().login('steward', undefined, 'steward');
+                }
+                await systemApi.loadSnapshot('happy');
+                await resetDemoSession();
+                useChatStore.getState().clearMessages();
+              } catch { /* still open the story */ }
+              navigate('/workspace?dataset_key=vingroup_pilot&story=happy');
+            }}
+          >
+            <ShieldCheck size={22} /> {isVi ? 'HAPPY — bản sạch' : 'HAPPY — clean snapshot'}
           </button>
-          <button type="button"><Cable size={22} /> {isVi ? 'Kết Nối Plugin' : 'Connect Plugin'}</button>
-          <button type="button"><Database size={22} /> {isVi ? 'Tải Ứng Dụng Máy Tính' : 'Download Desktop App'}</button>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                if (!useAuthStore.getState().isAdmin()) {
+                  await useAuthStore.getState().login('steward', undefined, 'steward');
+                }
+                await systemApi.loadSnapshot('unhappy');
+                await resetDemoSession();
+                useChatStore.getState().clearMessages();
+              } catch { /* still open the story */ }
+              navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
+            }}
+          >
+            <Play size={22} /> {isVi ? 'UNHAPPY — 172 / 8 OPEN' : 'UNHAPPY — 172 SoC / 8 OPEN'}
+          </button>
+          <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=replay')}>
+            <Sparkles size={22} /> {isVi ? 'Replay phiên ghi' : 'Replay recorded session'}
+          </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải file của bạn' : 'Upload your file')}
+          </button>
         </div>
         {uploadError && <div className="new-chat-upload-error" role="alert">{uploadError}</div>}
       </div>
+      {resetToast && (
+        <div
+          role="status"
+          className="reset-toast"
+          style={{
+            position: 'fixed',
+            top: 72,
+            right: 16,
+            zIndex: 80,
+            background: 'rgba(16, 185, 129, 0.15)',
+            border: '1px solid var(--electric-green)',
+            color: 'var(--electric-green)',
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 700,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          }}
+        >
+          {isVi ? 'Toast: Đã đặt lại DB · HITL 0/0 · Split 0' : 'Toast: Database reset · HITL 0/0 · Split 0'}
+        </div>
+      )}
     </main>
   );
 }

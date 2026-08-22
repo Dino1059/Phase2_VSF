@@ -9,13 +9,15 @@ export function parseDecisionRecord(event: AgentEvent | any): DecisionRecord {
     const rawEvidence = data.evidence || data.evidence_refs || data.observation || data.thought || data.delta || [];
     const evidence = Array.isArray(rawEvidence)
       ? rawEvidence.map(String).filter(Boolean)
-      : [String(rawEvidence)].filter(Boolean);
-    const confidence = typeof data.confidence === 'number' ? data.confidence : 0.95;
+      : rawEvidence
+        ? [String(rawEvidence)].filter(Boolean)
+        : [];
+    const confidence = typeof data.confidence === 'number' ? data.confidence : 0;
     const status = data.status || 'completed';
 
     return {
       action: String(action),
-      evidence: evidence.length > 0 ? evidence : ['Baseline telemetry profile & schema rules'],
+      evidence,
       confidence,
       status: String(status),
     };
@@ -40,8 +42,8 @@ export function parseChainOfThoughtToRecord(thoughtStr: string, agentId?: string
   }
 
   const evidenceMatch = thoughtStr.match(/(?:evidence|because|rationale|observation):\s*([^\n]+)/i);
-  const evidenceStr = evidenceMatch ? evidenceMatch[1].trim() : thoughtStr.slice(0, 100).trim();
-  const evidence = evidenceStr ? [evidenceStr] : ['Statistical column profiling & anomaly flags'];
+  const evidenceStr = evidenceMatch ? evidenceMatch[1].trim() : '';
+  const evidence = evidenceStr ? [evidenceStr] : [];
 
   const statusMatch = thoughtStr.match(/(?:status|state):\s*([^\n\.,]+)/i);
   const status = statusMatch ? statusMatch[1].trim() : 'completed';
