@@ -93,6 +93,7 @@ class RealtimeControlResponse(BaseModel):
 class ResetResponse(BaseModel):
     status: str
     message: str
+    phase: str = "idle"  # "idle" | "warmup" | "daily"
 
 
 class QuarantineSummaryRule(BaseModel):
@@ -339,62 +340,22 @@ async def get_ingestion_runs(limit: int = 50):
 async def reset_demo_state():
     """
     POST /api/v1/ingestion/reset
-    Reset demo state: clear quarantine, clean, raw tables, batch_run_log, reset demo_state to -1.
-    This allows fresh re-ingestion of updated landing Parquet data into raw.*.
+    Reset demo state: clear quarantine, clean, batch_run_log.
+    PRESERVE raw.* tables (per acceptance criteria: "raw.* giữ nguyên").
+    Reset demo_state to IDLE (day_idx = -1).
     """
-    db = get_db()
+    from src.services.ingestion.reset_service import reset_demo
     
-    try:
-        # Stop realtime first
-        try:
-            from src.services.ingestion.realtime_runner import get_realtime_state, stop_realtime
-            stop_realtime()
-        except ImportError:
-            pass
-        
-        # Clear quarantine tables
-        quarantine_tables = db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'quarantine'")
-        for row in quarantine_tables:
-            tbl = row[0]
-            try:
-                db.execute(f"DELETE FROM quarantine.{tbl}" if tbl != "quarantine" else f"DELETE FROM quarantine")
-            except Exception as e:
-                logger.warning(f"Could not clear quarantine.{tbl}: {e}")
-        
-        # Clear clean tables
-        clean_tables = db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'clean'")
-        for row in clean_tables:
-            tbl = row[0]
-            try:
-                db.execute(f"DELETE FROM clean.{tbl}")
-            except Exception as e:
-                logger.warning(f"Could not clear clean.{tbl}: {e}")
-
-        # Clear raw tables (ev_telemetry, trips, charging_sessions, nlp_feedback) to allow re-ingest from Parquet
-        raw_tables = ["ev_telemetry", "trips", "charging_sessions", "nlp_feedback"]
-        for tbl in raw_tables:
-            try:
-                db.execute(f"DELETE FROM raw.{tbl}")
-            except Exception as e:
-                logger.warning(f"Could not clear raw.{tbl}: {e}")
-
-        # Clear demo_ops batch_run_log
-        db.execute("DELETE FROM demo_ops.batch_run_log")
-        
-        # Reset demo_state to -1
-        db.execute("UPDATE demo_ops.demo_state SET current_day_idx = -1, warmup_completed = FALSE, realtime_active = FALSE, last_activated_at = NULL")
-        
-        # Mark all snapshots as not activated and zero ingested rows
-        db.execute("UPDATE demo_ops.landing_day_snapshots SET is_activated = FALSE, is_ingested = FALSE, ingested_rows = 0")
-        
+    result = reset_demo()
+    
+    if result.status == "success":
         return ResetResponse(
             status="success",
-            message="Demo state reset complete. Raw, clean, quarantine cleared. System ready to re-ingest fresh Parquet data.",
+            message=result.message,
+            phase=result.phase.value,
         )
-        
-    except Exception as e:
-        logger.error(f"Reset failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+    else:
+        raise HTTPException(status_code=500, detail=result.message)
 
 
 @router.get("/realtime/status", response_model=RealtimeStatusResponse)
