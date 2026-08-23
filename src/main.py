@@ -33,6 +33,7 @@ from src.api.pipeline import pipeline_router
 from src.api.traces import traces_router
 from src.api.quarantine_api import quarantine_router
 from src.api.snapshots import snapshots_router
+from src.api.ingestion import router as ingestion_router
 from src.api.routes.telemetry import telemetry_router
 from src.services.ingestion import streaming_worker
 from src.config import get_settings
@@ -139,6 +140,7 @@ app.include_router(pipeline_router, prefix="/api/v1")
 app.include_router(traces_router, prefix="/api/v1")
 app.include_router(quarantine_router, prefix="/api/v1")
 app.include_router(snapshots_router, prefix="/api/v1")
+app.include_router(ingestion_router, prefix="/api/v1")
 app.include_router(hitl_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
 app.include_router(system_router, prefix="/api/v1")
