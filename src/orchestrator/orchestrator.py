@@ -66,7 +66,13 @@ _TABLE_SIGNAL_CONFIG = {
 }
 
 
-def _load_table_as_dataframe(table_name: str, project_id: str, db_path: Optional[str] = None) -> pd.DataFrame:
+def _load_table_as_dataframe(
+    table_name: str,
+    project_id: str,
+    db_path: Optional[str] = None,
+    target_day_idx: int | None = None,
+    window_days: int = 10,
+) -> pd.DataFrame:
     """
     Load a DuckDB table into a pandas DataFrame for L1-L4 detectors.
 
@@ -218,7 +224,13 @@ def _get_all_tables_for_dataset(dataset_key: Optional[str]) -> List[str]:
     return [dataset_key]
 
 
-def _detect_l1_l4_signals(table_name: str, df: pd.DataFrame, project_id: str) -> dict:
+def _detect_l1_l4_signals(
+    table_name: str,
+    df: pd.DataFrame,
+    project_id: str,
+    target_day_idx: int | None = None,
+    window_days: int = 10,
+) -> dict:
     """
     Run L1-L4 detectors on the provided DataFrame and return a dict of
     {layer: List[Signal]} compatible with ReliabilityOrchestrator.run_pipeline.
@@ -309,13 +321,21 @@ def _detect_l1_l4_signals(table_name: str, df: pd.DataFrame, project_id: str) ->
     return signals
 
 
-def _run_reliability_pipeline(table_name: str, project_id: str) -> List[dict]:
+def _run_reliability_pipeline(
+    table_name: str,
+    project_id: str,
+    target_day_idx: int | None = None,
+    window_days: int = 10,
+) -> List[dict]:
     """
     End-to-end L1-L4 -> FusionEngine -> IncidentService -> A1BoundedInvestigator pipeline.
     Returns a list of investigation result dicts (one per admitted incident).
     Raises if the table cannot be loaded.
     """
-    df = _load_table_as_dataframe(table_name, project_id=project_id)
+    df = _load_table_as_dataframe(
+        table_name, project_id=project_id,
+        target_day_idx=target_day_idx, window_days=window_days,
+    )
     if df.empty:
         return []
 
@@ -458,8 +478,24 @@ class DataTrustOrchestrator:
         self.rule_proposer = RuleProposerAgent(llm)
         self.executor = ExecutorAgent(llm)
 
-    def run_analysis(self, dataset_key: str, review_text: str | None = None, table_name: str | None = None) -> OrchestratorResult:
-        """Run the full analysis pipeline. Supports both single-table (legacy) and multi-table DuckDB datasets."""
+    def run_analysis(
+        self,
+        dataset_key: str,
+        review_text: str | None = None,
+        table_name: str | None = None,
+        target_day_idx: int | None = None,
+        window_days: int = 10,
+    ) -> OrchestratorResult:
+        """Run the full analysis pipeline. Supports both single-table (legacy) and multi-table DuckDB datasets.
+
+        Args:
+            dataset_key: dataset identifier (e.g. "vingroup_pilot")
+            review_text: optional analyst review text for diagnosis stage
+            table_name: optional override to run only one table
+            target_day_idx: if set, filter data to this day_idx (for day-aware batch runs)
+            window_days: lookback window when target_day_idx is set (default 10)
+                - if target_day_idx=None: runs on all data (legacy behavior, unchanged)
+        """
         start = time.time()
         result = OrchestratorResult()
 
@@ -485,7 +521,12 @@ class DataTrustOrchestrator:
         # Stage 2: Anomaly Detection (Design V2: L1-L4 -> Fusion -> Incident -> A1)
         # Iterate over every user table in the dataset, run L1-L4 per table, then
         # run a cross-table correlation pass before invoking A1.
-        anomaly_stage = self._run_anomaly_stage(target_tables, dataset_key=dataset_key)
+        anomaly_stage = self._run_anomaly_stage(
+            target_tables,
+            dataset_key=dataset_key,
+            target_day_idx=target_day_idx,
+            window_days=window_days,
+        )
         result.stages.append(anomaly_stage)
         anomaly_findings = anomaly_stage.get("anomaly_findings", {})
 
@@ -524,7 +565,13 @@ class DataTrustOrchestrator:
         self._log_orchestration(result)
         return result
 
-    def _run_anomaly_stage(self, table_names, dataset_key: str = "") -> dict:
+    def _run_anomaly_stage(
+        self,
+        table_names,
+        dataset_key: str = "",
+        target_day_idx: int | None = None,
+        window_days: int = 10,
+    ) -> dict:
         """
         Run Design V2 anomaly pipeline across every table in `table_names`.
 
@@ -548,6 +595,8 @@ class DataTrustOrchestrator:
                 investigations = _run_reliability_pipeline(
                     table_name=tbl,
                     project_id=self.project_id,
+                    target_day_idx=target_day_idx,
+                    window_days=window_days,
                 )
             except Exception as exc:
                 per_table_summary.append({
@@ -561,7 +610,11 @@ class DataTrustOrchestrator:
             # Collect signals from this table for cross-table correlation
             try:
                 df = _load_table_as_dataframe(tbl, project_id=self.project_id)
-                raw_sigs = _detect_l1_l4_signals(tbl, df, self.project_id)
+                raw_sigs = _detect_l1_l4_signals(
+                    tbl, df, self.project_id,
+                    target_day_idx=target_day_idx,
+                    window_days=window_days,
+                )
                 per_table_signals_for_cross[tbl] = (
                     raw_sigs.get("L1", []) +
                     raw_sigs.get("L2", []) +

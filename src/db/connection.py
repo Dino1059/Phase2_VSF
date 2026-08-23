@@ -98,6 +98,7 @@ class DuckDBManager:
                     self._ensure_reliability_tables(self._master_conn)
                     self._ensure_quality_rules_dataset_key(self._master_conn)
                     self._ensure_incidents_feedback_columns(self._master_conn)
+                    self._ensure_demo_ingestion_schema(self._master_conn)
                 except Exception:
                     pass
             return self._master_conn
@@ -382,6 +383,17 @@ class DuckDBManager:
                     conn.execute("ALTER TABLE audit_log ADD COLUMN event_hash VARCHAR")
         except Exception:
             pass
+
+    def _ensure_demo_ingestion_schema(self, conn) -> None:
+        """Apply migration 0002: clean, quarantine, demo_ops schemas + additive columns."""
+        migration_path = os.path.join(self.project_root, "src", "db", "migrations", "0002_demo_landing_zones.sql")
+        if os.path.exists(migration_path):
+            try:
+                with open(migration_path, "r", encoding="utf-8") as f:
+                    sql = f.read()
+                conn.execute(sql)
+            except Exception:
+                pass
 
     def execute(self, query: str, params: list = None) -> list:
         conn = self.get_connection()
