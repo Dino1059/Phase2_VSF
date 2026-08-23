@@ -66,6 +66,16 @@ _TABLE_SIGNAL_CONFIG = {
 }
 
 
+# Mapping from logical table name (used in _TABLE_SIGNAL_CONFIG / batch callers)
+# to the dataset_table value stored in the landing parquet.
+_PARQUET_TABLE_ALIAS: dict[str, str] = {
+    "vinfast_ev_telemetry": "ev_telemetry",
+    "vinfast_bms": "bms",
+    "vgreen_charging_sessions": "acn_charging",
+    "xanh_sm_trips": "ride_trips",
+}
+
+
 def _load_table_as_dataframe(
     table_name: str,
     project_id: str,
@@ -79,8 +89,38 @@ def _load_table_as_dataframe(
     Source DB defaults to `data/vingroup_pilot_faulty.duckdb` (Vingroup faulty pilot dataset).
     When the configured runtime DB does not contain the table, falls back to the Vingroup
     pilot DB so the full L1-L4 + Fusion + A1 pipeline can run end-to-end.
+
+    When target_day_idx is set, reads from the landing parquet (data_new/vingroup_pilot_landing.parquet)
+    and filters to the specified day window for day-aware batch runs.
     """
     import duckdb
+
+    # --- Day-aware landing-parquet path (added in Giai đoạn 2) ---
+    LANDING_PARQUET = "data_new/vingroup_pilot_landing.parquet"
+    if target_day_idx is not None and os.path.exists(LANDING_PARQUET):
+        day_min = max(0, target_day_idx - window_days)
+        day_max = target_day_idx
+        # Try both the logical table name and its parquet alias
+        pq_table_names = [
+            table_name,
+            _PARQUET_TABLE_ALIAS.get(table_name, table_name),
+        ]
+        for pq_name in dict.fromkeys(pq_table_names):  # deduplicate
+            try:
+                con = duckdb.connect()
+                try:
+                    df = con.execute(f"""
+                        SELECT *
+                        FROM read_parquet('{LANDING_PARQUET}')
+                        WHERE day_idx >= {day_min} AND day_idx <= {day_max}
+                          AND dataset_table = '{pq_name}'
+                    """).df()
+                    if not df.empty:
+                        return df
+                finally:
+                    con.close()
+            except Exception:
+                pass
 
     candidates = []
     if db_path:
