@@ -1595,17 +1595,18 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
 
 
 .right-panel-tabs {
-  height: 52px;
+  height: auto;
   min-height: 52px;
-  max-height: 52px;
+  max-height: none;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   background: var(--bg-card);
   border-bottom: 1px solid var(--glass-border);
-  padding: 0 12px;
+  padding: 6px 12px;
   gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .panel-tab {

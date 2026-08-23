@@ -26,6 +26,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { usePipelineStore, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
+import { SourceIngestionRunFilter } from '../components/chat/SourceIngestionRunFilter';
 
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -840,6 +841,14 @@ export function AgentChatWorkspace() {
           >
             <ChevronRight size={14} />
           </button>
+        </div>
+
+        {/* Source ingestion run filter */}
+        <div className="right-panel-ingestion-filter">
+          <SourceIngestionRunFilter
+            value={store.sourceIngestionRunId}
+            onChange={(runId) => store.setSourceIngestionRunId(runId)}
+          />
         </div>
 
 

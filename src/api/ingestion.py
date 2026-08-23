@@ -95,6 +95,44 @@ class ResetResponse(BaseModel):
     message: str
 
 
+class QuarantineSummaryRule(BaseModel):
+    rule_id: str
+    rule_layer: str
+    rule_name: str
+    status: str
+    detected_via: str
+    total_records: int
+    affected_days: int
+    affected_entities: int
+    first_seen: str
+    last_seen: str
+    sample_reason: str
+
+
+class QuarantineDetailRecord(BaseModel):
+    quarantine_id: str
+    source_ingestion_run_id: str
+    day_idx: int
+    vehicle_vin: Optional[str]
+    rule_id: str
+    rule_layer: str
+    rule_name: str
+    reason: str
+    raw_row: Optional[dict]
+    detected_at: str
+    detected_via: str
+    status: str
+    resolved_at: Optional[str]
+    resolved_by: Optional[str]
+    resolution_action: Optional[str]
+
+
+class QuarantineResolveRequest(BaseModel):
+    quarantine_id: str
+    action: str  # "ACCEPT_OVERRIDE" | "RECHARGE_BASELINE" | "DISMISS"
+    resolved_by: str = "human"
+
+
 # === Internal helpers ===
 
 def _get_demo_state(db) -> dict:
@@ -301,8 +339,8 @@ async def get_ingestion_runs(limit: int = 50):
 async def reset_demo_state():
     """
     POST /api/v1/ingestion/reset
-    Reset demo state: clear quarantine, batch_run_log, reset demo_state to -1.
-    Does NOT touch raw.* tables.
+    Reset demo state: clear quarantine, clean, raw tables, batch_run_log, reset demo_state to -1.
+    This allows fresh re-ingestion of updated landing Parquet data into raw.*.
     """
     db = get_db()
     
@@ -323,18 +361,35 @@ async def reset_demo_state():
             except Exception as e:
                 logger.warning(f"Could not clear quarantine.{tbl}: {e}")
         
+        # Clear clean tables
+        clean_tables = db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'clean'")
+        for row in clean_tables:
+            tbl = row[0]
+            try:
+                db.execute(f"DELETE FROM clean.{tbl}")
+            except Exception as e:
+                logger.warning(f"Could not clear clean.{tbl}: {e}")
+
+        # Clear raw tables (ev_telemetry, trips, charging_sessions, nlp_feedback) to allow re-ingest from Parquet
+        raw_tables = ["ev_telemetry", "trips", "charging_sessions", "nlp_feedback"]
+        for tbl in raw_tables:
+            try:
+                db.execute(f"DELETE FROM raw.{tbl}")
+            except Exception as e:
+                logger.warning(f"Could not clear raw.{tbl}: {e}")
+
         # Clear demo_ops batch_run_log
         db.execute("DELETE FROM demo_ops.batch_run_log")
         
         # Reset demo_state to -1
         db.execute("UPDATE demo_ops.demo_state SET current_day_idx = -1, warmup_completed = FALSE, realtime_active = FALSE, last_activated_at = NULL")
         
-        # Mark all snapshots as not activated
+        # Mark all snapshots as not activated and zero ingested rows
         db.execute("UPDATE demo_ops.landing_day_snapshots SET is_activated = FALSE, is_ingested = FALSE, ingested_rows = 0")
         
         return ResetResponse(
             status="success",
-            message="Demo state reset complete. Quarantine cleared, demo_state reset to -1. Raw data preserved.",
+            message="Demo state reset complete. Raw, clean, quarantine cleared. System ready to re-ingest fresh Parquet data.",
         )
         
     except Exception as e:
@@ -417,6 +472,144 @@ async def stop_realtime():
             status="idle",
             message="Realtime runner already stopped or not available.",
         )
+
+
+@router.get("/quarantine/summary")
+async def get_quarantine_summary(table: str = "ev_telemetry"):
+    """
+    GET /api/v1/ingestion/quarantine/summary
+    Returns quarantine summary grouped by rule_id.
+    """
+    db = get_db()
+    try:
+        rows = db.execute(f"""
+            SELECT
+                rule_id, rule_layer, rule_name, status, detected_via,
+                COUNT(*) AS total_records,
+                COUNT(DISTINCT day_idx) AS affected_days,
+                COUNT(DISTINCT vehicle_vin) AS affected_entities,
+                MIN(detected_at) AS first_seen,
+                MAX(detected_at) AS last_seen,
+                MIN(reason) AS sample_reason
+            FROM quarantine.{table}
+            GROUP BY rule_id, rule_layer, rule_name, status, detected_via
+            ORDER BY total_records DESC
+            LIMIT 20
+        """)
+        rules = []
+        for r in rows:
+            rules.append(QuarantineSummaryRule(
+                rule_id=str(r[0]) if r[0] else "",
+                rule_layer=str(r[1]) if r[1] else "",
+                rule_name=str(r[2]) if r[2] else "",
+                status=str(r[3]) if r[3] else "OPEN",
+                detected_via=str(r[4]) if r[4] else "",
+                total_records=int(r[5]) if r[5] is not None else 0,
+                affected_days=int(r[6]) if r[6] is not None else 0,
+                affected_entities=int(r[7]) if r[7] is not None else 0,
+                first_seen=str(r[8]) if r[8] else "",
+                last_seen=str(r[9]) if r[9] else "",
+                sample_reason=str(r[10]) if r[10] else "",
+            ))
+        return {"rules": rules}
+    except Exception as e:
+        logger.warning(f"quarantine/summary error: {e}")
+        return {"rules": []}
+
+
+@router.get("/quarantine/detail")
+async def get_quarantine_detail(rule_id: str, table: str = "ev_telemetry", detected_via: Optional[str] = None):
+    """
+    GET /api/v1/ingestion/quarantine/detail?rule_id=...&table=...&detected_via=...
+    Returns detail records for a specific rule_id.
+    """
+    db = get_db()
+    query = f"""
+        SELECT quarantine_id, source_ingestion_run_id, day_idx, vehicle_vin,
+               rule_id, rule_layer, rule_name, reason, raw_row, detected_at,
+               detected_via, status, resolved_at, resolved_by, resolution_action
+        FROM quarantine.{table}
+        WHERE rule_id = ?
+    """
+    params: list = [rule_id]
+    if detected_via:
+        query += " AND detected_via = ?"
+        params.append(detected_via)
+    query += " ORDER BY detected_at DESC LIMIT 100"
+
+    try:
+        rows = db.execute(query, params)
+        records = []
+        for r in rows:
+            records.append(QuarantineDetailRecord(
+                quarantine_id=str(r[0]) if r[0] else "",
+                source_ingestion_run_id=str(r[1]) if r[1] else "",
+                day_idx=int(r[2]) if r[2] is not None else 0,
+                vehicle_vin=str(r[3]) if r[3] else None,
+                rule_id=str(r[4]) if r[4] else "",
+                rule_layer=str(r[5]) if r[5] else "",
+                rule_name=str(r[6]) if r[6] else "",
+                reason=str(r[7]) if r[7] else "",
+                raw_row=r[8] if r[8] else None,
+                detected_at=str(r[9]) if r[9] else "",
+                detected_via=str(r[10]) if r[10] else "",
+                status=str(r[11]) if r[11] else "OPEN",
+                resolved_at=str(r[12]) if r[12] else None,
+                resolved_by=str(r[13]) if r[13] else None,
+                resolution_action=str(r[14]) if r[14] else None,
+            ))
+        return {"records": records}
+    except Exception as e:
+        logger.warning(f"quarantine/detail error: {e}")
+        return {"records": []}
+
+
+@router.post("/quarantine/resolve")
+async def resolve_quarantine(request: QuarantineResolveRequest):
+    """
+    POST /api/v1/ingestion/quarantine/resolve
+    Resolve a quarantine record: ACCEPT_OVERRIDE, RECHARGE_BASELINE, or DISMISS.
+    """
+    db = get_db()
+    try:
+        # Find which table has this quarantine_id
+        tables = ["ev_telemetry", "charging_sessions", "trips", "nlp_feedback"]
+        found_table = None
+        for tbl in tables:
+            try:
+                rows = db.execute(f"SELECT 1 FROM quarantine.{tbl} WHERE quarantine_id = ? LIMIT 1", [request.quarantine_id])
+                if rows:
+                    found_table = tbl
+                    break
+            except Exception:
+                continue
+
+        if not found_table:
+            raise HTTPException(status_code=404, detail=f"Quarantine record {request.quarantine_id} not found")
+
+        db.execute(f"""
+            UPDATE quarantine.{found_table}
+            SET status = 'RESOLVED',
+                resolved_at = ?,
+                resolved_by = ?,
+                resolution_action = ?
+            WHERE quarantine_id = ?
+        """, [
+            datetime.now(timezone.utc).isoformat(),
+            request.resolved_by,
+            request.action,
+            request.quarantine_id
+        ])
+
+        return {
+            "status": "success",
+            "message": f"Quarantine {request.quarantine_id} resolved with action {request.action}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"resolve_quarantine error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/health")

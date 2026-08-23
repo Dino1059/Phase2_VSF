@@ -15,6 +15,7 @@ import {
   Search,
   ShieldCheck,
   ShieldAlert,
+  Play,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { datasetsApi } from '../../services/api';
@@ -276,6 +277,14 @@ export function Sidebar() {
           <CheckCircle size={18} />
           <span>{t('recentTasks')}</span>
         </a>
+
+        <NavLink
+          to="/dashboard/ingestion"
+          className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
+        >
+          <Play size={18} color="var(--neon-cyan)" />
+          <span>{isVi ? 'Data Ingestion' : 'Data Ingestion'}</span>
+        </NavLink>
 
         <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>
           {isVi ? 'VẬN HÀNH & BỘ LUẬT' : 'OPERATIONS & RULES'}

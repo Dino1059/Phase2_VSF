@@ -69,7 +69,7 @@ def get_snapshot_id(day_idx: int) -> str:
     return SNAPSHOT_MAP.get(int(day_idx), f"SNAP_{int(day_idx):03d}")
 
 
-def ingest_day(day_idx: int, verbose: bool = True) -> dict:
+def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False) -> dict:
     """Ingest all tables for a given day_idx from landing parquet."""
     snapshot_id = get_snapshot_id(day_idx)
     if verbose:
@@ -121,7 +121,12 @@ def ingest_day(day_idx: int, verbose: bool = True) -> dict:
             ).fetchone()
             snapshot_match_count = existing_count
 
-        if existing_count > 0 and snapshot_match_count > 0:
+        if force_replay and day_filter:
+            day_cond = day_filter.replace(":day", str(day_idx))
+            conn.execute(f"DELETE FROM {raw_table} WHERE {day_cond}")
+            if verbose:
+                print(f"    FORCE REPLAY - deleted existing rows for {day_cond}")
+        elif existing_count > 0 and snapshot_match_count > 0:
             # Already ingested with our snapshot_id
             if verbose:
                 print(f"    SKIP - already ingested (snapshot={snapshot_id})")

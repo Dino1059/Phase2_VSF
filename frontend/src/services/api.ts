@@ -969,3 +969,119 @@ export const anomaliesApi = {
       body: JSON.stringify(payload),
     }),
 };
+
+// ── Ingestion / Demo Landing API clients ─────────────────────────────────────
+
+export interface IngestionDaySnapshot {
+  day_idx: number;
+  snapshot_id: string;
+  day_date: string;
+  is_activated: boolean;
+  is_ingested: boolean;
+  ingested_rows: number;
+}
+
+export interface IngestionDayTimeline {
+  days: IngestionDaySnapshot[];
+  total_days: number;
+  activated_days: number;
+}
+
+export interface IngestionDemoState {
+  current_day_idx: number;
+  warmup_completed: boolean;
+  realtime_active: boolean;
+  last_activated_at: string | null;
+}
+
+export interface IngestionRun {
+  run_id: string;
+  run_type: string; // "WARMUP_10D" | "DAILY_PLUS1"
+  day_idx: number;
+  started_at: string;
+  completed_at: string | null;
+  status: string; // "running" | "completed" | "error"
+  rows_ingested: number;
+  violations_detected: number;
+  duration_ms: number;
+}
+
+export interface IngestionRunsResponse {
+  runs: IngestionRun[];
+  total: number;
+}
+
+export interface RealtimeStatus {
+  active: boolean;
+  current_day_idx: number;
+  tick_count: number;
+  last_tick_at: string | null;
+  status: string; // "idle" | "running" | "error"
+  message: string;
+}
+
+export interface QuarantineSummaryRule {
+  rule_id: string;
+  rule_layer: string;
+  rule_name: string;
+  status: string;
+  detected_via: string;
+  total_records: number;
+  affected_days: number;
+  affected_entities: number;
+  first_seen: string;
+  last_seen: string;
+  sample_reason: string;
+}
+
+export interface QuarantineDetailRecord {
+  quarantine_id: string;
+  source_ingestion_run_id: string;
+  day_idx: number;
+  vehicle_vin: string | null;
+  rule_id: string;
+  rule_layer: string;
+  rule_name: string;
+  reason: string;
+  raw_row: any;
+  detected_at: string;
+  detected_via: string;
+  status: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution_action: string | null;
+}
+
+export const ingestionApi = {
+  getStatus: () => request<IngestionDemoState>('/ingestion/status'),
+  getDays: () => request<IngestionDayTimeline>('/ingestion/days'),
+  getDay: (dayIdx: number) => request<IngestionDaySnapshot>(`/ingestion/days/${dayIdx}`),
+  activateDay: (dayIdx: number, forceReplay = false) =>
+    request<{
+      day_idx: number;
+      status: string;
+      message: string;
+      ingestion_run_id: string | null;
+    }>(`/ingestion/days/${dayIdx}/activate`, {
+      method: 'POST',
+      body: JSON.stringify({ force_replay: forceReplay }),
+    }),
+  getRuns: (limit = 50) => request<IngestionRunsResponse>(`/ingestion/runs?limit=${limit}`),
+  reset: () => request<{ status: string; message: string }>('/ingestion/reset', { method: 'POST' }),
+  getRealtimeStatus: () => request<RealtimeStatus>('/ingestion/realtime/status'),
+  startRealtime: () => request<{ action: string; status: string; message: string }>('/ingestion/realtime/start', { method: 'POST' }),
+  stopRealtime: () => request<{ action: string; status: string; message: string }>('/ingestion/realtime/stop', { method: 'POST' }),
+  health: () => request<{ status: string; service: string }>('/ingestion/health'),
+  getQuarantineSummary: (table = 'ev_telemetry') =>
+    request<{ rules: QuarantineSummaryRule[] }>(`/ingestion/quarantine/summary?table=${encodeURIComponent(table)}`),
+  getQuarantineDetail: (ruleId: string, table = 'ev_telemetry', detectedVia?: string) => {
+    let url = `/ingestion/quarantine/detail?rule_id=${encodeURIComponent(ruleId)}&table=${encodeURIComponent(table)}`;
+    if (detectedVia) url += `&detected_via=${encodeURIComponent(detectedVia)}`;
+    return request<{ records: QuarantineDetailRecord[] }>(url);
+  },
+  resolveQuarantine: (quarantineId: string, action: string, resolvedBy = 'human') =>
+    request<{ status: string; message: string }>('/ingestion/quarantine/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ quarantine_id: quarantineId, action, resolved_by: resolvedBy }),
+    }),
+};

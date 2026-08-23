@@ -124,6 +124,7 @@ interface PipelineState {
   timeFilter: TimeFilter;
   activeSplitView: 'clean' | 'quarantine';
   activeRightTab: 'tab-rca' | 'tab-telemetry' | 'tab-split' | 'tab-manifest';
+  sourceIngestionRunId: string | null;  // filter by ingestion run
   currentRuleLogic: string;
   ruleStatus: 'pending' | 'accepted' | 'rejected';
   proposals: RuleProposalBackend[];
@@ -140,6 +141,7 @@ interface PipelineState {
   setTimeFilter: (filter: TimeFilter) => void;
   setSplitView: (view: 'clean' | 'quarantine') => void;
   setRightTab: (tab: PipelineState['activeRightTab']) => void;
+  setSourceIngestionRunId: (runId: string | null) => void;
   setRuleLogic: (logic: string) => void;
   setRuleStatus: (status: 'pending' | 'accepted' | 'rejected') => void;
   setProposals: (proposals: RuleProposalBackend[]) => void;
@@ -160,6 +162,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
   timeFilter: 'Today',
   activeSplitView: 'clean',
   activeRightTab: 'tab-rca',
+  sourceIngestionRunId: null,
   currentRuleLogic: DOMAINS.ev_telemetry.defaultRule,
   ruleStatus: 'pending',
   proposals: [],
@@ -196,6 +199,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
   setTimeFilter: (timeFilter) => set({ timeFilter }),
   setSplitView: (activeSplitView) => set({ activeSplitView }),
   setRightTab: (activeRightTab) => set({ activeRightTab }),
+  setSourceIngestionRunId: (sourceIngestionRunId) => set({ sourceIngestionRunId }),
   setRuleLogic: (currentRuleLogic) => set({ currentRuleLogic }),
   setRuleStatus: (ruleStatus) => set({ ruleStatus }),
   setProposals: (proposals) => set({ proposals }),
@@ -209,6 +213,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
         currentStepIndex: 0,
         runStatus: 'idle',
         runId: null,
+        sourceIngestionRunId: null,
         ruleStatus: 'pending',
         proposals: [],
         cleanRows: domain.cleanRows,
