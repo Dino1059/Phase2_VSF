@@ -388,11 +388,11 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     setSandboxError(null);
     const storeKey = datasetStoreKey(datasetKey);
     try {
-      const auth = await approvalsApi.authorize(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      const auth = await approvalsApi.authorize(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
       for (const r of approved) {
         await hitlApi.execute(r.rule_id);
       }
-      const sandbox = await hitlApi.sandbox(datasetKey || 'vingroup_pilot', approved.map((r) => r.rule_id));
+      const sandbox = await hitlApi.sandbox(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
       const qRows = (sandbox && Array.isArray(sandbox.quarantine)) ? sandbox.quarantine : [];
       const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
       const qCount = sandbox?.quarantine_rows ?? qRows.length;
@@ -428,7 +428,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         sandbox: true,
         thisRun: true,
         cleanRan: true,
-        dataset_key: datasetKey || 'vingroup_pilot',
+        dataset_key: datasetKey || 'ev_telemetry',
         snapshot_id: sandbox?.snapshot_id,
       };
       try {
@@ -447,7 +447,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       useWorkspaceStore.getState().replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
       try {
         window.dispatchEvent(new CustomEvent('datatrust:sandbox-failed', {
-          detail: { dataset_key: datasetKey || 'vingroup_pilot', error: msg, http504: is504 },
+          detail: { dataset_key: datasetKey || 'ev_telemetry', error: msg, http504: is504 },
         }));
       } catch { /* ignore */ }
     } finally {

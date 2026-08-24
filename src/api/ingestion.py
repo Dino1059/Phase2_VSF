@@ -10,6 +10,7 @@ Responsibilities:
 
 from __future__ import annotations
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -322,6 +323,53 @@ async def activate_warmup():
         db = get_db()
         batch_runner_mod = _get_batch_runner()
 
+        from src.services.ws_manager import ws_manager
+        loop = asyncio.get_running_loop()
+
+        def progress_callback(stage: str, message: str, metadata: dict = None):
+            logger.info(f"⚡ [IngestionAPI] [{stage}] {message}")
+            trace_event = {
+                "type": "agent.trace",
+                "data": {
+                    "agentId": "orchestrator",
+                    "thought": f"[{stage}] {message}",
+                    "action": "batch_progress",
+                    "metadata": metadata or {},
+                }
+            }
+            try:
+                asyncio.run_coroutine_threadsafe(ws_manager.broadcast(trace_event), loop)
+            except Exception as err:
+                logger.warning(f"Could not broadcast trace event: {err}")
+
+        from src.services.ingestion.realtime_runner import get_default_runner
+        from src.services.ingestion.streaming_worker import streaming_worker
+
+        rt_runner = get_default_runner()
+        was_rt_running = rt_runner.is_running
+        was_stream_running = streaming_worker.is_running
+
+        if was_rt_running:
+            rt_runner.stop()
+        if was_stream_running:
+            streaming_worker.stop()
+
+        try:
+            # Run real E2E warmup pipeline for all days 0-9 (dry_run=False for real analysis)
+            results = await asyncio.to_thread(batch_runner_mod.run_warmup_then_day, 9, "vingroup_pilot", 10, False, progress_callback)
+        finally:
+            if was_rt_running:
+                rt_runner.start(day_idx=10)
+            if was_stream_running:
+                streaming_worker.start()
+
+        # Check for batch run errors
+        failed_runs = [r for r in results if getattr(r, 'status', None) == 'error']
+        if failed_runs:
+            err_detail = failed_runs[0].error_msg
+            logger.error(f"Warmup execution error on day {failed_runs[0].day_idx}: {err_detail}")
+            raise HTTPException(status_code=500, detail=f"Warmup execution failed on Day {failed_runs[0].day_idx}: {err_detail}")
+
         db.execute("UPDATE demo_ops.landing_day_snapshots SET is_activated = TRUE WHERE day_idx <= 9")
         db.execute(
             "UPDATE demo_ops.demo_state SET current_day_idx = 9, warmup_completed = TRUE, realtime_running = TRUE, last_reset_at = ? WHERE TRUE",
@@ -332,21 +380,25 @@ async def activate_warmup():
         except Exception:
             pass
 
-        # Run real E2E warmup pipeline for all days 0-9
-        results = batch_runner_mod.run_warmup_then_day(target_day=9, dry_run=True)
-
-        # Check for batch run errors
-        failed_runs = [r for r in results if getattr(r, 'status', None) == 'error']
-        if failed_runs:
-            err_detail = failed_runs[0].error_msg
-            logger.error(f"Warmup execution error on day {failed_runs[0].day_idx}: {err_detail}")
-            raise HTTPException(status_code=500, detail=f"Warmup execution failed on Day {failed_runs[0].day_idx}: {err_detail}")
-
         # Auto-switch realtime stream to Day 10 (Day N+1 after Warmup 0-9)
         try:
-            from src.services.ingestion.realtime_runner import start_realtime as rt_start, stop_realtime as rt_stop
-            rt_stop()
-            rt_start(day_idx=10)
+            from src.services.ingestion.realtime_runner import start_realtime as rt_start, get_default_runner
+            db.execute("UPDATE demo_ops.demo_state SET current_day_idx = 10, realtime_running = TRUE WHERE TRUE")
+            try:
+                db.get_connection().commit()
+            except Exception:
+                pass
+
+            runner = get_default_runner()
+            if runner.is_running:
+                runner.set_day(10)
+            else:
+                rt_start(day_idx=10)
+
+            await ws_manager.broadcast({
+                "type": "datatrust:realtime-day-advanced",
+                "data": {"new_day": 10, "previous_day": 9}
+            })
         except Exception as rt_err:
             logger.warning(f"Could not auto-start realtime runner for day 10: {rt_err}")
 
@@ -374,6 +426,7 @@ async def activate_day(day_idx: int, request: ActivateRequest):
     """
     try:
         db = get_db()
+        batch_runner_mod = _get_batch_runner()
 
         # Check day exists
         rows = db.execute("SELECT is_activated, snapshot_id FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [day_idx])
@@ -396,16 +449,23 @@ async def activate_day(day_idx: int, request: ActivateRequest):
         import asyncio
         from src.services.ws_manager import ws_manager
         from src.services.conversation_store import conversation_store
+        loop = asyncio.get_running_loop()
 
-        # Mark day as activated in DB immediately so UI & API reflect active state
-        db.execute(f"UPDATE demo_ops.landing_day_snapshots SET is_activated = TRUE WHERE day_idx = {int(day_idx)}")
-        db.execute(
-            f"UPDATE demo_ops.demo_state SET current_day_idx = {int(day_idx)}, warmup_completed = TRUE, realtime_running = TRUE, last_reset_at = '{datetime.now(timezone.utc).isoformat()}' WHERE TRUE"
-        )
-        try:
-            db.get_connection().commit()
-        except Exception:
-            pass
+        def progress_callback(stage: str, message: str, metadata: dict = None):
+            logger.info(f"⚡ [IngestionAPI] [{stage}] {message}")
+            trace_event = {
+                "type": "agent.trace",
+                "data": {
+                    "agentId": "orchestrator",
+                    "thought": f"[{stage}] {message}",
+                    "action": "batch_progress",
+                    "metadata": metadata or {},
+                }
+            }
+            try:
+                asyncio.run_coroutine_threadsafe(ws_manager.broadcast(trace_event), loop)
+            except Exception as err:
+                logger.warning(f"Could not broadcast trace event: {err}")
 
         # Broadcast progress step 1
         await ws_manager.broadcast({
@@ -417,14 +477,41 @@ async def activate_day(day_idx: int, request: ActivateRequest):
             }
         })
 
-        batch_runner_mod = _get_batch_runner()
-        results = await asyncio.to_thread(batch_runner_mod.run_warmup_then_day, target_day=day_idx)
+        from src.services.ingestion.realtime_runner import get_default_runner
+        from src.services.ingestion.streaming_worker import streaming_worker
+
+        rt_runner = get_default_runner()
+        was_rt_running = rt_runner.is_running
+        was_stream_running = streaming_worker.is_running
+
+        if was_rt_running:
+            rt_runner.stop()
+        if was_stream_running:
+            streaming_worker.stop()
+
+        try:
+            results = await asyncio.to_thread(batch_runner_mod.run_warmup_then_day, day_idx, "vingroup_pilot", 10, False, progress_callback)
+        finally:
+            if was_rt_running:
+                rt_runner.start(day_idx=day_idx + 1)
+            if was_stream_running:
+                streaming_worker.start()
 
         failed_runs = [r for r in results if getattr(r, 'status', None) == 'error']
         if failed_runs:
             err_detail = failed_runs[0].error_msg
             logger.error(f"Activate day execution error on day {failed_runs[0].day_idx}: {err_detail}")
             raise HTTPException(status_code=500, detail=f"Day activation failed on Day {failed_runs[0].day_idx}: {err_detail}")
+
+        # Only update activation status in DB after successful batch execution
+        db.execute(f"UPDATE demo_ops.landing_day_snapshots SET is_activated = TRUE WHERE day_idx = {int(day_idx)}")
+        db.execute(
+            f"UPDATE demo_ops.demo_state SET current_day_idx = {int(day_idx)}, warmup_completed = TRUE, realtime_running = TRUE, last_reset_at = '{datetime.now(timezone.utc).isoformat()}' WHERE TRUE"
+        )
+        try:
+            db.get_connection().commit()
+        except Exception:
+            pass
 
         last_res = results[-1] if results else None
         inc_cnt = getattr(last_res, 'incident_count', 0)
@@ -446,10 +533,24 @@ async def activate_day(day_idx: int, request: ActivateRequest):
 
         # Auto-switch realtime stream to Day N+1
         try:
-            from src.services.ingestion.realtime_runner import start_realtime as rt_start, stop_realtime as rt_stop
+            from src.services.ingestion.realtime_runner import start_realtime as rt_start, get_default_runner
             next_realtime_day = day_idx + 1
-            rt_stop()
-            rt_start(day_idx=next_realtime_day)
+            db.execute(f"UPDATE demo_ops.demo_state SET current_day_idx = {int(next_realtime_day)}, realtime_running = TRUE WHERE TRUE")
+            try:
+                db.get_connection().commit()
+            except Exception:
+                pass
+
+            runner = get_default_runner()
+            if runner.is_running:
+                runner.set_day(next_realtime_day)
+            else:
+                rt_start(day_idx=next_realtime_day)
+
+            await ws_manager.broadcast({
+                "type": "datatrust:realtime-day-advanced",
+                "data": {"new_day": next_realtime_day, "previous_day": day_idx}
+            })
         except Exception as rt_err:
             logger.warning(f"Could not auto-start realtime runner for day {day_idx + 1}: {rt_err}")
 

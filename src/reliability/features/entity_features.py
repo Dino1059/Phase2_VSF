@@ -6,10 +6,10 @@ import pandas as pd
 class EntityFeatureBuilder:
     """
     Builds rolling historical baselines (median, MAD, z-score) for an entity time-series.
-    Enforces a 14-day warm-up period policy before scoring signals.
+    Enforces a 10-day warm-up period policy before scoring signals.
     """
 
-    def __init__(self, warmup_days: int = 14, min_samples: int = 14):
+    def __init__(self, warmup_days: int = 10, min_samples: int = 10):
         self.warmup_days = warmup_days
         self.min_samples = min_samples
 

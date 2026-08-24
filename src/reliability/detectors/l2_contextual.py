@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Any
 import pandas as pd
+import numpy as np
 from src.reliability.models.signal import Signal
 from src.reliability.features.entity_features import EntityFeatureBuilder
 
@@ -10,14 +11,14 @@ class L2ContextualDetector:
     L2 Contextual Anomaly Detector.
     Detects observations that are valid globally but abnormal relative to an entity's baseline.
     Strictly calculates baselines from historical observations occurring strictly prior to timestamp t.
-    Enforces a 14-day warm-up policy (returning INSUFFICIENT_HISTORY when history is below 14 days/samples).
+    Enforces a 10-day warm-up policy (returning INSUFFICIENT_HISTORY when history is below 10 days/samples).
     """
 
     def __init__(
         self,
         z_threshold: float = 3.5,
-        warmup_days: int = 14,
-        min_samples: int = 14
+        warmup_days: int = 10,
+        min_samples: int = 10
     ):
         self.z_threshold = z_threshold
         self.feature_builder = EntityFeatureBuilder(warmup_days=warmup_days, min_samples=min_samples)
@@ -127,36 +128,53 @@ class L2ContextualDetector:
 
         warmup_limit = max(self.feature_builder.min_samples, self.feature_builder.warmup_days)
 
-        # Process per entity
+        # Process per entity with numpy vectorized history search & caching
         for entity_id, group in df.groupby(entity_id_col):
-            sorted_group = group.sort_values(timestamp_col)
+            sorted_group = group.sort_values(timestamp_col).reset_index(drop=True)
+            ts_series = pd.to_datetime(sorted_group[timestamp_col])
+            ts_values = ts_series.values
+            vals = sorted_group[metric_col].astype(float).values
 
-            for idx, row in sorted_group.iterrows():
-                t = row[timestamp_col]
-                val = float(row[metric_col])
+            last_pos = -1
+            last_median = None
+            last_mad = None
 
-                # Observations strictly prior to timestamp t (zero look-ahead leakage)
-                history_df = sorted_group[sorted_group[timestamp_col] < t]
-                history_series = history_df[metric_col].dropna().astype(float)
-
-                if len(history_series) < warmup_limit:
-                    # Enforce 14-day warm-up policy
+            for i in range(len(sorted_group)):
+                t_raw = sorted_group.at[i, timestamp_col]
+                t_val = ts_values[i]
+                val = float(vals[i])
+                if np.isnan(val):
                     continue
 
-                median, mad, is_warmed_up = self.feature_builder.calculate_rolling_stats(history_series)
-                if not is_warmed_up or median is None or mad is None:
+                # Fast binary search for index of observations strictly prior to timestamp t
+                pos = int(np.searchsorted(ts_values, t_val, side='left'))
+                if pos < warmup_limit:
+                    continue
+
+                if pos == last_pos:
+                    median, mad = last_median, last_mad
+                else:
+                    history = vals[:pos]
+                    history = history[~np.isnan(history)]
+                    if len(history) < warmup_limit:
+                        continue
+                    median = float(np.median(history))
+                    mad = float(np.median(np.abs(history - median)))
+                    last_pos, last_median, last_mad = pos, median, mad
+
+                if median is None or mad is None:
                     continue
 
                 z_score = self.feature_builder.calculate_robust_zscore(val, median, mad)
 
                 if abs(z_score) >= self.z_threshold:
-                    event_time = pd.to_datetime(t)
+                    event_time = pd.to_datetime(t_raw)
                     if getattr(event_time, 'tzinfo', None) is None:
                         event_time = event_time.tz_localize(timezone.utc)
 
                     severity = "CRITICAL" if abs(z_score) > 6.0 else ("HIGH" if abs(z_score) > 4.5 else "MEDIUM")
 
-                    win_start = pd.to_datetime(history_df[timestamp_col].min()) if not history_df.empty else event_time
+                    win_start = pd.to_datetime(ts_series.iloc[0])
                     if getattr(win_start, 'tzinfo', None) is None:
                         win_start = win_start.tz_localize(timezone.utc)
 
@@ -190,8 +208,8 @@ def score(
     timestamp_col: str = "timestamp",
     metric_col: str = "battery_soc",
     z_threshold: float = 3.5,
-    warmup_days: int = 14,
-    min_samples: int = 14
+    warmup_days: int = 10,
+    min_samples: int = 10
 ) -> Union[float, str]:
     """
     Module-level score function for scoring an entity observation at day or target_timestamp.

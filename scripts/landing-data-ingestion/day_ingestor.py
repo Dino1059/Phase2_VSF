@@ -2,11 +2,18 @@
 Ingest a specific day_idx from landing parquet into raw.<table>.
 Idempotent: skips if data already exists for that day_idx with matching snapshot_id.
 """
-import duckdb, os
+import duckdb, os, logging
 from datetime import datetime
 
-DB_PATH = r"c:\Users\ngant\P-086\data_new\db\vingroup_pilot.db"
-PQ_PATH = r"c:\Users\ngant\P-086\data_new\vingroup_pilot_landing.parquet"
+logger = logging.getLogger(__name__)
+
+try:
+    from src.config import get_settings
+    from src.db.connection import get_db
+    _rel_pq = get_settings().landing_parquet_path
+    PQ_PATH = _rel_pq if os.path.isabs(_rel_pq) else os.path.join(get_db().project_root, _rel_pq)
+except Exception:
+    PQ_PATH = r"c:\Users\ngant\P-086\data_demo\vingroup_pilot_landing_demo.parquet"
 
 # Column mapping: landing dataset_table -> (raw_table, [columns in landing], snapshot_id injected)
 # Derived from actual schema analysis.
@@ -72,12 +79,10 @@ def get_snapshot_id(day_idx: int) -> str:
 def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, conn: duckdb.DuckDBPyConnection | None = None) -> dict:
     """Ingest all tables for a given day_idx from landing parquet."""
     snapshot_id = get_snapshot_id(day_idx)
-    if verbose:
-        print(f"\n{'='*60}")
-        print(f"INGEST DAY {day_idx} (snapshot={snapshot_id})")
-        print(f"{'='*60}")
+    logger.info(f"⚡ [DayIngestor] Ingesting Day {day_idx} (snapshot={snapshot_id})")
 
     if not os.path.exists(PQ_PATH):
+        logger.error(f"[DayIngestor] Parquet file not found: {PQ_PATH}")
         return {"error": f"Parquet not found: {PQ_PATH}"}
 
     should_close = False
@@ -98,14 +103,8 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, c
 
         # Skip "once" tables (static reference data) in per-day ingest
         if mapping.get("once"):
-            if verbose:
-                print(f"\n  [{dataset_table}] -> {raw_table}")
-                print(f"    SKIP - static reference (use --seed-fleet to ingest once)")
             results[dataset_table] = {"status": "skipped", "reason": "static_reference"}
             continue
-
-        if verbose:
-            print(f"\n  [{dataset_table}] -> {raw_table}")
 
         # Check idempotency: use SUM of snapshot_id matches (NULL-safe)
         if day_filter:
@@ -131,23 +130,19 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, c
         if force_replay and day_filter:
             day_cond = day_filter.replace(":day", str(day_idx))
             conn.execute(f"DELETE FROM {raw_table} WHERE {day_cond}")
-            if verbose:
-                print(f"    FORCE REPLAY - deleted existing rows for {day_cond}")
+            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: FORCE REPLAY deleted existing rows.")
         elif existing_count > 0 and snapshot_match_count > 0:
             # Already ingested with our snapshot_id
-            if verbose:
-                print(f"    SKIP - already ingested (snapshot={snapshot_id})")
+            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: SKIP - already ingested ({existing_count} rows, snapshot={snapshot_id})")
             results[dataset_table] = {"status": "skipped", "rows": existing_count}
             continue
         elif existing_count > 0 and existing_snapshot is None:
             # Data exists but no snapshot_id - old seed data. Skip to be safe.
-            if verbose:
-                print(f"    SKIP - has {existing_count} rows but no snapshot_id (old seed)")
+            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: SKIP - {existing_count} rows without snapshot_id (seed)")
             results[dataset_table] = {"status": "skipped_old_seed", "rows": existing_count}
             continue
 
         # Build INSERT
-        # Add snapshot_id to columns
         all_cols = landing_cols + ["snapshot_id"]
         col_list = ", ".join(all_cols)
         select_parts = []
@@ -156,7 +151,6 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, c
         select_parts.append(f"'{snapshot_id}' AS snapshot_id")
         select_list = ", ".join(select_parts)
 
-        # Build WHERE clause
         if day_filter:
             where_clause = f"WHERE dataset_table = '{dataset_table}' AND {day_filter.replace(':day', str(day_idx))}"
         else:
@@ -171,7 +165,6 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, c
 
         try:
             conn.execute(sql)
-            # Verify - count rows with our snapshot_id
             if day_filter:
                 day_cond = day_filter.replace(":day", str(day_idx))
                 count = conn.execute(
@@ -183,12 +176,10 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, c
                     f"SELECT COUNT(*) FROM {raw_table} WHERE snapshot_id = ?",
                     [snapshot_id]
                 ).fetchone()[0]
-            if verbose:
-                print(f"    OK   +{count} rows (snapshot={snapshot_id})")
+            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table} -> {raw_table}]: INSERTED +{count} rows (snapshot={snapshot_id})")
             results[dataset_table] = {"status": "inserted", "rows": count, "snapshot_id": snapshot_id}
         except Exception as e:
-            if verbose:
-                print(f"    ERR  {e}")
+            logger.error(f"[DayIngestor] Day {day_idx} [{dataset_table}] INSERT ERROR: {e}", exc_info=True)
             results[dataset_table] = {"status": "error", "error": str(e)}
 
     if should_close:

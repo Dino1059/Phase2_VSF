@@ -346,7 +346,7 @@ class ReActEngine:
         ]
 
         if context:
-            messages.append({"role": "user", "content": f"Context: {json.dumps(context)}"})
+            messages.append({"role": "user", "content": f"Context: {json.dumps(context, default=str)}"})
 
         # Seed a running Profile beat before the LLM call so GET /traces is not empty
         # for ~30s. Later profile_dataset at step 0 upserts this same row. Do not invent Done.

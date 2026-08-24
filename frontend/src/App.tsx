@@ -10,7 +10,7 @@ import { DataIngestionPage } from './pages/DataIngestionPage';
 export const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/workspace?dataset_key=vingroup_pilot" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard/ingestion" replace />} />
       <Route path="/landing" element={<LandingPage />} />
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<ExecutiveDashboard />} />

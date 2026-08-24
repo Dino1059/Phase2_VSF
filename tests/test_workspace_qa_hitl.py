@@ -126,7 +126,7 @@ def test_hitl_prompt_does_not_append_leftover_dataset_list(monkeypatch):
     )
     assert resp.status_code == 200
     body = resp.json()["response"]
-    assert "vietnam_trips_dirty" not in body
+    assert "vinfast_bms" not in body
     assert "vgreen_telemetry" not in body
 
 
@@ -310,7 +310,7 @@ def test_hitl_chat_registers_only_profile_and_propose(monkeypatch):
     assert "clean_database" not in registered
     assert "algolia_search" not in registered
     assert "list_datasets" not in registered
-    assert "vietnam_trips_dirty" not in resp.json()["response"]
+    assert "vinfast_bms" not in resp.json()["response"]
 
 
 def test_approved_header_uses_same_status_helper_as_cards():

@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Database - Official VinGroup Pilot DB (with injected faults)
     database_url: str = "duckdb:///./data_new/db/vingroup_pilot.db"
     duckdb_path: str = Field(default="data_new/db/vingroup_pilot.db", validation_alias="DUCKDB_PATH")
+    landing_parquet_path: str = Field(default="data_demo/vingroup_pilot_landing_demo.parquet", validation_alias="LANDING_PARQUET_PATH")
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
@@ -164,7 +165,7 @@ class Settings(BaseSettings):
             "tag": "Synthetic Dataset",
         },
     }
-    fault_manifest_path: str = "data_new/vingroup_faulty_pilot_dataset/fault_manifest.json"
+    fault_manifest_path: str = Field(default="data_demo/fault_manifest.json", validation_alias="FAULT_MANIFEST_PATH")
     profile_sample_size: int = 100_000
 
     def get_dataset_provenance(self, key: str) -> DataProvenance:

@@ -483,6 +483,22 @@ class UnifiedLLMAdapter:
             )
 
         # 2. ReAct Agent Tool Calls (Profiler, Anomaly, Proposer, Executor)
+        # Check if a tool has already been executed in this conversation (Observation present)
+        has_observation = any(
+            isinstance(m, dict) and (
+                m.get("role") == "tool" or
+                str(m.get("content", "")).startswith("Observation:") or
+                "observation:" in str(m.get("content", "")).lower()
+            )
+            for m in messages
+        )
+        if has_observation:
+            return LLMResponse(
+                content=f"Completed task via heuristic analysis. Observation processed: {last_msg[:300]}",
+                finish_reason="stop",
+                model_used="heuristic-done"
+            )
+
         if "profile" in last_msg or "profile_dataset" in last_msg or "profiling" in last_msg:
             return LLMResponse(
                 content="ACTION: profile_dataset\nARGS: {}",
@@ -514,7 +530,7 @@ class UnifiedLLMAdapter:
 
         # 3. Chat / General Inquiry Fallback
         if "dataset" in last_msg or "how many" in last_msg:
-            reply = "You have **18 datasets** registered in the DataTrust OS repository including vietnam_trips_dirty, vgreen_telemetry, and xanhsm_feedback."
+            reply = "You have **4 datasets** registered in the DataTrust OS repository including vinfast_bms, vgreen_telemetry, xanhsm_trips, and xanhsm_feedback."
         elif "evidence" in last_msg or "summarize" in last_msg:
             reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."
         elif "rca" in last_msg or "hypothesis" in last_msg or "root cause" in last_msg:

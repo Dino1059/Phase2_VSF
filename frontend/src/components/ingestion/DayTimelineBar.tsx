@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   RotateCcw,
   Check,
+  Info,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { IngestionDayTimeline, IngestionDaySnapshot } from '../../services/api';
@@ -52,7 +53,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
     // Non-blocking activation so execution starts in background & updates global store
     void onActivate(day.day_idx, day.is_activated);
     // Immediately navigate to Agent Chat Workspace tab for engineer workflow!
-    navigate(`/workspace?dataset_key=vingroup_pilot&day=${day.day_idx}`);
+    navigate(`/workspace?dataset_key=ev_telemetry&day=${day.day_idx}`);
   };
 
   const handleWarmupClick = async () => {
@@ -61,7 +62,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
     usePipelineStore.getState().setSelectedDayIdx(-10);
     try {
       void onRunWarmup();
-      navigate('/workspace?dataset_key=vingroup_pilot&day=-10');
+      navigate('/workspace?dataset_key=ev_telemetry&day=-10');
     } finally {
       setActivatingDay(null);
     }
@@ -132,7 +133,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
             </span>
           ) : (
             <span className="tdc-status-badge idle">
-              <span>{isVi ? 'CHỜ' : 'IDLE'}</span>
+              <span>{isVi ? 'SẴN SÀNG' : 'READY'}</span>
             </span>
           )}
 
@@ -181,7 +182,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
             ) : (
               <Play size={11} />
             )}
-            <span>{isActivated ? (isVi ? 'Re-run' : 'Re-run') : (isVi ? 'Run E2E' : 'Run E2E')}</span>
+            <span>{isActivated ? (isVi ? 'Chạy lại' : 'Re-run') : (isVi ? 'Chạy Ngày' : 'Run Day')}</span>
           </button>
         </div>
       </div>
@@ -192,6 +193,18 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
 
   return (
     <div className="ingestion-timeline-bar-v2">
+      {/* Simulation Instruction Banner */}
+      <div className="timeline-info-banner">
+        <Info size={16} color="var(--neon-cyan)" style={{ flexShrink: 0, marginTop: 2 }} />
+        <div className="tib-content">
+          <p>
+            {isVi
+              ? '💡 Mô phỏng dữ liệu thực tế: Mỗi Day tương đương 1 ngày vận hành thực tế của hệ thống. Bạn có thể bấm Chạy ở một ngày bất kỳ để trải nghiệm luồng tự động kiểm thử và giám sát chất lượng dữ liệu.'
+              : '💡 Real-world data simulation: Each Day represents 1 operational day. Click Run on any day to experience automated ingestion and quality monitoring.'}
+          </p>
+        </div>
+      </div>
+
       {/* Realtime E2E Execution Progress Stepper */}
       {executionStage !== 'idle' && (
         <div className="timeline-stepper-banner">
@@ -265,7 +278,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
                 )}
                 <span>
                   {isWarmupComplete
-                    ? (isVi ? 'Re-run' : 'Re-run')
+                    ? (isVi ? 'Chạy lại' : 'Re-run')
                     : (isVi ? 'Run Warmup' : 'Run Warmup')}
                 </span>
               </button>
@@ -282,7 +295,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
             <h3>{isVi ? 'Demo Operating Days (Day 10–14)' : 'Demo Operating Days (Day 10–14)'}</h3>
           </div>
           <span className="tsc-hint">
-            {isVi ? 'Nhấn để chạy E2E Batch + Stream' : 'Click row to run E2E Batch + Stream'}
+            {isVi ? 'Bấm Chạy ở ngày bất kỳ để trải nghiệm' : 'Click Run on any day to start'}
           </span>
         </div>
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 import json
+import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Callable, Dict, Any
 
 import pandas as pd
 
@@ -15,6 +16,19 @@ from src.agents.diagnosis_agent import DiagnosisAgent
 from src.agents.rule_proposer_agent import RuleProposerAgent
 from src.agents.executor_agent import ExecutorAgent
 from src.db.connection import get_db
+
+logger = logging.getLogger(__name__)
+
+
+def _notify(progress_callback: Optional[Callable[[str, str, dict], None]], stage: str, message: str, metadata: Optional[dict] = None):
+    msg = f"⚡ [Orchestrator] [{stage}] {message}"
+    print(msg, flush=True)
+    logger.info(msg)
+    if progress_callback:
+        try:
+            progress_callback(stage, message, metadata or {})
+        except Exception as exc:
+            logger.warning(f"progress_callback error: {exc}")
 
 
 # Official VinGroup Pilot DB (with injected faults)
@@ -213,7 +227,15 @@ def _load_table_as_dataframe(
     import duckdb
 
     # --- Day-aware landing-parquet path (added in Giai đoạn 2) ---
-    LANDING_PARQUET = "data_new/vingroup_pilot_landing.parquet"
+    from src.config import get_settings
+    from src.db.connection import get_db
+    landing_rel = get_settings().landing_parquet_path
+    try:
+        root = get_db().project_root
+        LANDING_PARQUET = os.path.join(root, landing_rel).replace("\\", "/") if not os.path.isabs(landing_rel) else landing_rel.replace("\\", "/")
+    except Exception:
+        LANDING_PARQUET = landing_rel.replace("\\", "/")
+
     if target_day_idx is not None and os.path.exists(LANDING_PARQUET):
         day_min = max(0, target_day_idx - window_days)
         day_max = target_day_idx
@@ -265,7 +287,7 @@ def _load_table_as_dataframe(
                 conn = db_mgr._get_master_conn()
                 for tbl in tbl_names:
                     try:
-                        df = conn.execute(f'SELECT * FROM {tbl} LIMIT 5000').df()
+                        df = conn.execute(f'SELECT * FROM {tbl}').df()
                         if not df.empty:
                             return df
                     except Exception:
@@ -278,7 +300,7 @@ def _load_table_as_dataframe(
                 try:
                     for tbl in tbl_names:
                         try:
-                            df = conn.execute(f'SELECT * FROM {tbl} LIMIT 5000').df()
+                            df = conn.execute(f'SELECT * FROM {tbl}').df()
                             if not df.empty:
                                 return df
                         except Exception:
@@ -288,6 +310,14 @@ def _load_table_as_dataframe(
         except Exception as exc:
             last_exc = exc
             continue
+
+    try:
+        from src.services.dataset_engine import load_dataset
+        df = load_dataset(dataset_key=table_name)
+        if not df.empty:
+            return df
+    except Exception:
+        pass
 
     if last_exc is not None:
         raise last_exc
@@ -396,6 +426,7 @@ def _detect_l1_l4_signals(
     project_id: str,
     target_day_idx: int | None = None,
     window_days: int = 10,
+    progress_callback: Optional[Callable[[str, str, dict], None]] = None,
 ) -> dict:
     """
     Run L1-L4 detectors on the provided DataFrame and return a dict of
@@ -412,6 +443,7 @@ def _detect_l1_l4_signals(
 
     cfg = _TABLE_SIGNAL_CONFIG.get(table_name) or _auto_signal_config(table_name, df)
     if not cfg:
+        _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': No signal config. Skipping L1-L4.", {"table": table_name})
         return {"L1": [], "L2": [], "L3": [], "L4": []}
 
     entity_col = cfg.get("entity_id_col")
@@ -419,9 +451,11 @@ def _detect_l1_l4_signals(
     metric_col = cfg.get("metric_col")
 
     if not entity_col or not ts_col or not metric_col or df.empty:
+        _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': Required signal cols missing or df empty.", {"table": table_name})
         return {"L1": [], "L2": [], "L3": [], "L4": []}
 
     if entity_col not in df.columns or ts_col not in df.columns or metric_col not in df.columns:
+        _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': Signal cols not present in df.", {"table": table_name})
         return {"L1": [], "L2": [], "L3": [], "L4": []}
 
     signals: dict = {"L1": [], "L2": [], "L3": [], "L4": []}
@@ -440,19 +474,19 @@ def _detect_l1_l4_signals(
             entity_id_col=entity_col, timestamp_col=ts_col,
             required_cols=cfg.get("l1_required_cols", []),
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(f"[L1 Detector] Exception on table '{table_name}': {exc}", exc_info=True)
 
     # L2: contextual drift via robust Z-score
     try:
-        l2 = L2ContextualDetector(z_threshold=3.5, warmup_days=14, min_samples=14)
+        l2 = L2ContextualDetector(z_threshold=3.5, warmup_days=10, min_samples=10)
         signals["L2"].extend(l2.detect_entity_anomalies(
             df=df, project_id=project_id,
             entity_id_col=entity_col, timestamp_col=ts_col,
             metric_col=metric_col,
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(f"[L2 Detector] Exception on table '{table_name}': {exc}", exc_info=True)
 
     # L3: relational break using a simple temporal split (first 50% ref, last 50% eval)
     try:
@@ -470,8 +504,8 @@ def _detect_l1_l4_signals(
                 entity_id_col=entity_col, timestamp_col=ts_col,
                 feature_x=rel_x, feature_y=rel_y,
             ))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(f"[L3 Detector] Exception on table '{table_name}': {exc}", exc_info=True)
 
     # L4: CUSUM change-point
     try:
@@ -481,8 +515,8 @@ def _detect_l1_l4_signals(
             entity_id_col=entity_col, timestamp_col=ts_col,
             metric_col=metric_col,
         ))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(f"[L4 Detector] Exception on table '{table_name}': {exc}", exc_info=True)
 
     return signals
 
@@ -492,30 +526,41 @@ def _run_reliability_pipeline(
     project_id: str,
     target_day_idx: int | None = None,
     window_days: int = 10,
+    progress_callback: Optional[Callable[[str, str, dict], None]] = None,
 ) -> List[dict]:
     """
     End-to-end L1-L4 -> FusionEngine -> IncidentService -> A1BoundedInvestigator pipeline.
     Returns a list of investigation result dicts (one per admitted incident).
     Raises if the table cannot be loaded.
     """
+    _notify(progress_callback, "Data Load", f"Loading dataset for table '{table_name}' (day={target_day_idx}, window={window_days})...", {"table": table_name})
     df = _load_table_as_dataframe(
         table_name, project_id=project_id,
         target_day_idx=target_day_idx, window_days=window_days,
     )
     if df.empty:
+        _notify(progress_callback, "Data Load", f"Table '{table_name}' loaded 0 rows.", {"table": table_name})
         return []
 
+    _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': Running L1-L4 detectors on {len(df)} rows...", {"table": table_name, "rows": len(df)})
     detector_outputs = _detect_l1_l4_signals(
         table_name, df, project_id,
-        target_day_idx=target_day_idx, window_days=window_days
+        target_day_idx=target_day_idx, window_days=window_days,
+        progress_callback=progress_callback,
     )
+    total_sigs = sum(len(s) for s in detector_outputs.values())
+    l1_cnt, l2_cnt, l3_cnt, l4_cnt = len(detector_outputs["L1"]), len(detector_outputs["L2"]), len(detector_outputs["L3"]), len(detector_outputs["L4"])
+    _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': Detected {total_sigs} signals (L1={l1_cnt}, L2={l2_cnt}, L3={l3_cnt}, L4={l4_cnt})", {"table": table_name, "signals": total_sigs})
+
     if not any(detector_outputs.values()):
         return []
 
     from src.reliability.investigation.reliability_orchestrator import ReliabilityOrchestrator
 
+    _notify(progress_callback, "Incident Fusion", f"Table '{table_name}': Running FusionEngine & A1 RCA on {total_sigs} signals...", {"table": table_name})
     orchestrator = ReliabilityOrchestrator()
     results = orchestrator.run_pipeline(detector_outputs, project_id=project_id)
+    _notify(progress_callback, "Incident Fusion", f"Table '{table_name}': Admitted {len(results)} incidents with A1 root cause analysis.", {"table": table_name, "incidents": len(results)})
 
     out: List[dict] = []
     for res in results:
@@ -654,19 +699,13 @@ class DataTrustOrchestrator:
         table_name: str | None = None,
         target_day_idx: int | None = None,
         window_days: int = 10,
+        progress_callback: Optional[Callable[[str, str, dict], None]] = None,
     ) -> OrchestratorResult:
-        """Run the full analysis pipeline. Supports both single-table (legacy) and multi-table DuckDB datasets.
-
-        Args:
-            dataset_key: dataset identifier (e.g. "vingroup_pilot")
-            review_text: optional analyst review text for diagnosis stage
-            table_name: optional override to run only one table
-            target_day_idx: if set, filter data to this day_idx (for day-aware batch runs)
-            window_days: lookback window when target_day_idx is set (default 10)
-                - if target_day_idx=None: runs on all data (legacy behavior, unchanged)
-        """
+        """Run the full analysis pipeline. Supports both single-table (legacy) and multi-table DuckDB datasets."""
         start = time.time()
         result = OrchestratorResult()
+
+        _notify(progress_callback, "Analysis Pipeline", f"Starting DataTrust analysis for dataset '{dataset_key}' (day={target_day_idx}, window={window_days})...", {"dataset": dataset_key, "day": target_day_idx})
 
         # Stage 1: Profile (multi-table aware when dataset_key resolves to >1 table)
         all_tables = _get_all_tables_for_dataset(dataset_key)
@@ -677,6 +716,7 @@ class DataTrustOrchestrator:
         else:
             target_tables = [dataset_key]
 
+        _notify(progress_callback, "Stage 1: Profiling", f"Profiling {len(target_tables)} target tables: {target_tables}", {"tables": target_tables})
         profile_result = self.profiler.run(dataset_key)
         result.stages.append({
             "stage": "profiling",
@@ -686,21 +726,25 @@ class DataTrustOrchestrator:
             "summary": profile_result.final_answer[:500],
             "tables_profiled": target_tables,
         })
+        _notify(progress_callback, "Stage 1: Profiling", f"Profiling completed in {len(profile_result.steps)} steps.", {"status": profile_result.status})
 
         # Stage 2: Anomaly Detection (Design V2: L1-L4 -> Fusion -> Incident -> A1)
-        # Iterate over every user table in the dataset, run L1-L4 per table, then
-        # run a cross-table correlation pass before invoking A1.
+        _notify(progress_callback, "Stage 2: Anomaly Detection", f"Running L1-L4 multi-layer reliability pipeline across {len(target_tables)} tables...", {"tables": target_tables})
         anomaly_stage = self._run_anomaly_stage(
             target_tables,
             dataset_key=dataset_key,
             target_day_idx=target_day_idx,
             window_days=window_days,
+            progress_callback=progress_callback,
         )
         result.stages.append(anomaly_stage)
         anomaly_findings = anomaly_stage.get("anomaly_findings", {})
+        total_incidents = anomaly_stage.get("incident_count", 0)
+        _notify(progress_callback, "Stage 2: Anomaly Detection", f"Anomaly detection finished: {total_incidents} incidents evaluated across tables.", {"incidents": total_incidents})
 
         # Stage 3: Diagnosis (if review text provided)
         if review_text:
+            _notify(progress_callback, "Stage 3: Diagnosis", "Running analyst review diagnosis...", {})
             diag_result = self.diagnosis.run(review_text)
             result.diagnosis = diag_result.final_answer
             result.stages.append({
@@ -712,6 +756,7 @@ class DataTrustOrchestrator:
             })
 
         # Stage 4: Rule Proposal (now receives real anomaly findings)
+        _notify(progress_callback, "Stage 4: Rule Proposal", "Generating data quality rule proposals based on findings...", {})
         rule_result = self.rule_proposer.run(
             dataset_key,
             profile_summary=profile_result.final_answer[:500],
@@ -725,12 +770,10 @@ class DataTrustOrchestrator:
             "summary": rule_result.final_answer[:500]
         })
 
-        # Stage 5: Queue rules for HITL approval
-        # Rules are stored as 'proposed' and need human approval before execution
         result.status = "awaiting_approval"
         result.total_duration_ms = int((time.time() - start) * 1000)
+        _notify(progress_callback, "Analysis Complete", f"DataTrust analysis completed in {result.total_duration_ms}ms.", {"duration_ms": result.total_duration_ms})
 
-        # Log orchestration
         self._log_orchestration(result)
         return result
 
@@ -740,16 +783,10 @@ class DataTrustOrchestrator:
         dataset_key: str = "",
         target_day_idx: int | None = None,
         window_days: int = 10,
+        progress_callback: Optional[Callable[[str, str, dict], None]] = None,
     ) -> dict:
         """
         Run Design V2 anomaly pipeline across every table in `table_names`.
-
-        For each table: L1-L4 detectors -> FusionEngine -> IncidentService -> A1.
-        After intra-table processing, run a cross-table correlation pass and feed
-        any synthesized cross-table signals back through the FusionEngine.
-
-        Returns a stage dict compatible with the orchestrator's stage list, plus
-        `anomaly_findings` containing real admitted incidents and A1 hypotheses.
         """
         if isinstance(table_names, str):
             table_names = [table_names]
@@ -759,15 +796,19 @@ class DataTrustOrchestrator:
         per_table_summary: List[dict] = []
         per_table_signals_for_cross: dict = {}
 
-        for tbl in table_names:
+        for idx, tbl in enumerate(table_names, 1):
+            _notify(progress_callback, "Table Processing", f"[{idx}/{len(table_names)}] Processing table '{tbl}'...", {"table": tbl, "idx": idx, "total": len(table_names)})
             try:
                 investigations = _run_reliability_pipeline(
                     table_name=tbl,
                     project_id=self.project_id,
                     target_day_idx=target_day_idx,
                     window_days=window_days,
+                    progress_callback=progress_callback,
                 )
             except Exception as exc:
+                logger.error(f"[AnomalyStage] Failed to process table '{tbl}': {exc}", exc_info=True)
+                _notify(progress_callback, "Table Processing Error", f"Table '{tbl}' failed: {exc}", {"table": tbl, "error": str(exc)})
                 per_table_summary.append({
                     "table_name": tbl,
                     "status": "error",

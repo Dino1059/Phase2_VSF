@@ -145,7 +145,7 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       set({ executionStage: 'evaluating_rules' });
       await new Promise((r) => setTimeout(r, 400));
       set({ executionStage: 'starting_realtime' });
-      await ingestionApi.startRealtime().catch(() => {});
+      await new Promise((r) => setTimeout(r, 200));
       set({ executionStage: 'completed' });
       await get().refetchAll();
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx } }));
@@ -168,7 +168,7 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       set({ executionStage: 'evaluating_rules' });
       await new Promise((r) => setTimeout(r, 400));
       set({ executionStage: 'starting_realtime' });
-      await ingestionApi.startRealtime().catch(() => {});
+      await new Promise((r) => setTimeout(r, 200));
       set({ executionStage: 'completed' });
       await get().refetchAll();
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx: 9 } }));
@@ -246,13 +246,17 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
 
     const handleDayAdvance = (event: Event) => {
       const detail = (event as CustomEvent<{ new_day: number }>).detail;
-      if (detail) {
+      if (detail && detail.new_day !== undefined) {
         set((state) => ({
           demoState: state.demoState
             ? { ...state.demoState, realtime_active: true, current_day_idx: detail.new_day }
             : state.demoState,
+          realtimeStatus: state.realtimeStatus
+            ? { ...state.realtimeStatus, current_day_idx: detail.new_day, read_cursor: 0, tick_count: 0 }
+            : state.realtimeStatus,
         }));
         void get().fetchTimeline();
+        void get().fetchRealtimeStatus();
       }
     };
 
@@ -261,9 +265,20 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       set({ error: detail?.message || 'Realtime error' });
     };
 
+    const handleAgentTrace = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      const thought = String(detail?.thought || detail?.data?.thought || '');
+      if (thought.includes('Stage 4: Rule Proposal')) {
+        set({ executionStage: 'evaluating_rules' });
+      } else if (thought.includes('Analysis Complete') || thought.includes('Realtime Stream')) {
+        set({ executionStage: 'starting_realtime' });
+      }
+    };
+
     window.addEventListener(WS_TICK, handleTick);
     window.addEventListener(WS_DAY_ADVANCE, handleDayAdvance);
     window.addEventListener(WS_ERROR, handleError);
+    window.addEventListener('datatrust:agent-trace', handleAgentTrace);
 
     const pollTimer = setInterval(() => {
       const { fetchTimeline, fetchRuns, fetchRealtimeStatus, fetchDemoState } = get();
@@ -274,6 +289,7 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       window.removeEventListener(WS_TICK, handleTick);
       window.removeEventListener(WS_DAY_ADVANCE, handleDayAdvance);
       window.removeEventListener(WS_ERROR, handleError);
+      window.removeEventListener('datatrust:agent-trace', handleAgentTrace);
       clearInterval(pollTimer);
       isWsInitialized = false;
     };

@@ -166,14 +166,29 @@ class DataProfilerTool(BaseTool):
         "required": ["table_name"]
     }
 
-    ALLOWED_TABLES = {"vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback", "raw_snapshots", "quality_rules", "quarantine", "audit_log", "agent_traces", "profile_results"}
+    ALLOWED_TABLES = {
+        "vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback",
+        "vgreen_charging_sessions", "ev_telemetry", "acn_charging", "ride_trips",
+        "vingroup_pilot", "raw_snapshots", "quality_rules", "quarantine",
+        "audit_log", "agent_traces", "profile_results"
+    }
 
     def execute(self, input_data: dict) -> dict:
+        import re
         table = input_data["table_name"]
-        if table not in self.ALLOWED_TABLES:
-            return {"error": f"Table '{table}' not allowed", "table_name": table, "row_count": 0, "columns": []}
+        if not re.match(r'^[a-zA-Z0-9_\.]+$', table):
+            return {"error": f"Invalid table name format: '{table}'", "table_name": table, "row_count": 0, "columns": []}
 
         db = get_db()
+        if table not in self.ALLOWED_TABLES:
+            try:
+                chk = db.execute("SELECT 1 FROM information_schema.tables WHERE table_name = ?", [table])
+                if not chk:
+                    chk = db.execute("SELECT 1 FROM sqlite_master WHERE name = ?", [table])
+                if not chk:
+                    return {"error": f"Table '{table}' not allowed or does not exist", "table_name": table, "row_count": 0, "columns": []}
+            except Exception:
+                return {"error": f"Table '{table}' not allowed", "table_name": table, "row_count": 0, "columns": []}
         
         # Get row count
         count_result = db.execute(f"SELECT COUNT(*) FROM {table}")

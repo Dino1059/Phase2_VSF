@@ -1098,10 +1098,10 @@ function NewChatLanding() {
                 await resetDemoSession();
                 useChatStore.getState().clearMessages();
               } catch { /* ignore */ }
-              navigate('/workspace?dataset_key=vingroup_pilot');
+              navigate('/workspace?dataset_key=ev_telemetry');
             }}
           >
-            <Play size={22} /> {isVi ? 'Phân tích Dataset Vingroup Pilot' : 'Analyze Vingroup Pilot Dataset'}
+            <Play size={22} /> {isVi ? 'Phân tích Dataset VinFast EV' : 'Analyze VinFast EV Dataset'}
           </button>
           <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải file dữ liệu' : 'Upload data file')}

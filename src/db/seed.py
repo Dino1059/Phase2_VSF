@@ -124,122 +124,145 @@ def map_xanhsm_trips(df: pd.DataFrame, snapshot_id: str, start_id: int = 1) -> p
 
 
 def seed_database(db_path: str = None) -> None:
-    """Ingest CSV files into DuckDB tables with raw_snapshots metadata tracking and provenance tagging."""
+    """Ingest landing parquet dataset into DuckDB tables with raw_snapshots metadata tracking and provenance tagging."""
     db_manager = DuckDBManager(db_path=db_path)
     db_manager.init_schema()
 
     project_root = db_manager.project_root
+    from src.config import get_settings
     
-    # Candidates for data directory
-    candidates = [
-        os.path.join(project_root, "data_new", "vingroup_faulty_pilot_dataset"),
-        os.path.join(project_root, "data", "vingroup_faulty_pilot_dataset"),
-        os.path.join(project_root, "data_new", "vingroup_pilot_dataset"),
-        os.path.join(project_root, "data", "vingroup_real"),
-    ]
-    data_dir = None
-    for c in candidates:
-        if os.path.exists(c):
-            data_dir = c
-            break
-    if not data_dir:
-        data_dir = os.path.join(project_root, "data_new", "vingroup_faulty_pilot_dataset")
+    parquet_rel_path = get_settings().landing_parquet_path
+    if os.path.isabs(parquet_rel_path):
+        pq_path = parquet_rel_path
+    else:
+        pq_path = os.path.join(project_root, parquet_rel_path)
 
-    csv_configs = [
-        {
-            "file_names": ["synthetic_feedback_scenario_driven.csv", "real_xanh_sm_customer_feedback.csv"],
-            "table_name": "xanhsm_feedback",
-            "source_name": "xanh_sm_customer_feedback",
-            "mapper": map_xanhsm_feedback,
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": BENCHMARK_TAG,
-        },
-        {
-            "file_names": ["acn_charging_mapped.csv", "real_vgreen_charging_stations.csv"],
-            "table_name": "vgreen_telemetry",
-            "source_name": "vgreen_charging_stations",
-            "mapper": map_vgreen_telemetry,
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": BENCHMARK_TAG,
-        },
-        {
-            "file_names": ["synthetic_ev_telemetry_ved_ref.csv", "real_vinfast_ev_telemetry.csv"],
-            "table_name": "vinfast_bms",
-            "source_name": "vinfast_ev_telemetry",
-            "mapper": map_vinfast_bms,
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": BENCHMARK_TAG,
-        },
-        {
-            "file_names": ["ride_hailing_xanh_sm_trips.csv", "real_xanh_sm_trips.csv"],
-            "table_name": "xanhsm_trips",
-            "source_name": "xanh_sm_trips",
-            "mapper": map_xanhsm_trips,
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": BENCHMARK_TAG,
-        },
-    ]
+    if not os.path.exists(pq_path):
+        pq_path = os.path.join(project_root, "data_demo", "vingroup_pilot_landing_demo.parquet")
+    
+    if not os.path.exists(pq_path):
+        print(f"Warning: Landing parquet not found at {pq_path}. Skipping database seed.")
+        return
 
+    clean_pq_path = pq_path.replace("\\", "/")
+    sha256_hash = compute_sha256(pq_path)
     conn = db_manager.get_connection()
 
-    for config in csv_configs:
-        file_path = None
-        for name in config["file_names"]:
-            p = os.path.join(data_dir, name)
-            if os.path.exists(p):
-                file_path = p
-                break
-        
-        if not file_path:
-            print(f"Warning: No matching CSV for {config['table_name']} found in {data_dir}. Skipping.")
-            continue
+    table_configs = [
+        {
+            "dataset_table": "feedback",
+            "table_name": "xanhsm_feedback",
+            "source_name": "xanh_sm_customer_feedback",
+            "sql": f"""
+                INSERT INTO xanhsm_feedback (id, review_text, normalized_text, rating, location, timestamp, source, aspects, snapshot_id)
+                SELECT 
+                    row_number() OVER () AS id,
+                    COALESCE(raw_comment_text, '') AS review_text,
+                    NULL AS normalized_text,
+                    CAST(COALESCE(sentiment, 0.0) AS FLOAT) AS rating,
+                    NULL AS location,
+                    CAST(scenario_date AS TIMESTAMP) AS timestamp,
+                    'xanh_sm' AS source,
+                    CASE WHEN topic IS NOT NULL THEN json_array(topic) ELSE NULL END AS aspects,
+                    'SNAP_LANDING' AS snapshot_id
+                FROM read_parquet('{clean_pq_path}')
+                WHERE dataset_table = 'feedback'
+            """
+        },
+        {
+            "dataset_table": "acn_charging",
+            "table_name": "vgreen_telemetry",
+            "source_name": "vgreen_charging_stations",
+            "sql": f"""
+                INSERT INTO vgreen_telemetry (id, station_id, station_name, temperature_celsius, voltage, current_amps, duty_cycle, status, fault_code, timestamp, snapshot_id)
+                SELECT
+                    row_number() OVER () AS id,
+                    station_id,
+                    COALESCE(charger_id, station_id) AS station_name,
+                    CAST(station_temp_c AS FLOAT) AS temperature_celsius,
+                    NULL AS voltage,
+                    NULL AS current_amps,
+                    CAST(power_kw AS FLOAT) AS duty_cycle,
+                    COALESCE(status, 'ACTIVE') AS status,
+                    NULL AS fault_code,
+                    CAST(start_time AS TIMESTAMP) AS timestamp,
+                    'SNAP_LANDING' AS snapshot_id
+                FROM read_parquet('{clean_pq_path}')
+                WHERE dataset_table = 'acn_charging'
+            """
+        },
+        {
+            "dataset_table": "ev_telemetry",
+            "table_name": "vinfast_bms",
+            "source_name": "vinfast_ev_telemetry",
+            "sql": f"""
+                INSERT INTO vinfast_bms (id, vehicle_id, battery_soc, battery_voltage, cell_temp_max, cell_temp_min, bms_fault_code, charging_station_id, timestamp, snapshot_id)
+                SELECT
+                    row_number() OVER () AS id,
+                    vehicle_vin AS vehicle_id,
+                    CAST(battery_soc AS FLOAT) AS battery_soc,
+                    CAST(battery_voltage AS FLOAT) AS battery_voltage,
+                    CAST(battery_temp_c AS FLOAT) AS cell_temp_max,
+                    NULL AS cell_temp_min,
+                    NULL AS bms_fault_code,
+                    NULL AS charging_station_id,
+                    CAST(timestamp AS TIMESTAMP) AS timestamp,
+                    'SNAP_LANDING' AS snapshot_id
+                FROM read_parquet('{clean_pq_path}')
+                WHERE dataset_table = 'ev_telemetry'
+            """
+        },
+        {
+            "dataset_table": "ride_trips",
+            "table_name": "xanhsm_trips",
+            "source_name": "xanh_sm_trips",
+            "sql": f"""
+                INSERT INTO xanhsm_trips (id, trip_id, driver_id, pickup_location, dropoff_location, distance_km, fare_vnd, duration_minutes, rating, timestamp, snapshot_id)
+                SELECT
+                    row_number() OVER () AS id,
+                    trip_id,
+                    driver_id,
+                    CASE WHEN pickup_latitude IS NOT NULL THEN CONCAT(CAST(pickup_latitude AS VARCHAR), ',', CAST(pickup_longitude AS VARCHAR)) ELSE NULL END AS pickup_location,
+                    NULL AS dropoff_location,
+                    CAST(trip_distance_km AS FLOAT) AS distance_km,
+                    CAST(COALESCE(total_fare, fare_amount, 0.0) AS FLOAT) AS fare_vnd,
+                    NULL AS duration_minutes,
+                    NULL AS rating,
+                    CAST(pickup_datetime AS TIMESTAMP) AS timestamp,
+                    'SNAP_LANDING' AS snapshot_id
+                FROM read_parquet('{clean_pq_path}')
+                WHERE dataset_table = 'ride_trips'
+            """
+        },
+    ]
 
+    prov_val = DataProvenance.SEMI_SYNTHETIC.value
+    tag_val = BENCHMARK_TAG
+
+    for config in table_configs:
         table_name = config["table_name"]
         source_name = config["source_name"]
-        mapper = config["mapper"]
-        prov_val = config["provenance"].value if isinstance(config["provenance"], DataProvenance) else config["provenance"]
-        tag_val = config.get("tag", BENCHMARK_TAG)
 
-        sha256_hash = compute_sha256(file_path)
-
-        existing = db_manager.execute(
-            "SELECT id FROM raw_snapshots WHERE sha256_hash = ?", [sha256_hash]
-        )
-        if existing:
-            # Ensure existing record has provenance metadata updated
-            db_manager.execute(
-                "UPDATE raw_snapshots SET provenance = ?, tag = ? WHERE sha256_hash = ?",
-                [prov_val, tag_val, sha256_hash]
-            )
-            print(f"Snapshot for {table_name} ({sha256_hash[:8]}...) already exists. Updated provenance metadata.")
+        existing_cnt = db_manager.execute(f"SELECT COUNT(*) FROM {table_name}")
+        if existing_cnt and existing_cnt[0][0] > 0:
+            print(f"Table '{table_name}' already seeded ({existing_cnt[0][0]} rows). Skipping.")
             continue
 
-        df = pd.read_csv(file_path)
         snapshot_id = str(uuid.uuid4())
+        conn.execute(config["sql"])
+        
+        row_cnt = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
 
-        # Compute next auto-increment ID
-        res = db_manager.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table_name}")
-        start_id = (res[0][0] if res else 0) + 1
-
-        # Insert raw_snapshots metadata record with explicit provenance
         db_manager.execute(
             """
             INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count, provenance, tag)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [snapshot_id, source_name, file_path, sha256_hash, len(df), len(df.columns), prov_val, tag_val],
+            [snapshot_id, source_name, pq_path, sha256_hash, row_cnt, 0, prov_val, tag_val],
         )
+        print(f"Ingested {row_cnt} rows into '{table_name}' from Parquet (snapshot: {snapshot_id}).")
 
-        # Map DataFrame columns to target DuckDB schema
-        mapped_df = mapper(df, snapshot_id, start_id=start_id)
-
-        # Insert data rows into target table using DuckDB's INSERT INTO ... SELECT from pandas DataFrame
-        cols = ", ".join(mapped_df.columns)
-        conn.execute(f"INSERT INTO {table_name} ({cols}) SELECT {cols} FROM mapped_df")
-        print(f"Ingested {len(mapped_df)} rows into '{table_name}' (snapshot: {snapshot_id}, provenance: {prov_val}).")
-
-    # Tag integrated benchmark dataset in datasets registry table
-    rel_data_dir = os.path.relpath(data_dir, project_root) if os.path.isabs(data_dir) else data_dir
+    rel_data_dir = os.path.relpath(pq_path, project_root) if os.path.isabs(pq_path) else pq_path
     db_manager.execute(
         """
         INSERT INTO datasets (dataset_key, file_path, provenance, tag)
@@ -249,16 +272,16 @@ def seed_database(db_path: str = None) -> None:
         ["integrated_benchmark", rel_data_dir, DataProvenance.SEMI_SYNTHETIC.value, BENCHMARK_TAG],
     )
 
-    # Print summary
     print("\n=== Database Seed Summary ===")
+    print(f"Landing Parquet Path: '{pq_path}'")
     print(f"Integrated Benchmark Tag: '{BENCHMARK_TAG}' ({BENCHMARK_TARGET})")
-    for config in csv_configs:
+    for config in table_configs:
         t_name = config["table_name"]
-        prov_val = config["provenance"].value if isinstance(config["provenance"], DataProvenance) else config["provenance"]
         res = db_manager.execute(f"SELECT COUNT(*) FROM {t_name}")
         count = res[0][0] if res else 0
         print(f"Table '{t_name}': {count} records | Provenance: {prov_val}")
     print("=============================\n")
+
 
 
 if __name__ == "__main__":

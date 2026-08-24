@@ -24,30 +24,44 @@ class RuleProposerTool(BaseTool):
         rules = []
         
         # Generate rules based on table type
-        if table == "vgreen_telemetry":
+        if table in ("vgreen_telemetry", "ev_telemetry", "telemetry", "synthetic_ev_telemetry_ved_ref", "vinfast_ev_telemetry", "vinfast_ev_telemetry_dirty"):
             rules.extend([
                 {"rule_name": "temp_range_check", "rule_type": "range", "rule_expression": "temperature_celsius BETWEEN -10 AND 85", "confidence": 0.95, "rationale": "Industrial operating temperature range for EV chargers"},
                 {"rule_name": "voltage_positive", "rule_type": "range", "rule_expression": "voltage >= 0 AND voltage <= 1000", "confidence": 0.99, "rationale": "Voltage must be non-negative and within charger specs"},
                 {"rule_name": "duty_cycle_range", "rule_type": "range", "rule_expression": "duty_cycle BETWEEN 0 AND 100", "confidence": 0.99, "rationale": "Duty cycle is a percentage"},
                 {"rule_name": "fault_temp_correlation", "rule_type": "cross_field", "rule_expression": "NOT (temperature_celsius > 80 AND fault_code IS NULL)", "confidence": 0.85, "rationale": "High temp without fault code suggests sensor/logging issue"}
             ])
-        elif table == "vinfast_bms":
+        elif table in ("vinfast_bms", "bms"):
             rules.extend([
                 {"rule_name": "soc_range", "rule_type": "range", "rule_expression": "battery_soc BETWEEN 0 AND 100", "confidence": 0.99, "rationale": "SOC is a percentage"},
                 {"rule_name": "cell_temp_range", "rule_type": "range", "rule_expression": "cell_temp_max BETWEEN -20 AND 60", "confidence": 0.95, "rationale": "Lithium cell safe operating temperature"},
                 {"rule_name": "cell_temp_delta", "rule_type": "cross_field", "rule_expression": "cell_temp_max - cell_temp_min < 15", "confidence": 0.90, "rationale": "Large temp delta indicates cell imbalance"}
             ])
-        elif table == "xanhsm_feedback":
+        elif table in ("xanhsm_feedback", "feedback", "synthetic_feedback", "nlp_feedback"):
             rules.extend([
                 {"rule_name": "rating_range", "rule_type": "range", "rule_expression": "rating BETWEEN 1 AND 5", "confidence": 0.99, "rationale": "Star ratings 1-5"},
                 {"rule_name": "review_not_empty", "rule_type": "null_check", "rule_expression": "review_text IS NOT NULL AND LENGTH(review_text) > 0", "confidence": 0.95, "rationale": "Reviews should have text content"},
                 {"rule_name": "source_valid", "rule_type": "enum", "rule_expression": "source IN ('google_maps', 'play_store', 'shopee', 'uit_vsfc', 'xanh_sm', 'csv')", "confidence": 0.99, "rationale": "Source must be from known providers"}
             ])
-        elif table == "xanhsm_trips":
+        elif table in ("xanhsm_trips", "ride_trips", "trips", "raw_taxi_trips"):
             rules.extend([
                 {"rule_name": "distance_positive", "rule_type": "range", "rule_expression": "distance_km > 0 AND distance_km < 500", "confidence": 0.95, "rationale": "Trip distance must be positive and reasonable"},
-                {"rule_name": "fare_positive", "rule_type": "range", "rule_expression": "fare_vnd > 0", "confidence": 0.99, "rationale": "Fare must be positive"},
+                {"rule_name": "fare_positive", "rule_type": "range", "rule_expression": "fare_amount >= 0 OR fare_vnd >= 0", "confidence": 0.99, "rationale": "Fare must be positive"},
+                {"rule_name": "ledger_mismatch_check", "rule_type": "cross_field", "rule_expression": "ABS(total_fare - (fare_amount + COALESCE(tip_amount, 0))) < 0.01", "confidence": 0.95, "rationale": "Total fare must equal fare plus tip"},
                 {"rule_name": "duration_positive", "rule_type": "range", "rule_expression": "duration_minutes > 0 AND duration_minutes < 1440", "confidence": 0.95, "rationale": "Trip duration must be under 24 hours"}
+            ])
+        elif table in ("vgreen_charging_sessions", "acn_charging", "charging_sessions", "charging"):
+            rules.extend([
+                {"rule_name": "cost_non_negative", "rule_type": "range", "rule_expression": "cost_vnd >= 0", "confidence": 0.99, "rationale": "Charging session cost must be non-negative"},
+                {"rule_name": "duration_positive", "rule_type": "range", "rule_expression": "duration_mins > 0 AND duration_mins < 1440", "confidence": 0.95, "rationale": "Charging duration must be reasonable"},
+                {"rule_name": "energy_positive", "rule_type": "range", "rule_expression": "energy_kwh >= 0", "confidence": 0.99, "rationale": "Delivered energy must be non-negative"},
+                {"rule_name": "duration_energy_invariant", "rule_type": "cross_field", "rule_expression": "NOT (duration_mins > 180 AND energy_kwh < 5.0)", "confidence": 0.90, "rationale": "Session duration inflated without energy delivered indicates meter/tariff fault"}
+            ])
+        elif table not in ("unknown_table", "unknown") and (table.startswith("raw.") or any(k in table for k in ["telemetry", "trip", "charging", "bms", "feedback", "pilot", "ev"])):
+            # Fallback rules for any new dataset table
+            rules.extend([
+                {"rule_name": f"{table}_non_null_id", "rule_type": "null_check", "rule_expression": "id IS NOT NULL", "confidence": 0.99, "rationale": "Primary ID field must not be null"},
+                {"rule_name": f"{table}_valid_timestamp", "rule_type": "null_check", "rule_expression": "timestamp IS NOT NULL", "confidence": 0.95, "rationale": "Event timestamp must be valid"}
             ])
         
         # Add anomaly-based rules if anomaly findings provided

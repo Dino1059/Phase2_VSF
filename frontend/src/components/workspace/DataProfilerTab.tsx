@@ -184,7 +184,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     // 2. Single table format with columns list
     const rawCols = rawProf.columns || payload.columns || [];
     if (Array.isArray(rawCols) && rawCols.length > 0) {
-      const defaultName = payload.dataset || datasetKey || 'dataset';
+      const defaultName = payload.table || (datasetKey && datasetKey.includes('::') ? datasetKey.split('::')[1] : (payload.dataset || datasetKey || 'dataset'));
       const normCols = normalizeColumns(rawCols, defaultName);
       const rows = rawProf.total_rows ?? rawProf.row_count ?? payload.sample_size ?? payload.total_rows ?? 0;
       const colsCount = rawProf.columns_count ?? normCols.length;
@@ -216,10 +216,10 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     try {
       let res;
       try {
-        res = await datasetsApi.profile(datasetKey, 50000);
+        res = await datasetsApi.profile(datasetKey);
       } catch {
-        const fallbackKey = datasetKey.startsWith('uploaded_') ? datasetKey.replace('uploaded_', '') : 'vingroup_pilot';
-        res = await datasetsApi.profile(fallbackKey, 50000);
+        const fallbackKey = datasetKey.startsWith('uploaded_') ? datasetKey.replace('uploaded_', '') : 'ev_telemetry';
+        res = await datasetsApi.profile(fallbackKey);
       }
       const parsed = parseProfilePayload(res);
       if (parsed && Object.keys(parsed.tablesMap).length > 0) {
@@ -476,7 +476,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
         <div className="profiler-kpi-card">
           <div className="kpi-card-header">
             <Database size={13} style={{ color: 'var(--text-muted)' }} />
-            <span>{isVi ? 'Số Dòng Lấy Mẫu' : 'Sampled Rows'}</span>
+            <span>{isVi ? 'Tổng Số Dòng' : 'Total Rows'}</span>
           </div>
           <div className="kpi-card-value">{activeTotalRows.toLocaleString()}</div>
           <div className="kpi-card-sub">

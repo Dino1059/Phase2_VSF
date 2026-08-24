@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from src.api.middleware import check_user_role
@@ -9,7 +9,7 @@ router = APIRouter(prefix="/benchmarks", tags=["benchmarks"], dependencies=[Depe
 
 class BenchmarkRunRequest(BaseModel):
     dataset_key: str = "vietnam_trips_dirty"
-    sample_size: int = 50_000
+    sample_size: Optional[int] = None
 
 
 @router.get("", summary="Get benchmark suite status and info")

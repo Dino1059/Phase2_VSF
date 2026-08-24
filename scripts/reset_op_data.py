@@ -21,6 +21,7 @@ def run():
     # "Failed to delete all rows from index"
     # To bypass, we DROP and recreate the messages table.
     try:
+        db.execute("DROP INDEX IF EXISTS idx_quarantine_idempotency")
         db.execute("DROP TABLE IF EXISTS messages")
         print("Dropped messages table to avoid index corruption.")
         
@@ -52,17 +53,20 @@ def run():
         "recommendations",
         "agent_traces",
         "incidents",
-        "incident_metadata",
         "job_runs",
         "pipeline_runs"
     ]
-    print("Clearing tables...")
+    print("Clearing operational tables...")
     for tbl in tables_to_clear:
         try:
-            db.execute(f"DELETE FROM {tbl}")
+            db.execute(f"TRUNCATE TABLE {tbl}")
             print(f"Cleared {tbl}")
         except Exception as e:
-            print(f"Failed to clear {tbl}: {e}")
+            try:
+                db.execute(f"DELETE FROM {tbl}")
+                print(f"Cleared {tbl} via DELETE")
+            except Exception as ex:
+                print(f"Failed to clear {tbl}: {ex}")
             
     print("Done resetting operational data.")
 

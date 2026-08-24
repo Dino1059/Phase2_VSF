@@ -633,7 +633,7 @@ async def send_chat_message(request: ChatRequest):
 
     lang_pref = request.lang or "vi"
     msg_lower = request.message.lower()
-    target_dataset = request.dataset_key or "vietnam_trips_dirty"
+    target_dataset = request.dataset_key or "vinfast_ev_telemetry_dirty"
 
     is_full_pipeline_req = any(
         k in msg_lower for k in [
@@ -655,6 +655,8 @@ async def send_chat_message(request: ChatRequest):
                 "action": "profile_dataset",
             }
         }, session_id=session_id)
+        prof_tool = ProfileDatasetTool()
+        prof_res = prof_tool.execute({"dataset_key": target_dataset})
         prof_data = prof_res.output_data if prof_res.status == "success" else {}
         prof_obs = format_friendly_observation("profile_dataset", prof_data, lang=lang_pref)
         m1 = conversation_store.save_message({"type": "agent", "agentId": "profile_dataset", "content": prof_obs, "metadata": {"raw_data": prof_data, "profile": prof_data}}, session_id=session_id)
@@ -906,8 +908,8 @@ async def send_chat_message(request: ChatRequest):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vietnam_trips_dirty" not in final_content:
-        final_content += "\nAvailable registered datasets include: `vietnam_trips_dirty`, `vgreen_telemetry`, `vinfast_bms`, `xanhsm_trips`."
+    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vinfast_bms" not in final_content:
+        final_content += "\nAvailable registered datasets include: `vinfast_bms`, `vgreen_telemetry`, `xanhsm_trips`, `xanhsm_feedback`."
 
     agent_msg = conversation_store.save_message(
         {
@@ -997,7 +999,7 @@ async def upload_dataset(
     settings.register_dataset(dataset_key, file_path)
 
     src = StructuredSource(file_path)
-    df = src.load_data(sample_size=50_000)
+    df = src.load_data(sample_size=None)
 
     await ws_manager.broadcast({
         "type": "agent.status",

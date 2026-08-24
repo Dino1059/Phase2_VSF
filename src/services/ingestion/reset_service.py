@@ -94,6 +94,12 @@ def reset_demo() -> ResetResult:
         except Exception as e:
             logger.warning(f"Could not stop realtime runner: {e}")
         
+        # Drop index on quarantine to prevent DuckDB index deletion corruption
+        try:
+            db.execute("DROP INDEX IF EXISTS idx_quarantine_idempotency")
+        except Exception:
+            pass
+
         # Clear quarantine tables (all schemas)
         _clear_schema_tables(db, "quarantine")
         
@@ -104,23 +110,35 @@ def reset_demo() -> ResetResult:
         raw_data_tables = ["ev_telemetry", "trips", "charging_sessions", "synthetic_feedback", "nlp_feedback"]
         for tbl in raw_data_tables:
             try:
-                db.execute(f"DELETE FROM raw.{tbl}")
+                db.execute(f"TRUNCATE TABLE raw.{tbl}")
             except Exception:
-                pass
+                try:
+                    db.execute(f"DELETE FROM raw.{tbl}")
+                except Exception:
+                    pass
         
         # Clear legacy main data tables to ensure 100% single-path Parquet ingestion
         legacy_data_tables = ["vgreen_charging_sessions", "xanhsm_trips", "xanhsm_feedback", "vinfast_bms", "vgreen_telemetry", "raw_taxi_trips"]
         for tbl in legacy_data_tables:
             try:
-                db.execute(f"DELETE FROM main.{tbl}")
+                db.execute(f"TRUNCATE TABLE main.{tbl}")
             except Exception:
-                pass
+                try:
+                    db.execute(f"DELETE FROM main.{tbl}")
+                except Exception:
+                    pass
 
         # Clear demo_ops batch_run_log
-        db.execute("DELETE FROM demo_ops.batch_run_log")
+        try:
+            db.execute("TRUNCATE TABLE demo_ops.batch_run_log")
+        except Exception:
+            db.execute("DELETE FROM demo_ops.batch_run_log")
         
         # Clear ingestion_runs
-        db.execute("DELETE FROM demo_ops.ingestion_runs")
+        try:
+            db.execute("TRUNCATE TABLE demo_ops.ingestion_runs")
+        except Exception:
+            db.execute("DELETE FROM demo_ops.ingestion_runs")
         
         # Reset demo_state to IDLE
         db.execute("""
@@ -170,11 +188,16 @@ def _clear_schema_tables(db, schema: str) -> int:
                 logger.debug(f"Skipping view {schema}.{tbl}")
                 continue
             try:
-                db.execute(f"DELETE FROM {schema}.{tbl}")
+                db.execute(f"TRUNCATE TABLE {schema}.{tbl}")
                 cleared += 1
                 logger.debug(f"Cleared {schema}.{tbl}")
             except Exception as e:
-                logger.warning(f"Could not clear {schema}.{tbl}: {e}")
+                try:
+                    db.execute(f"DELETE FROM {schema}.{tbl}")
+                    cleared += 1
+                    logger.debug(f"Cleared {schema}.{tbl} via DELETE")
+                except Exception as ex:
+                    logger.warning(f"Could not clear {schema}.{tbl}: {ex}")
         return cleared
     except Exception as e:
         logger.warning(f"Could not list tables in {schema}: {e}")

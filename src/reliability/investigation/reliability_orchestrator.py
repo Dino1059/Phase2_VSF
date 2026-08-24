@@ -35,39 +35,39 @@ class ReliabilityOrchestrator:
         self.fusion_engine = fusion_engine or FusionEngine()
         self.a1 = a1 or A1BoundedInvestigator()
 
-    def process_signals(self, signals: List[Signal], project_id: str) -> List[InvestigationResult]:
+    def process_signals(self, signals: List[Signal], project_id: str, max_investigations: Optional[int] = None) -> List[InvestigationResult]:
         # 1. FusionEngine groups signals into incidents
         incidents = self.fusion_engine.fuse_signals_into_incidents(signals, project_id)
 
         results = []
-        for inc in incidents:
+        for idx, inc in enumerate(incidents):
             # 2. Persist admitted incidents
             self.incident_service.save_incident(inc)
 
-            # 3. Retrieve evidence scoped to this incident
-            ev = self.incident_service.get_evidence_for_incident(inc.incident_id)
-
-            # 4. Run A1 on each incident
-            hyp, rec, meta = self.a1.investigate_incident_dynamically(inc, ev)
-            if hyp:
-                self.incident_service.add_hypothesis(hyp)
-            if rec:
-                self.incident_service.add_recommendation(rec)
-            if meta:
-                self.incident_service.set_incident_meta(inc.incident_id, meta)
-                for trace_item in meta.get("tool_execution_trace", []):
-                    ref = trace_item.get("evidence_ref")
-                    if ref:
-                        tool_ev = Evidence(
-                            evidence_id=ref,
-                            source_type=trace_item.get("tool_name", "tool_output"),
-                            source_id=inc.entity_ids[0] if inc.entity_ids else "VIN-001",
-                            entity_ids=inc.entity_ids or [],
-                            content_hash=f"hash-{ref}",
-                            summary=f"Tool {trace_item.get('tool_name')} returned data: {str(trace_item.get('data'))[:300]}",
-                            provenance="REAL_OPERATIONAL"
-                        )
-                        self.incident_service.add_evidence(tool_ev, incident_id=inc.incident_id, project_id=project_id)
+            hyp, rec, meta = None, None, {}
+            # 3. Run A1 RCA (runs instantly in OFF LLM mode via heuristic fallback)
+            if max_investigations is None or idx < max_investigations:
+                ev = self.incident_service.get_evidence_for_incident(inc.incident_id)
+                hyp, rec, meta = self.a1.investigate_incident_dynamically(inc, ev)
+                if hyp:
+                    self.incident_service.add_hypothesis(hyp)
+                if rec:
+                    self.incident_service.add_recommendation(rec)
+                if meta:
+                    self.incident_service.set_incident_meta(inc.incident_id, meta)
+                    for trace_item in meta.get("tool_execution_trace", []):
+                        ref = trace_item.get("evidence_ref")
+                        if ref:
+                            tool_ev = Evidence(
+                                evidence_id=ref,
+                                source_type=trace_item.get("tool_name", "tool_output"),
+                                source_id=inc.entity_ids[0] if inc.entity_ids else "VIN-001",
+                                entity_ids=inc.entity_ids or [],
+                                content_hash=f"hash-{ref}",
+                                summary=f"Tool {trace_item.get('tool_name')} returned data: {str(trace_item.get('data'))[:300]}",
+                                provenance="REAL_OPERATIONAL"
+                            )
+                            self.incident_service.add_evidence(tool_ev, incident_id=inc.incident_id, project_id=project_id)
 
             results.append(InvestigationResult(
                 incident=inc,

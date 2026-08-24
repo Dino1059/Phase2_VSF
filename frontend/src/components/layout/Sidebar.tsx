@@ -30,7 +30,7 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
 
 export function Sidebar() {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [activeShortcut, setActiveShortcut] = useState<string>('pilot');
+  const [activeShortcut, setActiveShortcut] = useState<string>('ev');
   const [datasetQuery, setDatasetQuery] = useState('');
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
@@ -190,10 +190,10 @@ export function Sidebar() {
           )}
         </div>
 
-        <a href="#/workspace" className="menu-item" onClick={(event) => { event.preventDefault(); openNewChat(); }}>
+        {/* <a href="#/workspace" className="menu-item" onClick={(event) => { event.preventDefault(); openNewChat(); }}>
           <CheckCircle size={18} />
           <span>{t('recentTasks')}</span>
-        </a>
+        </a> */}
 
         <NavLink
           to="/dashboard/ingestion"
@@ -223,15 +223,6 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="sidebar-footer" style={{ marginTop: '12px' }}>
-        <div className="dataset-lib-badge" onClick={() => navigate('/workspace')} style={{ cursor: 'pointer' }}>
-          <Database size={18} />
-          <div>
-            <div className="lib-title">{t('datasetLibrary')}</div>
-            <div className="lib-count">{t('datasetCount')}</div>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

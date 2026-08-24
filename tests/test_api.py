@@ -293,7 +293,7 @@ def test_chat_send_list_datasets():
     assert response.status_code == 200, response.text
     data = response.json()
     assert "response" in data
-    assert "vietnam_trips_dirty" in data["response"]
+    assert "vinfast_bms" in data["response"]
 
 
 def test_upload_dataset_endpoint():

@@ -292,7 +292,7 @@ class ListDatasetsTool(BaseTool):
 
 
 class ProfileDatasetInput(BaseModel):
-    dataset_key: str = Field(default="vietnam_trips_dirty", description="Target dataset key to scan and profile")
+    dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to scan and profile")
 
 
 class ProfileDatasetTool(BaseTool):
@@ -302,7 +302,7 @@ class ProfileDatasetTool(BaseTool):
     target_workflow_state = WorkflowState.PROFILED
 
     def execute(self, input_data: dict) -> ToolResult:
-        dataset_key = input_data.get("dataset_key", "vietnam_trips_dirty")
+        dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
         try:
             file_path, table_name, base_key = _resolve_table_target(dataset_key)
             user_tables = _list_user_tables(file_path) if file_path and os.path.exists(file_path) else []
@@ -361,7 +361,7 @@ class ProfileDatasetTool(BaseTool):
 
 
 class DetectAnomaliesInput(BaseModel):
-    dataset_key: str = Field(default="vietnam_trips_dirty", description="Target dataset key to scan for L1-L4 anomalies")
+    dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to scan for L1-L4 anomalies")
 
 
 class DetectAnomaliesTool(BaseTool):
@@ -371,9 +371,12 @@ class DetectAnomaliesTool(BaseTool):
     target_workflow_state = WorkflowState.ANOMALY_DETECTED
 
     def execute(self, input_data: dict) -> ToolResult:
-        dataset_key = input_data.get("dataset_key", "vietnam_trips_dirty")
+        dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
         try:
-            from src.orchestrator.orchestrator import _detect_l1_l4_signals, _run_reliability_pipeline
+            from src.orchestrator.orchestrator import _detect_l1_l4_signals, _detect_cross_table_signals
+            from src.reliability.investigation.reliability_orchestrator import ReliabilityOrchestrator
+            from src.reliability.incidents.service import IncidentService
+
             file_path, table_name, base_key = _resolve_table_target(dataset_key)
             user_tables = _list_user_tables(file_path) if file_path and os.path.exists(file_path) else []
             target_tables = [table_name] if table_name else (user_tables if user_tables else [base_key])
@@ -381,6 +384,11 @@ class DetectAnomaliesTool(BaseTool):
             all_incidents: List[Dict[str, Any]] = []
             signals_summary = {"L1": 0, "L2": 0, "L3": 0, "L4": 0}
             per_table_findings = []
+            per_table_signals_for_cross: Dict[str, list] = {}
+
+            project_id = "proj-vingroup-pilot"
+            orchestrator = ReliabilityOrchestrator()
+            incident_service = IncidentService()
 
             for tbl in target_tables:
                 effective_key = f"{base_key}::{tbl}" if tbl and tbl != base_key else base_key
@@ -389,27 +397,101 @@ class DetectAnomaliesTool(BaseTool):
                 except Exception:
                     continue
 
-                raw_sigs = _detect_l1_l4_signals(tbl or base_key, df, "proj-vingroup-pilot")
+                raw_sigs = _detect_l1_l4_signals(tbl or base_key, df, project_id)
                 for k in ("L1", "L2", "L3", "L4"):
                     signals_summary[k] += len(raw_sigs.get(k, []))
 
+                all_sigs_for_tbl = []
+                for sig_list in raw_sigs.values():
+                    all_sigs_for_tbl.extend(sig_list)
+                per_table_signals_for_cross[tbl or base_key] = all_sigs_for_tbl
+
                 try:
-                    incidents = _run_reliability_pipeline(table_name=tbl or base_key, project_id="proj-vingroup-pilot")
+                    results = orchestrator.run_pipeline(raw_sigs, project_id=project_id)
                 except Exception:
-                    incidents = []
+                    results = []
 
-                for inc in incidents:
-                    inc["source_table"] = tbl or base_key
-                    inc["dataset_key"] = dataset_key
+                table_incidents = []
+                for res in results:
+                    inc_id = res.incident.incident_id
+                    existing_meta = incident_service.get_incident_meta(inc_id) or {}
+                    existing_meta["source_table"] = tbl or base_key
+                    existing_meta["dataset_key"] = dataset_key
+                    incident_service.set_incident_meta(inc_id, existing_meta)
 
-                all_incidents.extend(incidents)
+                    inc_dict = {
+                        "incident_id": inc_id,
+                        "severity": res.incident.severity,
+                        "status": res.incident.status,
+                        "supporting_layers": res.incident.supporting_layers,
+                        "admission_reason": res.incident.admission_reason,
+                        "entity_ids": res.incident.entity_ids,
+                        "signal_ids": res.incident.signal_ids,
+                        "hypothesis_id": res.hypothesis.hypothesis_id if res.hypothesis else None,
+                        "hypothesis_claim": res.hypothesis.claim if res.hypothesis else "",
+                        "classification": res.hypothesis.classification if res.hypothesis else "DATA",
+                        "confidence": res.hypothesis.confidence if res.hypothesis else 0.88,
+                        "supporting_evidence": res.hypothesis.supporting_evidence if res.hypothesis else [],
+                        "recommendation_id": res.recommendation.recommendation_id if res.recommendation else None,
+                        "recommendation_type": getattr(res.recommendation, "recommendation_type", getattr(res.recommendation, "cause_type", "DATA")),
+                        "action_type": res.recommendation.action_type if res.recommendation else "QUARANTINE_DATA",
+                        "recommendation_summary": getattr(res.recommendation, "summary", ""),
+                        "source_table": tbl or base_key,
+                        "dataset_key": dataset_key,
+                    }
+                    table_incidents.append(inc_dict)
+
+                all_incidents.extend(table_incidents)
                 per_table_findings.append({
                     "table_name": tbl or base_key,
                     "rows_analyzed": len(df),
                     "signals": {k: len(v) for k, v in raw_sigs.items()},
-                    "incident_count": len(incidents),
-                    "incidents": incidents,
+                    "incident_count": len(table_incidents),
+                    "incidents": table_incidents,
                 })
+
+            if len(per_table_signals_for_cross) > 1:
+                cross_signals = _detect_cross_table_signals(
+                    per_table_signals_for_cross, project_id=project_id, dataset_key=dataset_key
+                )
+                if cross_signals:
+                    signals_summary["L3"] += len(cross_signals)
+                    try:
+                        cross_results = orchestrator.run_pipeline({"L3": cross_signals, "L1": [], "L2": [], "L4": []}, project_id=project_id)
+                    except Exception:
+                        cross_results = []
+
+                    for res in cross_results:
+                        inc_id = res.incident.incident_id
+                        source_tbl_str = "+".join(per_table_signals_for_cross.keys())
+                        existing_meta = incident_service.get_incident_meta(inc_id) or {}
+                        existing_meta["source_table"] = source_tbl_str
+                        existing_meta["dataset_key"] = dataset_key
+                        existing_meta["cross_table"] = True
+                        incident_service.set_incident_meta(inc_id, existing_meta)
+
+                        cross_inc_dict = {
+                            "incident_id": inc_id,
+                            "severity": res.incident.severity,
+                            "status": res.incident.status,
+                            "supporting_layers": res.incident.supporting_layers,
+                            "admission_reason": res.incident.admission_reason,
+                            "entity_ids": res.incident.entity_ids,
+                            "signal_ids": res.incident.signal_ids,
+                            "hypothesis_id": res.hypothesis.hypothesis_id if res.hypothesis else None,
+                            "hypothesis_claim": res.hypothesis.claim if res.hypothesis else "",
+                            "classification": res.hypothesis.classification if res.hypothesis else "DATA",
+                            "confidence": res.hypothesis.confidence if res.hypothesis else 0.88,
+                            "supporting_evidence": res.hypothesis.supporting_evidence if res.hypothesis else [],
+                            "recommendation_id": res.recommendation.recommendation_id if res.recommendation else None,
+                            "recommendation_type": getattr(res.recommendation, "recommendation_type", getattr(res.recommendation, "cause_type", "DATA")),
+                            "action_type": res.recommendation.action_type if res.recommendation else "QUARANTINE_DATA",
+                            "recommendation_summary": getattr(res.recommendation, "summary", ""),
+                            "source_table": source_tbl_str,
+                            "dataset_key": dataset_key,
+                            "cross_table": True,
+                        }
+                        all_incidents.append(cross_inc_dict)
 
             layers_triggered = [k for k, v in signals_summary.items() if v > 0] or ["L1"]
             total_signals = sum(signals_summary.values())
@@ -433,7 +515,7 @@ class DetectAnomaliesTool(BaseTool):
 
 
 class ProposeQualityRulesInput(BaseModel):
-    dataset_key: str = Field(default="vietnam_trips_dirty", description="Target dataset key to analyze for rule proposal")
+    dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to analyze for rule proposal")
     anomaly_findings: Optional[Dict[str, Any]] = Field(default=None, description="Optional structured anomaly findings from Stage 2")
 
 
@@ -444,7 +526,7 @@ class ProposeQualityRulesTool(BaseTool):
     target_workflow_state = WorkflowState.RULES_PROPOSED
 
     def execute(self, input_data: dict) -> ToolResult:
-        dataset_key = input_data.get("dataset_key", "vietnam_trips_dirty")
+        dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
         anomaly_findings = input_data.get("anomaly_findings")
 
         # Guarantee flow dependency: if anomaly findings not passed in, run anomaly detection now
@@ -514,40 +596,105 @@ class ProposeQualityRulesTool(BaseTool):
                             continue
                         layers = inc.get("supporting_layers", [])
                         inc_id = inc.get("incident_id", f"inc_{idx+1}")
-                        claim = inc.get("hypothesis_claim", "") or inc.get("admission_reason", "")
-                        rule_id = f"rule_anom_{inc_tbl or base_key}_{idx+1}"
+                        claim = (inc.get("hypothesis_claim", "") or inc.get("admission_reason", "") or "").lower()
+                        entity_str = str(inc.get("entity_ids", [])).lower()
+                        reason_str = str(inc.get("admission_reason", "")).lower()
+                        text_corpus = f"{claim} {reason_str} {entity_str}"
 
-                        if "L1" in layers:
-                            rule_expr = "temp_c BETWEEN -20 AND 85" if "temp" in claim.lower() else "voltage >= 0 AND voltage <= 1000"
+                        rule_id = f"rule_anom_{inc_tbl or base_key}_{idx+1}"
+                        severity = "critical" if inc.get("severity") in ("CRITICAL", "HIGH") else "warning"
+
+                        # Precision heuristic mapping matching fault_manifest.json L1-L4 fault patterns
+                        if "soc" in text_corpus or "battery_soc" in text_corpus:
                             rule_type = "range_boundary_check"
-                            rule_desc = f"L1 Range constraint to resolve {inc_id} ({claim})"
-                        elif "L2" in layers:
-                            rule_expr = "ABS(rate_of_change) < 3.5"
-                            rule_type = "contextual_drift_limit"
-                            rule_desc = f"L2 Temporal Drift bound to resolve {inc_id}"
-                        elif "L3" in layers:
-                            rule_expr = "voltage * current <= max_power_kw * 1000"
+                            rule_col = "battery_soc"
+                            rule_expr = "battery_soc >= 0 AND battery_soc <= 100"
+                            rule_desc = f"L1/L2 Battery SOC boundary constraint for {inc_id}"
+                        elif "voltage" in text_corpus or "overvoltage" in text_corpus:
+                            rule_type = "range_boundary_check"
+                            rule_col = "battery_voltage"
+                            rule_expr = "battery_voltage >= 0 AND battery_voltage <= 1000"
+                            rule_desc = f"L1 Voltage surge constraint for {inc_id}"
+                        elif "fare_amount" in text_corpus or "negative fare" in text_corpus or "fare" in text_corpus:
+                            rule_type = "range_boundary_check"
+                            rule_col = "fare_amount"
+                            rule_expr = "fare_amount >= 0"
+                            rule_desc = f"L1 Fare amount non-negative constraint for {inc_id}"
+                        elif "ledger" in text_corpus or "total_fare" in text_corpus or "mismatch" in text_corpus:
                             rule_type = "relational_invariant"
-                            rule_desc = f"L3 Physical invariant check for {inc_id}"
-                        else:
-                            rule_expr = "status IN ('active', 'charging', 'idle')"
+                            rule_col = "total_fare"
+                            rule_expr = "ABS(total_fare - (fare_amount + COALESCE(tip_amount, 0))) < 0.01"
+                            rule_desc = f"L1 Accounting ledger sum invariant for {inc_id}"
+                        elif "cost" in text_corpus or "cost_vnd" in text_corpus:
+                            rule_type = "range_boundary_check"
+                            rule_col = "cost_vnd"
+                            rule_expr = "cost_vnd >= 0"
+                            rule_desc = f"L1 Charging cost non-negative constraint for {inc_id}"
+                        elif "temp" in text_corpus or "thermal" in text_corpus:
+                            rule_type = "contextual_drift_limit"
+                            rule_col = "battery_temp_c"
+                            rule_expr = "battery_temp_c BETWEEN -20 AND 65"
+                            rule_desc = f"L2 Thermal degradation drift bound for {inc_id}"
+                        elif "rpm" in text_corpus or "speed" in text_corpus:
+                            rule_type = "relational_invariant"
+                            rule_col = "motor_rpm"
+                            rule_expr = "NOT (speed = 0 AND motor_rpm > 1000)"
+                            rule_desc = f"L3 Speed vs Motor RPM sync invariant for {inc_id}"
+                        elif "duration" in text_corpus or "energy" in text_corpus or "kwh" in text_corpus:
+                            rule_type = "relational_invariant"
+                            rule_col = "duration_mins"
+                            rule_expr = "NOT (duration_mins > 180 AND energy_kwh < 5.0)"
+                            rule_desc = f"L3 Charging duration vs energy invariant for {inc_id}"
+                        elif "frequency" in text_corpus or "cusum" in text_corpus or "shift" in text_corpus:
                             rule_type = "semantic_enum_check"
-                            rule_desc = f"L4 Semantic constraint for {inc_id}"
+                            rule_col = "charging_frequency"
+                            rule_expr = "charging_frequency <= 3"
+                            rule_desc = f"L4 Fleet charging frequency regime bound for {inc_id}"
+                        else:
+                            if "L1" in layers:
+                                rule_expr = "battery_voltage >= 0 AND battery_voltage <= 1000" if "voltage" in text_corpus else "val IS NOT NULL"
+                                rule_type = "range_boundary_check"
+                                rule_col = "telemetry"
+                                rule_desc = f"L1 Range constraint to resolve {inc_id}"
+                            elif "L2" in layers:
+                                rule_expr = "ABS(rate_of_change) < 3.5"
+                                rule_type = "contextual_drift_limit"
+                                rule_col = "telemetry"
+                                rule_desc = f"L2 Temporal Drift bound to resolve {inc_id}"
+                            elif "L3" in layers:
+                                rule_expr = "voltage * current <= max_power_kw * 1000"
+                                rule_type = "relational_invariant"
+                                rule_col = "telemetry"
+                                rule_desc = f"L3 Physical invariant check for {inc_id}"
+                            else:
+                                rule_expr = "status IN ('active', 'charging', 'idle')"
+                                rule_type = "semantic_enum_check"
+                                rule_col = "status"
+                                rule_desc = f"L4 Semantic constraint for {inc_id}"
 
                         proposals.append({
                             "id": rule_id,
                             "type": rule_type,
-                            "column": "telemetry",
+                            "column": rule_col,
                             "expression": rule_expr,
                             "description": rule_desc,
-                            "severity": "critical" if inc.get("severity") == "CRITICAL" else "warning",
+                            "severity": severity,
                             "status": "pending",
                             "table_name": inc_tbl or tbl,
                             "dataset_key": effective_key,
                             "source": "anomaly_detector_l1_l4",
                         })
 
-            # Persist proposals into DuckDB quality_rules table for HITL review
+            # Deduplicate proposals before persisting to DuckDB quality_rules table for HITL review
+            unique_proposals = []
+            seen_signatures = set()
+            for p in proposals:
+                sig_key = (p.get("table_name"), p.get("column"), p.get("type"), p.get("expression"))
+                if sig_key not in seen_signatures:
+                    seen_signatures.add(sig_key)
+                    unique_proposals.append(p)
+            proposals = unique_proposals
+
             try:
                 persist_hitl_proposals(dataset_key, proposals)
             except Exception as dbe:
@@ -568,7 +715,7 @@ class ProposeQualityRulesTool(BaseTool):
 
 
 class CleanDatabaseInput(BaseModel):
-    dataset_key: str = Field(default="vietnam_trips_dirty", description="Target dataset key to execute approved rules on")
+    dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to execute approved rules on")
 
 
 class CleanDatabaseTool(BaseTool):
@@ -578,7 +725,7 @@ class CleanDatabaseTool(BaseTool):
     target_workflow_state = WorkflowState.COMPLETED
 
     def execute(self, input_data: dict) -> ToolResult:
-        dataset_key = input_data.get("dataset_key", "vietnam_trips_dirty")
+        dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
         from src.db.connection import get_db
         db = get_db()
 
@@ -694,7 +841,7 @@ class CleanDatabaseTool(BaseTool):
 
 
 class RunFullPipelineInput(BaseModel):
-    dataset_key: str = Field(default="vietnam_trips_dirty", description="Target dataset key to execute complete 4-stage pipeline")
+    dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to execute complete 4-stage pipeline")
 
 
 class RunFullPipelineTool(BaseTool):
@@ -704,7 +851,7 @@ class RunFullPipelineTool(BaseTool):
     target_workflow_state = WorkflowState.COMPLETED
 
     def execute(self, input_data: dict) -> ToolResult:
-        dataset_key = input_data.get("dataset_key", "vietnam_trips_dirty")
+        dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
 
         # Step 1: Profiling
         prof_tool = ProfileDatasetTool()

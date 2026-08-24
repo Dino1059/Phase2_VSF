@@ -14,21 +14,6 @@ import type {
 
 // ── Static domain models (ported from ui_temp DOMAINS_DATA) ───────────────
 export const DOMAINS: Record<string, DomainInfo> = {
-  vingroup_pilot: {
-    id: 'vingroup_pilot',
-    shortcut: 'pilot',
-    name: 'Vingroup Pilot (Parquet/DB)',
-    dbName: 'vingroup_pilot',
-    table: 'vingroup_pilot',
-    rows: '100,000+',
-    size: 'Full Pipeline',
-    engine: 'DuckDB / Parquet',
-    topic: 'raw parquet pipeline',
-    cleanRows: 98000,
-    quarantineRows: 2000,
-    anomalySummary: 'Integrated Vingroup Pilot dataset with parquet ingestion stream',
-    defaultRule: 'IF battery_temp > 62.0 OR grid_pf < 0.88 THEN QUARANTINE(\'ANOMALY\')',
-  },
   ev_telemetry: {
     id: 'ev_telemetry',
     shortcut: 'ev',

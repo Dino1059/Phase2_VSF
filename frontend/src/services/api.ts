@@ -144,7 +144,7 @@ export function normalizeDatasetKey(k: string): string {
   // Keep uploaded_* keys intact so the profiler hits the registered file,
   // not the bundled vingroup_pilot DuckDB (wrong table, e.g. vgreen).
   const cleaned = (k || '').trim();
-  return cleaned || 'vingroup_pilot';
+  return cleaned || 'ev_telemetry';
 }
 
 export const datasetsApi = {
@@ -152,13 +152,14 @@ export const datasetsApi = {
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
     request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}`),
-  profile: (key: string, sampleSize: number = 100000) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile?sample_size=${sampleSize}`, {
-      method: 'POST',
-    }),
-  proposeRules: (key: string, variant: string = 'A1', sampleSize: number = 100000) =>
+  profile: (key: string, sampleSize?: number) =>
+    request<{ dataset: string; sample_size: number; profile: any }>(
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile${sampleSize !== undefined ? `?sample_size=${sampleSize}` : ''}`,
+      { method: 'POST' }
+    ),
+  proposeRules: (key: string, variant: string = 'A1', sampleSize?: number) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
-      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}&sample_size=${sampleSize}`,
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}${sampleSize !== undefined ? `&sample_size=${sampleSize}` : ''}`,
       { method: 'POST' }
     ),
   executeRules: (key: string, sampleSize?: number) =>
@@ -170,10 +171,11 @@ export const datasetsApi = {
     request<{ dataset: string; total_rows: number; limit: number; offset: number; columns: string[]; rows: any[] }>(
       `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/sample?limit=${limit}&offset=${offset}`
     ),
-  benchmark: (key: string, sampleSize: number = 50000) =>
-    request<{ dataset: string; sample_size: number; results: any }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/benchmark?sample_size=${sampleSize}`, {
-      method: 'POST',
-    }),
+  benchmark: (key: string, sampleSize?: number) =>
+    request<{ dataset: string; sample_size: number; results: any }>(
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/benchmark${sampleSize !== undefined ? `?sample_size=${sampleSize}` : ''}`,
+      { method: 'POST' }
+    ),
   upload: (file: File) => uploadDatasetFile(file),
 };
 

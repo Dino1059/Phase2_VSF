@@ -469,11 +469,11 @@ def quarantine_violating_data_for_rule(rule_id: str, db=None) -> Dict[str, Any]:
     # 3. Load dataset records safely
     from src.services.dataset_engine import load_dataset, safe_eval_rule
     try:
-        df = load_dataset(dataset_key=dataset_key, sample_size=50_000)
+        df = load_dataset(dataset_key=dataset_key, sample_size=None)
     except Exception:
         try:
             # Fallback to direct DB table query
-            df = conn.execute(f"SELECT * FROM {target_table} LIMIT 50000").df()
+            df = conn.execute(f"SELECT * FROM {target_table}").df()
         except Exception:
             df = pd.DataFrame()
 

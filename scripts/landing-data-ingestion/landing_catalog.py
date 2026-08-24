@@ -4,8 +4,13 @@ Scan the single landing parquet and populate landing_day_snapshots (one row per 
 import duckdb, os, hashlib, json
 from datetime import datetime
 
-DB_PATH = r"c:\Users\ngant\P-086\data_new\db\vingroup_pilot.db"
-PQ_PATH = r"c:\Users\ngant\P-086\data_new\vingroup_pilot_landing.parquet"
+try:
+    from src.config import get_settings
+    from src.db.connection import get_db
+    _rel_pq = get_settings().landing_parquet_path
+    PQ_PATH = _rel_pq if os.path.isabs(_rel_pq) else os.path.join(get_db().project_root, _rel_pq)
+except Exception:
+    PQ_PATH = r"c:\Users\ngant\P-086\data_demo\vingroup_pilot_landing_demo.parquet"
 OUT_DIR = r"c:\Users\ngant\P-086\.ngan_tmp_local"
 
 def compute_sha256(filepath: str) -> str:

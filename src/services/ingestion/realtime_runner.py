@@ -34,15 +34,25 @@ from src.services.ingestion.rule_applier import (
 from src.services.ingestion.rule_registry_filter import get_rules_for_realtime, FilteredRules
 from src.services.ws_manager import ws_manager
 
+from src.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-# Landing parquet path
-LANDING_PARQUET = "data_new/vingroup_pilot_landing.parquet"
+def get_landing_parquet_path() -> str:
+    path = get_settings().landing_parquet_path
+    if not os.path.isabs(path):
+        from src.db.connection import get_db
+        try:
+            root = get_db().project_root
+            path = os.path.join(root, path)
+        except Exception:
+            pass
+    return path.replace("\\", "/")
 
-# Batch size cap for realtime processing (smaller batch size for smooth streaming visualization)
-REALTIME_BATCH_SIZE = 250
-# Scheduler interval (1.5 seconds per tick for live demo flow)
-REALTIME_INTERVAL_SEC = 1.5
+# Batch size cap for realtime processing (50 rows per batch to run for ~2 minutes per day)
+REALTIME_BATCH_SIZE = 50
+# Scheduler interval (1.0 second per tick for live demo flow)
+REALTIME_INTERVAL_SEC = 1.0
 
 
 @dataclass
@@ -134,14 +144,8 @@ class RealtimeRunner:
     def start(self, day_idx: Optional[int] = None) -> str:
         """Start the realtime runner. Returns the runner_id."""
         if self._state.is_running:
-            logger.warning("RealtimeRunner already running")
-            return ""
-
-        runner_id = f"RR-{uuid.uuid4().hex[:8]}"
-    def start(self, day_idx: Optional[int] = None) -> str:
-        """Start the realtime runner. Returns the runner_id."""
-        if self._state.is_running:
-            logger.warning("RealtimeRunner already running")
+            if day_idx is not None and self._state.current_day_idx != day_idx:
+                self.set_day(day_idx)
             return ""
 
         runner_id = f"RR-{uuid.uuid4().hex[:8]}"
@@ -188,13 +192,14 @@ class RealtimeRunner:
 
     def _get_total_day_rows(self, day_idx: int) -> int:
         """Get total rows in landing parquet for day_idx."""
-        if not os.path.exists(LANDING_PARQUET):
+        pq_path = get_landing_parquet_path()
+        if not os.path.exists(pq_path):
             return 0
         try:
             import duckdb
             con = duckdb.connect()
             try:
-                res = con.execute(f"SELECT COUNT(*) FROM read_parquet('{LANDING_PARQUET}') WHERE day_idx = {day_idx}").fetchone()
+                res = con.execute(f"SELECT COUNT(*) FROM read_parquet('{pq_path}') WHERE day_idx = {day_idx}").fetchone()
                 return int(res[0]) if res and res[0] is not None else 0
             finally:
                 con.close()
@@ -218,13 +223,14 @@ class RealtimeRunner:
         return 0
 
     def _has_landing_day(self, day_idx: int) -> bool:
-        if not os.path.exists(LANDING_PARQUET):
+        pq_path = get_landing_parquet_path()
+        if not os.path.exists(pq_path):
             return False
         try:
             import duckdb
             con = duckdb.connect()
             try:
-                res = con.execute(f"SELECT COUNT(*) FROM read_parquet('{LANDING_PARQUET}') WHERE day_idx = {day_idx}").fetchone()
+                res = con.execute(f"SELECT COUNT(*) FROM read_parquet('{pq_path}') WHERE day_idx = {day_idx}").fetchone()
                 return bool(res and res[0] > 0)
             finally:
                 con.close()
@@ -284,7 +290,7 @@ class RealtimeRunner:
         df = self._read_landing_batch(self._state.current_day_idx)
 
         if df.empty:
-            # Stream for current day reached 100% completion. Stop auto-advancing!
+            # Realtime stream for current day reached 100% completion. Hold position until batch execution for day completes.
             return RealtimeTickResult(
                 tick_id=tick_id,
                 day_idx=self._state.current_day_idx,
@@ -338,7 +344,8 @@ class RealtimeRunner:
         Read a batch of rows from the landing parquet for the current day.
         Uses cursor to track position for paginated reads.
         """
-        if not os.path.exists(LANDING_PARQUET):
+        pq_path = get_landing_parquet_path()
+        if not os.path.exists(pq_path):
             return pd.DataFrame()
 
         try:
@@ -347,7 +354,7 @@ class RealtimeRunner:
             try:
                 df = con.execute(f"""
                     SELECT *
-                    FROM read_parquet('{LANDING_PARQUET}')
+                    FROM read_parquet('{pq_path}')
                     WHERE day_idx = {day_idx}
                     LIMIT {self.batch_size}
                     OFFSET {self._read_cursor}

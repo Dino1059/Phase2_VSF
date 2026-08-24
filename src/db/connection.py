@@ -76,13 +76,13 @@ class DuckDBManager:
                             time.sleep(0.2)
 
 
+                if self._master_conn is None:
+                    raise RuntimeError(f"Could not open DuckDB database at '{self.db_path}'. Database may be locked by another process.")
+
                 try:
                     self._master_conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
                 except Exception:
-                    try:
-                        self.init_schema()
-                    except Exception:
-                        pass
+                    pass
                 try:
                     self._ensure_quarantine_schema(self._master_conn)
                     self._ensure_audit_schema(self._master_conn)

@@ -39,7 +39,7 @@ async def list_datasets():
 async def profile_dataset(
     dataset_key: str,
     table: Optional[str] = Query(None),
-    sample_size: int = 100_000,
+    sample_size: Optional[int] = Query(None),
 ):
     """Profile a registered dataset with server-side file loading and multi-table support."""
     try:
@@ -242,7 +242,7 @@ async def sample_dataset(
     try:
         from src.services.dataset_engine import load_dataset
         effective_key = f"{dataset_key}::{table}" if table and "::" not in dataset_key else dataset_key
-        df = load_dataset(dataset_key=effective_key, sample_size=50_000)
+        df = load_dataset(dataset_key=effective_key, sample_size=None)
         total = len(df)
         subset = df.iloc[offset : offset + limit]
         records = _sanitize_nans(subset.to_dict(orient="records"))
@@ -466,18 +466,18 @@ async def upload_dataset_endpoint(
             sub_key = f"{dataset_key}::{tbl}"
             settings.register_dataset(sub_key, rel_path)
             try:
-                tdf = src.load_data(sample_size=50_000, table_name=tbl)
+                tdf = src.load_data(sample_size=None, table_name=tbl)
                 tables_info.append({"table": tbl, "columns": len(tdf.columns), "rows": len(tdf), "dataset_key": sub_key})
             except Exception:
                 tables_info.append({"table": tbl, "columns": 0, "rows": 0, "dataset_key": sub_key})
         # Also register the parent key pointing to largest table (backward compat)
         settings.register_dataset(dataset_key, rel_path)
-        df = src.load_data(sample_size=50_000)
+        df = src.load_data(sample_size=None)
         total_cols = len(df.columns)
         total_rows = sum(t["rows"] for t in tables_info)
     else:
         settings.register_dataset(dataset_key, rel_path)
-        df = src.load_data(sample_size=50_000)
+        df = src.load_data(sample_size=None)
         total_cols = len(df.columns)
         total_rows = len(df)
 

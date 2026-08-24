@@ -173,7 +173,7 @@ def load_dataset_rows(file_path: str = CSV_PATH) -> List[Dict[str, Any]]:
 
 
 def load_dataset(dataset_key: str = None, file_path: str = None,
-                 sample_size: int = 50_000) -> pd.DataFrame:
+                 sample_size: Optional[int] = None) -> pd.DataFrame:
     """Load dataset by registry key or direct path with chunked sample size to prevent memory leaks.
     
     Supports multi-table DuckDB notation: 'dataset_key::table_name' loads specific table.

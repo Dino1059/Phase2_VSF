@@ -20,7 +20,6 @@ import {
   Lock,
   Eye,
   Clock,
-  Sparkles,
 } from 'lucide-react';
 import { QuarantineZoneTab } from '../components/workspace/QuarantineZoneTab';
 import {
@@ -67,7 +66,6 @@ type Row = Record<string, any>;
 
 const MULTI_DATASET_OPTIONS = [
   { key: 'all', label: { en: 'All Sources', vi: 'Tất Cả Nguồn Dữ Liệu' }, icon: Database, color: 'var(--neon-cyan)' },
-  { key: 'vingroup_pilot', label: { en: 'Vingroup Pilot (Parquet/DB)', vi: 'Vingroup Pilot (Parquet/DB)' }, icon: Sparkles, color: '#a855f7' },
   { key: 'vinfast_ev_telemetry', label: { en: 'VinFast EV Telemetry', vi: 'VinFast EV Telemetry' }, icon: Car, color: '#0284c7' },
   { key: 'vgreen_charging_stations', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
   { key: 'xanh_sm_trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },

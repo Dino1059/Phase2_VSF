@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Send, Play, Layers, Activity, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
+import { Send, Layers, Activity, ShieldCheck, Sparkles } from 'lucide-react';
 import { sendChatMessage, fetchChatHistory } from '../../services/api';
 import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
@@ -57,39 +57,6 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           padding: '0 2px',
         }}
       >
-        <button
-          type="button"
-          disabled={isSending}
-          onClick={() => executePrompt(i18n.language === 'vi'
-            ? 'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.'
-            : 'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.')}
-          title="Profile + propose, then stop at HITL. Does not clean."
-          style={{
-            background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(147, 51, 234, 0.15))',
-            border: '1px solid rgba(2, 132, 199, 0.4)',
-            color: 'var(--text-main)',
-            padding: '5px 12px',
-            borderRadius: '20px',
-            fontSize: '11.5px',
-            fontWeight: 600,
-            cursor: isSending ? 'not-allowed' : 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          {isSending ? (
-            <RefreshCw size={12} className="spinning" style={{ color: '#0284c7' }} />
-          ) : (
-            <Play size={12} style={{ color: '#0284c7', fill: '#0284c7' }} />
-          )}
-          <span style={{ color: '#0284c7' }}>
-            {i18n.language === 'vi' ? 'Khảo sát + đề xuất (dừng HITL)' : 'Profile & Propose (stop at HITL)'}
-          </span>
-        </button>
-
         <button
           type="button"
           disabled={isSending}

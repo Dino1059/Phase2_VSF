@@ -26,7 +26,7 @@ export const RealtimeTicker: React.FC<RealtimeTickerProps> = ({
   const readCursor = status?.read_cursor ?? latestTick?.read_cursor ?? 0;
   const totalDayRows = status?.total_day_rows ?? latestTick?.total_day_rows ?? 6589;
   const processedPercent = totalDayRows > 0 ? Math.min(100, Math.round((readCursor / totalDayRows) * 100)) : 0;
-  const throughput = latestTick?.throughput_eps ?? (status?.active ? 220 : 0);
+  const throughput = latestTick?.throughput_eps ?? (status?.active ? 50 : 0);
 
   // Pulse animation on new tick & append live feed samples
   useEffect(() => {
@@ -62,7 +62,7 @@ export const RealtimeTicker: React.FC<RealtimeTickerProps> = ({
             {isVi ? 'Realtime Telemetry Stream' : 'Realtime Telemetry Stream'}
             {currentDay >= 0 && (
               <span className="ticker-day-badge">
-                ⚡ {isVi ? 'N+1 (Ngày ' : 'N+1 (Day '} {currentDay})
+                ⚡ {isVi ? `Ngày ${currentDay}` : `Day ${currentDay}`}
               </span>
             )}
           </span>
@@ -82,7 +82,7 @@ export const RealtimeTicker: React.FC<RealtimeTickerProps> = ({
         <div className="progress-metrics-row">
           <span className="pm-label">
             <Zap size={12} color="var(--electric-green)" />
-            {isVi ? 'Tiến trình Ingestion Ngày N+1:' : 'Day N+1 Ingestion Progress:'}
+            {isVi ? `Tiến trình Ingestion Ngày ${currentDay}:` : `Day ${currentDay} Ingestion Progress:`}
           </span>
           <span className="pm-values">
             <strong>{readCursor.toLocaleString()}</strong> / {totalDayRows.toLocaleString()} {isVi ? 'bản ghi' : 'rows'}
