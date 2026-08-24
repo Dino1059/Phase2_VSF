@@ -107,7 +107,7 @@ export interface PipelineStepDef {
   desc: string;
 }
 
-export type DomainId = 'ev_telemetry' | 'vgreen_charging' | 'xanhsm_trips' | 'customer_nlp';
+export type DomainId = 'ev_telemetry' | 'vgreen_charging' | 'xanhsm_trips' | 'customer_nlp' | 'vingroup_pilot' | string;
 
 export interface DomainInfo {
   id: DomainId;

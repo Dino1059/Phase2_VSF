@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   PieChart,
@@ -16,31 +16,12 @@ import {
   ShieldCheck,
   ShieldAlert,
   Play,
+  Sparkles,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
-import { datasetsApi } from '../../services/api';
-
-
-interface UploadedDataset {
-  key: string;
-  name: string;
-}
-
-interface DatasetUploadedEvent {
-  dataset_key?: string;
-  filename?: string;
-}
-
-function formatDatasetName(dataset: { key: string; filename?: string; path?: string }) {
-  if (dataset.filename) return dataset.filename;
-  if (dataset.path) {
-    const fn = dataset.path.split('/').pop();
-    if (fn) return fn;
-  }
-  return dataset.key.replace(/^uploaded_/, '').replace(/_/g, ' ');
-}
 
 const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; color?: string }>> = {
+  pilot: Sparkles,
   ev: Car,
   vgreen: BatteryCharging,
   xanhsm: CarTaxiFront,
@@ -49,59 +30,36 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
 
 export function Sidebar() {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [activeShortcut, setActiveShortcut] = useState<string>('ev');
+  const [activeShortcut, setActiveShortcut] = useState<string>('pilot');
   const [datasetQuery, setDatasetQuery] = useState('');
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const navigate = useNavigate();
-  const [uploadedDatasets, setUploadedDatasets] = useState<UploadedDataset[]>([]);
+  const [searchParams] = useSearchParams();
+  const currentDatasetKey = searchParams.get('dataset_key');
 
   useEffect(() => {
-    let mounted = true;
-
-    const loadUploadedDatasets = async () => {
-      try {
-        const response = await datasetsApi.list();
-        if (!mounted) return;
-        setUploadedDatasets(
-          (response.datasets || [])
-            .filter((dataset) => dataset.key.startsWith('uploaded_') || dataset.key.startsWith('upload_'))
-            .map((dataset) => ({ key: dataset.key, name: formatDatasetName(dataset) }))
-        );
-      } catch (error) {
-        console.error('Failed to load uploaded datasets:', error);
+    if (currentDatasetKey) {
+      const domain = DOMAIN_LIST.find((d) => d.id === currentDatasetKey || d.shortcut === currentDatasetKey);
+      if (domain) {
+        setActiveShortcut(domain.shortcut);
+      } else {
+        setActiveShortcut(currentDatasetKey);
       }
-    };
+    }
+  }, [currentDatasetKey]);
 
-    const handleDatasetUploaded = (event: Event) => {
-      const detail = (event as CustomEvent<DatasetUploadedEvent>).detail;
-      const key = detail?.dataset_key;
-      if (!key) return;
-
-      setChatMenuOpen(true);
-      setActiveShortcut(key);
-      setUploadedDatasets((current) => [
-        ...current.filter((dataset) => dataset.key !== key),
-        { key, name: formatDatasetName({ key, filename: detail.filename }) },
-      ]);
-      navigate(`/workspace?dataset_key=${encodeURIComponent(key)}`);
-    };
-
+  useEffect(() => {
     const handleDbReset = () => {
-      loadUploadedDatasets();
       setActiveShortcut('ev');
     };
 
-    void loadUploadedDatasets();
-    window.addEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
     window.addEventListener('datatrust:db-reset', handleDbReset);
 
     return () => {
-      mounted = false;
-      window.removeEventListener('datatrust:dataset-uploaded', handleDatasetUploaded);
       window.removeEventListener('datatrust:db-reset', handleDbReset);
     };
-  }, [navigate]);
+  }, []);
 
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
@@ -127,28 +85,13 @@ export function Sidebar() {
     );
   }, [datasetQuery]);
 
-  // Filtered uploaded datasets
-  const filteredUploadedDatasets = useMemo(() => {
-    const q = datasetQuery.toLowerCase().trim();
-    if (!q) return uploadedDatasets;
-    return uploadedDatasets.filter(
-      (dataset) =>
-        dataset.name.toLowerCase().includes(q) ||
-        dataset.key.toLowerCase().includes(q)
-    );
-  }, [datasetQuery, uploadedDatasets]);
-
-  const hasAnyMatches = filteredSampleDatasets.length > 0 || filteredUploadedDatasets.length > 0;
+  const hasAnyMatches = filteredSampleDatasets.length > 0;
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (filteredSampleDatasets.length > 0) {
         selectDomain(filteredSampleDatasets[0].shortcut);
-      } else if (filteredUploadedDatasets.length > 0) {
-        const key = filteredUploadedDatasets[0].key;
-        setActiveShortcut(key);
-        navigate(`/workspace?dataset_key=${encodeURIComponent(key)}`);
       }
     }
   };
@@ -223,9 +166,6 @@ export function Sidebar() {
 
               {filteredSampleDatasets.length > 0 && (
                 <>
-                  <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '6px', padding: '0 4px' }}>
-                    {t('sampleDatasets')}
-                  </div>
 
                   {filteredSampleDatasets.map((domain) => {
                     const Icon = DS_ICONS[domain.shortcut] || Database;
@@ -244,29 +184,6 @@ export function Sidebar() {
                       </a>
                     );
                   })}
-                </>
-              )}
-
-              {filteredUploadedDatasets.length > 0 && (
-                <>
-                  <div className="menu-label" style={{ fontSize: '10px', color: 'var(--neon-cyan)', letterSpacing: '1px', marginTop: '8px', padding: '0 4px' }}>
-                    {isVi ? 'TẬP DỮ LIỆU TẢI LÊN' : 'UPLOADED DATASETS'}
-                  </div>
-                  {filteredUploadedDatasets.map((dataset) => (
-                    <a
-                      key={dataset.key}
-                      href="#/workspace"
-                      className={`shortcut-item ${activeShortcut === dataset.key ? 'active' : ''}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setActiveShortcut(dataset.key);
-                        navigate(`/workspace?dataset_key=${encodeURIComponent(dataset.key)}`);
-                      }}
-                    >
-                      <div className="ds-icon"><Database size={14} /></div>
-                      <span>{dataset.name}</span>
-                    </a>
-                  ))}
                 </>
               )}
             </div>

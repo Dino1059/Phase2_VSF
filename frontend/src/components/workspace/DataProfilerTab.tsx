@@ -211,7 +211,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   }, [datasetKey, normalizeColumns]);
 
   const fetchProfile = useCallback(async () => {
-    if (!datasetKey) return;
+    if (!datasetKey || !active) return;
     setLoading(true);
     try {
       let res;
@@ -230,8 +230,8 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
         const tblKeys = Object.keys(parsed.tablesMap);
         if (tblKeys.length === 1) {
           setSelectedTable(tblKeys[0]);
-        } else if (selectedTable !== '__all__' && !parsed.tablesMap[selectedTable]) {
-          setSelectedTable('__all__');
+        } else {
+          setSelectedTable((prev) => (prev !== '__all__' && !parsed.tablesMap[prev] ? '__all__' : prev));
         }
       }
     } catch (err) {
@@ -239,12 +239,13 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     } finally {
       setLoading(false);
     }
-  }, [datasetKey, parseProfilePayload, selectedTable, story]);
+  }, [datasetKey, active, parseProfilePayload]);
 
   useEffect(() => {
+    if (!active) return;
     setProfile(null);
     fetchProfile();
-  }, [fetchProfile]);
+  }, [active, fetchProfile]);
 
   // Fallback: parse profile data from chat messages if API hasn't loaded
   useEffect(() => {
@@ -352,9 +353,6 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     return aggregateHealth;
   }, [tablesMap, selectedTable, aggregateHealth]);
 
-  useEffect(() => {
-    if (active) void fetchProfile();
-  }, [active, fetchProfile]);
 
   useEffect(() => {
     const onSnap = (e: Event) => {

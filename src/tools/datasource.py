@@ -69,6 +69,31 @@ class StructuredSource(DataSource):
                 sha256.update(chunk)
         return sha256.hexdigest()
 
+    def _get_duckdb_connection(self) -> tuple[Any, bool]:
+        import duckdb
+        import os
+        from src.db.connection import get_db
+
+        try:
+            db_mgr = get_db()
+            p1 = os.path.normcase(os.path.normpath(os.path.abspath(str(self.file_path))))
+            p2 = os.path.normcase(os.path.normpath(os.path.abspath(str(db_mgr.db_path))))
+            if p1 == p2:
+                return db_mgr._get_master_conn(), False
+        except Exception:
+            pass
+
+        try:
+            conn = duckdb.connect(str(self.file_path), read_only=True)
+            return conn, True
+        except Exception:
+            try:
+                conn = duckdb.connect(str(self.file_path))
+                return conn, True
+            except Exception:
+                from src.db.connection import get_db
+                return get_db()._get_master_conn(), False
+
     def load_data(self, sample_size: Optional[int] = None, table_name: Optional[str] = None) -> pd.DataFrame:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Source file not found: {self.file_path}")
@@ -110,23 +135,7 @@ class StructuredSource(DataSource):
         elif fmt == "jsonl":
             return pd.read_json(self.file_path, lines=True, nrows=sample_size) if sample_size else pd.read_json(self.file_path, lines=True)
         elif fmt == "duckdb":
-            import duckdb
-            import os
-            from src.db.connection import get_db
-
-            db_mgr = get_db()
-            is_same_db = os.path.abspath(str(self.file_path)) == os.path.abspath(str(db_mgr.db_path))
-            should_close = False
-
-            if is_same_db:
-                conn = db_mgr._get_master_conn()
-            else:
-                try:
-                    conn = duckdb.connect(str(self.file_path), read_only=True)
-                    should_close = True
-                except Exception:
-                    conn = duckdb.connect(str(self.file_path))
-                    should_close = True
+            conn, should_close = self._get_duckdb_connection()
 
             try:
                 candidate_tables = self._get_user_tables(conn)
@@ -141,16 +150,16 @@ class StructuredSource(DataSource):
                     max_rows = -1
                     for t in candidate_tables:
                         try:
-                            safe_name = t.replace('"', '""')
-                            cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+                            safe_name = StructuredSource._quote_identifier(t)
+                            cnt = conn.execute(f'SELECT COUNT(*) FROM {safe_name}').fetchone()[0]
                             if cnt > max_rows:
                                 max_rows = cnt
                                 target = t
                         except Exception:
                             continue
 
-                safe_target = target.replace('"', '""')
-                query = f'SELECT * FROM "{safe_target}"'
+                safe_target = StructuredSource._quote_identifier(target)
+                query = f'SELECT * FROM {safe_target}'
                 if sample_size:
                     query += f" LIMIT {int(sample_size)}"
                 return conn.execute(query).fetchdf()
@@ -176,40 +185,68 @@ class StructuredSource(DataSource):
     }
 
     @staticmethod
+    def _quote_identifier(name: str) -> str:
+        parts = name.split(".")
+        return ".".join(f'"{p.replace(chr(34), chr(34)+chr(34))}"' for p in parts)
+
+    @staticmethod
     def _get_user_tables(conn) -> List[str]:
-        """Return non-system table names from a DuckDB connection."""
-        tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
-        user = [t for t in tables if t.lower() not in StructuredSource._SYSTEM_TABLES]
-        return user if user else tables
+        # Fetch tables ONLY from the 'raw' schema
+        query = "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema = 'raw'"
+        
+        # Hardcoded allowlist per user request to only profile operational tables
+        allowed_tables = {
+            'ev_telemetry',
+            'trips',
+            'charging_sessions',
+            'synthetic_feedback'
+        }
+        
+        try:
+            tables = [row[0] for row in conn.execute(query).fetchall()]
+            user = []
+            for t in tables:
+                schema, name = t.split('.', 1) if '.' in t else ('raw', t)
+                if name.lower() in allowed_tables:
+                    user.append(t)
+            return user if user else tables
+        except Exception:
+            return []
 
     def list_tables(self) -> List[str]:
         """List user tables in a DuckDB file."""
         if self.file_format != "duckdb":
             return []
-        import duckdb
-        conn = duckdb.connect(str(self.file_path), read_only=True)
+        conn, should_close = self._get_duckdb_connection()
         try:
             return self._get_user_tables(conn)
         finally:
-            conn.close()
+            if should_close:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def load_all_tables(self, sample_size: Optional[int] = None) -> Dict[str, pd.DataFrame]:
         """Load all user tables from a DuckDB file as {table_name: DataFrame}."""
         if self.file_format != "duckdb":
             return {"default": self.load_data(sample_size=sample_size)}
-        import duckdb
-        conn = duckdb.connect(str(self.file_path), read_only=True)
+        conn, should_close = self._get_duckdb_connection()
         try:
             result = {}
             for t in self._get_user_tables(conn):
-                safe = t.replace('"', '""')
-                q = f'SELECT * FROM "{safe}"'
+                safe = StructuredSource._quote_identifier(t)
+                q = f'SELECT * FROM {safe}'
                 if sample_size:
                     q += f" LIMIT {int(sample_size)}"
                 result[t] = conn.execute(q).fetchdf()
             return result
         finally:
-            conn.close()
+            if should_close:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_metadata(self) -> Dict[str, Any]:
         checksum = self.get_checksum()
@@ -226,23 +263,7 @@ class StructuredSource(DataSource):
                 row_count = 0
         elif self.file_format == "duckdb" and self.file_path.exists():
             try:
-                import duckdb
-                import os
-                from src.db.connection import get_db
-
-                db_mgr = get_db()
-                is_same_db = os.path.abspath(str(self.file_path)) == os.path.abspath(str(db_mgr.db_path))
-                should_close = False
-
-                if is_same_db:
-                    conn = db_mgr._get_master_conn()
-                else:
-                    try:
-                        conn = duckdb.connect(str(self.file_path), read_only=True)
-                        should_close = True
-                    except Exception:
-                        conn = duckdb.connect(str(self.file_path))
-                        should_close = True
+                conn, should_close = self._get_duckdb_connection()
 
                 try:
                     tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
@@ -257,12 +278,16 @@ class StructuredSource(DataSource):
                     user_tables = [t for t in tables if t.lower() not in system_tables]
                     candidate_tables = user_tables if user_tables else tables
                     for t in candidate_tables:
-                        safe_name = t.replace('"', '""')
-                        cnt = conn.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+                        safe_name = StructuredSource._quote_identifier(t)
+                        cnt = conn.execute(f'SELECT COUNT(*) FROM {safe_name}').fetchone()[0]
                         if cnt > row_count:
                             row_count = cnt
                 finally:
-                    conn.close()
+                    if should_close:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
             except Exception:
                 pass
 

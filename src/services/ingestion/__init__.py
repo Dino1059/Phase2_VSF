@@ -8,3 +8,8 @@ from src.services.ingestion.reset_service import (
     get_transition_target,
     verify_reset_complete,
 )
+from src.services.ingestion.streaming_worker import (
+    StreamingIngestionWorker,
+    streaming_worker,
+)
+

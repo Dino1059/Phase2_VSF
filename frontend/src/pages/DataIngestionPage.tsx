@@ -20,10 +20,11 @@ export const DataIngestionPage: React.FC = () => {
     latestTick,
     loading,
     error,
+    executionStage,
+    activeDayIdx,
     activateDay,
+    runWarmup,
     reset,
-    startRealtime,
-    stopRealtime,
   } = useIngestionState();
 
   const currentDay = demoState?.current_day_idx ?? -1;
@@ -37,8 +38,8 @@ export const DataIngestionPage: React.FC = () => {
           <h1 className="iph-title">{isVi ? 'Data Ingestion' : 'Data Ingestion'}</h1>
           <span className="iph-subtitle">
             {isVi
-              ? 'Kích hoạt từng ngày · Batch + Realtime monitoring'
-              : 'Activate days · Batch + Realtime monitoring'}
+              ? 'Timeline 15 Ngày · Điều phối End-to-End Batch + Realtime Stream'
+              : '15-Day Timeline · End-to-End Batch + Realtime Stream Orchestration'}
           </span>
         </div>
         <div className="iph-actions">
@@ -54,28 +55,26 @@ export const DataIngestionPage: React.FC = () => {
       )}
 
       {/* Loading overlay */}
-      {loading && (
+      {loading && executionStage === 'idle' && (
         <div className="ingestion-loading-bar">
           <div className="ingestion-loading-progress" />
         </div>
       )}
 
-      {/* Panel A: Day Timeline */}
+      {/* Panel A: Day Timeline (Batch Execution) */}
       <div className="ingestion-panel ingestion-panel-a">
         <div className="panel-card-header">
-          <Play size={16} color="var(--neon-cyan)" />
-          <h2>{isVi ? 'Timeline 15 Ngày' : '15-Day Timeline'}</h2>
-          <span className="panel-hint">
-            {isVi
-              ? 'Bấm ngày Demo (10–14) để kích hoạt batch + realtime'
-              : 'Click Demo days (10–14) to activate batch + realtime'}
-          </span>
+          <Database size={16} color="var(--neon-cyan)" />
+          <h2>{isVi ? 'Batch Execution Controls' : 'Batch Execution Controls'}</h2>
         </div>
         <DayTimelineBar
           timeline={timeline}
           currentDayIdx={currentDay}
           onActivate={activateDay}
+          onRunWarmup={runWarmup}
           loading={loading}
+          executionStage={executionStage}
+          activeDayIdx={activeDayIdx}
         />
       </div>
 
@@ -88,8 +87,6 @@ export const DataIngestionPage: React.FC = () => {
         <RealtimeTicker
           status={realtimeStatus}
           latestTick={latestTick}
-          onStart={startRealtime}
-          onStop={stopRealtime}
         />
       </div>
 

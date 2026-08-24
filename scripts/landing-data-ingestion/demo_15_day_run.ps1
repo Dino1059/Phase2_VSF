@@ -21,8 +21,9 @@ function Write-Info { param([string]$Msg) Write-Host "       $Msg" -ForegroundCo
 function Invoke-ApiGet {
     param([string]$Path)
     $url = "$ApiBase$Path"
+    $headers = @{ "Authorization" = "Bearer token_admin" }
     try {
-        $resp = Invoke-WebRequest -Uri $url -Method GET -ContentType "application/json" -TimeoutSec 15
+        $resp = Invoke-WebRequest -Uri $url -Method GET -Headers $headers -ContentType "application/json" -UseBasicParsing -TimeoutSec 15
         return $resp.Content | ConvertFrom-Json
     } catch {
         return $null
@@ -33,8 +34,9 @@ function Invoke-ApiPost {
     param([string]$Path, [object]$Body)
     $url = "$ApiBase$Path"
     $bodyJson = $Body | ConvertTo-Json -Compress
+    $headers = @{ "Authorization" = "Bearer token_admin" }
     try {
-        $resp = Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body $bodyJson -TimeoutSec 30
+        $resp = Invoke-WebRequest -Uri $url -Method POST -Headers $headers -ContentType "application/json" -Body $bodyJson -UseBasicParsing -TimeoutSec 30
         return $resp.Content | ConvertFrom-Json
     } catch {
         return $null

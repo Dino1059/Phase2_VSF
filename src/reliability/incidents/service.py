@@ -16,7 +16,7 @@ def _serialize_datetime_dict(d: dict) -> str:
             serialized[k] = v.isoformat()
         else:
             serialized[k] = v
-    return json.dumps(serialized)
+    return json.dumps(serialized, default=str)
 
 
 class IncidentService:

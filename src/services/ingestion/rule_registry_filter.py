@@ -50,7 +50,7 @@ def _parse_rule_expression(rule_expression: str) -> tuple:
         return match.group(1), match.group(2)
 
     # Pattern: column >= value (no table)
-    match = re.match(r"([a-zA-Z0-9_]+)\s*[<>=", expr)
+    match = re.match(r"([a-zA-Z0-9_]+)\s*[<>=]", expr)
     if match:
         return "unknown", match.group(1)
 

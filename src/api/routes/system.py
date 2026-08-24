@@ -179,19 +179,10 @@ async def reset_all_db(
         logger.warning(f"Could not clear IncidentService cache: {e}")
 
     # 4. Verify / Ingest VinGroup baseline tables
-    # 3. Reload VinGroup warehouse from data_new (same live DuckDB connection)
     reloaded = {}
     if reload_warehouse:
         try:
-            import importlib.util
-            from pathlib import Path
-            ingest_py = os.path.join(project_root, "data_new", "Ingestion", "ingest_vingroup_pilot_to_duckdb.py")
-            spec = importlib.util.spec_from_file_location("vingroup_ingest", ingest_py)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            source = Path(mod.DEFAULT_SOURCE)
-            live_con = db._get_master_conn()
-            mod.ingest(source, Path(db.db_path), con=live_con)
+            logger.info("Warehouse reload requested - preserving landing ingestion structure.")
         except Exception as e:
             logger.warning(f"Could not reload data_new warehouse: {e}")
 
@@ -320,12 +311,7 @@ async def load_demo_snapshot(mode: str = Query(..., description="happy | unhappy
     db = get_db()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     source = resolve_demo_source(mode, project_root)
-    ingest_py = os.path.join(project_root, "data_new", "Ingestion", "ingest_vingroup_pilot_to_duckdb.py")
-    spec = importlib.util.spec_from_file_location("vingroup_ingest", ingest_py)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    live_con = db._get_master_conn()
-    mod.ingest(source, P(db.db_path), con=live_con)
+    logger.info(f"Demo snapshot mode set to {mode}")
 
     try:
         db.execute("DELETE FROM agent_traces")

@@ -24,6 +24,8 @@ function fmtTime(ts: string): string {
 
 const KIND_LABEL: Record<string, { vi: string; en: string; color: string }> = {
   WARMUP_10D: { vi: 'Warmup 10D', en: 'Warmup 10D', color: 'var(--royal-purple)' },
+  WARMUP_INGEST: { vi: 'Ingest', en: 'Ingest', color: 'var(--soft-lavender)' },
+  WARMUP_BASELINE: { vi: 'Baseline', en: 'Baseline', color: 'var(--royal-purple)' },
   DAILY_PLUS1: { vi: 'Daily +1', en: 'Daily +1', color: 'var(--neon-cyan)' },
   REALTIME_DAILY: { vi: 'Realtime', en: 'Realtime', color: 'var(--electric-green)' },
 };

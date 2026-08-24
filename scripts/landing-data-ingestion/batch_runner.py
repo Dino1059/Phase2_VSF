@@ -94,7 +94,7 @@ def run_day_batch(
     """
     run_uuid = str(uuid.uuid4())[:12]
     db_mgr = get_db()
-    conn = db_mgr._get_master_conn()
+    conn = db_mgr.get_connection()
     _ensure_demo_ops_tables(conn)
 
     result = BatchRunResult(
@@ -164,6 +164,18 @@ def run_day_batch(
                 [day_idx],
             )
 
+    # Step 0: Ensure day data is ingested from landing Parquet into raw.*
+    # We do this EVEN in dry_run mode to ensure data is accumulated.
+    try:
+        import importlib.util, os
+        ingest_script = os.path.join(os.path.dirname(__file__), "day_ingestor.py")
+        spec = importlib.util.spec_from_file_location("day_ingestor", ingest_script)
+        day_ingestor_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(day_ingestor_mod)
+        day_ingestor_mod.ingest_day(day_idx, verbose=False, conn=conn)
+    except Exception as ing_err:
+        print(f"Warning: day_ingestor failed for day {day_idx}: {ing_err}")
+
     if dry_run:
         result.status = "completed"
         conn.execute(
@@ -177,6 +189,7 @@ def run_day_batch(
     # --- Real LLM-powered run ---
     start = time.time()
     try:
+
         llm = GemmaLLMAdapter(model="auto")
         orchestrator = DataTrustOrchestrator(llm, project_id=dataset_key)
         orch_result = orchestrator.run_analysis(
@@ -209,14 +222,17 @@ def run_day_batch(
         )
 
         # Link pipeline_runs.source_ingestion_run_id for the latest run
-        latest_pipeline = conn.execute(
-            "SELECT id FROM main.pipeline_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if latest_pipeline:
-            conn.execute(
-                "UPDATE main.pipeline_runs SET source_ingestion_run_id = ? WHERE id = ?",
-                [ingestion_run_id, latest_pipeline[0]],
-            )
+        try:
+            latest_pipeline = conn.execute(
+                "SELECT run_id FROM main.pipeline_runs ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if latest_pipeline:
+                conn.execute(
+                    "UPDATE main.pipeline_runs SET source_ingestion_run_id = ? WHERE run_id = ?",
+                    [ingestion_run_id, latest_pipeline[0]],
+                )
+        except Exception:
+            pass
 
         conn.execute(
             "UPDATE demo_ops.batch_run_log SET status = 'completed', completed_at = CURRENT_TIMESTAMP, incident_count = ?, duration_ms = ?, source_ingestion_run_id = ? WHERE run_id = ?",
@@ -242,29 +258,99 @@ def run_day_batch(
     return result
 
 
+def _ingest_day_only(day_idx: int, dataset_key: str, conn) -> BatchRunResult:
+    """Ingest landing parquet data for a single day WITHOUT running analysis.
+
+    Used during warmup Phase A to accumulate timeseries context before
+    running L2-L4 detectors which require sufficient historical data.
+    """
+    run_uuid = str(uuid.uuid4())[:12]
+    ingestion_run_id = _ingestion_run_id(day_idx, "WARMUP_INGEST")
+    start = time.time()
+
+    result = BatchRunResult(
+        run_id=f"BR-{day_idx:04d}",
+        day_idx=day_idx,
+        status="started",
+        incident_count=0,
+        duration_ms=0,
+        run_uuid=run_uuid,
+        ingestion_run_id=ingestion_run_id,
+    )
+
+    try:
+        # Ingest day data from landing parquet into raw.*
+        import importlib.util, os
+        ingest_script = os.path.join(os.path.dirname(__file__), "day_ingestor.py")
+        spec = importlib.util.spec_from_file_location("day_ingestor", ingest_script)
+        day_ingestor_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(day_ingestor_mod)
+        day_ingestor_mod.ingest_day(day_idx, verbose=False, conn=conn)
+
+        result.status = "completed"
+        result.duration_ms = int((time.time() - start) * 1000)
+
+        # Track in ingestion_runs
+        existing_ing = conn.execute(
+            "SELECT ingestion_run_id FROM demo_ops.ingestion_runs WHERE ingestion_run_id = ?",
+            [ingestion_run_id],
+        ).fetchone()
+        if not existing_ing:
+            conn.execute(
+                """INSERT INTO demo_ops.ingestion_runs
+                    (ingestion_run_id, snapshot_id, day_idx, run_kind, status, window_start_day, window_end_day)
+                VALUES (?, ?, ?, 'WARMUP_INGEST', 'COMPLETED', ?, ?)""",
+                [ingestion_run_id, f"SNAP_{day_idx:03d}", day_idx, day_idx, day_idx],
+            )
+
+        # Track in batch_run_log
+        existing_row = conn.execute(
+            "SELECT 1 FROM demo_ops.batch_run_log WHERE run_id = ?", [result.run_id]
+        ).fetchone()
+        if existing_row:
+            conn.execute(
+                "UPDATE demo_ops.batch_run_log SET status = 'completed', completed_at = CURRENT_TIMESTAMP, duration_ms = ?, source_ingestion_run_id = ? WHERE run_id = ?",
+                [result.duration_ms, ingestion_run_id, result.run_id],
+            )
+        else:
+            conn.execute(
+                """INSERT INTO demo_ops.batch_run_log (run_id, run_uuid, day_idx, status, completed_at, duration_ms, incident_count, source_ingestion_run_id)
+                VALUES (?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?, 0, ?)""",
+                [result.run_id, run_uuid, day_idx, result.duration_ms, ingestion_run_id],
+            )
+        conn.commit()
+
+    except Exception as exc:
+        result.status = "error"
+        result.error_msg = str(exc)
+        result.duration_ms = int((time.time() - start) * 1000)
+
+    return result
+
+
 def run_warmup_then_day(
     target_day: int,
     dataset_key: str = "vingroup_pilot",
     window_days: int = 10,
     dry_run: bool = False,
 ) -> list[BatchRunResult]:
-    """
-    First run warmup (target_day - window_days ... target_day - 1),
-    then run the target day.  For warmup days already completed it is idempotent.
+    """Two-phase warmup: ingest days 0..target-1 (data accumulation only),
+    then run a single full analysis pass on target_day with the complete
+    timeseries window so L2-L4 detectors have sufficient historical context.
     """
     results: list[BatchRunResult] = []
-    conn = get_db()._get_master_conn()
+    conn = get_db().get_connection()
     _ensure_demo_ops_tables(conn)
 
-    # Determine warmup range
+    # ── Phase A: Ingest-only (accumulate timeseries context for missing baseline days) ──
     warmup_start = max(0, target_day - window_days)
-    warmup_days = list(range(warmup_start, target_day))
+    for day in range(warmup_start, target_day):
+        row = conn.execute("SELECT is_activated FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [day]).fetchone()
+        if not row or not row[0]:
+            results.append(_ingest_day_only(day, dataset_key, conn))
 
-    for day in warmup_days:
-        results.append(run_day_batch(day, dataset_key, window_days, dry_run, run_kind="WARMUP"))
-
-    # Final target day
-    results.append(run_day_batch(target_day, dataset_key, window_days, dry_run, run_kind="DAILY_PLUS1"))
+    # ── Phase B: Single full analysis on target day with complete window ──
+    results.append(run_day_batch(target_day, dataset_key, window_days, dry_run, run_kind="WARMUP_BASELINE"))
     return results
 
 

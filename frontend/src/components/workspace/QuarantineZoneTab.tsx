@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ShieldAlert, RefreshCw, AlertTriangle, ChevronDown, ChevronRight, Eye, Database, CheckCircle2, XCircle } from 'lucide-react';
 import { quarantineApi, QuarantineGroup } from '../../services/api';
 
 interface Props {
   initialDatasetKey?: string;
+  initialRuleId?: string;
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -14,9 +16,12 @@ const SEVERITY_COLOR: Record<string, string> = {
   LOW: '#06b6d4',
 };
 
-export const QuarantineZoneTab: React.FC<Props> = ({ initialDatasetKey = 'all' }) => {
+export const QuarantineZoneTab: React.FC<Props> = ({ initialDatasetKey = 'all', initialRuleId }) => {
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const [searchParams] = useSearchParams();
+
+  const targetRuleId = initialRuleId || searchParams.get('rule_id') || searchParams.get('rule');
 
   const [groups, setGroups] = useState<QuarantineGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,15 +43,27 @@ export const QuarantineZoneTab: React.FC<Props> = ({ initialDatasetKey = 'all' }
       const fetched = res.groups || [];
       setGroups(fetched);
       setTotalQuarantined(res.total_quarantined || 0);
-      if (fetched.length > 0 && Object.keys(expanded).length === 0) {
-        setExpanded({ [fetched[0].group_id]: true });
+
+      if (fetched.length > 0) {
+        const match = targetRuleId
+          ? fetched.find((g) => g.rule_id === targetRuleId || g.group_id.includes(targetRuleId))
+          : null;
+        const expandId = match ? match.group_id : fetched[0].group_id;
+        setExpanded({ [expandId]: true });
+
+        if (match) {
+          setTimeout(() => {
+            const el = document.getElementById(`qgroup-${match.group_id}`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 200);
+        }
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [selectedDataset, selectedStatus]);
+  }, [selectedDataset, selectedStatus, targetRuleId]);
 
   useEffect(() => {
     load();
@@ -231,6 +248,7 @@ export const QuarantineZoneTab: React.FC<Props> = ({ initialDatasetKey = 'all' }
                   <React.Fragment key={g.group_id}>
                     {/* GROUP ROW */}
                     <tr
+                      id={`qgroup-${g.group_id}`}
                       onClick={() => toggle(g.group_id)}
                       style={{
                         borderBottom: isExpanded ? 'none' : '1px solid var(--glass-border)',

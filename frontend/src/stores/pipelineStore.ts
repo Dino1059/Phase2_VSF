@@ -13,7 +13,22 @@ import type {
 } from '../types';
 
 // ── Static domain models (ported from ui_temp DOMAINS_DATA) ───────────────
-export const DOMAINS: Record<DomainId, DomainInfo> = {
+export const DOMAINS: Record<string, DomainInfo> = {
+  vingroup_pilot: {
+    id: 'vingroup_pilot',
+    shortcut: 'pilot',
+    name: 'Vingroup Pilot (Parquet/DB)',
+    dbName: 'vingroup_pilot',
+    table: 'vingroup_pilot',
+    rows: '100,000+',
+    size: 'Full Pipeline',
+    engine: 'DuckDB / Parquet',
+    topic: 'raw parquet pipeline',
+    cleanRows: 98000,
+    quarantineRows: 2000,
+    anomalySummary: 'Integrated Vingroup Pilot dataset with parquet ingestion stream',
+    defaultRule: 'IF battery_temp > 62.0 OR grid_pf < 0.88 THEN QUARANTINE(\'ANOMALY\')',
+  },
   ev_telemetry: {
     id: 'ev_telemetry',
     shortcut: 'ev',
@@ -84,14 +99,14 @@ export function normalizeDomainId(alias: string): DomainId {
 }
 
 export function domainToBackendKey(domain: DomainInfo): string {
-  // Map mock domain names to real registered dataset keys on the backend.
-  const map: Record<DomainId, string> = {
-    ev_telemetry: 'vinfast_ev_telemetry_dirty',
-    vgreen_charging: 'vgreen_charging_stations_dirty',
-    xanhsm_trips: 'xanh_sm_trips_dirty',
-    customer_nlp: 'xanh_sm_customer_feedback_dirty',
+  const map: Record<string, string> = {
+    vingroup_pilot: 'vingroup_pilot',
+    ev_telemetry: 'ev_telemetry',
+    vgreen_charging: 'vgreen_charging_stations',
+    xanhsm_trips: 'xanh_sm_trips',
+    customer_nlp: 'customer_nlp',
   };
-  return map[domain.id];
+  return map[domain.id] || domain.id;
 }
 
 // ── Pipeline steps (ported from ui_temp STEPS) ────────────────────────────
@@ -125,6 +140,7 @@ interface PipelineState {
   activeSplitView: 'clean' | 'quarantine';
   activeRightTab: 'tab-rca' | 'tab-telemetry' | 'tab-split' | 'tab-manifest';
   sourceIngestionRunId: string | null;  // filter by ingestion run
+  selectedDayIdx: number | null;        // filter by day index (e.g. 10 for Day 10, null for All)
   currentRuleLogic: string;
   ruleStatus: 'pending' | 'accepted' | 'rejected';
   proposals: RuleProposalBackend[];
@@ -142,6 +158,7 @@ interface PipelineState {
   setSplitView: (view: 'clean' | 'quarantine') => void;
   setRightTab: (tab: PipelineState['activeRightTab']) => void;
   setSourceIngestionRunId: (runId: string | null) => void;
+  setSelectedDayIdx: (dayIdx: number | null) => void;
   setRuleLogic: (logic: string) => void;
   setRuleStatus: (status: 'pending' | 'accepted' | 'rejected') => void;
   setProposals: (proposals: RuleProposalBackend[]) => void;
@@ -163,6 +180,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
   activeSplitView: 'clean',
   activeRightTab: 'tab-rca',
   sourceIngestionRunId: null,
+  selectedDayIdx: null,
   currentRuleLogic: DOMAINS.ev_telemetry.defaultRule,
   ruleStatus: 'pending',
   proposals: [],
@@ -200,6 +218,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
   setSplitView: (activeSplitView) => set({ activeSplitView }),
   setRightTab: (activeRightTab) => set({ activeRightTab }),
   setSourceIngestionRunId: (sourceIngestionRunId) => set({ sourceIngestionRunId }),
+  setSelectedDayIdx: (selectedDayIdx) => set({ selectedDayIdx }),
   setRuleLogic: (currentRuleLogic) => set({ currentRuleLogic }),
   setRuleStatus: (ruleStatus) => set({ ruleStatus }),
   setProposals: (proposals) => set({ proposals }),
@@ -214,6 +233,7 @@ export const usePipelineStore = create<PipelineState>((set) => ({
         runStatus: 'idle',
         runId: null,
         sourceIngestionRunId: null,
+        selectedDayIdx: null,
         ruleStatus: 'pending',
         proposals: [],
         cleanRows: domain.cleanRows,

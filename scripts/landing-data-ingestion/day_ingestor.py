@@ -69,7 +69,7 @@ def get_snapshot_id(day_idx: int) -> str:
     return SNAPSHOT_MAP.get(int(day_idx), f"SNAP_{int(day_idx):03d}")
 
 
-def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False) -> dict:
+def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, conn: duckdb.DuckDBPyConnection | None = None) -> dict:
     """Ingest all tables for a given day_idx from landing parquet."""
     snapshot_id = get_snapshot_id(day_idx)
     if verbose:
@@ -80,7 +80,14 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False) -
     if not os.path.exists(PQ_PATH):
         return {"error": f"Parquet not found: {PQ_PATH}"}
 
-    conn = duckdb.connect(DB_PATH)
+    should_close = False
+    if conn is None:
+        try:
+            from src.db.connection import get_db
+            conn = get_db().get_connection()
+        except Exception:
+            conn = duckdb.connect(DB_PATH)
+            should_close = True
     results = {}
 
     for dataset_table, mapping in TABLE_MAPPINGS.items():
@@ -184,7 +191,11 @@ def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False) -
                 print(f"    ERR  {e}")
             results[dataset_table] = {"status": "error", "error": str(e)}
 
-    conn.close()
+    if should_close:
+        try:
+            conn.close()
+        except Exception:
+            pass
     return results
 
 

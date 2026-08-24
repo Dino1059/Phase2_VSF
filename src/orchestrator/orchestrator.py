@@ -33,6 +33,26 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_max": 100.0,
         "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
     },
+    "ev_telemetry": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "timestamp",
+        "metric_col": "battery_soc",
+        "relational_x": "battery_voltage",
+        "relational_y": "battery_current",
+        "l1_min": 0.0,
+        "l1_max": 100.0,
+        "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
+    },
+    "raw.ev_telemetry": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "timestamp",
+        "metric_col": "battery_soc",
+        "relational_x": "battery_voltage",
+        "relational_y": "battery_current",
+        "l1_min": 0.0,
+        "l1_max": 100.0,
+        "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
+    },
     "vinfast_bms": {
         "entity_id_col": "vehicle_vin",
         "timestamp_col": "timestamp",
@@ -53,11 +73,71 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_max": 80.0,
         "l1_required_cols": ["kwh_consumed", "power_kw"],
     },
+    "charging_sessions": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "start_time",
+        "metric_col": "station_temp_c",
+        "relational_x": "power_kw",
+        "relational_y": "kwh_consumed",
+        "l1_min": -20.0,
+        "l1_max": 80.0,
+        "l1_required_cols": ["kwh_consumed", "power_kw"],
+    },
+    "raw.charging_sessions": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "start_time",
+        "metric_col": "station_temp_c",
+        "relational_x": "power_kw",
+        "relational_y": "kwh_consumed",
+        "l1_min": -20.0,
+        "l1_max": 80.0,
+        "l1_required_cols": ["kwh_consumed", "power_kw"],
+    },
+    "acn_charging": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "start_time",
+        "metric_col": "station_temp_c",
+        "relational_x": "power_kw",
+        "relational_y": "kwh_consumed",
+        "l1_min": -20.0,
+        "l1_max": 80.0,
+        "l1_required_cols": ["kwh_consumed", "power_kw"],
+    },
     "xanh_sm_trips": {
         "entity_id_col": "vehicle_vin",
         "timestamp_col": "pickup_datetime",
         "metric_col": "fare_amount",
-        "relational_x": "trip_distance_km",  # EDA 2026-08-14: renamed trip_miles -> trip_distance_km
+        "relational_x": "trip_distance_km",
+        "relational_y": "fare_amount",
+        "l1_min": 0.0,
+        "l1_max": None,
+        "l1_required_cols": ["fare_amount", "trip_distance_km"],
+    },
+    "trips": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "pickup_datetime",
+        "metric_col": "fare_amount",
+        "relational_x": "trip_distance_km",
+        "relational_y": "fare_amount",
+        "l1_min": 0.0,
+        "l1_max": None,
+        "l1_required_cols": ["fare_amount", "trip_distance_km"],
+    },
+    "raw.trips": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "pickup_datetime",
+        "metric_col": "fare_amount",
+        "relational_x": "trip_distance_km",
+        "relational_y": "fare_amount",
+        "l1_min": 0.0,
+        "l1_max": None,
+        "l1_required_cols": ["fare_amount", "trip_distance_km"],
+    },
+    "ride_trips": {
+        "entity_id_col": "vehicle_vin",
+        "timestamp_col": "pickup_datetime",
+        "metric_col": "fare_amount",
+        "relational_x": "trip_distance_km",
         "relational_y": "fare_amount",
         "l1_min": 0.0,
         "l1_max": None,
@@ -70,10 +150,57 @@ _TABLE_SIGNAL_CONFIG = {
 # to the dataset_table value stored in the landing parquet.
 _PARQUET_TABLE_ALIAS: dict[str, str] = {
     "vinfast_ev_telemetry": "ev_telemetry",
-    "vinfast_bms": "bms",
+    "vinfast_ev_telemetry_dirty": "ev_telemetry",
+    "raw.ev_telemetry": "ev_telemetry",
+    "ev_telemetry": "ev_telemetry",
+    "vinfast_bms": "ev_telemetry",
+
     "vgreen_charging_sessions": "acn_charging",
+    "vgreen_charging_stations": "acn_charging",
+    "vgreen_charging_stations_dirty": "acn_charging",
+    "raw.charging_sessions": "acn_charging",
+    "charging_sessions": "acn_charging",
+    "acn_charging": "acn_charging",
+
     "xanh_sm_trips": "ride_trips",
+    "xanh_sm_trips_dirty": "ride_trips",
+    "raw.trips": "ride_trips",
+    "trips": "ride_trips",
+    "ride_trips": "ride_trips",
+
+    "xanh_sm_customer_feedback": "feedback",
+    "xanh_sm_customer_feedback_dirty": "feedback",
+    "raw.nlp_feedback": "feedback",
+    "nlp_feedback": "feedback",
+    "feedback": "feedback",
+    "customer_nlp": "feedback",
 }
+
+
+def _table_candidates(table_name: str) -> list[str]:
+    aliases = {
+        "vinfast_ev_telemetry_dirty": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms", "vinfast_ev_telemetry"],
+        "vinfast_ev_telemetry": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms", "vinfast_ev_telemetry"],
+        "vinfast_bms": ["vinfast_bms", "raw.ev_telemetry", "ev_telemetry"],
+        "ev_telemetry": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms"],
+        "vgreen_charging_stations_dirty": ["raw.charging_sessions", "charging_sessions", "acn_charging", "vgreen_charging_sessions"],
+        "vgreen_charging_stations": ["raw.charging_sessions", "charging_sessions", "acn_charging", "vgreen_charging_sessions"],
+        "vgreen_charging_sessions": ["vgreen_charging_sessions", "raw.charging_sessions", "acn_charging"],
+        "acn_charging": ["raw.charging_sessions", "charging_sessions", "acn_charging"],
+        "xanh_sm_trips_dirty": ["raw.trips", "trips", "ride_trips", "xanh_sm_trips"],
+        "xanh_sm_trips": ["raw.trips", "trips", "ride_trips", "xanh_sm_trips"],
+        "ride_trips": ["raw.trips", "trips", "ride_trips"],
+        "xanh_sm_customer_feedback_dirty": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
+        "xanh_sm_customer_feedback": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
+        "customer_nlp": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
+        "nlp_feedback": ["raw.nlp_feedback", "nlp_feedback", "feedback"],
+    }
+    cands = list(aliases.get(table_name, [table_name]))
+    if table_name not in cands:
+        cands.append(table_name)
+    if not table_name.startswith("raw."):
+        cands.append(f"raw.{table_name}")
+    return cands
 
 
 def _load_table_as_dataframe(
@@ -83,16 +210,6 @@ def _load_table_as_dataframe(
     target_day_idx: int | None = None,
     window_days: int = 10,
 ) -> pd.DataFrame:
-    """
-    Load a DuckDB table into a pandas DataFrame for L1-L4 detectors.
-
-    Source DB defaults to `data/vingroup_pilot_faulty.duckdb` (Vingroup faulty pilot dataset).
-    When the configured runtime DB does not contain the table, falls back to the Vingroup
-    pilot DB so the full L1-L4 + Fusion + A1 pipeline can run end-to-end.
-
-    When target_day_idx is set, reads from the landing parquet (data_new/vingroup_pilot_landing.parquet)
-    and filters to the specified day window for day-aware batch runs.
-    """
     import duckdb
 
     # --- Day-aware landing-parquet path (added in Giai đoạn 2) ---
@@ -134,6 +251,7 @@ def _load_table_as_dataframe(
     candidates.append(VINGROUP_PILOT_DB)
     candidates.append("data/datatrust_v4.duckdb")
 
+    tbl_names = _table_candidates(table_name)
     last_exc: Optional[Exception] = None
     for candidate in candidates:
         if not os.path.isabs(candidate):
@@ -145,18 +263,26 @@ def _load_table_as_dataframe(
             is_same = os.path.abspath(candidate) == os.path.abspath(str(db_mgr.db_path))
             if is_same:
                 conn = db_mgr._get_master_conn()
-                df = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 5000').df()
-                if not df.empty:
-                    return df
+                for tbl in tbl_names:
+                    try:
+                        df = conn.execute(f'SELECT * FROM {tbl} LIMIT 5000').df()
+                        if not df.empty:
+                            return df
+                    except Exception:
+                        pass
             else:
                 try:
                     conn = duckdb.connect(candidate, read_only=True)
                 except Exception:
                     conn = duckdb.connect(candidate)
                 try:
-                    df = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 5000').df()
-                    if not df.empty:
-                        return df
+                    for tbl in tbl_names:
+                        try:
+                            df = conn.execute(f'SELECT * FROM {tbl} LIMIT 5000').df()
+                            if not df.empty:
+                                return df
+                        except Exception:
+                            pass
                 finally:
                     conn.close()
         except Exception as exc:
@@ -379,7 +505,10 @@ def _run_reliability_pipeline(
     if df.empty:
         return []
 
-    detector_outputs = _detect_l1_l4_signals(table_name, df, project_id)
+    detector_outputs = _detect_l1_l4_signals(
+        table_name, df, project_id,
+        target_day_idx=target_day_idx, window_days=window_days
+    )
     if not any(detector_outputs.values()):
         return []
 

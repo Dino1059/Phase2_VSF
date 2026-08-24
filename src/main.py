@@ -1,6 +1,7 @@
 import os
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -79,7 +80,21 @@ async def lifespan(app: FastAPI):
     print(f"DuckDB initialized at {db.db_path}")
     streaming_worker.start()
     scheduler_service.start()
+
+    # Auto-start ingestion realtime runner
+    try:
+        from src.services.ingestion.realtime_runner import start_realtime
+        start_realtime()
+        print("Ingestion RealtimeRunner auto-started.")
+    except Exception as e:
+        print(f"Failed to auto-start RealtimeRunner: {e}")
+
     yield
+    try:
+        from src.services.ingestion.realtime_runner import stop_realtime
+        stop_realtime()
+    except Exception:
+        pass
     streaming_worker.stop()
     scheduler_service.shutdown()
     get_db().close()
@@ -112,6 +127,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    start_time = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        import traceback
+        print(f"\033[91m[API EXCEPTION {request.method} {request.url.path}]\033[0m\n{traceback.format_exc()}")
+        raise exc
+    duration = time.perf_counter() - start_time
+    response.headers["X-Process-Time"] = f"{duration:.4f}s"
+    # Print timing log to terminal
+    status = response.status_code
+    path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    if duration > 0.5:
+        print(f"\033[91m[SLOW API >500ms]\033[0m {request.method} {path} - {status} - \033[93m{duration:.3f}s\033[0m")
+    else:
+        print(f"[PERF] {request.method} {path} - {status} - {duration:.3f}s")
+    return response
+
 
 # Include WebSocket router and domain API routers
 app.include_router(ws_router)

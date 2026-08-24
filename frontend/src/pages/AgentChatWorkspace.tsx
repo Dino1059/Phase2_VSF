@@ -15,7 +15,6 @@ import {
   Stethoscope,
   FlaskConical,
   Brain,
-  Clock,
   Plus,
   Mic,
   ArrowUp,
@@ -24,8 +23,10 @@ import {
   ChevronRight,
   Play,
   Sparkles,
+  Activity,
 } from 'lucide-react';
-import { usePipelineStore, DOMAIN_LIST, TIME_FILTERS } from '../stores/pipelineStore';
+import { usePipelineStore, DOMAIN_LIST } from '../stores/pipelineStore';
+import { useIngestionStore } from '../stores/ingestionStore';
 import { SourceIngestionRunFilter } from '../components/chat/SourceIngestionRunFilter';
 
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
@@ -35,25 +36,19 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, systemApi, ensureDemoAuth, resetDemoSession } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, ensureDemoAuth, resetDemoSession } from '../services/api';
 import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
 // import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
-import type { TimeFilter } from '../types';
 
 function historyAlreadyProfiled(messages: Array<{ content?: string; type?: string }> | undefined): boolean {
   return (messages || []).some((m) => {
     const c = m.content || '';
     return c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules');
   });
-}
-
-function isProfileSummary(content?: string): boolean {
-  const c = content || '';
-  return c.includes('Profile Summary') || c.includes('Tóm Tắt Khảo Sát');
 }
 
 function toolFromMessage(msg: { agentId?: string; content?: string; agent?: string }): string {
@@ -66,25 +61,14 @@ function toolFromMessage(msg: { agentId?: string; content?: string; agent?: stri
   return id;
 }
 
-function messagesForStory<T extends { content?: string }>(messages: T[], story: string | null): T[] {
-  const filtered = messages.filter((m) => !(m.content || '').includes('HAPPY · clean CSVs'));
-  if (story !== 'unhappy') return filtered;
-  let keptSummary = false;
-  const out: T[] = [];
-  for (let i = filtered.length - 1; i >= 0; i -= 1) {
-    if (isProfileSummary(filtered[i].content)) {
-      if (keptSummary) continue;
-      keptSummary = true;
-    }
-    out.unshift(filtered[i]);
-  }
-  return out;
+function messagesForStory<T extends { content?: string }>(messages: T[], _story?: string | null): T[] {
+  return messages.filter((m) => !(m.content || '').includes('HAPPY · clean CSVs'));
 }
 
 const HITL_STOP_PROMPT_EN =
-  'Profile this dataset and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
+  'Profile this dataset, detect anomalies L1-L4, and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
 const HITL_STOP_PROMPT_VI =
-  'Khảo sát dữ liệu và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
+  'Khảo sát dữ liệu, phát hiện bất thường L1-L4, và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
 
 const AGENT_AVATAR_CLASS: Record<string, string> = {
   orchestrator: 'agent-orchestrator',
@@ -151,16 +135,61 @@ export function AgentChatWorkspace() {
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const { id } = useParams<{ id: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const datasetKey = searchParams.get('dataset_key') || undefined;
   const demoMode = searchParams.get('demo');
   const story = searchParams.get('story');
+  const dayParam = searchParams.get('day') || searchParams.get('day_idx');
   const isHappy = story === 'happy';
   const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
   const setChatSessionId = useChatStore((s) => s.setSessionId);
   const chatMessages = useChatStore((s) => s.messages);
   const store = usePipelineStore();
+
+  useEffect(() => {
+    if (dayParam !== null && dayParam !== undefined) {
+      const parsedDay = parseInt(dayParam, 10);
+      if (!isNaN(parsedDay)) {
+        store.setSelectedDayIdx(parsedDay);
+      }
+    }
+  }, [dayParam]);
+
+  const executionStage = useIngestionStore((s) => s.executionStage);
+  const activeDayIdx = useIngestionStore((s) => s.activeDayIdx);
+  const ingestionError = useIngestionStore((s) => s.error);
+
+  const getStageMessage = useCallback((stage: string) => {
+    switch (stage) {
+      case 'ingesting':
+        return isVi
+          ? '📥 Bước 1/4: Đang nạp Landing Data Snapshot (Parquet)...'
+          : '📥 Step 1/4: Ingesting Landing Data Snapshot (Parquet)...';
+      case 'batch_analyzing':
+        return isVi
+          ? '⚙️ Bước 2/4: Đang chạy Batch Pipeline (Profiling + Phân tích Anomaly L1–L4)...'
+          : '⚙️ Step 2/4: Running Batch Pipeline (Profiling + Anomaly Detection L1-L4)...';
+      case 'evaluating_rules':
+        return isVi
+          ? '🚨 Bước 3/4: Đang đánh giá Rules & Dispatching Alerts...'
+          : '🚨 Step 3/4: Evaluating Rules & Dispatching Alerts...';
+      case 'starting_realtime':
+        return isVi
+          ? '⚡ Bước 4/4: Đang kích hoạt Realtime Stream Telemetry...'
+          : '⚡ Step 4/4: Starting Realtime Stream Telemetry...';
+      case 'completed':
+        return isVi
+          ? '✅ Hoàn thành phân tích End-to-End Batch! Stream sẵn sàng.'
+          : '✅ End-to-End Analysis Complete! Stream Active.';
+      case 'failed':
+        return isVi
+          ? `❌ Lỗi khi thực thi Day: ${ingestionError || ''}`
+          : `❌ Execution failed for Day: ${ingestionError || ''}`;
+      default:
+        return null;
+    }
+  }, [i18n.language, ingestionError]);
   const domainId = store.domainId;
   const currentStepIndex = store.currentStepIndex;
   const currentRuleLogic = store.currentRuleLogic;
@@ -274,6 +303,19 @@ export function AgentChatWorkspace() {
     return () => window.removeEventListener('datatrust:db-reset', handleDbReset);
   }, [resetPipeline]);
 
+  useEffect(() => {
+    const handleDayActivated = () => {
+      const currentSession = useChatStore.getState().sessionId;
+      fetchChatHistory(currentSession).then((history) => {
+        if (Array.isArray(history.messages)) {
+          useChatStore.getState().setMessages(history.messages);
+        }
+      }).catch(() => {});
+    };
+    window.addEventListener('datatrust:day-activated', handleDayActivated);
+    return () => window.removeEventListener('datatrust:day-activated', handleDayActivated);
+  }, []);
+
   // Poll the persisted backend result so all right-panel tabs share one run_id.
   useEffect(() => {
     if (isNewChat) return;
@@ -338,15 +380,7 @@ export function AgentChatWorkspace() {
     useChatStore.getState().clearMessages();
     void resetDemoSession();
 
-    if (isHappy) {
-      setRightTab('tab-profiler');
-      pushMessage({
-        id: 'happy-snapshot',
-        agent: 'orchestrator',
-        text: '**HAPPY · clean CSVs** — `data_new/vingroup_pilot_dataset` (fault_injected=False). 86,400 / 1,331 / 10,382. SoC<0 = 0. OPEN = 0. Nothing to approve. Batch window ends 2026-01-15 — not a live stream.',
-      });
-      return () => clearTimers();
-    }
+
 
     if (isReplay) {
       setReplayBeats(STEWARD_SESSION_BEATS);
@@ -530,12 +564,6 @@ export function AgentChatWorkspace() {
 
 
 
-  const handleTimeFilter = (filter: TimeFilter) => {
-    store.setTimeFilter(filter);
-    const next = new URLSearchParams(searchParams);
-    next.set('range', filter);
-    setSearchParams(next, { replace: true });
-  };
 
   const handleAccept = () => {
     setRuleCardState('accepted');
@@ -562,6 +590,57 @@ export function AgentChatWorkspace() {
       {/* CENTER COLUMN: CHAT STREAM */}
       <div className="center-chat-pane">
         {/* <DemoStoryBar isVi={isVi} /> */}
+        {/* Active E2E Stepper Banner inside Agent Chat Workspace */}
+        {(executionStage !== 'idle' || activeDayIdx !== null) && (
+          <div className="timeline-stepper-banner" style={{ margin: '8px 16px 8px' }}>
+            <div className="tsb-header">
+              {executionStage === 'completed' ? (
+                <CheckCircle2 size={15} color="var(--electric-green)" />
+              ) : executionStage === 'failed' ? (
+                <XCircle size={15} color="var(--alert-red, #EF4444)" />
+              ) : (
+                <Activity size={15} className="spin" color="var(--neon-cyan)" />
+              )}
+              <span className="tsb-title">
+                {isVi
+                  ? `Luồng Thực Thi End-to-End — Day ${activeDayIdx ?? (dayParam === '-10' ? '0–9 (Warmup)' : dayParam || '')}`
+                  : `End-to-End Execution Flow — Day ${activeDayIdx ?? (dayParam === '-10' ? '0–9 (Warmup)' : dayParam || '')}`}
+              </span>
+              {executionStage !== 'idle' && executionStage !== 'completed' && executionStage !== 'failed' && (
+                <span className="l-pill l1" style={{ fontSize: 10, padding: '2px 8px', marginLeft: 'auto' }}>
+                  RUNNING
+                </span>
+              )}
+            </div>
+
+            {executionStage !== 'idle' && (
+              <>
+                <div className="tsb-message">{getStageMessage(executionStage)}</div>
+                <div className="tsb-steps-bar">
+                  <div className={`tsb-step ${['ingesting', 'batch_analyzing', 'evaluating_rules', 'starting_realtime', 'completed'].includes(executionStage) ? 'active' : ''}`}>
+                    <span className="step-num">1</span>
+                    <span className="step-label">Ingest Snapshot</span>
+                  </div>
+                  <div className="tsb-step-divider" />
+                  <div className={`tsb-step ${['batch_analyzing', 'evaluating_rules', 'starting_realtime', 'completed'].includes(executionStage) ? 'active' : ''}`}>
+                    <span className="step-num">2</span>
+                    <span className="step-label">Batch Profiling & Anomaly</span>
+                  </div>
+                  <div className="tsb-step-divider" />
+                  <div className={`tsb-step ${['evaluating_rules', 'starting_realtime', 'completed'].includes(executionStage) ? 'active' : ''}`}>
+                    <span className="step-num">3</span>
+                    <span className="step-label">Rules & Alert Dispatch</span>
+                  </div>
+                  <div className="tsb-step-divider" />
+                  <div className={`tsb-step ${['starting_realtime', 'completed'].includes(executionStage) ? 'active' : ''}`}>
+                    <span className="step-num">4</span>
+                    <span className="step-label">Realtime Stream Active</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {demoMode && (
           <div
             role="status"
@@ -581,21 +660,13 @@ export function AgentChatWorkspace() {
               : (isVi ? 'DEMO · bundled — chạy trên vingroup_pilot có sẵn trong repo.' : 'DEMO · bundled — live run on the repo VinGroup pilot.')}
           </div>
         )}
-        {/* In-Stream Time Filter Bar */}
+        {/* Day History Ingestion Control Header Bar */}
         <div className="in-stream-filter-bar">
           <div className="time-filter-left">
-            <div className="time-filter-label"><Clock size={13} /> {t('telemetryWindow')}</div>
-            <div className="time-filter-pills">
-              {(Object.keys(TIME_FILTERS) as TimeFilter[]).map((filter) => (
-                <button
-                  key={filter}
-                  className={`time-pill ${store.timeFilter === filter ? 'active' : ''}`}
-                  onClick={() => handleTimeFilter(filter)}
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
+            <SourceIngestionRunFilter
+              value={store.sourceIngestionRunId}
+              onChange={(runId) => store.setSourceIngestionRunId(runId)}
+            />
           </div>
 
           {!rightPanelOpen && (
@@ -767,8 +838,8 @@ export function AgentChatWorkspace() {
                   </div>
                   <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     {isVi
-                      ? 'Tự động khảo sát + đề xuất luật, rồi dừng HITL. Không làm sạch cho đến khi steward duyệt.'
-                      : 'Auto profile + propose, then stop at HITL. Nothing is cleaned until you approve.'}
+                      ? 'Tự động Khảo sát + Phát hiện Anomaly L1–L4 + Đề xuất luật (dừng HITL). Không làm sạch cho đến khi steward duyệt.'
+                      : 'Auto Profile + Anomaly L1–L4 + Propose (stop at HITL). Nothing is cleaned until you approve.'}
                   </div>
                 </div>
               </div>
@@ -792,7 +863,7 @@ export function AgentChatWorkspace() {
                 }}
               >
                 <Play size={13} style={{ fill: '#ffffff' }} />
-                <span>{isRunningPipeline ? (isVi ? 'Đang chạy...' : 'Running...') : (isVi ? 'Khảo sát + đề xuất (dừng HITL)' : 'Profile & Propose (stop at HITL)')}</span>
+                <span>{isRunningPipeline ? (isVi ? 'Đang chạy...' : 'Running...') : (isVi ? 'Khảo sát + Anomaly L1–L4 + Đề xuất' : 'Profile + Anomaly L1–L4 + Propose')}</span>
               </button>
             </div>
           )}
@@ -843,13 +914,6 @@ export function AgentChatWorkspace() {
           </button>
         </div>
 
-        {/* Source ingestion run filter */}
-        <div className="right-panel-ingestion-filter">
-          <SourceIngestionRunFilter
-            value={store.sourceIngestionRunId}
-            onChange={(runId) => store.setSourceIngestionRunId(runId)}
-          />
-        </div>
 
 
         <div className="panel-content-body">
@@ -1031,36 +1095,16 @@ function NewChatLanding() {
                 if (!useAuthStore.getState().isAdmin()) {
                   await useAuthStore.getState().login('steward', undefined, 'steward');
                 }
-                await systemApi.loadSnapshot('happy');
                 await resetDemoSession();
                 useChatStore.getState().clearMessages();
-              } catch { /* still open the story */ }
-              navigate('/workspace?dataset_key=vingroup_pilot&story=happy');
+              } catch { /* ignore */ }
+              navigate('/workspace?dataset_key=vingroup_pilot');
             }}
           >
-            <ShieldCheck size={22} /> {isVi ? 'HAPPY — bản sạch' : 'HAPPY — clean snapshot'}
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                if (!useAuthStore.getState().isAdmin()) {
-                  await useAuthStore.getState().login('steward', undefined, 'steward');
-                }
-                await systemApi.loadSnapshot('unhappy');
-                await resetDemoSession();
-                useChatStore.getState().clearMessages();
-              } catch { /* still open the story */ }
-              navigate('/workspace?dataset_key=vingroup_pilot&demo=live&story=unhappy');
-            }}
-          >
-            <Play size={22} /> {isVi ? 'UNHAPPY — 172 / 8 OPEN' : 'UNHAPPY — 172 SoC / 8 OPEN'}
-          </button>
-          <button type="button" onClick={() => navigate('/workspace?dataset_key=vingroup_pilot&demo=replay')}>
-            <Sparkles size={22} /> {isVi ? 'Replay phiên ghi' : 'Replay recorded session'}
+            <Play size={22} /> {isVi ? 'Phân tích Dataset Vingroup Pilot' : 'Analyze Vingroup Pilot Dataset'}
           </button>
           <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải file của bạn' : 'Upload your file')}
+            <CloudUpload size={22} /> {uploading ? (isVi ? 'Đang tải database...' : 'Uploading database...') : (isVi ? 'Tải file dữ liệu' : 'Upload data file')}
           </button>
         </div>
         {uploadError && <div className="new-chat-upload-error" role="alert">{uploadError}</div>}

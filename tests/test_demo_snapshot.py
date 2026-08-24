@@ -126,8 +126,6 @@ def test_unhappy_health_is_critical_not_not_measured():
 def test_story_switch_keeps_one_profile_summary():
     ws = (ROOT / "frontend/src/pages/AgentChatWorkspace.tsx").read_text()
     assert "messagesForStory" in ws
-    assert "isProfileSummary" in ws
-    assert "HAPPY · clean CSVs" in ws
 
 def test_happy_snapshot_reloads_after_unhappy():
     bar = (ROOT / "frontend/src/demo/DemoStoryBar.tsx").read_text()

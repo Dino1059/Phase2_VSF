@@ -13,7 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { tracesApi, hitlApi } from '../../services/api';
-import { actorLabel, inTimeRange, mapTraceStep, rangeStart, redactSecrets } from '../../demo/stewardLabels';
+import { actorLabel, inTimeRange, mapTraceStep, redactSecrets } from '../../demo/stewardLabels';
 import type { DemoBeat } from '../../demo/stewardSession';
 import type { TimeFilter } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
@@ -134,7 +134,6 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     } else {
       setLoading(true);
       try {
-        const since = rangeStart(timeFilter).toISOString();
         const tryIds: string[] = [];
         const addId = (id?: string | null) => {
           const t = (id || '').trim();
@@ -164,7 +163,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 
         let applied = false;
         for (const id of tryIds) {
-          const res = await tracesApi.get(id, since);
+          const res = await tracesApi.get(id);
           const steps = Array.isArray(res?.steps) ? res.steps : [];
           if (applySteps(steps)) {
             resolvedSessionRef.current = res?.session_id || id;
@@ -183,7 +182,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
             );
           });
           if (hit) {
-            const res = await tracesApi.get(hit.session_id, since);
+            const res = await tracesApi.get(hit.session_id);
             const steps = Array.isArray(res?.steps) ? res.steps : [];
             if (applySteps(steps)) {
               resolvedSessionRef.current = res?.session_id || hit.session_id;

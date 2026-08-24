@@ -9,7 +9,7 @@ import {
   RotateCcw, Globe, Sparkles, Shield, Zap,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { searchApi, SearchHit, systemApi, datasetsApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
+import { searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
 
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -43,7 +43,6 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [backendHits, setBackendHits] = useState<SearchHit[]>([]);
-  const [uploadedDatasets, setUploadedDatasets] = useState<Array<{ key: string; name: string; path?: string }>>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
@@ -76,44 +75,6 @@ export function Header() {
     }
     return undefined;
   }, [location.pathname, location.search]);
-
-
-  // Load registered & uploaded datasets for Ctrl+K search index
-  useEffect(() => {
-    async function fetchUploaded() {
-      try {
-        const res = await datasetsApi.list();
-        if (res && Array.isArray(res.datasets)) {
-          const dynamic = res.datasets
-            .filter((d: { key: string }) => d.key.startsWith('uploaded_') || d.key.startsWith('upload_'))
-            .map((d: { key: string; filename?: string; path?: string }) => {
-              const fileName = d.filename || (d.path ? d.path.split('/').pop() : '') || d.key;
-              return {
-                key: d.key,
-                name: fileName || d.key.replace(/^uploaded_/, '').replace(/_/g, ' '),
-                path: d.path || '',
-              };
-            });
-          setUploadedDatasets(dynamic);
-        }
-      } catch {
-        // Fallback gracefully
-      }
-    }
-    fetchUploaded();
-
-    const handleUploaded = () => {
-      fetchUploaded();
-    };
-    window.addEventListener('datatrust:dataset-uploaded', handleUploaded as EventListener);
-    window.addEventListener('datasetUploaded', handleUploaded as EventListener);
-    window.addEventListener('datatrust:db-reset', handleUploaded as EventListener);
-    return () => {
-      window.removeEventListener('datatrust:dataset-uploaded', handleUploaded as EventListener);
-      window.removeEventListener('datasetUploaded', handleUploaded as EventListener);
-      window.removeEventListener('datatrust:db-reset', handleUploaded as EventListener);
-    };
-  }, []);
 
   const handleResetAll = async () => {
     // In-app modal already accepted. Do not re-login as steward after wipe.
@@ -235,7 +196,7 @@ export function Header() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Filter local operations & sample datasets (including dynamic uploaded datasets)
+  // Filter local operations & sample datasets
   const localResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     const curLang = isVi ? 'vi' : 'en';
@@ -276,26 +237,8 @@ export function Header() {
       icon: Database,
     }));
 
-    const sampleIds = new Set<string>(DOMAIN_LIST.map((d) => d.id as string));
-    const matchedUploaded = uploadedDatasets
-      .filter((d) => !sampleIds.has(d.key))
-      .filter(
-        (d) =>
-          d.name.toLowerCase().includes(q) ||
-          d.key.toLowerCase().includes(q) ||
-          (d.path && d.path.toLowerCase().includes(q))
-      )
-      .map((d) => ({
-        id: `uploaded-${d.key}`,
-        title: d.name,
-        category: 'dataset' as const,
-        description: isVi ? `Tập dữ liệu đã đăng ký / tải lên · ${d.key}` : `Registered / Uploaded Dataset · ${d.key}`,
-        path: `/workspace?dataset_key=${encodeURIComponent(d.key)}`,
-        icon: Database,
-      }));
-
-    return [...matchedUploaded, ...matchedDatasets, ...matchedOps];
-  }, [searchQuery, uploadedDatasets, isVi]);
+    return [...matchedDatasets, ...matchedOps];
+  }, [searchQuery, isVi]);
 
 
 

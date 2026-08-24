@@ -70,6 +70,26 @@ async def profile_dataset(
         # If a specific table is requested
         if table_name:
             df = src.load_data(sample_size=sample_size, table_name=table_name)
+            if len(df) == 0:
+                return {
+                    "dataset": base_key,
+                    "table": table_name,
+                    "sample_size": 0,
+                    "total_rows": 0,
+                    "columns_count": len(df.columns),
+                    "health_score": 100.0,
+                    "profile": {
+                        "total_rows": 0,
+                        "row_count": 0,
+                        "columns_count": len(df.columns),
+                        "table_name": table_name,
+                        "health_score": 100.0,
+                        "data_health_score": 100.0,
+                        "columns": [],
+                        "quality_flags": [],
+                        "summary": f"Table '{table_name}' is empty (0 rows)."
+                    },
+                }
             result = profiler.profile(df, file_path=f"{base_key}::{table_name}")
             profile_data = _sanitize_nans(result.model_dump())
             flags_penalty = min(30.0, len(result.quality_flags) * 5.0)
@@ -106,6 +126,21 @@ async def profile_dataset(
             for tbl in user_tables:
                 try:
                     tdf = src.load_data(sample_size=sample_size, table_name=tbl)
+                    if len(tdf) == 0:
+                        tables_dict[tbl] = {
+                            "table_name": tbl,
+                            "total_rows": 0,
+                            "row_count": 0,
+                            "columns_count": len(tdf.columns),
+                            "health_score": 100.0,
+                            "columns": [],
+                            "quality_flags": [],
+                            "summary": f"Table '{tbl}' is empty (0 rows).",
+                        }
+                        total_cols += len(tdf.columns)
+                        health_scores.append(100.0)
+                        continue
+
                     t_res = profiler.profile(tdf, file_path=f"{base_key}::{tbl}")
                     t_dump = _sanitize_nans(t_res.model_dump())
 

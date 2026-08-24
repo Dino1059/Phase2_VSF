@@ -62,39 +62,22 @@ class Settings(BaseSettings):
 
     # Dataset registry
     raw_data_dir: str = "./data_new/raw_public"
-    default_dataset: str = "vinfast_ev_telemetry"
+    default_dataset: str = "vingroup_pilot"
     dataset_registry: dict = {
-        "nyc_fhvhv": "archive/data/raw/nyc_fhvhv_2024_01.parquet",
-        "grab_sea_demand": "archive/data/raw/grab_sea_demand/GrabAIChallenge2019Dataset/Traffic Management/training.csv",
-        "weather_hcmc": "archive/data/weather/hcmc_weather_2024.parquet",
-        "vietnam_trips": "archive/data/synthetic/vietnam_trips.parquet",
-        "vietnam_trips_dirty": "archive/data/synthetic/vietnam_trips_dirty.parquet",
-        "vietnam_ecommerce_test": "archive/data/vietnam_ecommerce_test.csv",
-        "vinfast_ev_telemetry_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "vinfast_ev_telemetry": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "ev_telemetry": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "vinfast_bms": "data_new/vingroup_faulty_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "vgreen_charging_stations_dirty": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
-        "vgreen_charging_stations": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
-        "vgreen_charging": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
-        "vgreen_telemetry": "data_new/vingroup_faulty_pilot_dataset/acn_charging_mapped.csv",
-        "xanh_sm_trips_dirty": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "xanh_sm_trips": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "xanhsm_trips": "data_new/vingroup_faulty_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "xanh_sm_customer_feedback_dirty": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "xanh_sm_customer_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "xanhsm_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "customer_nlp": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "nlp_feedback": "data_new/vingroup_faulty_pilot_dataset/synthetic_feedback_scenario_driven.csv",
-        "real_vinfast_ev_telemetry": "data_new/vingroup_pilot_dataset/synthetic_ev_telemetry_ved_ref.csv",
-        "real_vgreen_charging_stations": "data_new/vingroup_pilot_dataset/acn_charging_mapped.csv",
-        "real_xanh_sm_trips": "data_new/vingroup_pilot_dataset/ride_hailing_xanh_sm_trips.csv",
-        "real_xanh_sm_customer_feedback": "data_new/vingroup_pilot_dataset/nlp_benchmark_uit_vsfc.csv",
-        "integrated_benchmark": "data_new/vingroup_faulty_pilot_dataset",
         "vingroup_pilot": "data_new/db/vingroup_pilot.db",
         "vingroup_pilot_db": "data_new/db/vingroup_pilot.db",
-        "vingroup_pilot.db": "data_new/db/vingroup_pilot.db",
-        "data_new/db/vingroup_pilot.db": "data_new/db/vingroup_pilot.db",
+        "ev_telemetry": "data_new/db/vingroup_pilot.db",
+        "vinfast_ev_telemetry": "data_new/db/vingroup_pilot.db",
+        "vinfast_ev_telemetry_dirty": "data_new/db/vingroup_pilot.db",
+        "vgreen_charging": "data_new/db/vingroup_pilot.db",
+        "vgreen_charging_stations": "data_new/db/vingroup_pilot.db",
+        "vgreen_charging_stations_dirty": "data_new/db/vingroup_pilot.db",
+        "xanh_sm_trips": "data_new/db/vingroup_pilot.db",
+        "xanhsm_trips": "data_new/db/vingroup_pilot.db",
+        "xanh_sm_trips_dirty": "data_new/db/vingroup_pilot.db",
+        "customer_nlp": "data_new/db/vingroup_pilot.db",
+        "xanh_sm_customer_feedback": "data_new/db/vingroup_pilot.db",
+        "xanh_sm_customer_feedback_dirty": "data_new/db/vingroup_pilot.db",
     }
 
     dataset_provenance_map: dict = {

@@ -562,10 +562,23 @@ def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
 
 
 def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
-    """Force propose when steward asked for rules; clean_database, algolia_search, list_datasets are never forced without explicit request."""
-    # HITL-stop allowlist safety: _allow_hitl_tool
+    """Ensure detect_anomalies and propose_quality_rules are executed in sequence."""
     blob = (prompt or "").lower()
     done = {str(a).replace("default_api:", "").strip() for a in (executed or []) if a}
+    wants_anomaly = any(
+        w in blob
+        for w in (
+            "anomaly",
+            "anomalies",
+            "bất thường",
+            "bat thuong",
+            "dị thường",
+            "di thuong",
+            "l1-l4",
+            "l1–l4",
+            "drift",
+        )
+    )
     wants_propose = any(
         w in blob
         for w in (
@@ -579,9 +592,12 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
             "luat chat luong",
         )
     )
+    res = []
+    if (wants_anomaly or wants_propose) and "detect_anomalies" not in done:
+        res.append("detect_anomalies")
     if wants_propose and "propose_quality_rules" not in done and "quality_rule_proposer" not in done:
-        return ["propose_quality_rules"]
-    return []
+        res.append("propose_quality_rules")
+    return res
 
 
 @router.post("/chat/send")

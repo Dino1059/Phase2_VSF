@@ -54,11 +54,11 @@ def get_summary(dataset_key: Optional[str] = Query(None)):
         if dataset_key and tables:
             placeholders = ",".join(["?"] * len(tables))
             q_res = db.execute(
-                f"SELECT COUNT(*) FROM quarantine WHERE source_table IN ({placeholders})",
+                f"SELECT COUNT(*) FROM main.quarantine WHERE source_table IN ({placeholders})",
                 tables,
             )
         else:
-            q_res = db.execute("SELECT COUNT(*) FROM quarantine")
+            q_res = db.execute("SELECT COUNT(*) FROM main.quarantine")
         quarantined_count = q_res[0][0] if q_res else 0
     except Exception:
         pass
@@ -66,7 +66,7 @@ def get_summary(dataset_key: Optional[str] = Query(None)):
     this_run_quarantined = 0
     try:
         tr = db.execute(
-            "SELECT COUNT(*) FROM quarantine "
+            "SELECT COUNT(*) FROM main.quarantine "
             "WHERE CAST(snapshot_id AS VARCHAR) LIKE 'sandbox:%' OR rule_version_id = 'sandbox'"
         )
         this_run_quarantined = int(tr[0][0]) if tr else 0
@@ -139,12 +139,12 @@ def get_anomaly_trend(
         if time_range == "30d":
             base_sql = (
                 "SELECT CAST((EXTRACT(DAY FROM quarantined_at) - 1) / 7 AS INTEGER) AS wk, "
-                "COUNT(*) FROM quarantine"
+                "COUNT(*) FROM main.quarantine"
             )
         else:
             base_sql = (
                 f"SELECT CAST(FLOOR(EPOCH FROM (CURRENT_TIMESTAMP - quarantined_at)) / {int(bucket_seconds)} AS INTEGER) AS bucket, "
-                "COUNT(*) FROM quarantine"
+                "COUNT(*) FROM main.quarantine"
             )
 
         if tables:

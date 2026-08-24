@@ -1,8 +1,9 @@
+from __future__ import annotations
 import hashlib
 import json
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -36,7 +37,23 @@ class RejectRequest(BaseModel):
     action_by: Optional[str] = "Human_Operator_HITL"
 
 
-def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> tuple[str, str, str]:
+import math
+
+def _clean_json_val(obj: Any) -> Any:
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _clean_json_val(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_clean_json_val(v) for v in obj]
+    return obj
+
+
+def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> Tuple[str, str, str]:
+
+
     """
     Synthesizes an actionable, deterministic SQL remediation statement,
     a human-readable strategy rationale, and severity level.
@@ -83,11 +100,12 @@ def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> 
             "HIGH",
         )
 
-    # 5. Driver Pay & Financial Boundaries
-    if "driver_pay" in reason_lower or "fare" in reason_lower:
+    # 5. Driver Pay & Financial Boundaries (Taxi Fare / Driver Payout)
+    if "driver_pay" in reason_lower or "fare" in reason_lower or "rule_taxi_fare" in reason_lower or "rule_taxi_fare" in rule_id.lower():
+        target_col = "fare_amount" if ("fare" in reason_lower or "rule_taxi_fare" in rule_id.lower()) else "driver_pay"
         return (
-            f"UPDATE {table} SET driver_pay = 0.0 WHERE driver_pay < 0.0;",
-            "Clamps negative driver payout to 0.00 currency unit.",
+            f"UPDATE {table} SET {target_col} = 0.0 WHERE {target_col} < 0.0;",
+            f"Clamps negative financial {target_col} readings to 0.00 currency unit.",
             "HIGH",
         )
 
@@ -144,6 +162,30 @@ def _this_run_quarantine_count(db) -> int:
         return 0
 
 
+def _ensure_main_quarantine_table(db):
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS main.quarantine (
+                id VARCHAR PRIMARY KEY,
+                snapshot_id VARCHAR,
+                source_table VARCHAR,
+                source_row_id INT,
+                rule_id VARCHAR,
+                rule_version_id VARCHAR,
+                reason VARCHAR,
+                original_data JSON,
+                quarantined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                lineage_hash VARCHAR,
+                status VARCHAR DEFAULT 'QUARANTINED',
+                user_action VARCHAR DEFAULT 'NONE',
+                action_at TIMESTAMP,
+                action_by VARCHAR
+            )
+        """)
+    except Exception:
+        pass
+
+
 @quarantine_router.get("/")
 async def list_quarantine(
     limit: int = 100,
@@ -154,10 +196,11 @@ async def list_quarantine(
     search: Optional[str] = None,
 ):
     db = get_db()
+    _ensure_main_quarantine_table(db)
     query = """
         SELECT id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, reason, original_data, quarantined_at, lineage_hash,
                COALESCE(status, 'QUARANTINED') as status, COALESCE(user_action, 'NONE') as user_action, action_at, action_by
-        FROM quarantine
+        FROM main.quarantine
         WHERE 1=1
     """
     params: List[Any] = []
@@ -181,9 +224,13 @@ async def list_quarantine(
 
     query += f" ORDER BY quarantined_at DESC LIMIT {limit} OFFSET {offset}"
 
-    rows = db.execute(query, params)
-    total_res = db.execute("SELECT COUNT(*) FROM quarantine")
-    total_count = total_res[0][0] if total_res else 0
+    try:
+        rows = db.execute(query, params)
+        total_res = db.execute("SELECT COUNT(*) FROM main.quarantine")
+        total_count = total_res[0][0] if total_res else 0
+    except Exception:
+        rows = []
+        total_count = 0
 
     items = []
     for r in rows:
@@ -211,12 +258,12 @@ async def list_quarantine(
             "action_by": r[13],
         })
 
-    return {
+    return _clean_json_val({
         "quarantine": items,
         "total_count": total_count,
         "limit": limit,
         "offset": offset,
-    }
+    })
 
 
 @quarantine_router.get("/groups")
@@ -225,113 +272,162 @@ async def get_quarantine_groups(
     status: Optional[str] = None,
 ):
     """
-    Returns aggregated quarantine violations grouped by rule_id, source_table, and status,
+    Returns aggregated quarantine violations grouped by rule_id, source_table, and status (best practice),
     complete with AI-synthesized SQL remediation commands and sample rows.
     """
-    db = get_db()
-    query = """
-        SELECT source_table, rule_id, reason, COALESCE(status, 'QUARANTINED') as grp_status, COUNT(*) as row_count,
-               MIN(quarantined_at) as earliest_time,
-               MAX(quarantined_at) as latest_time
-        FROM quarantine
-        WHERE 1=1
-    """
-    params: List[Any] = []
-    if source_table and source_table != "all":
-        query += " AND source_table = ?"
-        params.append(source_table)
+    try:
+        db = get_db()
+        _ensure_main_quarantine_table(db)
+        query = """
+            SELECT source_table, rule_id, COALESCE(status, 'QUARANTINED') as grp_status, COUNT(*) as row_count,
+                   MIN(reason) as sample_reason,
+                   MIN(quarantined_at) as earliest_time,
+                   MAX(quarantined_at) as latest_time
+            FROM main.quarantine
+            WHERE 1=1
+        """
+        params: List[Any] = []
+        if source_table and source_table != "all":
+            query += " AND (source_table = ? OR source_table = 'unknown')"
+            params.append(source_table)
 
-    if status and status != "all":
-        query += " AND COALESCE(status, 'QUARANTINED') = ?"
-        params.append(status)
+        if status and status != "all":
+            query += " AND COALESCE(status, 'QUARANTINED') = ?"
+            params.append(status)
 
-    query += " GROUP BY source_table, rule_id, reason, COALESCE(status, 'QUARANTINED') ORDER BY row_count DESC"
+        query += " GROUP BY source_table, rule_id, COALESCE(status, 'QUARANTINED') ORDER BY row_count DESC"
 
-    group_rows = db.execute(query, params)
-    groups = []
+        try:
+            group_rows = db.execute(query, params)
+        except Exception:
+            group_rows = []
 
-    for idx, g in enumerate(group_rows):
-        tbl = g[0]
-        r_id = g[1]
-        reason_str = g[2]
-        grp_status = g[3]
-        cnt = g[4]
-        earliest = str(g[5]) if g[5] else None
-        latest = str(g[6]) if g[6] else None
+        groups = []
 
-        # Fetch up to 5 sample rows for this group
-        samples = db.execute(
-            "SELECT id, source_row_id, reason, original_data, quarantined_at, lineage_hash, COALESCE(status, 'QUARANTINED') FROM quarantine WHERE source_table = ? AND rule_id = ? LIMIT 5",
-            [tbl, r_id]
-        )
+        for idx, g in enumerate(group_rows):
+            tbl = g[0]
+            r_id = g[1]
+            grp_status = g[2]
+            cnt = g[3]
+            sample_reason = g[4] or ""
+            earliest = str(g[5]) if g[5] else None
+            latest = str(g[6]) if g[6] else None
 
-        sample_items = []
-        for s in samples:
-            orig = None
-            if s[3]:
-                try:
-                    orig = json.loads(s[3]) if isinstance(s[3], str) else s[3]
-                except Exception:
-                    orig = str(s[3])
-            sample_items.append({
-                "id": s[0],
-                "source_row_id": s[1],
-                "reason": s[2],
-                "original_data": orig,
-                "quarantined_at": str(s[4]) if s[4] else None,
-                "lineage_hash": s[5],
-                "status": s[6],
+            # Attempt to lookup rule metadata from quality_rules table
+            db_rule_name = None
+            db_dataset_key = None
+            try:
+                r_meta = db.execute(
+                    "SELECT rule_name, dataset_key FROM quality_rules WHERE id = ?", [r_id]
+                ).fetchall()
+                if r_meta:
+                    db_rule_name = r_meta[0][0]
+                    db_dataset_key = r_meta[0][1]
+            except Exception:
+                pass
+
+            effective_table = tbl
+            if (not effective_table or effective_table == "unknown") and db_dataset_key:
+                effective_table = db_dataset_key
+            if not effective_table or effective_table == "unknown":
+                effective_table = "raw_taxi_trips" if "TAXI" in r_id or "fare" in sample_reason.lower() else "vgreen_charging_stations"
+
+            # Fetch up to 10 sample rows for this rule_id group
+            try:
+                samples = db.execute(
+                    "SELECT id, source_row_id, reason, original_data, quarantined_at, lineage_hash, COALESCE(status, 'QUARANTINED') FROM main.quarantine WHERE rule_id = ? LIMIT 10",
+                    [r_id]
+                )
+            except Exception:
+                samples = []
+
+            sample_items = []
+            for s in samples:
+                orig = None
+                if s[3]:
+                    try:
+                        orig = json.loads(s[3]) if isinstance(s[3], str) else s[3]
+                        orig = _clean_json_val(orig)
+                    except Exception:
+                        orig = str(s[3])
+                sample_items.append({
+                    "id": s[0],
+                    "source_row_id": s[1],
+                    "reason": s[2],
+                    "original_data": orig,
+                    "quarantined_at": str(s[4]) if s[4] else None,
+                    "lineage_hash": s[5],
+                    "status": s[6],
+                })
+
+            # Clean reason summary by stripping specific numbers
+            clean_reason = re.sub(r'\(-?\d+(?:\.\d+)?\)', '', sample_reason).strip()
+            if not clean_reason:
+                clean_reason = sample_reason
+
+            sql_cmd, strategy, severity = synthesize_remediation_sql(r_id, clean_reason, effective_table)
+
+            # Map friendly rule name
+            rule_name = db_rule_name or r_id
+            if rule_name == r_id:
+                if "RULE_TAXI_FARE" in r_id or "fare" in clean_reason.lower():
+                    rule_name = "Cước Phí Taxi NYC/VN Không Âm"
+                elif "R1" in r_id or "SOC" in r_id or "soc" in clean_reason.lower():
+                    rule_name = "Physical Battery SOC Boundary (0.0% – 100.0%)"
+                elif "R2" in r_id or "accel" in clean_reason.lower():
+                    rule_name = "Vertical Acceleration Datum Invariant (accel_z >= 0)"
+                elif "R3" in r_id or "voltage" in clean_reason.lower():
+                    rule_name = "CAN-bus Overvoltage Transient Spike Shield (<900V)"
+                elif "R4" in r_id or "rpm" in clean_reason.lower():
+                    rule_name = "Stationary Speed & Motor RPM Correlation Rule"
+                elif "F8" in r_id or "ledger" in clean_reason.lower():
+                    rule_name = "Arithmetic Trip Ledger Consistency Rule"
+                elif "F12" in r_id or "miles" in clean_reason.lower():
+                    rule_name = "Fleet Odometer Null Imputation Rule"
+
+            groups.append({
+                "group_id": f"grp_{effective_table}_{r_id}_{idx}",
+                "rule_id": r_id,
+                "rule_name": rule_name,
+                "source_table": effective_table,
+                "total_rows": cnt,
+                "severity": severity,
+                "reason_summary": clean_reason,
+                "ai_suggested_sql": sql_cmd,
+                "remediation_strategy": strategy,
+                "sample_records": sample_items,
+                "earliest_time": earliest,
+                "latest_time": latest,
+                "status": grp_status,
             })
 
-        sql_cmd, strategy, severity = synthesize_remediation_sql(r_id, reason_str, tbl)
+        total_quarantined = sum(g["total_rows"] for g in groups)
 
-        # Map friendly rule name
-        rule_name = r_id
-        if "R1" in r_id or "SOC" in r_id or "soc" in (reason_str or ""):
-            rule_name = "Physical Battery SOC Boundary (0.0% – 100.0%)"
-        elif "R2" in r_id or "accel" in (reason_str or ""):
-            rule_name = "Vertical Acceleration Datum Invariant (accel_z >= 0)"
-        elif "R3" in r_id or "voltage" in (reason_str or ""):
-            rule_name = "CAN-bus Overvoltage Transient Spike Shield (<900V)"
-        elif "R4" in r_id or "rpm" in (reason_str or ""):
-            rule_name = "Stationary Speed & Motor RPM Correlation Rule"
-        elif "F8" in r_id or "ledger" in (reason_str or ""):
-            rule_name = "Arithmetic Trip Ledger Consistency Rule"
-        elif "F12" in r_id or "miles" in (reason_str or ""):
-            rule_name = "Fleet Odometer Null Imputation Rule"
-        elif "license" in (reason_str or ""):
-            rule_name = "TLC Dispatch License Regex Validator"
-
-        groups.append({
-            "group_id": f"grp_{tbl}_{r_id}_{idx}",
-            "rule_id": r_id,
-            "rule_name": rule_name,
-            "source_table": tbl,
-            "total_rows": cnt,
-            "severity": severity,
-            "reason_summary": reason_str,
-            "ai_suggested_sql": sql_cmd,
-            "remediation_strategy": strategy,
-            "sample_records": sample_items,
-            "earliest_time": earliest,
-            "latest_time": latest,
-            "status": grp_status,
+        return _clean_json_val({
+            "groups": groups,
+            "total_quarantined": total_quarantined,
+            "groups_count": len(groups),
         })
 
-    total_quarantined = sum(g["total_rows"] for g in groups)
+    except Exception as e:
+        print(f"[quarantine_api] get_quarantine_groups error: {e}")
+        return {
+            "groups": [],
+            "total_quarantined": 0,
+            "groups_count": 0,
+        }
 
-    return {
-        "groups": groups,
-        "total_quarantined": total_quarantined,
-        "groups_count": len(groups),
-    }
 
 
 @quarantine_router.get("/count")
 async def quarantine_count():
     db = get_db()
-    result = db.execute("SELECT source_table, COUNT(*) FROM quarantine GROUP BY source_table")
-    return {"counts": {r[0]: r[1] for r in result} if result else {}}
+    _ensure_main_quarantine_table(db)
+    try:
+        result = db.execute("SELECT source_table, COUNT(*) FROM main.quarantine GROUP BY source_table")
+        return {"counts": {r[0]: r[1] for r in result} if result else {}}
+    except Exception:
+        return {"counts": {}}
 
 
 @quarantine_router.post("/remediate")
@@ -341,6 +437,7 @@ async def remediate_quarantine_group(request: RemediateRequest):
     and moves/marks the quarantined records into the Clean DB partition.
     """
     db = get_db()
+    _ensure_main_quarantine_table(db)
     tbl = request.source_table
     r_id = request.rule_id
     sql_to_run = request.sql_query
@@ -350,9 +447,9 @@ async def remediate_quarantine_group(request: RemediateRequest):
         sql_to_run, _, _ = synthesize_remediation_sql(r_id, "", tbl)
 
     try:
-        # Check matching count in quarantine
+        # Check matching count in main.quarantine
         count_res = db.execute(
-            "SELECT COUNT(*) FROM quarantine WHERE source_table = ? AND rule_id = ?",
+            "SELECT COUNT(*) FROM main.quarantine WHERE source_table = ? AND rule_id = ?",
             [tbl, r_id]
         )
         affected_rows = count_res[0][0] if count_res else 0
@@ -363,11 +460,21 @@ async def remediate_quarantine_group(request: RemediateRequest):
         except Exception as sql_err:
             print(f"[Remediation Warning] SQL update warning: {sql_err}")
 
-        # Delete / clear remediated records from active quarantine store
+        # Delete / clear remediated records from active main.quarantine store
         db.execute(
-            "DELETE FROM quarantine WHERE source_table = ? AND rule_id = ?",
+            "DELETE FROM main.quarantine WHERE source_table = ? AND rule_id = ?",
             [tbl, r_id]
         )
+
+        # Also update status in quarantine schema tables so Data Ingestion panel decreases count
+        for schema_tbl in ["ev_telemetry", "charging_sessions", "trips", "nlp_feedback"]:
+            try:
+                db.execute(
+                    f"UPDATE quarantine.{schema_tbl} SET status = 'RESOLVED', resolved_at = CURRENT_TIMESTAMP, resolution_action = 'ACCEPT_REMEDIATE' WHERE rule_id = ?",
+                    [r_id]
+                )
+            except Exception:
+                pass
 
         # Log cryptographic audit trail
         audit_id = f"aud_{uuid.uuid4().hex[:8]}"
@@ -411,21 +518,22 @@ async def reject_quarantine_group(request: RejectRequest):
     while keeping the Accept option available for future re-evaluation (HITL Decision Flow).
     """
     db = get_db()
+    _ensure_main_quarantine_table(db)
     tbl = request.source_table
     r_id = request.rule_id
     actor = request.action_by or "Human_Operator_HITL"
 
     try:
         count_res = db.execute(
-            "SELECT COUNT(*) FROM quarantine WHERE source_table = ? AND rule_id = ?",
+            "SELECT COUNT(*) FROM main.quarantine WHERE source_table = ? AND rule_id = ?",
             [tbl, r_id]
         )
         affected_rows = count_res[0][0] if count_res else 0
 
-        # Update quarantine records status to REJECTED_HELD
+        # Update main.quarantine records status to REJECTED_HELD
         db.execute(
             """
-            UPDATE quarantine
+            UPDATE main.quarantine
             SET status = 'REJECTED_HELD',
                 user_action = 'REJECTED',
                 action_at = CURRENT_TIMESTAMP,
@@ -434,6 +542,16 @@ async def reject_quarantine_group(request: RejectRequest):
             """,
             [actor, tbl, r_id]
         )
+
+        # Also update status in quarantine schema tables
+        for schema_tbl in ["ev_telemetry", "charging_sessions", "trips", "nlp_feedback"]:
+            try:
+                db.execute(
+                    f"UPDATE quarantine.{schema_tbl} SET status = 'REJECTED_HELD', resolution_action = 'REJECTED', resolved_by = ? WHERE rule_id = ?",
+                    [actor, r_id]
+                )
+            except Exception:
+                pass
 
         # Log cryptographic audit trail
         audit_id = f"aud_{uuid.uuid4().hex[:8]}"
@@ -484,4 +602,5 @@ async def block_quarantine_group(request: BlockRequest):
             action_by=request.action_by,
         )
     )
+
 

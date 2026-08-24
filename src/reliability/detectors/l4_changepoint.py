@@ -204,8 +204,8 @@ class L4ChangepointDetector:
                             f"post_window_mean={post_summary['mean']:.4f}",
                             f"post_window_std={post_summary['std']:.4f}",
                             f"post_window_count={post_summary['count']}",
-                            f"pre_window_summary={json.dumps(pre_summary)}",
-                            f"post_window_summary={json.dumps(post_summary)}",
+                            f"pre_window_summary={json.dumps(pre_summary, default=str)}",
+                            f"post_window_summary={json.dumps(post_summary, default=str)}",
                             f"baseline_mean={target_mean:.2f}",
                             f"cusum_score={score:.2f}",
                             f"shift_direction={'UP' if change_magnitude > 0 else 'DOWN'}"
@@ -334,8 +334,8 @@ class L4ChangepointDetector:
                         f"post_window_mean={post_summary['mean']:.4f}",
                         f"post_window_std={post_summary['std']:.4f}",
                         f"post_window_count={post_summary['count']}",
-                        f"pre_window_summary={json.dumps(pre_summary)}",
-                        f"post_window_summary={json.dumps(post_summary)}",
+                        f"pre_window_summary={json.dumps(pre_summary, default=str)}",
+                        f"post_window_summary={json.dumps(post_summary, default=str)}",
                         f"pelt_penalty={pen_val}",
                         f"shift_direction={'UP' if change_magnitude > 0 else 'DOWN'}"
                     ],

@@ -19,6 +19,7 @@ import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm } from '../../serv
 
 
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
+import { usePipelineStore } from '../../stores/pipelineStore';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -465,7 +466,12 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     (r) => (r.status || '').toLowerCase() === 'rejected'
   ).length;
 
+  const sourceIngestionRunId = usePipelineStore((s) => s.sourceIngestionRunId);
+
   const filteredProposals = proposals.filter((rule) => {
+    if (sourceIngestionRunId && rule.source_ingestion_run_id && rule.source_ingestion_run_id !== sourceIngestionRunId) {
+      return false;
+    }
     const status = (rule.status || 'proposed').toLowerCase();
     if (activeFilter === 'proposed') return status === 'proposed' || status === 'pending';
     if (activeFilter === 'approved') return status === 'approved' || status === 'edited';
@@ -758,6 +764,24 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     >
                       <Layers size={9} /> {reasoning.layer}
                     </span>
+                    {rule.source_ingestion_run_id && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: 'rgba(168, 85, 247, 0.08)',
+                          color: '#a855f7',
+                          border: '1px solid rgba(168, 85, 247, 0.2)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                      >
+                        📅 {rule.source_ingestion_run_id.slice(0, 16)}
+                      </span>
+                    )}
                   </div>
 
                   <span

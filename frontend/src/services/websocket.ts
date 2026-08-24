@@ -210,6 +210,16 @@ export class AgentWebSocket {
           store.setWorkspace(event.panel as WorkspaceView, event.data);
         }
         break;
+
+      case 'realtime.status':
+      case 'realtime.event':
+      case 'datatrust:realtime-tick':
+      case 'datatrust:realtime-day-advanced':
+        if (typeof window !== 'undefined') {
+          const targetEventType = (event.type === 'realtime.status') ? 'datatrust:realtime-tick' : event.type;
+          window.dispatchEvent(new CustomEvent(targetEventType, { detail: event.data || event }));
+        }
+        break;
     }
   }
 

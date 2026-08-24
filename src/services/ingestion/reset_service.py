@@ -99,12 +99,27 @@ def reset_demo() -> ResetResult:
         
         # Clear clean tables
         _clear_schema_tables(db, "clean")
+
+        # Clear raw data tables (raw.ev_telemetry, raw.trips, raw.charging_sessions, raw.synthetic_feedback, etc.)
+        raw_data_tables = ["ev_telemetry", "trips", "charging_sessions", "synthetic_feedback", "nlp_feedback"]
+        for tbl in raw_data_tables:
+            try:
+                db.execute(f"DELETE FROM raw.{tbl}")
+            except Exception:
+                pass
         
+        # Clear legacy main data tables to ensure 100% single-path Parquet ingestion
+        legacy_data_tables = ["vgreen_charging_sessions", "xanhsm_trips", "xanhsm_feedback", "vinfast_bms", "vgreen_telemetry", "raw_taxi_trips"]
+        for tbl in legacy_data_tables:
+            try:
+                db.execute(f"DELETE FROM main.{tbl}")
+            except Exception:
+                pass
+
         # Clear demo_ops batch_run_log
         db.execute("DELETE FROM demo_ops.batch_run_log")
         
-        # Clear ingestion_runs (optional: keep for history?)
-        # Decision: clear to allow fresh demo run
+        # Clear ingestion_runs
         db.execute("DELETE FROM demo_ops.ingestion_runs")
         
         # Reset demo_state to IDLE
@@ -123,11 +138,11 @@ def reset_demo() -> ResetResult:
             SET is_activated = FALSE, activated_at = NULL
         """)
         
-        logger.info("Demo reset complete: quarantine/clean/batch_run_log cleared, raw.* preserved")
+        logger.info("Demo reset complete: quarantine, clean, raw data, and batch_run_log cleared.")
         
         return ResetResult(
             status="success",
-            message="Demo state reset complete. Quarantine, clean, batch_run_log cleared. Raw tables preserved.",
+            message="Demo state reset complete. All raw data tables reset to 0 rows pending day activation from Parquet.",
             phase=DemoPhase.IDLE,
         )
         

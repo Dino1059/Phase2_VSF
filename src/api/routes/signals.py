@@ -23,7 +23,7 @@ def list_signals(
         rows = db.execute(
             """
             SELECT rule_id, reason, original_data, quarantined_at
-            FROM quarantine
+            FROM main.quarantine
             LIMIT 50
             """
         )

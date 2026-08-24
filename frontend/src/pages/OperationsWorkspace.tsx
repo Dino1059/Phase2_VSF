@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   TriangleAlert,
@@ -20,6 +20,7 @@ import {
   Lock,
   Eye,
   Clock,
+  Sparkles,
 } from 'lucide-react';
 import { QuarantineZoneTab } from '../components/workspace/QuarantineZoneTab';
 import {
@@ -66,6 +67,7 @@ type Row = Record<string, any>;
 
 const MULTI_DATASET_OPTIONS = [
   { key: 'all', label: { en: 'All Sources', vi: 'Tất Cả Nguồn Dữ Liệu' }, icon: Database, color: 'var(--neon-cyan)' },
+  { key: 'vingroup_pilot', label: { en: 'Vingroup Pilot (Parquet/DB)', vi: 'Vingroup Pilot (Parquet/DB)' }, icon: Sparkles, color: '#a855f7' },
   { key: 'vinfast_ev_telemetry', label: { en: 'VinFast EV Telemetry', vi: 'VinFast EV Telemetry' }, icon: Car, color: '#0284c7' },
   { key: 'vgreen_charging_stations', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
   { key: 'xanh_sm_trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
@@ -124,14 +126,17 @@ function formatCell(row: Row, ...keys: string[]) {
 export const OperationsWorkspace: React.FC = () => {
   const { view } = useParams<{ view: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const ruleParam = searchParams.get('rule_id') || searchParams.get('rule');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
 
   // Determine main dashboard group and active subtab
-  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots';
+  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || !!ruleParam;
   const mainGroup: DashboardGroup = isGovernanceView ? 'governance' : 'alerts';
 
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>(() => {
+    if (ruleParam) return 'quarantine';
     if (view && (view === 'incidents' || view === 'signals' || view === 'traces')) return view;
     if (view && (view === 'rules' || view === 'quarantine' || view === 'executions' || view === 'snapshots')) return view;
     return isGovernanceView ? 'rules' : 'alerts';
@@ -886,7 +891,7 @@ export const OperationsWorkspace: React.FC = () => {
       >
         {activeSubTab === 'quarantine' ? (
           <div style={{ padding: '16px' }}>
-            <QuarantineZoneTab initialDatasetKey={datasetFilter} />
+            <QuarantineZoneTab initialDatasetKey={datasetFilter} initialRuleId={ruleParam || undefined} />
           </div>
         ) : loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -1219,8 +1224,9 @@ export const OperationsWorkspace: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
+                                const rid = rule.id || rule.rule_id;
                                 setActiveSubTab('quarantine');
-                                navigate('/operations/quarantine');
+                                navigate(`/operations/quarantine?rule_id=${rid}`);
                               }}
                               style={{
                                 background: 'rgba(2, 132, 199, 0.15)',

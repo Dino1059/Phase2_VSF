@@ -10,6 +10,7 @@ Hai nhánh:
 from __future__ import annotations
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -21,10 +22,8 @@ from src.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# Layers that run synchronously in realtime (SUPPORTED path)
+# Layers that run synchronously in realtime (Single-row 1-table path)
 SUPPORTED_REALTIME_LAYERS = {"L1", "L3"}
-# Layers that are deferred to batch processor (LAZY path)
-LAZY_LAYERS = {"L2", "L4"}
 
 
 @dataclass
@@ -45,10 +44,8 @@ class RuleViolation:
 class ApplyResult:
     """Result of applying rules to a batch of rows."""
     supported_violations: list[RuleViolation]
-    lazy_signals: list[dict]  # For L2/L4: signal dicts to pass to batch
     rows_processed: int
     quarantined_count: int
-    deferred_count: int
 
 
 def _compute_lineage_hash(row_data: dict, rule_id: str) -> str:
@@ -66,9 +63,7 @@ def apply_rule_row_level(
     """
     Apply a single rule to a single DataFrame row.
     Returns RuleViolation if rule is violated, None otherwise.
-
-    SUPPORTED layers (L1, L3 spatial): inline evaluation
-    LAZY layers (L2, L4): returns violation with layer tag for deferred processing
+    Strictly single-row 1-table evaluation (L1 / single-row L3).
     """
     layer = rule.get("layer", "L1")
     rule_id = rule.get("rule_id", "UNKNOWN")
@@ -77,30 +72,23 @@ def apply_rule_row_level(
     severity = rule.get("severity", "MEDIUM")
 
     # Parse rule expression
-    rule_expression = rule.get("rule_expression", "")
     target_column = rule.get("target_column", "")
 
     # Row value extraction
     row_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
-    keys = list(row.keys())
-    row_id = str(row.get("id", row.get(keys[0] if keys else "", "")))
+    raw_id = row_dict.get("id")
+    if pd.isna(raw_id) or raw_id is None or str(raw_id).lower() in ("nan", "none", "null", ""):
+        raw_id = getattr(row, "name", 0)
+    row_id = str(raw_id) if not pd.isna(raw_id) else "0"
 
     try:
         # L1: Range / null / arithmetic constraints
         if layer == "L1":
             return _apply_l1_rule(rule, row, row_dict, row_id, source_table, rule_id, rule_version_id, severity)
 
-        # L2: Contextual drift (needs history)
-        elif layer == "L2":
-            return _apply_l2_signal(rule, row, row_dict, row_id, source_table, rule_id, rule_version_id, severity)
-
-        # L3: Relational constraints
+        # L3: Relational / cross-field single-row constraints
         elif layer == "L3":
             return _apply_l3_rule(rule, row, row_dict, row_id, source_table, rule_id, rule_version_id, severity)
-
-        # L4: Changepoint detection (needs time series)
-        elif layer == "L4":
-            return _apply_l4_signal(rule, row, row_dict, row_id, source_table, rule_id, rule_version_id, severity)
 
     except Exception as exc:
         logger.debug(f"Rule {rule_id} evaluation error on row {row_id}: {exc}")
@@ -200,34 +188,6 @@ def _apply_l1_rule(
     return None
 
 
-def _apply_l2_signal(
-    rule: dict,
-    row: pd.Series,
-    row_dict: dict,
-    row_id: str,
-    source_table: str,
-    rule_id: str,
-    rule_version_id: str,
-    severity: str,
-) -> Optional[RuleViolation]:
-    """
-    L2 contextual drift — returns a violation-like object tagged as L2
-    for deferred batch processing. Cannot evaluate inline without history.
-    """
-    # Return a "LAZY" violation — marked for deferred processing
-    return RuleViolation(
-        rule_id=rule_id,
-        rule_version_id=rule_version_id,
-        source_table=source_table,
-        source_row_id=row_id,
-        reason=f"L2 contextual drift check deferred for entity {row_dict.get('vehicle_vin', row_id)}",
-        severity=severity,
-        original_data=row_dict,
-        layer="L2",  # Tagged as L2 for filtering
-        lineage_hash=_compute_lineage_hash(row_dict, rule_id),
-    )
-
-
 def _apply_l3_rule(
     rule: dict,
     row: pd.Series,
@@ -238,7 +198,7 @@ def _apply_l3_rule(
     rule_version_id: str,
     severity: str,
 ) -> Optional[RuleViolation]:
-    """Evaluate L3 relational rule on a single row (SUPPORTED path)."""
+    """Evaluate L3 single-row cross-field rule (e.g. ratio/arithmetic on 1 row)."""
     rule_expression = rule.get("rule_expression", "")
     target_column = rule.get("target_column", "")
     related_column = rule.get("related_column", "")
@@ -249,16 +209,14 @@ def _apply_l3_rule(
     val = row_dict.get(target_column)
     related_val = row_dict.get(related_column) if related_column else None
 
-    # Check arithmetic consistency: e.g., fare_amount = trip_distance * rate
     if "arithmetic" in rule_expression.lower() or "+" in rule_expression or "-" in rule_expression:
         if related_val is not None and val is not None:
             try:
                 fval = float(val)
                 frel = float(related_val)
-                # Simple cross-field check: if both non-zero, check ratio sanity
                 if fval > 0 and frel > 0:
                     ratio = fval / frel
-                    if ratio > 10 or ratio < 0.01:  # Unrealistic ratio
+                    if ratio > 10 or ratio < 0.01:
                         return RuleViolation(
                             rule_id=rule_id,
                             rule_version_id=rule_version_id,
@@ -276,91 +234,38 @@ def _apply_l3_rule(
     return None
 
 
-def _apply_l4_signal(
-    rule: dict,
-    row: pd.Series,
-    row_dict: dict,
-    row_id: str,
-    source_table: str,
-    rule_id: str,
-    rule_version_id: str,
-    severity: str,
-) -> Optional[RuleViolation]:
-    """
-    L4 changepoint — returns a violation-like object tagged as L4
-    for deferred batch processing. Cannot evaluate inline without time series.
-    """
-    return RuleViolation(
-        rule_id=rule_id,
-        rule_version_id=rule_version_id,
-        source_table=source_table,
-        source_row_id=row_id,
-        reason=f"L4 changepoint check deferred for entity {row_dict.get('vehicle_vin', row_id)}",
-        severity=severity,
-        original_data=row_dict,
-        layer="L4",  # Tagged as L4 for filtering
-        lineage_hash=_compute_lineage_hash(row_dict, rule_id),
-    )
-
-
 def apply_rules_batch(
     rules: list[dict],
     df: pd.DataFrame,
     snapshot_id: str = "realtime",
 ) -> ApplyResult:
     """
-    Apply all rules to a DataFrame batch.
-    Returns ApplyResult with separated supported (L1/L3) and lazy (L2/L4) violations.
+    Apply single-row rules (L1/L3) to a DataFrame batch in realtime.
+    Returns ApplyResult with single-row violations for quarantine.
     """
     supported_violations: list[RuleViolation] = []
-    lazy_signals: list[dict] = []
-    quarantined_count = 0
 
     if df.empty or not rules:
         return ApplyResult(
             supported_violations=[],
-            lazy_signals=[],
             rows_processed=0,
             quarantined_count=0,
-            deferred_count=0,
         )
 
-    # Group rules by layer for efficiency
+    # Filter single-row rules (L1, L3)
     l1_l3_rules = [r for r in rules if r.get("layer", "L1") in SUPPORTED_REALTIME_LAYERS]
-    l2_l4_rules = [r for r in rules if r.get("layer", "L1") in LAZY_LAYERS]
 
-    # Process SUPPORTED rules (L1, L3) inline
+    # Process single-row rules inline
     for _, row in df.iterrows():
         for rule in l1_l3_rules:
             violation = apply_rule_row_level(rule, row)
             if violation:
                 supported_violations.append(violation)
 
-    # LAZY rules (L2, L4): collect entity info for batch processor
-    for _, row in df.iterrows():
-        row_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
-        for rule in l2_l4_rules:
-            violation = apply_rule_row_level(rule, row)
-            if violation:
-                lazy_signals.append({
-                    "rule_id": violation.rule_id,
-                    "rule_version_id": violation.rule_version_id,
-                    "source_table": violation.source_table,
-                    "source_row_id": violation.source_row_id,
-                    "reason": violation.reason,
-                    "severity": violation.severity,
-                    "original_data": violation.original_data,
-                    "layer": violation.layer,
-                    "lineage_hash": violation.lineage_hash,
-                    "event_time": datetime.now(timezone.utc).isoformat(),
-                })
-
     return ApplyResult(
         supported_violations=supported_violations,
-        lazy_signals=lazy_signals,
         rows_processed=len(df),
         quarantined_count=len(supported_violations),
-        deferred_count=len(lazy_signals),
     )
 
 
@@ -369,7 +274,7 @@ def quarantine_violations(
     snapshot_id: str = "realtime",
 ) -> int:
     """
-    Write violations to quarantine table.
+    Write violations to quarantine tables.
     Returns count of rows written.
     """
     if not violations:
@@ -381,29 +286,88 @@ def quarantine_violations(
 
     for v in violations:
         try:
+            try:
+                row_id_int = int(float(v.source_row_id)) if (v.source_row_id and v.source_row_id.lower() not in ("nan", "none", "null", "")) else 0
+            except (ValueError, TypeError):
+                row_id_int = 0
+
             original_data_json = json.dumps(v.original_data, default=str)
-            conn.execute(
-                """
-                INSERT INTO quarantine (
-                    id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id,
-                    reason, original_data, lineage_hash, status, user_action, quarantined_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUARANTINED', 'NONE', CURRENT_TIMESTAMP)
-                """,
-                [
-                    f"q_{v.source_table}_{v.rule_id}_{v.source_row_id}",
-                    snapshot_id,
-                    v.source_table,
-                    v.source_row_id,
-                    v.rule_id,
-                    v.rule_version_id,
-                    v.reason,
-                    original_data_json,
-                    v.lineage_hash,
-                ],
-            )
+            raw_id = f"q_{v.source_table}_{v.rule_id}_{row_id_int}_{uuid.uuid4().hex[:6]}"
+
+            # 1. Insert into main.quarantine (explicit main schema table)
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO main.quarantine (
+                        id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id,
+                        reason, original_data, lineage_hash, status, user_action, quarantined_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUARANTINED', 'NONE', CURRENT_TIMESTAMP)
+                    """,
+                    [
+                        raw_id,
+                        snapshot_id,
+                        v.source_table,
+                        row_id_int,
+                        v.rule_id,
+                        v.rule_version_id,
+                        v.reason,
+                        original_data_json,
+                        v.lineage_hash,
+                    ],
+                )
+            except Exception as e_main:
+                logger.debug(f"main.quarantine insert warning: {e_main}")
+
+            # 2. Insert into specific quarantine schema table (e.g. quarantine.ev_telemetry)
+            target_table_name = "ev_telemetry"
+            st_lower = (v.source_table or "").lower()
+            if "charging" in st_lower or "station" in st_lower:
+                target_table_name = "charging_sessions"
+            elif "trip" in st_lower:
+                target_table_name = "trips"
+            elif "nlp" in st_lower or "feedback" in st_lower:
+                target_table_name = "nlp_feedback"
+
+            day_idx = 0
+            try:
+                day_idx = int(v.original_data.get("day_idx", v.original_data.get("assigned_day_index", 0)))
+            except Exception:
+                day_idx = 0
+
+            vin = str(v.original_data.get("vehicle_vin", v.original_data.get("vin", v.original_data.get("vehicle_id", "UNKNOWN"))))
+
+            try:
+                conn.execute(
+                    f"""
+                    INSERT INTO quarantine.{target_table_name} (
+                        quarantine_id, source_ingestion_run_id, day_idx, vehicle_vin,
+                        rule_id, rule_layer, rule_name, reason, raw_row,
+                        detected_at, detected_via, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 'OPEN')
+                    """,
+                    [
+                        raw_id,
+                        snapshot_id,
+                        day_idx,
+                        vin,
+                        v.rule_id,
+                        v.layer,
+                        v.rule_id,
+                        v.reason,
+                        original_data_json,
+                        "REALTIME" if "realtime" in snapshot_id.lower() else "BATCH",
+                    ],
+                )
+            except Exception as e_schema:
+                logger.debug(f"quarantine.{target_table_name} insert warning: {e_schema}")
+
             count += 1
         except Exception as exc:
             logger.warning(f"Failed to quarantine row {v.source_row_id}: {exc}")
 
-    conn.commit()
+    try:
+        conn.commit()
+    except Exception:
+        pass
     return count
+

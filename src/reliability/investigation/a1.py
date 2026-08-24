@@ -289,7 +289,9 @@ class A1BoundedInvestigator:
                 parsed = extract_json(content)
                 if parsed and ("claim" in parsed or "classification" in parsed):
                     # If model jumped to conclusion on turn 1 without any tool calls, prompt to verify first
-                    if tool_calls_made == 0:
+                    use_llm_flag = getattr(self.llm, "use_llm", True)
+                    if tool_calls_made == 0 and use_llm_flag:
+                        tool_calls_made += 1
                         messages.append({"role": "assistant", "content": content})
                         messages.append({
                             "role": "user",
@@ -357,7 +359,7 @@ class A1BoundedInvestigator:
                     messages.append({"role": "assistant", "content": content})
                     messages.append({
                         "role": "user",
-                        "content": f"Observation from {res.tool_name}:\n{json.dumps(res.data, ensure_ascii=False)}\nEvidence ID: {res.evidence_ref}\n\nProvide next ACTION or FINAL_HYPOTHESIS."
+                        "content": f"Observation from {res.tool_name}:\n{json.dumps(res.data, ensure_ascii=False, default=str)}\nEvidence ID: {res.evidence_ref}\n\nProvide next ACTION or FINAL_HYPOTHESIS."
                     })
                 else:
                     messages.append({"role": "assistant", "content": content})

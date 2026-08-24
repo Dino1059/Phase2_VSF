@@ -284,11 +284,14 @@ CREATE TABLE IF NOT EXISTS demo_ops.demo_state (
 -- Initialize singleton
 INSERT INTO demo_ops.demo_state(id) VALUES (1) ON CONFLICT(id) DO NOTHING;
 
+-- quality_rules: layer column (ensure it exists before view)
+ALTER TABLE main.quality_rules ADD COLUMN IF NOT EXISTS layer VARCHAR;
+
 -- View: realtime rule set (L1 only, approved)
 CREATE OR REPLACE VIEW demo_ops.realtime_rule_set AS
 SELECT
     q.id              AS rule_id,
-    q.layer,
+    COALESCE(q.layer, 'L1') AS layer,
     q.rule_name,
     q.rule_expression,
     q.dataset_key      AS target_table,
@@ -296,7 +299,7 @@ SELECT
     q.confidence
 FROM main.quality_rules q
 WHERE q.status = 'approved'
-  AND q.layer = 'L1'
+  AND (q.layer = 'L1' OR q.layer IS NULL)
   AND (q.dataset_key IS NOT NULL AND q.dataset_key != '');
 
 
@@ -316,6 +319,3 @@ ALTER TABLE main.profile_results ADD COLUMN IF NOT EXISTS source_ingestion_run_i
 -- agent_traces: source_ingestion_run_id
 ALTER TABLE main.agent_traces ADD COLUMN IF NOT EXISTS source_ingestion_run_id VARCHAR;
 
--- quality_rules: layer column (ensure it exists)
--- Already exists in current DB per inspect_schema output, but add for safety
-ALTER TABLE main.quality_rules ADD COLUMN IF NOT EXISTS layer VARCHAR;

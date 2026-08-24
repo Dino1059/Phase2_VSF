@@ -1,4 +1,7 @@
-import duckdb, os, threading
+import duckdb, os, threading, logging
+
+logger = logging.getLogger(__name__)
+
 
 
 class DuckDBManager:
@@ -68,19 +71,10 @@ class DuckDBManager:
                             if attempt < 4:
                                 continue
                         if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
-                            if attempt < 4:
-                                time.sleep(0.3)
-                            else:
-                                try:
-                                    self._master_conn = duckdb.connect(self.db_path, read_only=True)
-                                    break
-                                except Exception:
-                                    raise e
+                            time.sleep(0.2)
                         else:
-                            if attempt < 4:
-                                time.sleep(0.2)
-                            else:
-                                raise
+                            time.sleep(0.2)
+
 
                 try:
                     self._master_conn.execute("SELECT 1 FROM quality_rules LIMIT 1")
@@ -391,19 +385,54 @@ class DuckDBManager:
             try:
                 with open(migration_path, "r", encoding="utf-8") as f:
                     sql = f.read()
-                conn.execute(sql)
-            except Exception:
-                pass
+                statements = [stmt.strip() for stmt in sql.split(";") if stmt.strip()]
+                for stmt in statements:
+                    try:
+                        conn.execute(stmt)
+                    except Exception as e:
+                        logger.warning(f"Error executing statement in migration 0002: {e}")
+
+                # Ensure baseline rows in demo_ops
+                conn.execute("""
+                    INSERT INTO demo_ops.demo_state (id, current_day_idx, warmup_completed, realtime_running)
+                    SELECT 1, -1, FALSE, FALSE
+                    WHERE NOT EXISTS (SELECT 1 FROM demo_ops.demo_state);
+                """)
+                conn.execute("""
+                    INSERT INTO demo_ops.landing_day_snapshots (snapshot_id, source_file, day_idx, is_activated, row_count)
+                    SELECT 'SNAP_' || LPAD(CAST(i AS VARCHAR), 3, '0'), 'day_' || CAST(i AS VARCHAR) || '.csv', i, FALSE, 0
+                    FROM range(0, 15) t(i)
+                    WHERE NOT EXISTS (SELECT 1 FROM demo_ops.landing_day_snapshots);
+                """)
+            except Exception as e:
+                logger.error(f"Error executing migration 0002: {e}")
 
     def execute(self, query: str, params: list = None) -> list:
-        conn = self.get_connection()
-        if params is not None:
-            return conn.execute(query, params).fetchall()
-        return conn.execute(query).fetchall()
+        conn = self._get_master_conn()
+        with self._conn_lock:
+            if params is not None:
+                res = conn.execute(query, params)
+            else:
+                res = conn.execute(query)
+            q_lower = query.strip().lower()
+            if any(q_lower.startswith(kw) for kw in ("update", "insert", "delete", "alter", "create", "drop")):
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+            try:
+                return res.fetchall()
+            except Exception:
+                return []
 
     def execute_many(self, query: str, data: list) -> None:
-        conn = self.get_connection()
-        conn.executemany(query, data)
+        conn = self._get_master_conn()
+        with self._conn_lock:
+            conn.executemany(query, data)
+            try:
+                conn.commit()
+            except Exception:
+                pass
 
     def close(self) -> None:
         with self._conn_lock:

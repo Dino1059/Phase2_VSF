@@ -787,6 +787,8 @@ export interface HITLProposal {
   reject_reason?: string;
   feedback_by?: string;
   feedback_at?: string | null;
+  source_ingestion_run_id?: string;
+  created_at?: string | null;
 }
 
 export const hitlApi = {
@@ -979,6 +981,14 @@ export interface IngestionDaySnapshot {
   is_activated: boolean;
   is_ingested: boolean;
   ingested_rows: number;
+  status?: 'completed' | 'running' | 'idle' | 'failed';
+  alerts_count?: number;
+  l1_alerts?: number;
+  l2_alerts?: number;
+  l3_alerts?: number;
+  l4_alerts?: number;
+  duration_ms?: number;
+  realtime_active?: boolean;
 }
 
 export interface IngestionDayTimeline {
@@ -1018,6 +1028,14 @@ export interface RealtimeStatus {
   last_tick_at: string | null;
   status: string; // "idle" | "running" | "error"
   message: string;
+  total_day_rows?: number;
+  read_cursor?: number;
+  clean_total?: number;
+  quarantined_total?: number;
+  l1_total?: number;
+  l2_total?: number;
+  l3_total?: number;
+  l4_total?: number;
 }
 
 export interface QuarantineSummaryRule {
@@ -1056,6 +1074,13 @@ export const ingestionApi = {
   getStatus: () => request<IngestionDemoState>('/ingestion/status'),
   getDays: () => request<IngestionDayTimeline>('/ingestion/days'),
   getDay: (dayIdx: number) => request<IngestionDaySnapshot>(`/ingestion/days/${dayIdx}`),
+  activateWarmup: () =>
+    request<{
+      day_idx: number;
+      status: string;
+      message: string;
+      ingestion_run_id: string | null;
+    }>('/ingestion/warmup', { method: 'POST' }),
   activateDay: (dayIdx: number, forceReplay = false) =>
     request<{
       day_idx: number;

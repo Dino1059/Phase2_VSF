@@ -27,7 +27,7 @@ export const ResetDbButton: React.FC<ResetDbButtonProps> = ({ onReset }) => {
       <button
         className="reset-db-btn"
         onClick={() => setConfirmOpen(true)}
-        title={isVi ? 'Đặt lại trạng thái demo (không xóa raw data)' : 'Reset demo state (keeps raw data)'}
+        title={isVi ? 'Đặt lại DB về trạng thái ban đầu (0 dòng)' : 'Reset DB to fresh initial state (0 rows)'}
       >
         <RotateCcw size={13} />
         {isVi ? 'Đặt lại DB' : 'Reset DB'}
@@ -44,8 +44,8 @@ export const ResetDbButton: React.FC<ResetDbButtonProps> = ({ onReset }) => {
             </h3>
             <p className="modal-body">
               {isVi
-                ? 'Thao tác này sẽ xóa quarantine, batch_run_log và đặt lại demo_state về -1. Dữ liệu raw được giữ nguyên.'
-                : 'This will clear quarantine, batch_run_log and reset demo_state to -1. Raw data will be preserved.'}
+                ? 'Thao tác này sẽ xóa quarantine, clean, batch_run_log và đặt lại các bảng raw dữ liệu về 0 dòng để sẵn sàng nạp từ Parquet theo từng ngày. File Parquet gốc trên ổ đĩa KHÔNG bị ảnh hưởng.'
+                : 'This will clear quarantine, clean, batch_run_log and reset raw data tables to 0 rows for fresh day ingestion from Parquet. The original Parquet file on disk will NOT be affected.'}
             </p>
             <div className="modal-actions">
               <button

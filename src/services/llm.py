@@ -101,6 +101,10 @@ class UnifiedLLMAdapter:
         # Groq (Optional)
         self.groq_key = os.environ.get("GROQ_API_KEY", "")
         self.groq_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        if self.groq_model.startswith("groq/"):
+            self.groq_model = self.groq_model.replace("groq/", "")
+        if self.groq_model in ("compound-mini", ""):
+            self.groq_model = "llama-3.3-70b-versatile"
 
         # Google keys - multi-key pool for rate-limiting routing (Primary: gemini-3.5-flash-lite)
         all_gemini_keys: list[str] = []
@@ -131,6 +135,11 @@ class UnifiedLLMAdapter:
         self._ollama_available = None  # Lazy check
         
         self.preferred_provider = os.environ.get("LLM_PROVIDER", "auto").lower()
+        env_use_llm = os.environ.get("USE_LLM", "true").lower() not in ("false", "off", "0", "no")
+        if self.preferred_provider in ("off", "none", "mock", "heuristic", "false", "disabled") or not env_use_llm:
+            self.use_llm = False
+        else:
+            self.use_llm = use_llm
 
         # Explicit overrides
         self._explicit_key = api_key
@@ -454,16 +463,63 @@ class UnifiedLLMAdapter:
             )
 
     def _heuristic_fallback(self, messages: list[dict]) -> LLMResponse:
-        last_msg = messages[-1]["content"] if messages else ""
-        lower = last_msg.lower()
+        all_text = " ".join([str(m.get("content", "")) for m in messages if isinstance(m, dict)]).lower()
+        last_msg = (messages[-1]["content"] if messages else "").lower()
 
-        if "dataset" in lower or "how many" in lower:
+        # 1. A1 Bounded Investigator Fallback -> Return FINAL_HYPOTHESIS JSON immediately
+        if "begin your investigation" in all_text or "incident id" in all_text or "rca hypothesis" in all_text:
+            hyp_payload = {
+                "claim": "Heuristic analysis: Signal anomaly verified against operational bounds.",
+                "classification": "DATA",
+                "confidence": 0.88,
+                "supporting_evidence": ["ev-heuristic-l1-l4"],
+                "contradicting_evidence": [],
+                "missing_evidence": []
+            }
+            return LLMResponse(
+                content=f"FINAL_HYPOTHESIS:\n{json.dumps(hyp_payload)}",
+                finish_reason="stop",
+                model_used="heuristic-a1"
+            )
+
+        # 2. ReAct Agent Tool Calls (Profiler, Anomaly, Proposer, Executor)
+        if "profile" in last_msg or "profile_dataset" in last_msg or "profiling" in last_msg:
+            return LLMResponse(
+                content="ACTION: profile_dataset\nARGS: {}",
+                tool_calls=[{"name": "profile_dataset", "args": {}}],
+                finish_reason="tool_calls",
+                model_used="heuristic-profiler"
+            )
+        if "anomal" in last_msg or "detect_anomalies" in last_msg:
+            return LLMResponse(
+                content="ACTION: detect_anomalies\nARGS: {}",
+                tool_calls=[{"name": "detect_anomalies", "args": {}}],
+                finish_reason="tool_calls",
+                model_used="heuristic-anomaly"
+            )
+        if "propose" in last_msg or "rule" in last_msg or "propose_quality_rules" in last_msg:
+            return LLMResponse(
+                content="ACTION: propose_quality_rules\nARGS: {}",
+                tool_calls=[{"name": "propose_quality_rules", "args": {}}],
+                finish_reason="tool_calls",
+                model_used="heuristic-proposer"
+            )
+        if "clean" in last_msg or "quarantine" in last_msg:
+            return LLMResponse(
+                content="ACTION: clean_database\nARGS: {}",
+                tool_calls=[{"name": "clean_database", "args": {}}],
+                finish_reason="tool_calls",
+                model_used="heuristic-executor"
+            )
+
+        # 3. Chat / General Inquiry Fallback
+        if "dataset" in last_msg or "how many" in last_msg:
             reply = "You have **18 datasets** registered in the DataTrust OS repository including vietnam_trips_dirty, vgreen_telemetry, and xanhsm_feedback."
-        elif "evidence" in lower or "summarize" in lower:
+        elif "evidence" in last_msg or "summarize" in last_msg:
             reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."
-        elif "rca" in lower or "hypothesis" in lower or "root cause" in lower:
+        elif "rca" in last_msg or "hypothesis" in last_msg or "root cause" in last_msg:
             reply = "RCA Hypothesis Synthesis:\n- Primary: Dynamic A1 verified data contract violation in entity STATION-VGREEN-01.\n- Data Cause (Confidence: 88%). Recommend enforcing preventive range rule check."
-        elif "hitl" in lower or "authorize" in lower or "governance" in lower:
+        elif "hitl" in last_msg or "authorize" in last_msg or "governance" in last_msg:
             reply = "HITL Governance Audit:\n- Preventive control rule requires Data Steward digital signature & authorization.\n- Execution payload is hash-bound to authorization token."
         else:
             reply = f"DataTrust Operational Trust Assistant: Received inquiry '{last_msg}'. I am monitoring incident context, supporting evidence, and governance state. How can I assist your data stewardship workflow?"
@@ -471,6 +527,22 @@ class UnifiedLLMAdapter:
         return LLMResponse(content=reply, finish_reason="stop", model_used="heuristic")
 
     def structured_output(self, prompt: str, schema: dict) -> dict:
+        if not self.use_llm:
+            if "rules" in schema.get("properties", {}):
+                return {
+                    "rules": [
+                        {
+                            "rule_name": "prevent_invalid_soc",
+                            "target_table": "ev_telemetry",
+                            "condition": "battery_soc >= 0 AND battery_soc <= 100",
+                            "action": "QUARANTINE",
+                            "reasoning": "Heuristic fallback: battery_soc must strictly stay in [0, 100]."
+                        }
+                    ],
+                    "diagnosis": "Heuristic analysis complete."
+                }
+            return {"status": "completed", "message": "Heuristic fallback structured response"}
+
         messages = [
             {"role": "system", "content": f"Respond ONLY with valid JSON matching this schema: {json.dumps(schema)}"},
             {"role": "user", "content": prompt},

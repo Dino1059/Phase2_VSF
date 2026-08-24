@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ShieldAlert, Eye, X, CheckCircle, RefreshCw, Filter } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShieldAlert, Eye, X, CheckCircle, RefreshCw, Filter, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ingestionApi } from '../../services/api';
 import type { QuarantineSummaryRule, QuarantineDetailRecord } from '../../services/api';
@@ -11,6 +12,7 @@ interface QuarantinePanelProps {
 export const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ table = 'ev_telemetry' }) => {
   const { i18n } = useTranslation();
   const isVi = i18n.language === 'vi';
+  const navigate = useNavigate();
 
   const [summary, setSummary] = useState<QuarantineSummaryRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,10 +140,21 @@ export const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ table = 'ev_te
                 <span>{isVi ? 'Lần cuối:' : 'Last:'} {rule.last_seen ? new Date(rule.last_seen).toLocaleString() : '—'}</span>
               </div>
 
-              <button className="qrc-view-btn" onClick={() => void openDrawer(rule)}>
-                <Eye size={12} />
-                {isVi ? 'Xem chi tiết' : 'View details'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button className="qrc-view-btn" onClick={() => void openDrawer(rule)}>
+                  <Eye size={12} />
+                  {isVi ? 'Xem chi tiết' : 'View details'}
+                </button>
+                <button
+                  className="qrc-view-btn"
+                  onClick={() => navigate(`/operations/quarantine?rule_id=${rule.rule_id}`)}
+                  style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--neon-cyan)', border: '1px solid rgba(6, 182, 212, 0.3)' }}
+                  title={isVi ? 'Mở trong Quarantine Zone' : 'Open in Quarantine Zone'}
+                >
+                  <ExternalLink size={11} />
+                  {isVi ? 'Quarantine Zone ↗' : 'Quarantine Zone ↗'}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -162,9 +175,34 @@ export const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ table = 'ev_te
                   <div className="drawer-rule-id">{drawerRule.rule_id}</div>
                 </div>
               </div>
-              <button className="drawer-close" onClick={closeDrawer}>
-                <X size={16} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeDrawer();
+                    navigate(`/operations/quarantine?rule_id=${drawerRule.rule_id}`);
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(6, 182, 212, 0.12)',
+                    color: 'var(--neon-cyan)',
+                    border: '1px solid rgba(6, 182, 212, 0.35)',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ExternalLink size={12} />
+                  <span>{isVi ? 'Mở Quarantine Zone ↗' : 'Open in Quarantine Zone ↗'}</span>
+                </button>
+                <button className="drawer-close" onClick={closeDrawer}>
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             {/* Filter bar */}

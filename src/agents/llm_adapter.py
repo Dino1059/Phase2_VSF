@@ -95,39 +95,80 @@ Return a valid JSON object with the following schema:
         except Exception as e:
             logger.warning(f"Live LLM call returned error, using robust domain fallback: {e}")
 
-        # Robust domain fallback rules for VinGroup EV & Mobility
+        # Robust domain fallback rules derived from fault_manifest.json (L1-L4 & EXT_NLP)
         fallback_rules = [
+            # L1 Invariant: Range & Relational
             RuleSpec(
-                rule_id="rule_bms_soc_range",
+                rule_id="rule_l1_bms_soc_range",
                 rule_type="range",
                 target_column="battery_soc",
                 parameters={"min": 0.0, "max": 100.0},
                 action="quarantine_range",
                 severity="critical",
-                description="Battery SOC must be within 0.0% to 100.0%",
+                description="L1 Invariant (F1): Battery SOC must be strictly within [0.0%, 100.0%].",
             ),
             RuleSpec(
-                rule_id="rule_vgreen_temp_bound",
-                rule_type="range",
-                target_column="temperature_celsius",
-                parameters={"min": -10.0, "max": 80.0},
-                action="quarantine_range",
+                rule_id="rule_l1_rpm_speed_mismatch",
+                rule_type="cross_field",
+                target_column="motor_rpm",
+                parameters={"expression": "NOT (speed_kmh = 0 AND motor_rpm > 12000)"},
+                action="quarantine_cross_field",
                 severity="high",
-                description="V-GREEN charging temperature must not exceed 80.0°C",
+                description="L1 Invariant (F3): Speed=0 km/h but Motor RPM > 12,000 indicates RPM-Speed sensor/CAN mismatch.",
+            ),
+            # L2 Contextual Drift
+            RuleSpec(
+                rule_id="rule_l2_battery_temp_drift",
+                rule_type="range",
+                target_column="battery_temp_c",
+                parameters={"expression": "ABS(battery_temp_c - baseline_14d_median) <= 2 * baseline_14d_mad"},
+                action="quarantine",
+                severity="high",
+                description="L2 Contextual Drift (F11): Battery temp spike exceeding 14-day median absolute deviation (MAD) baseline.",
+            ),
+            # L3 Relational Break & Spatial Range
+            RuleSpec(
+                rule_id="rule_l3_gps_hanoi_bbox",
+                rule_type="range",
+                target_column="pickup_latitude",
+                parameters={"min_lat": 20.95, "max_lat": 21.10, "min_lon": 105.75, "max_lon": 105.90},
+                action="quarantine",
+                severity="medium",
+                description="L3 Spatial Range (F6): Trip pickup coordinates must fall inside valid Hanoi metropolitan region.",
             ),
             RuleSpec(
-                rule_id="rule_xanhsm_fare_positive",
-                rule_type="range",
-                target_column="total_fare",
-                parameters={"min": 0.0, "max": 50000000.0},
-                action="quarantine_range",
+                rule_id="rule_l3_duration_kwh_mismatch",
+                rule_type="cross_field",
+                target_column="charging_duration_min",
+                parameters={"expression": "NOT (charging_duration_min > baseline_duration_p95 AND kwh_delivered < baseline_kwh_p05)"},
+                action="quarantine_cross_field",
                 severity="medium",
-                description="Trip fare must be positive",
+                description="L3 Relational Break (F14): Long station charging duration with flat/zero kWh delivery.",
+            ),
+            # L4 Changepoint / Regime Shift
+            RuleSpec(
+                rule_id="rule_l4_charging_frequency_shift",
+                rule_type="custom",
+                target_column="daily_charging_sessions",
+                parameters={"algorithm": "CUSUM", "threshold": "regime_shift_threshold"},
+                action="flag",
+                severity="critical",
+                description="L4 Regime Shift (F15): Fleet-level change-point detection (CUSUM) for abnormal daily charging frequency shifts.",
+            ),
+            # EXT_NLP Format & Teencode
+            RuleSpec(
+                rule_id="rule_ext_nlp_teencode_corruption",
+                rule_type="format",
+                target_column="feedback_text",
+                parameters={"pattern": "teen_code_regex"},
+                action="flag",
+                severity="low",
+                description="EXT NLP Format (F9): Customer feedback text should not contain corrupted teencode or noise.",
             ),
         ]
         return LLMResponse(
             rules=fallback_rules,
-            reasoning="Generated robust domain validation rules for VinFast BMS, VGreen, and Xanh SM.",
+            reasoning="Generated multi-layer fallback validation rules (L1-L4 & EXT_NLP) based on VinGroup Mobility fault manifest.",
             prompt_tokens=200,
             completion_tokens=100,
             cost_usd=0.0005,

@@ -221,9 +221,16 @@ def _extract_token_and_role(request: Request) -> Tuple[Optional[str], Optional[U
             return raw_token, role_val, user_id, False
         else:
             valid_roles = {"Admin", "Analyst", "Auditor", "Viewer", "Steward"}
-            if raw_token not in valid_roles and not raw_token.startswith("ey"):
-                return raw_token, None, None, True
-            return raw_token, None, None, False
+            if raw_token in valid_roles:
+                return raw_token, UserRole(raw_token), f"usr_{raw_token.lower()}", False
+            if raw_token.startswith("ey"):
+                return raw_token, None, None, False
+            # Only allow request if X-User-Role header matches a valid predefined system role
+            if x_user_role:
+                role_str = x_user_role.strip().capitalize()
+                if role_str in valid_roles:
+                    return raw_token, UserRole(role_str), f"usr_{role_str.lower()}", False
+            return raw_token, None, None, True
 
     if x_user_role:
         role_str = x_user_role.strip().capitalize()
@@ -344,5 +351,15 @@ class RoleMiddleware(BaseHTTPMiddleware):
                 media_type="application/json",
             )
 
-        response = await call_next(request)
-        return response
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as exc:
+            import traceback
+            print(f"\033[91m[ROLE MIDDLEWARE DISPATCH EXCEPTION {request.method} {request.url.path}]\033[0m\n{traceback.format_exc()}")
+            return Response(
+                content=f'{{"detail": "Internal Server Error: {str(exc)}"}}',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                media_type="application/json",
+            )
+

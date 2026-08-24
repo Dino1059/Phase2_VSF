@@ -179,6 +179,8 @@ def _measured_from_output(tool_name: str | None, output: object) -> str:
 
 HITL_ALLOWED_TOOLS = frozenset({
     "profile_dataset",
+    "detect_anomalies",
+    "anomaly_detector",
     "propose_quality_rules",
     "quality_rule_proposer",
 })
