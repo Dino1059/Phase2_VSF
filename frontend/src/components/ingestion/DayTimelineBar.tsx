@@ -49,11 +49,14 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
   const handleActivate = (day: IngestionDaySnapshot) => {
     if (activatingDay !== null || loading) return;
     setActivatingDay(day.day_idx);
+    const runId = `ING-${String(day.day_idx).padStart(4, '0')}`;
     usePipelineStore.getState().setSelectedDayIdx(day.day_idx);
+    usePipelineStore.getState().setSourceIngestionRunId(runId);
+    usePipelineStore.getState().setRunId(runId);
     // Non-blocking activation so execution starts in background & updates global store
     void onActivate(day.day_idx, day.is_activated);
     // Immediately navigate to Agent Chat Workspace tab for engineer workflow!
-    navigate(`/workspace?dataset_key=ev_telemetry&day=${day.day_idx}`);
+    navigate(`/workspace?dataset_key=ev_telemetry&day=${day.day_idx}&run_id=${runId}`);
   };
 
   const handleWarmupClick = async () => {

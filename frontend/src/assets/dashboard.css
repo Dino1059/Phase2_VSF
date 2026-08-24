@@ -2382,27 +2382,27 @@
   background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
   border: 1px solid rgba(6, 182, 212, 0.3);
   border-radius: var(--radius-md);
-  padding: 14px 18px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 5px;
   animation: fadeIn 200ms ease;
 }
 
 .tsb-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .tsb-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--neon-cyan);
 }
 
 .tsb-message {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-main);
   font-weight: 500;
 }
@@ -2410,20 +2410,20 @@
 .tsb-steps-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 2px;
   flex-wrap: wrap;
 }
 
 .tsb-step {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--glass-border);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   transition: all 200ms ease;
 }
@@ -2439,11 +2439,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .tsb-step.active .step-num {

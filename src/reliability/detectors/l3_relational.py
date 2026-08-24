@@ -16,7 +16,7 @@ class L3RelationalDetector:
 
     def __init__(
         self,
-        residual_z_threshold: float = 3.0,
+        residual_z_threshold: float = 4.5,
         comparator: str = "linear_regression",
         contamination: float = 0.05,
         random_state: int = 42

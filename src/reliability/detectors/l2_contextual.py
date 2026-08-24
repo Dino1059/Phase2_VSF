@@ -16,7 +16,7 @@ class L2ContextualDetector:
 
     def __init__(
         self,
-        z_threshold: float = 3.5,
+        z_threshold: float = 4.5,
         warmup_days: int = 10,
         min_samples: int = 10
     ):

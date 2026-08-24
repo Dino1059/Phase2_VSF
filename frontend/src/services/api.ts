@@ -710,7 +710,7 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean) {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
   return request('/chat/send', {
@@ -721,6 +721,7 @@ export async function sendChatMessage(message: string, sessionId: string = 'defa
       lang: currentLang,
       use_llm: effectiveUseLlm,
       ...(datasetKey ? { dataset_key: datasetKey } : {}),
+      ...(activeDay !== undefined && activeDay !== null ? { active_day: activeDay } : {}),
     }),
   });
 }

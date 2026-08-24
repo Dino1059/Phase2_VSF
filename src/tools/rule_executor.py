@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from src.db.connection import get_db
 from src.tools.base import BaseTool
+from src.utils.table_utils import normalize_table_name, resolve_db_table_name
 
 
 class RuleSpec(BaseModel):
@@ -162,7 +163,7 @@ class RuleExecutorTool(BaseTool):
 
             spec = self._parse_rule_spec(expression)
             where_clause = compile_rule_spec(spec)
-            target_table = spec.table
+            target_table = resolve_db_table_name(spec.table, conn)
 
             effective_snapshot_id = snapshot_id or rule_snapshot_id or "snap_001"
             effective_rule_version_id = rule_version_id or f"{rule_id}_v1"
@@ -289,14 +290,33 @@ class RuleExecutorTool(BaseTool):
         raise ValueError(f"Unparseable or unsafe rule expression: '{expression}'")
 
     def _infer_table(self, expression: str) -> str:
-        """Infer target table from rule expression column names."""
+        """Infer target table from rule expression column names, preferring existing DB tables."""
         expr_lower = expression.lower()
-        if any(k in expr_lower for k in ["temperature", "voltage", "duty_cycle", "station_id", "current_amps"]):
-            return "vgreen_telemetry"
-        elif any(k in expr_lower for k in ["battery_soc", "cell_temp", "bms_fault", "vehicle_id"]):
-            return "vinfast_bms"
-        elif any(k in expr_lower for k in ["review_text", "rating", "source"]):
-            return "xanhsm_feedback"
-        elif any(k in expr_lower for k in ["distance_km", "fare_vnd", "duration_minutes", "trip_id"]):
-            return "xanhsm_trips"
-        return "xanhsm_feedback"  # default fallback
+        try:
+            db = get_db()
+            if any(k in expr_lower for k in ["battery_soc", "cell_temp", "bms_fault"]):
+                res = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ev_telemetry'")
+                if res and res[0][0] > 0:
+                    return "ev_telemetry"
+                res_bms = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'vinfast_bms'")
+                if res_bms and res_bms[0][0] > 0:
+                    return "vinfast_bms"
+            elif any(k in expr_lower for k in ["temperature_celsius", "duty_cycle", "station_id", "current_amps"]):
+                res = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'charging_sessions'")
+                if res and res[0][0] > 0:
+                    return "charging_sessions"
+                res_vg = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'vgreen_telemetry'")
+                if res_vg and res_vg[0][0] > 0:
+                    return "vgreen_telemetry"
+        except Exception:
+            pass
+
+        if any(k in expr_lower for k in ["battery_soc", "cell_temp", "bms_fault", "vehicle_id", "temp_c", "voltage_v"]):
+            return "ev_telemetry"
+        elif any(k in expr_lower for k in ["temperature", "voltage", "duty_cycle", "station_id", "current_amps", "charging"]):
+            return "charging_sessions"
+        elif any(k in expr_lower for k in ["review_text", "rating", "source", "aspects"]):
+            return "nlp_feedback"
+        elif any(k in expr_lower for k in ["distance_km", "fare_vnd", "duration_minutes", "trip_id", "driver_pay", "fare"]):
+            return "trips"
+        return normalize_table_name(expression)

@@ -50,6 +50,8 @@ interface AgentTracesTabProps {
   pendingRun?: boolean;
   /** Keep-mounted: GET refresh when shown. Never POST chat / Propose. */
   active?: boolean;
+  dayIdx?: number | null;
+  runId?: string | null;
 }
 
 function isRealAuditHash(value: unknown): value is string {
@@ -110,6 +112,8 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   onSelectStep,
   pendingRun = false,
   active = false,
+  dayIdx = null,
+  runId = null,
 }) => {
   const storeKey = datasetStoreKey(datasetKey, sessionId);
   const traces = useWorkspaceStore((s) => s.tracesByDataset[storeKey] || EMPTY_TRACES);
@@ -139,6 +143,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
           const t = (id || '').trim();
           if (t && !tryIds.includes(t)) tryIds.push(t);
         };
+        addId(runId);
         addId(resolvedSessionRef.current);
         addId(effectiveSessionId);
         if (datasetKey) {
@@ -219,11 +224,11 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 
   useEffect(() => {
     void loadTraces();
-  }, [loadTraces]);
+  }, [loadTraces, dayIdx]);
 
   useEffect(() => {
     if (active) void loadTraces();
-  }, [active, loadTraces]);
+  }, [active, dayIdx, loadTraces]);
 
   useEffect(() => {
     const onTrace = () => {

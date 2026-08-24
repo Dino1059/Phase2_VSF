@@ -479,7 +479,7 @@ def _detect_l1_l4_signals(
 
     # L2: contextual drift via robust Z-score
     try:
-        l2 = L2ContextualDetector(z_threshold=3.5, warmup_days=10, min_samples=10)
+        l2 = L2ContextualDetector(z_threshold=4.5, warmup_days=10, min_samples=10)
         signals["L2"].extend(l2.detect_entity_anomalies(
             df=df, project_id=project_id,
             entity_id_col=entity_col, timestamp_col=ts_col,
@@ -497,7 +497,7 @@ def _detect_l1_l4_signals(
             cutoff = max(5, len(sorted_df) // 2)
             ref_df = sorted_df.iloc[:cutoff]
             eval_df = sorted_df.iloc[cutoff:]
-            l3 = L3RelationalDetector(residual_z_threshold=3.5, comparator="linear_regression")
+            l3 = L3RelationalDetector(residual_z_threshold=4.5, comparator="linear_regression")
             signals["L3"].extend(l3.detect_bivariate_residual_anomalies(
                 ref_df=ref_df, eval_df=eval_df,
                 project_id=project_id,
@@ -509,7 +509,7 @@ def _detect_l1_l4_signals(
 
     # L4: CUSUM change-point
     try:
-        l4 = L4ChangepointDetector(cusum_threshold=4.0, min_segment_len=3, persistence_window=3)
+        l4 = L4ChangepointDetector(cusum_threshold=6.0, min_segment_len=3, persistence_window=3)
         signals["L4"].extend(l4.detect_cusum_shift(
             df=df, project_id=project_id,
             entity_id_col=entity_col, timestamp_col=ts_col,
@@ -517,6 +517,19 @@ def _detect_l1_l4_signals(
         ))
     except Exception as exc:
         logger.error(f"[L4 Detector] Exception on table '{table_name}': {exc}", exc_info=True)
+
+    # Filter signals to target_day_idx if specified and day_idx column is available
+    if target_day_idx is not None and "day_idx" in df.columns:
+        day_ts_series = pd.to_datetime(df[df["day_idx"] == target_day_idx][ts_col], errors="coerce").dropna()
+        day_ts_set = set(day_ts_series.astype(str))
+        if day_ts_set:
+            for layer_key in ("L1", "L2", "L3", "L4"):
+                filtered = []
+                for sig in signals[layer_key]:
+                    ts_str = str(pd.to_datetime(sig.event_time))
+                    if ts_str in day_ts_set or any(ts_str[:16] in t for t in day_ts_set):
+                        filtered.append(sig)
+                signals[layer_key] = filtered
 
     return signals
 

@@ -140,6 +140,7 @@ export function AgentChatWorkspace() {
   const demoMode = searchParams.get('demo');
   const story = searchParams.get('story');
   const dayParam = searchParams.get('day') || searchParams.get('day_idx');
+  const runIdParam = searchParams.get('run_id') || searchParams.get('source_ingestion_run_id');
   const isHappy = story === 'happy';
   const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
@@ -154,7 +155,11 @@ export function AgentChatWorkspace() {
         store.setSelectedDayIdx(parsedDay);
       }
     }
-  }, [dayParam]);
+    if (runIdParam) {
+      store.setSourceIngestionRunId(runIdParam);
+      store.setRunId(runIdParam);
+    }
+  }, [dayParam, runIdParam]);
 
   const executionStage = useIngestionStore((s) => s.executionStage);
   const activeDayIdx = useIngestionStore((s) => s.activeDayIdx);
@@ -927,6 +932,8 @@ export function AgentChatWorkspace() {
               selectedTool={selectedTraceTool}
               pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
               active={rightTab === 'tab-traces'}
+              dayIdx={store.selectedDayIdx}
+              runId={store.sourceIngestionRunId || store.runId}
               onSelectStep={(n) => {
                 setSelectedTraceStep(n);
                 setSelectedTraceTool(null);
@@ -934,10 +941,10 @@ export function AgentChatWorkspace() {
             />
           </div>
           <div hidden={rightTab !== 'tab-profiler'}>
-            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} />
+            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} dayIdx={store.selectedDayIdx} runId={store.sourceIngestionRunId || store.runId} />
           </div>
           <div hidden={rightTab !== 'tab-rules'}>
-            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} />
+            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} dayIdx={store.selectedDayIdx} runId={store.sourceIngestionRunId || store.runId} />
           </div>
           <div hidden={rightTab !== 'tab-split'}>
             <SplitDbQuarantineTab
@@ -945,6 +952,8 @@ export function AgentChatWorkspace() {
               manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
               active={rightTab === 'tab-split'}
               splitResult={pipelineResult?.split}
+              dayIdx={store.selectedDayIdx}
+              runId={store.sourceIngestionRunId || store.runId}
             />
           </div>
         </div>

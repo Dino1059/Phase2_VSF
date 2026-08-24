@@ -105,8 +105,8 @@ class InvestigationToolRegistry:
         try:
             from src.db.connection import get_db
             db = get_db()
-            col = "battery_soc" if "soc" in metric_name.lower() else ("temperature_celsius" if "temp" in metric_name.lower() else "voltage")
-            tbl = "vinfast_bms" if "soc" in metric_name.lower() else "vgreen_telemetry"
+            col = "battery_soc" if "soc" in metric_name.lower() else ("temp_c" if "temp" in metric_name.lower() else "voltage_v")
+            tbl = "ev_telemetry" if "soc" in metric_name.lower() else "charging_sessions"
             stats = db.execute(f"SELECT COUNT(*), AVG({col}), MIN({col}), MAX({col}) FROM {tbl} WHERE {col} IS NOT NULL")
             if stats and stats[0][0] > 0:
                 cnt, avg_val, min_v, max_v = stats[0]

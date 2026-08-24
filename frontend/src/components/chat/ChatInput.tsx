@@ -5,6 +5,8 @@ import { sendChatMessage, fetchChatHistory } from '../../services/api';
 import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
 
+import { usePipelineStore } from '../../stores/pipelineStore';
+
 interface ChatInputProps {
   datasetKey?: string;
   onPipelineStarted?: () => void;
@@ -16,6 +18,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
   const [isSending, setIsSending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionId = useChatStore((s) => s.sessionId);
+  const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
 
   const executePrompt = async (promptText: string) => {
     if (isSending || !promptText.trim()) return;
@@ -24,7 +27,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
     try {
       if (onPipelineStarted) onPipelineStarted();
       agentSocket.connect(sessionId);
-      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language);
+      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language, undefined, selectedDayIdx);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);

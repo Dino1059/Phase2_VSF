@@ -30,6 +30,8 @@ interface SplitDbQuarantineTabProps {
   /** Keep-mounted: GET refresh when shown. Empty GET cannot clobber stored rows. */
   active?: boolean;
   splitResult?: { clean_rows?: number | null; quarantine_rows?: number | null; clean?: any[]; quarantine?: any[] };
+  dayIdx?: number | null;
+  runId?: string | null;
 }
 
 export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
@@ -37,6 +39,8 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
   manifestHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   active = false,
   splitResult,
+  dayIdx = null,
+  runId: _runId = null,
 }) => {
   const storeKey = datasetStoreKey(datasetKey);
   const split = useWorkspaceStore((s) => s.splitRowsByDataset[storeKey]);
@@ -115,11 +119,11 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, dayIdx]);
 
   useEffect(() => {
     if (active) void fetchData();
-  }, [active, fetchData]);
+  }, [active, dayIdx, fetchData]);
 
   useEffect(() => {
     const onSplit = (ev: Event) => {

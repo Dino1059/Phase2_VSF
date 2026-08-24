@@ -17,6 +17,6 @@ def list_projects():
             "provenance": "SEMI_SYNTHETIC",
             "entities_count": 30,
             "stations_count": 4,
-            "datasets": ["vinfast_bms", "xanhsm_trips", "vgreen_telemetry", "xanhsm_feedback"]
+            "datasets": ["ev_telemetry", "charging_sessions", "trips", "nlp_feedback"]
         }
     ]

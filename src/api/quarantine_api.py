@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from src.db.connection import get_db
+from src.utils.table_utils import normalize_table_name
 
 quarantine_router = APIRouter(prefix="/quarantine", tags=["Quarantine"])
 
@@ -59,7 +60,7 @@ def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> 
     a human-readable strategy rationale, and severity level.
     """
     reason_lower = (reason or "").lower()
-    table = source_table or "dataset_table"
+    table = normalize_table_name(source_table or "ev_telemetry")
 
     # 1. State of Charge (SOC) Bounds
     if "battery_soc" in reason_lower or "soc" in reason_lower:

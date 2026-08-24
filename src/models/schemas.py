@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     lang: Optional[str] = Field(default="vi", description="Language preference: 'vi' (Vietnamese) or 'en' (English)")
     use_llm: Optional[bool] = Field(default=None, description="Global LLM mode flag: True for LLM ON, False for LLM OFF")
     mode: Optional[str] = Field(default=None, description="Execution mode: 'llm' or 'deterministic'")
+    active_day: Optional[int] = Field(default=None, description="Active Day Index selected from Time Bar")
 
 
 

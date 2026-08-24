@@ -604,11 +604,17 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
 async def send_chat_message(request: ChatRequest):
     session_id = request.session_id or "default"
     effective_use_llm = request.use_llm if request.use_llm is not None else (request.mode != "deterministic")
+    msg_metadata = {}
+    if request.dataset_key:
+        msg_metadata["dataset_key"] = request.dataset_key
+    if request.active_day is not None:
+        msg_metadata["active_day"] = request.active_day
+
     user_msg = conversation_store.save_message(
         {
             "type": "user",
             "content": request.message,
-            "metadata": {"dataset_key": request.dataset_key} if request.dataset_key else {},
+            "metadata": msg_metadata,
         },
         session_id=session_id,
     )
@@ -799,13 +805,22 @@ async def send_chat_message(request: ChatRequest):
         context["stop_at_hitl"] = True
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
+
+    day_ctx_str = ""
+    if request.active_day is not None:
+        context["active_day"] = request.active_day
+        day_date = f"2026-01-{(1 + request.active_day):02d}" if request.active_day >= 0 else "2026-01-01"
+        day_ctx_str = f"[GLOBAL TIMEBAR CONTEXT: User is inspecting Day {request.active_day} ({day_date}). Analyze dataset metrics and anomalies for Day {request.active_day}.]\n"
+
+    if request.dataset_key:
         task = (
             f"Use dataset_key='{request.dataset_key}' for every dataset tool call.\n"
+            f"{day_ctx_str}"
             f"{lang_instruction}\n"
             f"User request: {request.message}"
         )
     else:
-        task = f"{lang_instruction}\nUser request: {request.message}"
+        task = f"{day_ctx_str}{lang_instruction}\nUser request: {request.message}"
     if hitl_stop:
         task += (
             "\nHITL GATE: After propose_quality_rules succeeds, Action: FINISH. "
@@ -908,8 +923,8 @@ async def send_chat_message(request: ChatRequest):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "vinfast_bms" not in final_content:
-        final_content += "\nAvailable registered datasets include: `vinfast_bms`, `vgreen_telemetry`, `xanhsm_trips`, `xanhsm_feedback`."
+    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "ev_telemetry" not in final_content:
+        final_content += "\nAvailable registered datasets include: `ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`."
 
     agent_msg = conversation_store.save_message(
         {

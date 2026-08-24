@@ -136,16 +136,9 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
   },
 
   activateDay: async (dayIdx: number, forceReplay = false) => {
-    set({ error: null, activeDayIdx: dayIdx, executionStage: 'batch_analyzing' });
+    set({ error: null, activeDayIdx: dayIdx, executionStage: 'ingesting' });
     try {
-      set({ executionStage: 'ingesting' });
-      await new Promise((r) => setTimeout(r, 400));
-      set({ executionStage: 'batch_analyzing' });
       await ingestionApi.activateDay(dayIdx, forceReplay);
-      set({ executionStage: 'evaluating_rules' });
-      await new Promise((r) => setTimeout(r, 400));
-      set({ executionStage: 'starting_realtime' });
-      await new Promise((r) => setTimeout(r, 200));
       set({ executionStage: 'completed' });
       await get().refetchAll();
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx } }));
@@ -159,16 +152,9 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
   },
 
   runWarmup: async () => {
-    set({ error: null, activeDayIdx: 9, executionStage: 'batch_analyzing' });
+    set({ error: null, activeDayIdx: 9, executionStage: 'ingesting' });
     try {
-      set({ executionStage: 'ingesting' });
-      await new Promise((r) => setTimeout(r, 400));
-      set({ executionStage: 'batch_analyzing' });
       await ingestionApi.activateWarmup();
-      set({ executionStage: 'evaluating_rules' });
-      await new Promise((r) => setTimeout(r, 400));
-      set({ executionStage: 'starting_realtime' });
-      await new Promise((r) => setTimeout(r, 200));
       set({ executionStage: 'completed' });
       await get().refetchAll();
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx: 9 } }));
@@ -268,9 +254,13 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
     const handleAgentTrace = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
       const thought = String(detail?.thought || detail?.data?.thought || '');
-      if (thought.includes('Stage 4: Rule Proposal')) {
+      if (thought.includes('Stage 1: Profiling') || thought.includes('Day Ingest') || thought.includes('Ingest Snapshot')) {
+        set({ executionStage: 'ingesting' });
+      } else if (thought.includes('Stage 2: Anomaly') || thought.includes('Anomaly Detect') || thought.includes('Orchestrator Run') || thought.includes('Incident Fusion')) {
+        set({ executionStage: 'batch_analyzing' });
+      } else if (thought.includes('Stage 4: Rule Proposal') || thought.includes('Rule Proposal') || thought.includes('quality rule')) {
         set({ executionStage: 'evaluating_rules' });
-      } else if (thought.includes('Analysis Complete') || thought.includes('Realtime Stream')) {
+      } else if (thought.includes('Analysis Complete') || thought.includes('Batch End') || thought.includes('Realtime Stream') || thought.includes('warmup_completed')) {
         set({ executionStage: 'starting_realtime' });
       }
     };

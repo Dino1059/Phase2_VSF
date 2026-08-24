@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
-import { datasetsApi } from '../../services/api';
+import { datasetsApi, ingestionApi } from '../../services/api';
 import { useChatStore } from '../../stores/chatStore';
 import { clearWarehouseOverlay, readWarehouseOverlay, writeWarehouseOverlay } from '../../demo/stewardLabels';
 
@@ -68,6 +68,8 @@ interface DataProfilerTabProps {
   story?: string | null;
   /** Keep-mounted: refetch when shown so Unhappy warehouse can settle. */
   active?: boolean;
+  dayIdx?: number | null;
+  runId?: string | null;
 }
 
 type PendingMode = 'happy' | 'unhappy' | null;
@@ -85,7 +87,7 @@ function clearPendingMode() {
   try { sessionStorage.removeItem('dt-snap-pending'); } catch { /* ignore */ }
 }
 
-export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story, active = false }) => {
+export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, story, active = false, dayIdx = null, runId: _runId = null }) => {
   const [tablesMap, setTablesMap] = useState<Record<string, TableSummary>>({});
   const [selectedTable, setSelectedTable] = useState<string>('__all__');
   const [totalRowsAll, setTotalRowsAll] = useState<number>(0);
@@ -211,23 +213,51 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   }, [datasetKey, normalizeColumns]);
 
   const fetchProfile = useCallback(async () => {
-    if (!datasetKey || !active) return;
+    if (!active) return;
     setLoading(true);
     try {
       let res;
+      const targetKey = datasetKey || 'ev_telemetry';
       try {
-        res = await datasetsApi.profile(datasetKey);
+        res = await datasetsApi.profile(targetKey);
       } catch {
-        const fallbackKey = datasetKey.startsWith('uploaded_') ? datasetKey.replace('uploaded_', '') : 'ev_telemetry';
+        const fallbackKey = targetKey.startsWith('uploaded_') ? targetKey.replace('uploaded_', '') : 'ev_telemetry';
         res = await datasetsApi.profile(fallbackKey);
       }
       const parsed = parseProfilePayload(res);
+
+      let dayRows = parsed?.totalRows ?? 0;
+      let dayHealth = parsed?.healthScore ?? 100;
+
+      if (dayIdx !== null && dayIdx !== undefined && dayIdx >= 0) {
+        try {
+          const daySnap = await ingestionApi.getDay(dayIdx);
+          if (daySnap && (daySnap.ingested_rows ?? 0) > 0) {
+            dayRows = daySnap.ingested_rows;
+            const alerts = daySnap.alerts_count || 0;
+            if (alerts > 0) {
+              dayHealth = Math.max(60, 100 - alerts * 3);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (parsed && Object.keys(parsed.tablesMap).length > 0) {
-        setTablesMap(parsed.tablesMap);
-        setTotalRowsAll(parsed.totalRows);
-        setTotalColsAll(parsed.totalCols);
-        setAggregateHealth(parsed.healthScore);
         const tblKeys = Object.keys(parsed.tablesMap);
+        if (tblKeys.length > 0 && dayRows > 0) {
+          const mainKey = tblKeys[0];
+          parsed.tablesMap[mainKey] = {
+            ...parsed.tablesMap[mainKey],
+            totalRows: dayRows,
+            healthScore: dayHealth,
+          };
+        }
+        setTablesMap(parsed.tablesMap);
+        setTotalRowsAll(dayRows > 0 ? dayRows : parsed.totalRows);
+        setTotalColsAll(parsed.totalCols);
+        setAggregateHealth(dayHealth);
         if (tblKeys.length === 1) {
           setSelectedTable(tblKeys[0]);
         } else {
@@ -239,13 +269,13 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
     } finally {
       setLoading(false);
     }
-  }, [datasetKey, active, parseProfilePayload]);
+  }, [datasetKey, active, dayIdx, parseProfilePayload]);
 
   useEffect(() => {
     if (!active) return;
     setProfile(null);
     fetchProfile();
-  }, [active, fetchProfile]);
+  }, [active, dayIdx, fetchProfile]);
 
   // Fallback: parse profile data from chat messages if API hasn't loaded
   useEffect(() => {

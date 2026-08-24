@@ -23,7 +23,7 @@ class L4ChangepointDetector:
 
     def __init__(
         self,
-        cusum_threshold: float = 4.0,
+        cusum_threshold: float = 6.0,
         drift_allowance: float = 0.5,
         min_segment_len: int = 3,
         persistence_window: int = 3,

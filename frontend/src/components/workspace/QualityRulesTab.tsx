@@ -36,6 +36,8 @@ interface QualityRulesTabProps {
   /** Keep-mounted tab: refetch when shown. GET queue only — never re-run Propose. */
   active?: boolean;
   onExecuteClean?: () => void;
+  dayIdx?: number | null;
+  runId?: string | null;
 }
 
 interface EnrichedRuleReasoning {
@@ -195,7 +197,7 @@ function ruleCardStatus(rule: { status?: string | null }): 'approved' | 'rejecte
   return 'proposed';
 }
 
-export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean }) => {
+export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean, dayIdx = null, runId: _runId = null }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -293,6 +295,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     window.addEventListener('datatrust:db-reset', onReset);
     return () => window.removeEventListener('datatrust:db-reset', onReset);
   }, []);
+
+  useEffect(() => {
+    if (active) void fetchRules();
+  }, [active, dayIdx, fetchRules]);
 
   useEffect(() => {
     const id = window.setInterval(() => { void fetchRules({ silent: true }); }, 2000);

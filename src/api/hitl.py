@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.db.connection import get_db
+from src.utils.table_utils import normalize_table_name
 from src.models.hitl import RuleProposalCard, ApproveRequest, RejectRequest, EditRequest
 from src.services.audit import AuditService
 
@@ -169,14 +170,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
         sample_context = f"Target Dataset Key: {dataset_key}\n"
         try:
             if not table_name:
-                if "vgreen" in dataset_key:
-                    table_name = "vgreen_telemetry"
-                elif "vinfast" in dataset_key:
-                    table_name = "vinfast_bms"
-                elif "xanh" in dataset_key:
-                    table_name = "xanhsm_trips"
-                else:
-                    table_name = "raw_taxi_trips"
+                table_name = normalize_table_name(dataset_key)
 
             sample_rows = db.execute(f"SELECT * FROM {table_name} LIMIT 10")
             columns = [desc[0] for desc in db.description]

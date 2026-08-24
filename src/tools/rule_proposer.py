@@ -1,4 +1,5 @@
 from src.tools.base import BaseTool
+from src.utils.table_utils import normalize_table_name
 
 
 class RuleProposerTool(BaseTool):
@@ -16,26 +17,25 @@ class RuleProposerTool(BaseTool):
     }
 
     def execute(self, input_data: dict) -> dict:
-        table = input_data["target_table"]
+        table = normalize_table_name(input_data.get("target_table", "ev_telemetry"))
         profile = input_data.get("profile_summary", "")
         nlp = input_data.get("nlp_insights", {})
         anomalies = input_data.get("anomaly_findings", {})
         
         rules = []
         
-        # Generate rules based on table type
-        if table in ("vgreen_telemetry", "ev_telemetry", "telemetry", "synthetic_ev_telemetry_ved_ref", "vinfast_ev_telemetry", "vinfast_ev_telemetry_dirty"):
+        # Generate rules based on canonical table type
+        if table in ("ev_telemetry", "vinfast_bms"):
+            rules.extend([
+                {"rule_name": "soc_range", "rule_type": "range", "rule_expression": "battery_soc BETWEEN 0 AND 100", "confidence": 0.99, "rationale": "SOC is a percentage"},
+                {"rule_name": "temp_range_check", "rule_type": "range", "rule_expression": "temp_c BETWEEN -10 AND 85", "confidence": 0.95, "rationale": "Industrial operating temperature range for EV"},
+                {"rule_name": "voltage_positive", "rule_type": "range", "rule_expression": "voltage_v >= 0 AND voltage_v <= 1000", "confidence": 0.99, "rationale": "Voltage must be non-negative and within specs"},
+            ])
+        elif table in ("charging_sessions", "vgreen_telemetry"):
             rules.extend([
                 {"rule_name": "temp_range_check", "rule_type": "range", "rule_expression": "temperature_celsius BETWEEN -10 AND 85", "confidence": 0.95, "rationale": "Industrial operating temperature range for EV chargers"},
                 {"rule_name": "voltage_positive", "rule_type": "range", "rule_expression": "voltage >= 0 AND voltage <= 1000", "confidence": 0.99, "rationale": "Voltage must be non-negative and within charger specs"},
                 {"rule_name": "duty_cycle_range", "rule_type": "range", "rule_expression": "duty_cycle BETWEEN 0 AND 100", "confidence": 0.99, "rationale": "Duty cycle is a percentage"},
-                {"rule_name": "fault_temp_correlation", "rule_type": "cross_field", "rule_expression": "NOT (temperature_celsius > 80 AND fault_code IS NULL)", "confidence": 0.85, "rationale": "High temp without fault code suggests sensor/logging issue"}
-            ])
-        elif table in ("vinfast_bms", "bms"):
-            rules.extend([
-                {"rule_name": "soc_range", "rule_type": "range", "rule_expression": "battery_soc BETWEEN 0 AND 100", "confidence": 0.99, "rationale": "SOC is a percentage"},
-                {"rule_name": "cell_temp_range", "rule_type": "range", "rule_expression": "cell_temp_max BETWEEN -20 AND 60", "confidence": 0.95, "rationale": "Lithium cell safe operating temperature"},
-                {"rule_name": "cell_temp_delta", "rule_type": "cross_field", "rule_expression": "cell_temp_max - cell_temp_min < 15", "confidence": 0.90, "rationale": "Large temp delta indicates cell imbalance"}
             ])
         elif table in ("xanhsm_feedback", "feedback", "synthetic_feedback", "nlp_feedback"):
             rules.extend([

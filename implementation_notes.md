@@ -12,7 +12,29 @@
   - `activate_warmup()`: When Warmup (Day 0-9) finishes, updates `demo_state.current_day_idx = 10`, switches `RealtimeRunner` to Day 10, and broadcasts `datatrust:realtime-day-advanced`.
 - **`frontend/src/stores/ingestionStore.ts`**:
   - `handleDayAdvance`: Updates `demoState` and `realtimeStatus` to `new_day` when WebSocket notifies batch completion.
+  - `handleAgentTrace` & `activateDay`: Enhanced to dynamically transition `executionStage` (Step 1 -> 2 -> 3 -> 4) in real-time based on WebSocket `agent.trace` progress events, preventing the UI stepper from remaining stuck at Step 2 while backend LLM rule proposal and batch processing execute.
+
+---
+
+# Implementation Notes - Canonical Table Name Normalization & SQL Remediation
+
+## Business & Schema Requirement
+- The modernized schema consists of 4 canonical datasets: `ev_telemetry`, `charging_sessions`, `trips`, and `nlp_feedback`.
+- Legacy references (e.g. `vinfast_bms`, `vgreen_telemetry`, `xanhsm_trips`, `xanhsm_feedback`) or rule-prefixed table strings (`ev_telemetry__rule_anom_raw.ev_telemetry_22`) generated invalid SQL suggestions (e.g., `UPDATE vinfast_bms ...`).
+
+## Key Changes
+- **`src/utils/table_utils.py`**:
+  - Created `normalize_table_name()` to map legacy aliases & composite rule prefixes to canonical dataset names.
+  - Created `resolve_db_table_name()` to query `information_schema.tables` in `main` schema (with support for `DuckDBManager` and raw `DuckDBPyConnection`), ensuring existing DB tables in legacy test fixtures remain compatible.
+- **`src/tools/rule_executor.py`**:
+  - Inferred table logic maps column names to canonical datasets (`ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`).
+  - Calls `resolve_db_table_name(spec.table, conn)` before running rule execution and inserting quarantine entries.
+- **`src/api/quarantine_api.py`**:
+  - `synthesize_remediation_sql()` normalizes `source_table` so all AI-suggested HITL remediation queries reference the canonical table (`UPDATE ev_telemetry SET battery_soc = 0.0 WHERE battery_soc < 0.0;`).
+- **`src/tools/rule_proposer.py` & `src/reliability/investigation/tools.py`**:
+  - Standardized dataset default fallbacks to canonical names.
+- **`src/api/hitl.py` & API Routes**:
+  - Updated API route endpoints and LLM fallback descriptions to list the canonical 4 datasets.
 
 ## Verification
-- Python syntax verified with `py_compile`.
-- Frontend TypeScript type check verified with `pnpm tsc --noEmit` (0 errors).
+- Unit test suite [`tests/test_table_utils.py`](file:///c:/Users/ngant/P-086/tests/test_table_utils.py), [`tests/test_quarantine_remediation.py`](file:///c:/Users/ngant/P-086/tests/test_quarantine_remediation.py), [`tests/test_tools.py`](file:///c:/Users/ngant/P-086/tests/test_tools.py) verified: 43 passed (100%).
