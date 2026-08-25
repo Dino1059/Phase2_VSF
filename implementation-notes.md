@@ -90,3 +90,17 @@
 - Hidden-mounted Profiler fetched once (Happy / empty). `holdUnhappyHealth` stayed true until `warehouse_*` > 0; profile `data_health_score=None` mapped to "Not measured" instead of Critical. Banner already had measured SoC<0 / OPEN.
 - Fix: snapshot event + `dt-warehouse` overlay carry DuckDB counts; hold releases when faults arrive; KPI shows `— · Critical · SoC<0 = N · OPEN = M`. Happy still 99.1 Excellent when warehouse is clean. No 99.1 flash on Unhappy.
 - Traces Found: stored `health 99.1` is sample leakage. Overlay/warehouse faults → omit sample %, say Critical + counts. AgentTracesTab / keep-mounted / STEPS 2 / stop-at-HITL untouched.
+
+## 2026-08-25 — FaultCorrelationEngine (Phase 1 & 2)
+
+- Phase 1 (Model Extensions):
+  - `Signal`: Added optional `source_table: Optional[str] = None` and `violation_direction: Optional[str] = None`.
+  - `Incident`: Added `correlation_key: Optional[str] = None`, `occurrence_count: int = 1`, and `representative_signal_ids: List[str] = Field(default_factory=list)`.
+- Phase 2 (FaultCorrelationEngine Core):
+  - Created `src/reliability/fusion/correlation.py` with `FaultCorrelationEngine`.
+  - Computes deterministic SHA-256 hash `correlation_key` based on `(project_id, source_table, detector, signal_type, metric_or_relationship, violation_direction)`.
+  - Groups signals strictly by `correlation_key` into 1 Incident per group, populating `occurrence_count`, top-3 `representative_signal_ids`, max severity, entity union, and evidence references.
+  - Added export to `src/reliability/fusion/__init__.py`.
+  - Created `tests/reliability/test_fault_correlation.py` covering 5 key scenarios (100 signals single key compression, multiple rules separation, mixed signals, empty signals, missing optional fields backward compatibility).
+- Verification: 67/67 tests passed in `tests/reliability/`.
+

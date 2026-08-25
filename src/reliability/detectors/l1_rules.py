@@ -20,6 +20,7 @@ class L1ConstraintDetector:
         metric_col: str,
         min_val: Optional[float] = None,
         max_val: Optional[float] = None,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -38,13 +39,16 @@ class L1ConstraintDetector:
 
             is_violation = False
             reason = ""
+            violation_dir = None
 
             if min_val is not None and val < min_val:
                 is_violation = True
                 reason = f"{metric_col} ({val}) < min_val ({min_val})"
+                violation_dir = "min_violation"
             elif max_val is not None and val > max_val:
                 is_violation = True
                 reason = f"{metric_col} ({val}) > max_val ({max_val})"
+                violation_dir = "max_violation"
 
             if is_violation:
                 event_time = pd.to_datetime(row[timestamp_col]) if timestamp_col in row and pd.notna(row[timestamp_col]) else datetime.now(timezone.utc)
@@ -67,6 +71,8 @@ class L1ConstraintDetector:
                     detector="L1_Constraint_Detector",
                     detector_version="1.0.0",
                     evidence_refs=[reason, f"observed_value={val}"],
+                    source_table=source_table,
+                    violation_direction=violation_dir,
                     provenance=provenance
                 )
                 signals.append(sig)
@@ -80,6 +86,7 @@ class L1ConstraintDetector:
         entity_id_col: str,
         timestamp_col: str,
         required_cols: List[str],
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -116,6 +123,8 @@ class L1ConstraintDetector:
                     detector="L1_Null_Detector",
                     detector_version="1.0.0",
                     evidence_refs=[f"Mandatory column '{col}' is NULL"],
+                    source_table=source_table,
+                    violation_direction="null_violation",
                     provenance=provenance
                 )
                 signals.append(sig)
@@ -131,6 +140,7 @@ class L1ConstraintDetector:
         total_col: str,
         sum_cols: List[str],
         tolerance: float = 1.0,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -173,6 +183,8 @@ class L1ConstraintDetector:
                         f"computed_sum_{'+'.join(sum_cols)}={sum_val:,.2f}",
                         f"discrepancy_delta={diff:,.2f}"
                     ],
+                    source_table=source_table,
+                    violation_direction="arithmetic_discrepancy",
                     provenance=provenance
                 )
                 signals.append(sig)
@@ -189,6 +201,7 @@ class L1ConstraintDetector:
         metric_name: str,
         description: str,
         severity: str = "HIGH",
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -220,6 +233,7 @@ class L1ConstraintDetector:
                 detector="L1_Constraint_Detector",
                 detector_version="1.0.0",
                 evidence_refs=[description],
+                source_table=source_table,
                 provenance=provenance
             )
             signals.append(sig)

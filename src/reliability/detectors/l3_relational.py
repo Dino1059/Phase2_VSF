@@ -41,6 +41,7 @@ class L3RelationalDetector:
         eval_start: Optional[Union[datetime, str]] = None,
         eval_end: Optional[Union[datetime, str]] = None,
         comparator: Optional[str] = None,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -158,6 +159,7 @@ class L3RelationalDetector:
                             f"expected_{feature_y}={eval_preds[i]:.2f}",
                             f"residual={eval_residuals[i]:.2f}"
                         ],
+                        source_table=source_table,
                         provenance=provenance
                     )
                     signals.append(sig)
@@ -246,6 +248,7 @@ class L3RelationalDetector:
                             f"iforest_raw_score={eval_raw_scores[i]:.4f}",
                             f"z_score={z:.2f}"
                         ],
+                        source_table=source_table,
                         provenance=provenance
                     )
                     signals.append(sig)
@@ -269,6 +272,7 @@ class L3RelationalDetector:
         lat_max: float = 21.10,
         lon_min: float = 105.75,
         lon_max: float = 105.90,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -315,6 +319,7 @@ class L3RelationalDetector:
                         f"expected_bbox=[{lat_min},{lat_max},{lon_min},{lon_max}]",
                         "location_outside_operational_geofence"
                     ],
+                    source_table=source_table,
                     provenance=provenance
                 )
                 signals.append(sig)

@@ -187,7 +187,7 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
     for r in rows:
         d_idx = int(r[0]) if r[0] is not None else 0
         snap_id = str(r[1]) if r[1] else f"SNAP_{d_idx:03d}"
-        is_act = (bool(r[2]) if r[2] is not None else False) or (curr_day >= 0 and d_idx <= curr_day)
+        is_act = (bool(r[2]) if r[2] is not None else False) or (curr_day >= 0 and d_idx < curr_day)
         rows_cnt = int(r[3]) if r[3] is not None else 0
         run_status = str(r[4]) if r[4] else ("completed" if is_act else "idle")
         alerts_cnt = int(r[5]) if r[5] is not None else 0

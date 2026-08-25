@@ -249,17 +249,20 @@ def test_fusion_strict_grouping():
 
     all_signals = [sig1, sig2, sig3, sig4, sig5]
 
-    # Fuse for proj-1
+    # Without correlation (Tầng 1 only)
+    engine_nocorr = FusionEngine(use_correlation=False)
+    incidents_nocorr = engine_nocorr.fuse_signals_into_incidents(all_signals, project_id="proj-1")
+    assert len(incidents_nocorr) == 3
+
+    # With correlation (Tầng 1 + Tầng 2 Phase 3)
     incidents_proj1 = engine.fuse_signals_into_incidents(all_signals, project_id="proj-1")
 
-    # Should separate into:
-    # 1. VIN-001 Window 1 (sig1 + sig2 fused together)
-    # 2. VIN-002 Window 1 (sig4)
-    # 3. VIN-001 Window 2 (sig5)
-    assert len(incidents_proj1) == 3
+    # Under FaultCorrelationEngine, sig4 (VIN-002 L1) and sig5 (VIN-001 L1) share correlation_key
+    # and compress into 1 Incident group (occurrence_count=2), leaving sig1+sig2 multi-layer as incident #1
+    assert len(incidents_proj1) == 2
 
     # Check sig1 + sig2 incident
-    inc_v1_w1 = [i for i in incidents_proj1 if "VIN-001" in i.entity_ids and i.time_window["start"] == now][0]
+    inc_v1_w1 = [i for i in incidents_proj1 if set(i.signal_ids) == {"sig-001", "sig-002"}][0]
     assert sorted(inc_v1_w1.supporting_layers) == ["L1", "L2"]
     assert inc_v1_w1.admission_reason != ""
     assert set(inc_v1_w1.signal_ids) == {"sig-001", "sig-002"}
