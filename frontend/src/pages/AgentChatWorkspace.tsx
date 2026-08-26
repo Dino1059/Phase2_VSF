@@ -909,7 +909,7 @@ export function AgentChatWorkspace() {
           <div hidden={rightTab !== 'tab-traces'}>
             <AgentTracesTab
               datasetKey={datasetKey}
-              sessionId={liveChatSessionId || (datasetKey ? `dataset:${datasetKey}` : 'default')}
+              sessionId={liveChatSessionId || 'default'}
               timeFilter={store.timeFilter}
               replayBeats={isReplay ? replayBeats : undefined}
               selectedStep={selectedTraceStep}

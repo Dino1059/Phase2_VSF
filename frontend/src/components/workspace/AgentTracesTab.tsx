@@ -125,16 +125,9 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   const isVi = i18n.language === 'vi';
   const resolvedSessionRef = useRef<string | null>(null);
 
-  // Respect the live chat session when it is a real session (e.g. session_… or
-  // dataset:…); only fall back to the canonical dataset session when the chat
-  // session is 'default'/empty. Fixes traces vanishing when chat runs under a
-  // session-switcher session while the tab hard-queried dataset:<key>.
-  const effectiveSessionId =
-    sessionId && sessionId !== 'default'
-      ? sessionId
-      : datasetKey
-        ? `dataset:${datasetKey}`
-        : sessionId;
+  // Live chat session is SoT (including 'default'). dataset:<key> is fallback
+  // only after the live id returns no steps — never the primary bind.
+  const effectiveSessionId = sessionId || (datasetKey ? `dataset:${datasetKey}` : 'default');
 
   const loadTraces = useCallback(async () => {
     if (replayBeats && replayBeats.length > 0) {
