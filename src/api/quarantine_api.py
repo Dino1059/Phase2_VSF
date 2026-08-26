@@ -73,7 +73,7 @@ def _ensure_main_quarantine_table(db):
 
 
 def _table_columns(db, schema: str, table: str) -> List[str]:
-    rows = db.execute(
+    res = db.execute(
         """
         SELECT column_name
         FROM information_schema.columns
@@ -82,6 +82,7 @@ def _table_columns(db, schema: str, table: str) -> List[str]:
         """,
         [schema, table],
     )
+    rows = res.fetchall() if hasattr(res, "fetchall") else res
     return [r[0] for r in rows] if rows else []
 
 
@@ -91,17 +92,50 @@ def _normalize_optional_table(source_table: Optional[str]) -> Optional[str]:
     return normalize_table_name(source_table)
 
 
-def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str) -> Tuple[str, str, str]:
+def synthesize_remediation_sql(rule_id: str, reason: str, source_table: str, db=None) -> Tuple[str, str, str]:
     table = normalize_table_name(source_table or "ev_telemetry")
     reason_lower = (reason or "").lower()
     severity = "CRITICAL" if any(k in reason_lower for k in ("soc", "voltage", "fare")) else "MEDIUM"
+    
+    remed_sql_expr = None
+    strategy_desc = "Transfer reviewed rows into clean partition; main truth remains immutable."
+    if db is None:
+        try:
+            db = get_db()
+        except Exception:
+            db = None
+
+    if db is not None:
+        try:
+            res = db.execute("SELECT remediation_sql_expr, remediation_action FROM quality_rules WHERE id = ? OR id = ?", [rule_id, f"{table}__{rule_id}"])
+            rows = res.fetchall() if hasattr(res, "fetchall") else res
+            if rows and rows[0][0]:
+                remed_sql_expr = rows[0][0]
+                action = rows[0][1] or "REMEDIATE"
+                strategy_desc = f"Apply {action} transformation ({remed_sql_expr}) to clean table."
+        except Exception:
+            pass
+
+    cols = _table_columns(db, "main", table) if db is not None else []
+    if cols and remed_sql_expr:
+        col_exprs = []
+        for c in cols:
+            if c in remed_sql_expr:
+                remed_src_expr = remed_sql_expr.replace(c, f"src.{c}")
+                col_exprs.append(f"{remed_src_expr} AS {c}")
+            else:
+                col_exprs.append(f"src.{c}")
+        select_clause = ", ".join(col_exprs)
+    else:
+        select_clause = "src.*"
+
     sql = (
-        f"INSERT INTO clean.{table} SELECT src.* FROM ("
+        f"INSERT INTO clean.{table} SELECT {select_clause} FROM ("
         f"SELECT *, row_number() OVER () AS _dt_rownum FROM main.{table}"
         f") src JOIN main.quarantine q ON q.source_row_id = src._dt_rownum "
         f"WHERE q.rule_id = '{rule_id}' AND q.source_table = '{table}';"
     )
-    return sql, "Transfer reviewed rows into clean partition; main truth remains immutable.", severity
+    return sql, strategy_desc, severity
 
 
 @quarantine_router.get("/")
@@ -209,7 +243,7 @@ async def get_quarantine_groups(source_table: Optional[str] = None, status: Opti
         table = normalize_table_name(g[0] or "ev_telemetry")
         rule = g[1]
         clean_reason = re.sub(r"\(-?\d+(?:\.\d+)?\)", "", g[4] or "").strip()
-        sql_cmd, strategy, severity = synthesize_remediation_sql(rule, clean_reason, table)
+        sql_cmd, strategy, severity = synthesize_remediation_sql(rule, clean_reason, table, db=db)
         try:
             samples = db.execute(
                 """
@@ -280,7 +314,7 @@ async def remediate_quarantine_group(request: RemediateRequest):
     _ensure_main_quarantine_table(db)
     actor = request.action_by or "Human_Operator_HITL"
     rule = request.rule_id
-    sql_to_run, _, _ = synthesize_remediation_sql(rule, "", table)
+    sql_to_run, _, _ = synthesize_remediation_sql(rule, "", table, db=db)
 
     try:
         count_res = db.execute("SELECT COUNT(*) FROM main.quarantine WHERE source_table = ? AND rule_id = ?", [table, rule])
@@ -291,7 +325,23 @@ async def remediate_quarantine_group(request: RemediateRequest):
         if columns:
             before = db.execute(f"SELECT COUNT(*) FROM clean.{table}")
             before_count = int(before[0][0]) if before else 0
-            select_cols = ", ".join(f"src.{c}" for c in columns)
+
+            remed_expr = None
+            try:
+                r_rows = db.execute("SELECT remediation_sql_expr FROM quality_rules WHERE id = ? OR id = ?", [rule, f"{table}__{rule}"])
+                if r_rows and r_rows[0][0]:
+                    remed_expr = r_rows[0][0]
+            except Exception:
+                pass
+
+            col_selects = []
+            for c in columns:
+                if remed_expr and c in remed_expr:
+                    col_selects.append(f"({remed_expr.replace(c, 'src.' + c)}) AS {c}")
+                else:
+                    col_selects.append(f"src.{c}")
+
+            select_cols = ", ".join(col_selects)
             insert_cols = ", ".join(columns)
             db.execute(
                 f"""

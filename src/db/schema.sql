@@ -98,34 +98,6 @@ CREATE TABLE IF NOT EXISTS profile_results (
     null_pct FLOAT,
     unique_count INT,
     min_val VARCHAR,
-    max_val VARCHAR,
-    mean_val FLOAT,
-    std_val FLOAT,
-    profiled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS quality_rules (
-    id VARCHAR PRIMARY KEY,
-    snapshot_id VARCHAR,
-    dataset_key VARCHAR,
-    rule_name VARCHAR,
-    rule_type VARCHAR,
-    rule_expression VARCHAR,
-    confidence FLOAT,
-    status VARCHAR DEFAULT 'proposed',
-    proposed_by VARCHAR,
-    approved_by VARCHAR,
-    reject_reason VARCHAR,
-    feedback_by VARCHAR,
-    feedback_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    approved_at TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS quarantine (
-    id VARCHAR PRIMARY KEY,
-    snapshot_id VARCHAR,
-    source_table VARCHAR,
     source_row_id INT,
     rule_id VARCHAR,
     rule_version_id VARCHAR,

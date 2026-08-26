@@ -89,6 +89,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Failed to auto-start RealtimeRunner: {e}")
 
+    # Centralized LLM Manager startup check
+    try:
+        from src.services.llm import UnifiedLLMAdapter
+        llm_status = UnifiedLLMAdapter().get_status()
+        print(f"[LLM Startup Check] Provider: {llm_status['provider']} | Model: {llm_status['model']} | Status: {llm_status['status']}")
+    except Exception as e:
+        print(f"[LLM Startup Check] Failed: {e}")
+
     yield
     try:
         from src.services.ingestion.realtime_runner import stop_realtime

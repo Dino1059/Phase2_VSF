@@ -603,7 +603,7 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
 @router.post("/chat/send")
 async def send_chat_message(request: ChatRequest):
     session_id = request.session_id or "default"
-    effective_use_llm = request.use_llm if request.use_llm is not None else (request.mode != "deterministic")
+    effective_use_llm = request.use_llm if request.use_llm is not None else True
     msg_metadata = {}
     if request.dataset_key:
         msg_metadata["dataset_key"] = request.dataset_key

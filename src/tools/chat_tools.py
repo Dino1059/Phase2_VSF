@@ -67,6 +67,12 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
         name = p.get("rule_name") or f"{p.get('column', 'column')} {p.get('type') or p.get('rule_type') or 'rule'}"
         rtype = p.get("type") or p.get("rule_type") or "range_check"
         expr = p.get("expression") or p.get("rule_expression") or "val != null"
+        remed_act = p.get("remediation_action") or "NO_OP"
+        remed_sql = p.get("remediation_sql_expr") or ""
+        target_tbl = p.get("target_table") or key
+        prob_disc = p.get("problem_discovered") or ""
+        why_prop = p.get("why_proposed") or ""
+        qual_imp = p.get("quality_impact") or ""
         try:
             conf = float(p.get("confidence", 0.95) or 0.95)
         except (TypeError, ValueError):
@@ -80,35 +86,37 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
         if existing:
             try:
                 db.execute(
-                    "UPDATE quality_rules SET dataset_key = ?, rule_name = ?, rule_type = ?, "
-                    "rule_expression = ?, confidence = ?, status = CASE "
+                    "UPDATE quality_rules SET dataset_key = ?, target_table = ?, rule_name = ?, rule_type = ?, "
+                    "rule_expression = ?, remediation_action = ?, remediation_sql_expr = ?, confidence = ?, "
+                    "problem_discovered = ?, why_proposed = ?, quality_impact = ?, "
+                    "status = CASE "
                     "WHEN lower(trim(cast(status AS VARCHAR))) IN ('approved', 'edited', 'rejected') "
                     "THEN status ELSE 'proposed' END, "
                     "proposed_by = COALESCE(proposed_by, 'dq_proposer') WHERE id = ?",
-                    [key or None, name, rtype, expr, conf, rid],
+                    [key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp, rid],
                 )
             except Exception:
                 try:
                     db.execute(
                         "UPDATE quality_rules SET rule_name = ?, rule_type = ?, rule_expression = ?, "
-                        "confidence = ?, status = 'proposed' WHERE id = ?",
-                        [name, rtype, expr, conf, rid],
+                        "remediation_action = ?, remediation_sql_expr = ?, confidence = ?, status = 'proposed' WHERE id = ?",
+                        [name, rtype, expr, remed_act, remed_sql, conf, rid],
                     )
                 except Exception:
                     pass
         else:
             try:
                 db.execute(
-                    """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                    [rid, key or None, name, rtype, expr, conf],
+                    """INSERT INTO quality_rules (id, dataset_key, target_table, rule_name, rule_type, rule_expression, remediation_action, remediation_sql_expr, confidence, problem_discovered, why_proposed, quality_impact, status, proposed_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                    [rid, key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp],
                 )
             except Exception:
                 try:
                     db.execute(
-                        """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                           VALUES (?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                        [rid, name, rtype, expr, conf],
+                        """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                        [rid, key or None, name, rtype, expr, conf],
                     )
                 except Exception:
                     pass

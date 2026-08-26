@@ -175,7 +175,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     dataset_key = (payload or {}).get("dataset_key", "charging_sessions")
     table_name = (payload or {}).get("table_name")
-    use_llm = bool((payload or {}).get("use_llm", False))
+    use_llm = bool((payload or {}).get("use_llm", True))
 
     proposals = []
     model_used = "Deterministic Rule Engine (LLM Off)"

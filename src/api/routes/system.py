@@ -295,6 +295,9 @@ def _restore_unhappy_incidents(db, project_root: str) -> None:
                 row.get("time_window"),
                 row.get("confirmed_facts"),
                 row.get("evidence_refs"),
+
+
+
                 row.get("owner"),
             ],
         )
@@ -355,14 +358,7 @@ def get_llm_status():
     try:
         from src.services.llm import LLMService
         llm = LLMService()
-        has_key = bool(llm.api_key and not llm.api_key.startswith("sk-your-") and not llm.api_key.startswith("test-"))
-        return {
-            "status": "online" if has_key else "fallback_ready",
-            "model": llm.model if has_key else "Deterministic Rule Engine (LLM Off)",
-            "provider": llm.preferred_provider if has_key else "heuristic",
-            "has_api_key": has_key,
-            "description": f"Active LLM: {llm.model}" if has_key else "LLM Off / Fallback to Deterministic Engine",
-        }
+        return llm.get_status()
     except Exception as e:
         return {
             "status": "offline",
@@ -371,7 +367,3 @@ def get_llm_status():
             "has_api_key": False,
             "description": f"Offline Engine: {e}",
         }
-
-
-
-
