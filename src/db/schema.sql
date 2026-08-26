@@ -98,6 +98,13 @@ CREATE TABLE IF NOT EXISTS profile_results (
     null_pct FLOAT,
     unique_count INT,
     min_val VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS quarantine (
+    id VARCHAR PRIMARY KEY,
+    snapshot_id VARCHAR,
+    source_table VARCHAR,
     source_row_id INT,
     rule_id VARCHAR,
     rule_version_id VARCHAR,
@@ -262,6 +269,41 @@ CREATE TABLE IF NOT EXISTS recommendations (
     summary VARCHAR,
     details JSON,
     requires_hitl_approval BOOLEAN
+);
+
+CREATE TABLE IF NOT EXISTS quality_rules (
+    id VARCHAR PRIMARY KEY,
+    snapshot_id VARCHAR,
+    dataset_key VARCHAR,
+    target_table VARCHAR,
+    rule_name VARCHAR,
+    rule_type VARCHAR,
+    rule_expression VARCHAR,
+    remediation_action VARCHAR,
+    remediation_sql_expr VARCHAR,
+    confidence DOUBLE,
+    problem_discovered VARCHAR,
+    why_proposed VARCHAR,
+    quality_impact VARCHAR,
+    status VARCHAR DEFAULT 'proposed',
+    proposed_by VARCHAR DEFAULT 'dq_proposer',
+    reject_reason VARCHAR,
+    feedback_by VARCHAR,
+    feedback_at TIMESTAMP,
+    layer VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    run_id VARCHAR PRIMARY KEY,
+    project_id VARCHAR NOT NULL,
+    dataset_key VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    result_json JSON,
+    error_message VARCHAR,
+    source_ingestion_run_id VARCHAR,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
 );
 
 

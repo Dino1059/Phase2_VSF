@@ -27,8 +27,15 @@ class RuleProposerTool(BaseTool):
         "required": ["target_table"]
     }
 
+    def __init__(self, llm: GemmaLLMAdapter | None = None):
+        self.llm = llm
+
     def execute(self, input_data: dict) -> dict:
-        table = normalize_table_name(input_data.get("target_table", "ev_telemetry"))
+        raw_target = input_data.get("target_table", "ev_telemetry")
+        try:
+            table = normalize_table_name(raw_target)
+        except ValueError:
+            table = "ev_telemetry"
         profile = input_data.get("profile_summary", "")
         anomalies = input_data.get("anomaly_findings", {})
         policy = get_canonical_policy(table)
@@ -127,7 +134,7 @@ Return JSON with key "rules" containing an array of objects. Schema for each obj
             "required": ["rules"]
         }
 
-        llm = GemmaLLMAdapter()
+        llm = self.llm or GemmaLLMAdapter()
         res = llm.generate_structured(prompt=prompt, schema=schema)
         if isinstance(res, dict) and "rules" in res and isinstance(res["rules"], list):
             cleaned = []

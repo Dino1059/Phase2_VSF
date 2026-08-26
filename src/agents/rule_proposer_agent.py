@@ -9,7 +9,7 @@ class RuleProposerAgent:
     description = "Proposes data quality rules with validation constraints and remediation SQL based on policy, profiling, and anomaly findings."
 
     def __init__(self, llm: GemmaLLMAdapter | None = None):
-        self.tool = RuleProposerTool()
+        self.tool = RuleProposerTool(llm=llm)
 
     def run(self, table_name: str, profile_summary: str = "", anomaly_findings: dict | None = None) -> dict:
         return self.tool.execute({
