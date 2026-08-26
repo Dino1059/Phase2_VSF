@@ -6,19 +6,14 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from src.db.connection import get_db
 from src.services.audit import AuditService
+from src.utils.table_utils import normalize_table_name
 
 pipeline_router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
 PROJECT_ID = "proj-vingroup-pilot"
 
 
 def _pipeline_table_name(table_name: str) -> str:
-    aliases = {
-        "vinfast_ev_telemetry_dirty": "vinfast_bms",
-        "real_vinfast_ev_telemetry": "vinfast_bms",
-        "vinfast_ev_telemetry": "vinfast_bms",
-        "vgreen_telemetry": "vinfast_bms",
-    }
-    return aliases.get(table_name, table_name)
+    return normalize_table_name(table_name)
 
 
 def _json_value(value):
@@ -31,9 +26,10 @@ def _read_telemetry(table_name: str, project_id: str) -> dict:
     from src.orchestrator.orchestrator import _load_table_as_dataframe
 
     config = {
-        "vinfast_bms": ("timestamp", "temp_c"),
-        "vgreen_charging_sessions": ("start_time", "station_temp_c"),
-        "xanh_sm_trips": ("pickup_datetime", "fare_amount"),
+        "ev_telemetry": ("timestamp", "battery_soc"),
+        "charging_sessions": ("start_time", "station_temp_c"),
+        "trips": ("pickup_datetime", "fare_amount"),
+        "nlp_feedback": ("scenario_date", "sentiment"),
     }
     normalized = _pipeline_table_name(table_name)
     timestamp_col, metric_col = config.get(normalized, (None, None))
@@ -138,11 +134,12 @@ def _run_pipeline_background(run_id: str, table_name: str) -> None:
         from src.orchestrator.orchestrator import DataTrustOrchestrator
         from src.services.llm import GemmaLLMAdapter
 
+        canonical_table = _pipeline_table_name(table_name)
         result = DataTrustOrchestrator(
             llm=GemmaLLMAdapter(),
             project_id=PROJECT_ID,
-        ).run_analysis(_pipeline_table_name(table_name))
-        payload = _build_pipeline_result(run_id, table_name, result)
+        ).run_analysis(canonical_table)
+        payload = _build_pipeline_result(run_id, canonical_table, result)
         _update_pipeline_run(run_id, payload["status"], payload)
     except Exception as exc:
         _update_pipeline_run(run_id, "failed", {"run_id": run_id, "dataset_key": table_name, "status": "failed", "error": str(exc)}, str(exc))
@@ -152,8 +149,9 @@ async def _run_pipeline_async(run_id: str, table_name: str) -> None:
     await asyncio.to_thread(_run_pipeline_background, run_id, table_name)
 
 
-def check_pipeline_rule_approved(rule_id: Optional[str] = None, table_name: str = "vgreen_telemetry"):
+def check_pipeline_rule_approved(rule_id: Optional[str] = None, table_name: str = "charging_sessions"):
     db = get_db()
+    table_name = _pipeline_table_name(table_name)
     if rule_id:
         rules = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rule_id])
         if not rules or rules[0][1] != "approved":
@@ -176,10 +174,11 @@ def check_pipeline_rule_approved(rule_id: Optional[str] = None, table_name: str 
 @pipeline_router.post("/trigger")
 async def trigger_pipeline(
     background_tasks: BackgroundTasks,
-    table_name: str = "vgreen_telemetry",
+    table_name: str = "charging_sessions",
     rule_id: Optional[str] = None,
 ):
     """Trigger the analysis pipeline on a table."""
+    table_name = _pipeline_table_name(table_name)
     check_pipeline_rule_approved(rule_id, table_name)
     run_id = str(uuid.uuid4())[:8]
     db = get_db()
@@ -195,9 +194,10 @@ async def trigger_pipeline(
 @pipeline_router.post("/execute")
 async def execute_pipeline(
     rule_id: Optional[str] = None,
-    table_name: str = "vgreen_telemetry",
+    table_name: str = "charging_sessions",
 ):
     """Execute pipeline for table/rule."""
+    table_name = _pipeline_table_name(table_name)
     check_pipeline_rule_approved(rule_id, table_name)
     run_id = str(uuid.uuid4())[:8]
     return {"run_id": run_id, "status": "executed", "table": table_name}

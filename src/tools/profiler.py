@@ -6,6 +6,7 @@ from src.models.schemas import ColumnProfile, Profile, ProfileReport, ProfileRes
 from src.tools.datasource import DataSource
 from src.tools.base import BaseTool
 from src.db.connection import get_db
+from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name
 
 
 class Profiler:
@@ -166,16 +167,19 @@ class DataProfilerTool(BaseTool):
         "required": ["table_name"]
     }
 
-    ALLOWED_TABLES = {
-        "vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback",
-        "vgreen_charging_sessions", "ev_telemetry", "acn_charging", "ride_trips",
+    SYSTEM_TABLES = {
         "vingroup_pilot", "raw_snapshots", "quality_rules", "quarantine",
-        "audit_log", "agent_traces", "profile_results"
+        "audit_log", "agent_traces", "profile_results",
     }
+    ALLOWED_TABLES = {*CANONICAL_DATA_TABLES, *SYSTEM_TABLES}
 
     def execute(self, input_data: dict) -> dict:
         import re
-        table = input_data["table_name"]
+        raw_table = input_data["table_name"]
+        try:
+            table = raw_table if raw_table in self.SYSTEM_TABLES else normalize_table_name(raw_table)
+        except ValueError as exc:
+            return {"error": str(exc), "table_name": raw_table, "row_count": 0, "columns": []}
         if not re.match(r'^[a-zA-Z0-9_\.]+$', table):
             return {"error": f"Invalid table name format: '{table}'", "table_name": table, "row_count": 0, "columns": []}
 

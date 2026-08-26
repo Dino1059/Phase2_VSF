@@ -69,27 +69,58 @@ class StreamingIngestionWorker:
                 for r in records:
                     try:
                         timestamp = r.get("timestamp") or datetime.now().isoformat()
-                        vehicle_id = r.get("vin") or r.get("vehicle_id") or "VF8_STREAM_01"
+                        vehicle_vin = r.get("vehicle_vin") or r.get("vin") or "VF8_STREAM_01"
                         soc = float(r.get("battery_soc", 80.0) or 80.0)
-                        temp = float(r.get("battery_temperature", 35.0) or 35.0)
-                        voltage = float(r.get("pack_voltage", 350.0) or 350.0)
+                        temp = float(r.get("battery_temp_c", 35.0) or 35.0)
+                        voltage = float(r.get("battery_voltage", 350.0) or 350.0)
 
                         db.execute(
                             """
-                            INSERT INTO vinfast_bms (id, vehicle_id, battery_soc, battery_voltage, cell_temp_max, cell_temp_min, bms_fault_code, timestamp, snapshot_id)
-                            VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM vinfast_bms), ?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO main.ev_telemetry (
+                                record_id, vehicle_vin, day_idx, sample_idx, timestamp,
+                                speed_kmh, motor_rpm, battery_soc, battery_voltage,
+                                battery_current, battery_temp_c, state_at_sample,
+                                assigned_day_index, ved_reference_veh_id,
+                                synthetic_gap_indicator, event_sequence_index,
+                                latitude, longitude, accel_z, telemetry_coverage,
+                                snapshot_id, source_ingestion_run_id
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            [vehicle_id, soc, voltage, temp, temp - 2.0, "NORMAL", timestamp, "stream_worker"]
+                            [
+                                r.get("record_id") or f"STREAM_EV_{self._telemetry_cursor}",
+                                vehicle_vin,
+                                int(r.get("day_idx") or 0),
+                                int(r.get("sample_idx") or 0),
+                                timestamp,
+                                float(r.get("speed_kmh") or 0.0),
+                                int(float(r.get("motor_rpm") or 0)),
+                                soc,
+                                voltage,
+                                float(r.get("battery_current") or 0.0),
+                                temp,
+                                r.get("state_at_sample") or "UNKNOWN",
+                                int(r.get("assigned_day_index") or r.get("day_idx") or 0),
+                                int(float(r.get("ved_reference_veh_id") or 0)),
+                                str(r.get("synthetic_gap_indicator") or "false").lower() == "true",
+                                int(float(r.get("event_sequence_index") or 0)),
+                                float(r.get("latitude") or 0.0),
+                                float(r.get("longitude") or 0.0),
+                                float(r.get("accel_z") or 0.0),
+                                r.get("telemetry_coverage") or "unknown",
+                                "stream_worker",
+                                "STREAMING_WORKER",
+                            ],
                         )
                         ingested_counts["telemetry"] += 1
                         await ws_manager.broadcast({
-                            "type": "telemetry.bms",
+                            "type": "telemetry.ev",
                             "data": {
-                                "vehicle_id": vehicle_id,
+                                "vehicle_vin": vehicle_vin,
                                 "timestamp": timestamp,
                                 "battery_soc": soc,
                                 "battery_voltage": voltage,
-                                "cell_temp_max": temp,
+                                "battery_temp_c": temp,
                             }
                         })
                     except Exception as e:
@@ -104,21 +135,45 @@ class StreamingIngestionWorker:
                 for cr in c_records:
                     try:
                         station_id = cr.get("station_id") or cr.get("spaceID") or "STATION-VGREEN-01"
-                        temp_c = float(cr.get("temperature_celsius", 45.0) or 45.0)
-                        ts = cr.get("timestamp") or datetime.now().isoformat()
+                        temp_c = float(cr.get("station_temp_c", 45.0) or 45.0)
+                        ts = cr.get("start_time") or datetime.now().isoformat()
                         db.execute(
                             """
-                            INSERT INTO vgreen_telemetry (id, station_id, station_name, temperature_celsius, voltage, status, timestamp, snapshot_id)
-                            VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM vgreen_telemetry), ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO main.charging_sessions (
+                                vehicle_vin, session_id, station_id, charger_id, start_time,
+                                duration_mins, kwh_consumed, power_kw, charging_pattern,
+                                assigned_day_index, station_temp_c, cost_vnd, status,
+                                soft_overlap_flag, event_sequence_index, snapshot_id,
+                                source_ingestion_run_id
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            [station_id, f"Station {station_id}", temp_c, 400.0, "ACTIVE", ts, "stream_worker"]
+                            [
+                                cr.get("vehicle_vin") or "VF8_STREAM_01",
+                                cr.get("session_id") or f"STREAM_CHG_{self._charging_cursor}",
+                                station_id,
+                                cr.get("charger_id") or "STREAM",
+                                ts,
+                                float(cr.get("duration_mins") or 0.0),
+                                float(cr.get("kwh_consumed") or 0.0),
+                                float(cr.get("power_kw") or 0.0),
+                                cr.get("charging_pattern") or "stream",
+                                int(float(cr.get("assigned_day_index") or 0)),
+                                temp_c,
+                                float(cr.get("cost_vnd") or 0.0),
+                                cr.get("status") or "ACTIVE",
+                                str(cr.get("soft_overlap_flag") or "false").lower() == "true",
+                                int(float(cr.get("event_sequence_index") or 0)),
+                                "stream_worker",
+                                "STREAMING_WORKER",
+                            ],
                         )
                         ingested_counts["charging"] += 1
                         await ws_manager.broadcast({
                             "type": "telemetry.charging",
                             "data": {
                                 "station_id": station_id,
-                                "temperature_celsius": temp_c,
+                                "station_temp_c": temp_c,
                                 "status": "ACTIVE",
                             }
                         })

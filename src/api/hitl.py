@@ -88,14 +88,11 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     if not dataset_key:
         return db.execute(select_sql + "ORDER BY created_at DESC")
 
-    d_clean = dataset_key.lower().replace("_", "").replace("-", "")
+    try:
+        dataset_key = normalize_table_name(dataset_key)
+    except ValueError:
+        return []
     aliases = [dataset_key]
-    if "charging" in d_clean or "vgreen" in d_clean:
-        aliases.extend(["vgreen_charging", "charging_sessions", "acn_charging", "charging"])
-    elif "trip" in d_clean or "xanh" in d_clean:
-        aliases.extend(["xanhsm_trips", "trips", "ride_trips", "xanh_sm_trips"])
-    elif "ev" in d_clean or "telemetry" in d_clean or "vinfast" in d_clean:
-        aliases.extend(["ev_telemetry", "vinfast_ev_telemetry", "telemetry"])
 
     conditions = []
     params = []

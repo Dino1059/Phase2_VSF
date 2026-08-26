@@ -849,12 +849,12 @@ export const hitlApi = {
 };
 
 export const pipelineApi = {
-  trigger: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+  trigger: (tableName: string = 'charging_sessions', ruleId?: string) =>
     request<{ run_id: string; status: string; table: string }>(
       `/pipeline/trigger?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
       { method: 'POST' }
     ),
-  execute: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+  execute: (tableName: string = 'charging_sessions', ruleId?: string) =>
     request<{ run_id: string; status: string; table: string }>(
       `/pipeline/execute?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
       { method: 'POST' }

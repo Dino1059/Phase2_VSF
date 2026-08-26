@@ -1,313 +1,229 @@
-"""Day ingestor - Giai doan 2b
-Ingest a specific day_idx from landing parquet into raw.<table>.
-Idempotent: skips if data already exists for that day_idx with matching snapshot_id.
+"""Day ingestor.
+
+Ingest landing parquet rows into canonical main tables. `main.*` is treated as
+append-only; replay of an existing snapshot is skipped instead of deleting truth.
 """
-import duckdb, os, logging
-from datetime import datetime
+
+import logging
+import os
+
+import duckdb
 
 logger = logging.getLogger(__name__)
 
 try:
     from src.config import get_settings
     from src.db.connection import get_db
+
     _rel_pq = get_settings().landing_parquet_path
     PQ_PATH = _rel_pq if os.path.isabs(_rel_pq) else os.path.join(get_db().project_root, _rel_pq)
 except Exception:
     PQ_PATH = r"c:\Users\ngant\P-086\data_demo\vingroup_pilot_landing_demo.parquet"
 
-# Column mapping: landing dataset_table -> (raw_table, [columns in landing], snapshot_id injected)
-# Derived from actual schema analysis.
+
 TABLE_MAPPINGS = {
     "ev_telemetry": {
-        "raw_table": "raw.ev_telemetry",
+        "target_table": "main.ev_telemetry",
         "landing_cols": [
             "record_id", "vehicle_vin", "day_idx", "sample_idx", "timestamp",
             "speed_kmh", "motor_rpm", "battery_soc", "battery_voltage",
             "battery_current", "battery_temp_c", "state_at_sample",
             "assigned_day_index", "ved_reference_veh_id", "synthetic_gap_indicator",
-            "event_sequence_index", "latitude", "longitude", "accel_z", "telemetry_coverage"
+            "event_sequence_index", "latitude", "longitude", "accel_z", "telemetry_coverage",
         ],
         "day_filter": "day_idx = :day",
     },
     "ride_trips": {
-        "raw_table": "raw.trips",
+        "target_table": "main.trips",
         "landing_cols": [
             "trip_id", "vehicle_vin", "driver_id", "pickup_datetime", "dropoff_datetime",
             "assigned_day_index", "trip_distance_km", "fare_amount", "currency_unverified",
             "tip_amount", "total_fare", "pickup_latitude", "pickup_longitude",
-            "vehicle_type", "event_sequence_index"
+            "vehicle_type", "event_sequence_index",
         ],
         "day_filter": "assigned_day_index = :day",
-        "day_col_landing": "day_idx",  # landing has day_idx
-        "day_col_raw": "assigned_day_index",  # raw uses assigned_day_index
     },
     "acn_charging": {
-        "raw_table": "raw.charging_sessions",
+        "target_table": "main.charging_sessions",
         "landing_cols": [
             "vehicle_vin", "session_id", "station_id", "charger_id", "start_time",
             "duration_mins", "kwh_consumed", "power_kw", "charging_pattern",
             "assigned_day_index", "station_temp_c", "cost_vnd", "status",
-            "soft_overlap_flag", "event_sequence_index"
+            "soft_overlap_flag", "event_sequence_index",
         ],
         "day_filter": "assigned_day_index = :day",
-        "day_col_landing": "day_idx",
-        "day_col_raw": "assigned_day_index",
+    },
+    "feedback": {
+        "target_table": "main.nlp_feedback",
+        "landing_cols": [
+            "feedback_id", "vehicle_vin", "sentence", "sentiment", "topic",
+            "scenario_date", "raw_comment_text",
+        ],
+        "day_filter": None,
+        "once": True,
     },
     "fleet_index": {
-        "raw_table": "raw.fleet_index",
-        "landing_cols": [
-            "vehicle_vin", "vehicle_type", "telemetry_equipped"
-        ],
-        "day_filter": None,  # static reference data - ingest once
-        "once": True,       # only ingest once, not per-day
+        "target_table": "ref.fleet_index_ref",
+        "landing_cols": ["vehicle_vin", "vehicle_type", "telemetry_equipped"],
+        "day_filter": None,
+        "once": True,
     },
-    # nlp_feedback: landing.feedback only has sentiment+topic, raw.nlp_feedback needs sentence.
-    # Skip for now - require manual mapping if needed.
 }
 
-SNAPSHOT_MAP = {
-    0: "SNAP_000", 1: "SNAP_001", 2: "SNAP_002", 3: "SNAP_003", 4: "SNAP_004",
-    5: "SNAP_005", 6: "SNAP_006", 7: "SNAP_007", 8: "SNAP_008", 9: "SNAP_009",
-    10: "SNAP_010", 11: "SNAP_011", 12: "SNAP_012", 13: "SNAP_013", 14: "SNAP_014",
-}
+SNAPSHOT_MAP = {i: f"SNAP_{i:03d}" for i in range(15)}
 
 
 def get_snapshot_id(day_idx: int) -> str:
     return SNAPSHOT_MAP.get(int(day_idx), f"SNAP_{int(day_idx):03d}")
 
 
-def ingest_day(day_idx: int, verbose: bool = True, force_replay: bool = False, conn: duckdb.DuckDBPyConnection | None = None) -> dict:
-    """Ingest all tables for a given day_idx from landing parquet."""
-    snapshot_id = get_snapshot_id(day_idx)
-    logger.info(f"⚡ [DayIngestor] Ingesting Day {day_idx} (snapshot={snapshot_id})")
+def _connection(conn: duckdb.DuckDBPyConnection | None = None):
+    if conn is not None:
+        return conn
+    from src.db.connection import get_db
 
+    return get_db().get_connection()
+
+
+def _insert_from_landing(conn, mapping: dict, snapshot_id: str, where_clause: str) -> int:
+    target_table = mapping["target_table"]
+    landing_cols = mapping["landing_cols"]
+    col_list = ", ".join(landing_cols + ["snapshot_id", "source_ingestion_run_id"])
+    select_list = ", ".join(
+        landing_cols + [f"'{snapshot_id}' AS snapshot_id", "'DAY_INGESTOR' AS source_ingestion_run_id"]
+    )
+    sql = f"""
+        INSERT INTO {target_table} ({col_list})
+        SELECT {select_list}
+        FROM read_parquet('{PQ_PATH}')
+        {where_clause}
+    """
+    conn.execute(sql)
+    return conn.execute(f"SELECT COUNT(*) FROM {target_table} WHERE snapshot_id = ?", [snapshot_id]).fetchone()[0]
+
+
+def ingest_day(
+    day_idx: int,
+    verbose: bool = True,
+    force_replay: bool = False,
+    conn: duckdb.DuckDBPyConnection | None = None,
+) -> dict:
+    """Ingest all day-scoped tables for a given day_idx from landing parquet."""
+    snapshot_id = get_snapshot_id(day_idx)
     if not os.path.exists(PQ_PATH):
-        logger.error(f"[DayIngestor] Parquet file not found: {PQ_PATH}")
         return {"error": f"Parquet not found: {PQ_PATH}"}
 
-    should_close = False
-    if conn is None:
-        try:
-            from src.db.connection import get_db
-            conn = get_db().get_connection()
-        except Exception:
-            conn = duckdb.connect(DB_PATH)
-            should_close = True
+    conn = _connection(conn)
     results = {}
 
     for dataset_table, mapping in TABLE_MAPPINGS.items():
-        raw_table = mapping["raw_table"]
-        landing_cols = mapping["landing_cols"]
-        day_filter = mapping.get("day_filter")
-        day_col_raw = mapping.get("day_col_raw", "day_idx")
-
-        # Skip "once" tables (static reference data) in per-day ingest
         if mapping.get("once"):
             results[dataset_table] = {"status": "skipped", "reason": "static_reference"}
             continue
 
-        # Check idempotency: use SUM of snapshot_id matches (NULL-safe)
-        if day_filter:
-            day_cond = day_filter.replace(":day", str(day_idx))
-            existing_snapshot = conn.execute(
-                f"SELECT MAX(snapshot_id) FROM {raw_table} WHERE {day_cond}"
-            ).fetchone()[0]
-            snapshot_match_count = conn.execute(
-                f"SELECT COUNT(*) FROM {raw_table} WHERE {day_cond} AND snapshot_id = ?",
-                [snapshot_id]
-            ).fetchone()[0]
-            existing_count = conn.execute(
-                f"SELECT COUNT(*) FROM {raw_table} WHERE {day_cond}"
-            ).fetchone()[0]
-        else:
-            # fleet_index: check by snapshot_id
-            existing_count, existing_snapshot = conn.execute(
-                f"SELECT COUNT(*), MAX(snapshot_id) FROM {raw_table} WHERE snapshot_id = ?",
-                [snapshot_id]
-            ).fetchone()
-            snapshot_match_count = existing_count
-
-        if force_replay and day_filter:
-            day_cond = day_filter.replace(":day", str(day_idx))
-            conn.execute(f"DELETE FROM {raw_table} WHERE {day_cond}")
-            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: FORCE REPLAY deleted existing rows.")
-        elif existing_count > 0 and snapshot_match_count > 0:
-            # Already ingested with our snapshot_id
-            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: SKIP - already ingested ({existing_count} rows, snapshot={snapshot_id})")
-            results[dataset_table] = {"status": "skipped", "rows": existing_count}
+        target_table = mapping["target_table"]
+        day_filter = mapping["day_filter"].replace(":day", str(day_idx))
+        existing_count = conn.execute(
+            f"SELECT COUNT(*) FROM {target_table} WHERE {day_filter} AND snapshot_id = ?",
+            [snapshot_id],
+        ).fetchone()[0]
+        if existing_count:
+            results[dataset_table] = {"status": "skipped", "rows": existing_count, "snapshot_id": snapshot_id}
             continue
-        elif existing_count > 0 and existing_snapshot is None:
-            # Data exists but no snapshot_id - old seed data. Skip to be safe.
-            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table}]: SKIP - {existing_count} rows without snapshot_id (seed)")
-            results[dataset_table] = {"status": "skipped_old_seed", "rows": existing_count}
-            continue
-
-        # Build INSERT
-        all_cols = landing_cols + ["snapshot_id"]
-        col_list = ", ".join(all_cols)
-        select_parts = []
-        for col in landing_cols:
-            select_parts.append(col)
-        select_parts.append(f"'{snapshot_id}' AS snapshot_id")
-        select_list = ", ".join(select_parts)
-
-        if day_filter:
-            where_clause = f"WHERE dataset_table = '{dataset_table}' AND {day_filter.replace(':day', str(day_idx))}"
-        else:
-            where_clause = f"WHERE dataset_table = '{dataset_table}'"
-
-        sql = f"""
-            INSERT INTO {raw_table} ({col_list})
-            SELECT {select_list}
-            FROM read_parquet('{PQ_PATH}')
-            {where_clause}
-        """
+        if force_replay:
+            logger.info("force_replay ignored for %s; main.* is append-only", target_table)
 
         try:
-            conn.execute(sql)
-            if day_filter:
-                day_cond = day_filter.replace(":day", str(day_idx))
-                count = conn.execute(
-                    f"SELECT COUNT(*) FROM {raw_table} WHERE {day_cond} AND snapshot_id = ?",
-                    [snapshot_id]
-                ).fetchone()[0]
-            else:
-                count = conn.execute(
-                    f"SELECT COUNT(*) FROM {raw_table} WHERE snapshot_id = ?",
-                    [snapshot_id]
-                ).fetchone()[0]
-            logger.info(f"⚡ [DayIngestor] Day {day_idx} [{dataset_table} -> {raw_table}]: INSERTED +{count} rows (snapshot={snapshot_id})")
+            where_clause = f"WHERE dataset_table = '{dataset_table}' AND {day_filter}"
+            count = _insert_from_landing(conn, mapping, snapshot_id, where_clause)
             results[dataset_table] = {"status": "inserted", "rows": count, "snapshot_id": snapshot_id}
-        except Exception as e:
-            logger.error(f"[DayIngestor] Day {day_idx} [{dataset_table}] INSERT ERROR: {e}", exc_info=True)
-            results[dataset_table] = {"status": "error", "error": str(e)}
+        except Exception as exc:
+            logger.error("[DayIngestor] %s insert error: %s", dataset_table, exc, exc_info=True)
+            results[dataset_table] = {"status": "error", "error": str(exc)}
 
-    if should_close:
-        try:
-            conn.close()
-        except Exception:
-            pass
     return results
 
 
 def verify_day(day_idx: int) -> dict:
-    """Show what raw tables have for a given day_idx."""
-    conn = duckdb.connect(DB_PATH, read_only=True)
+    """Show what canonical tables have for a given day_idx."""
     snapshot_id = get_snapshot_id(day_idx)
+    conn = _connection()
     stats = {}
     for dataset_table, mapping in TABLE_MAPPINGS.items():
-        raw_table = mapping["raw_table"]
+        target_table = mapping["target_table"]
         day_filter = mapping.get("day_filter")
-        if day_filter:
-            cond = day_filter.replace(":day", str(day_idx))
-            try:
-                cnt = conn.execute(f"SELECT COUNT(*) FROM {raw_table} WHERE {cond}").fetchone()[0]
-                snap = conn.execute(f"SELECT MAX(snapshot_id) FROM {raw_table} WHERE {cond}").fetchone()[0]
+        try:
+            if day_filter:
+                cond = day_filter.replace(":day", str(day_idx))
+                cnt = conn.execute(f"SELECT COUNT(*) FROM {target_table} WHERE {cond}").fetchone()[0]
+                snap = conn.execute(f"SELECT MAX(snapshot_id) FROM {target_table} WHERE {cond}").fetchone()[0]
                 stats[dataset_table] = f"{cnt} rows (snap={snap})"
-            except Exception as e:
-                stats[dataset_table] = f"ERR: {e}"
-        else:
-            try:
-                cnt = conn.execute(f"SELECT COUNT(*) FROM {raw_table} WHERE snapshot_id = ?", [snapshot_id]).fetchone()[0]
+            else:
+                cnt = conn.execute(f"SELECT COUNT(*) FROM {target_table} WHERE snapshot_id = ?", [snapshot_id]).fetchone()[0]
                 stats[dataset_table] = f"{cnt} rows (snap={snapshot_id})"
-            except:
-                stats[dataset_table] = "ERR"
-    conn.close()
+        except Exception as exc:
+            stats[dataset_table] = f"ERR: {exc}"
     return stats
 
 
-def seed_fleet_index(snapshot_id: str = "SNAP_000", verbose: bool = True) -> dict:
-    """Ingest fleet_index (static reference data) once."""
-    if verbose:
-        print(f"\n{'='*60}")
-        print(f"SEED FLEET INDEX (snapshot={snapshot_id})")
-        print(f"{'='*60}")
-
+def seed_static_references(snapshot_id: str = "SNAP_000", verbose: bool = True) -> dict:
+    """Ingest static reference tables once."""
     if not os.path.exists(PQ_PATH):
         return {"error": f"Parquet not found: {PQ_PATH}"}
 
-    conn = duckdb.connect(DB_PATH)
-    mapping = TABLE_MAPPINGS["fleet_index"]
-    raw_table = mapping["raw_table"]
-    landing_cols = mapping["landing_cols"]
+    conn = _connection()
+    results = {}
+    for dataset_table in ("feedback", "fleet_index"):
+        mapping = TABLE_MAPPINGS[dataset_table]
+        target_table = mapping["target_table"]
+        existing = conn.execute(f"SELECT COUNT(*) FROM {target_table}").fetchone()[0]
+        if existing:
+            results[dataset_table] = {"status": "skipped", "rows": existing}
+            continue
+        try:
+            count = _insert_from_landing(
+                conn,
+                mapping,
+                snapshot_id,
+                f"WHERE dataset_table = '{dataset_table}'",
+            )
+            results[dataset_table] = {"status": "inserted", "rows": count}
+        except Exception as exc:
+            results[dataset_table] = {"status": "error", "error": str(exc)}
+    return results
 
-    # Check if already ingested
-    existing = conn.execute(
-        f"SELECT COUNT(*) FROM {raw_table} WHERE snapshot_id = ?",
-        [snapshot_id]
-    ).fetchone()[0]
-    if existing > 0:
-        if verbose:
-            print(f"  SKIP - fleet_index already seeded (snapshot={snapshot_id})")
-        conn.close()
-        return {"status": "skipped", "rows": existing}
 
-    # Insert
-    all_cols = landing_cols + ["snapshot_id"]
-    sql = f"""
-        INSERT INTO {raw_table} ({', '.join(all_cols)})
-        SELECT {', '.join(landing_cols)}, '{snapshot_id}' AS snapshot_id
-        FROM read_parquet('{PQ_PATH}')
-        WHERE dataset_table = 'fleet_index'
-    """
-    try:
-        conn.execute(sql)
-        count = conn.execute(
-            f"SELECT COUNT(*) FROM {raw_table} WHERE snapshot_id = ?",
-            [snapshot_id]
-        ).fetchone()[0]
-        if verbose:
-            print(f"  OK   +{count} rows (snapshot={snapshot_id})")
-        result = {"status": "inserted", "rows": count}
-    except Exception as e:
-        if verbose:
-            print(f"  ERR  {e}")
-        result = {"status": "error", "error": str(e)}
-
-    conn.close()
-    return result
+def seed_fleet_index(snapshot_id: str = "SNAP_000", verbose: bool = True) -> dict:
+    """Backward-compatible CLI wrapper for static reference ingest."""
+    return seed_static_references(snapshot_id=snapshot_id, verbose=verbose).get("fleet_index", {})
 
 
 def ingest_warmup(days: int = 10) -> list:
-    """Ingest first N days (warmup phase)."""
-    results = []
-    for day in range(days):
-        r = ingest_day(day, verbose=True)
-        results.append((day, r))
-    return results
+    return [(day, ingest_day(day, verbose=True)) for day in range(days)]
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Day ingestor")
     parser.add_argument("--day", type=int, help="Ingest single day_idx")
     parser.add_argument("--range", nargs=2, type=int, metavar=("START", "END"), help="Ingest day range")
-    parser.add_argument("--warmup", type=int, default=10, help="Ingest first N days (warmup)")
-    parser.add_argument("--verify", type=int, help="Verify raw tables for day_idx")
-    parser.add_argument("--seed-fleet", action="store_true", help="Ingest fleet_index (static reference data) once")
+    parser.add_argument("--warmup", type=int, default=10, help="Ingest first N days")
+    parser.add_argument("--verify", type=int, help="Verify canonical tables for day_idx")
+    parser.add_argument("--seed-fleet", action="store_true", help="Ingest static reference tables once")
     args = parser.parse_args()
 
     if args.seed_fleet:
-        seed_fleet_index()
+        print(seed_static_references())
     elif args.verify is not None:
         print(f"Verifying day {args.verify}:")
         for tbl, info in verify_day(args.verify).items():
             print(f"  {tbl}: {info}")
     elif args.day is not None:
-        ingest_day(args.day)
+        print(ingest_day(args.day))
     elif args.range:
         start, end = args.range
         for day in range(start, end + 1):
-            ingest_day(day)
+            print(day, ingest_day(day))
     else:
-        print(f"Ingesting warmup days 0-{args.warmup-1}...")
-        results = ingest_warmup(args.warmup)
-        print(f"\n{'='*60}")
-        print("WARMUP SUMMARY")
-        total = 0
-        for day, r in results:
-            for tbl, info in r.items():
-                if info.get("status") == "inserted":
-                    total += info["rows"]
-                    print(f"  day {day:2d} {tbl}: +{info['rows']} rows")
-        print(f"\nTotal rows inserted: {total:,}")
+        print(ingest_warmup(args.warmup))

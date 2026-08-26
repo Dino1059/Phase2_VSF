@@ -115,3 +115,20 @@
 - Verification: DB acceptance query found 12 canonical tables across `main/clean/quarantine`; legacy object negative gate returned 0 rows. `python -m py_compile src/db/seed.py src/utils/table_utils.py src/config.py` passed. `python -m pytest tests/test_table_utils.py` passed 6 tests.
 - Remaining legacy runtime references are intentionally left for Phase 2+ approval.
 
+## 2026-08-26 - Canonical DB contract Phase 2/3
+
+- Phase 2 ingestion writers now target canonical truth:
+  - `scripts/landing-data-ingestion/day_ingestor.py`: landing parquet writes to `main.ev_telemetry`, `main.charging_sessions`, `main.trips`, static `main.nlp_feedback`, and `ref.fleet_index_ref`; no `raw.*` target and no `DELETE` replay on `main.*`.
+  - `src/api/routes/telemetry.py`: `/telemetry/ingest` accepts only `ev_telemetry`/`charging_sessions`; legacy input is rejected by `normalize_table_name()`.
+  - `src/services/ingestion/streaming_worker.py`: stream inserts now use `main.ev_telemetry` and `main.charging_sessions`.
+- Phase 3 runtime alias removal:
+  - `src/api/pipeline.py`: removed alias map behavior; defaults/config are canonical.
+  - `src/orchestrator/orchestrator.py`: signal config and table candidates are canonical-only; parquet alias is limited to source adapter mapping canonical table -> landing dataset_table.
+  - `src/tools/profiler.py`, `src/tools/anomaly_detector.py`, `src/tools/rule_executor.py`, `src/tools/rule_proposer.py`, `src/tools/telemetry_query.py`, `src/api/hitl.py`: removed legacy table allow/fallback paths and switched generated rules/query outputs to canonical columns.
+  - `frontend/src/services/api.ts`: pipeline default table is `charging_sessions`.
+- Verification:
+  - `python -m py_compile scripts/landing-data-ingestion/day_ingestor.py src/api/routes/telemetry.py src/services/ingestion/streaming_worker.py src/api/pipeline.py src/orchestrator/orchestrator.py src/tools/profiler.py src/tools/anomaly_detector.py src/tools/rule_executor.py src/tools/rule_proposer.py src/tools/telemetry_query.py` passed.
+  - `python -m pytest tests/test_table_utils.py` passed 6 tests.
+  - Smoke: profiler `ev_telemetry` row_count 86400; anomaly detector on `ev_telemetry.battery_soc` ran with stats; telemetry query returned 2 charging + 2 EV sample rows; `day_ingestor.verify_day(0)` read canonical rows from DB.
+- Plan updated in `.plan/DB/phuong_an_xu_ly_tiet_de_vinfast_bms.md` section 10. Stop here until user approves Phase 4+.
+

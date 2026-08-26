@@ -16,6 +16,7 @@ from src.agents.diagnosis_agent import DiagnosisAgent
 from src.agents.rule_proposer_agent import RuleProposerAgent
 from src.agents.executor_agent import ExecutorAgent
 from src.db.connection import get_db
+from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,8 @@ def _notify(progress_callback: Optional[Callable[[str, str, dict], None]], stage
         db = get_db()
         target_ds = (metadata or {}).get("dataset") or "ev_telemetry"
         session_ids = [f"dataset:{target_ds}"]
-        if target_ds in ("vingroup_pilot", "all", "raw.ev_telemetry", "ev_telemetry"):
-            session_ids = ["dataset:ev_telemetry", "dataset:vgreen_charging", "dataset:xanhsm_trips", "dataset:xanhsm_feedback", "default"]
+        if target_ds in ("vingroup_pilot", "all", "ev_telemetry"):
+            session_ids = [f"dataset:{table}" for table in CANONICAL_DATA_TABLES] + ["default"]
         
         json_meta = json.dumps(metadata or {})
         json_out = json.dumps({"message": message})
@@ -75,16 +76,6 @@ VINGROUP_PILOT_DB = "data_new/db/vingroup_pilot.db"
 # Mapping DuckDB table -> (entity_id_col, timestamp_col, metric_col, range_min, range_max)
 # Conservative defaults for stage-2 wiring; tuned per table.
 _TABLE_SIGNAL_CONFIG = {
-    "vinfast_ev_telemetry": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "timestamp",
-        "metric_col": "battery_soc",
-        "relational_x": "battery_voltage",
-        "relational_y": "battery_current",
-        "l1_min": 0.0,
-        "l1_max": 100.0,
-        "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
-    },
     "ev_telemetry": {
         "entity_id_col": "vehicle_vin",
         "timestamp_col": "timestamp",
@@ -94,36 +85,6 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_min": 0.0,
         "l1_max": 100.0,
         "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
-    },
-    "raw.ev_telemetry": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "timestamp",
-        "metric_col": "battery_soc",
-        "relational_x": "battery_voltage",
-        "relational_y": "battery_current",
-        "l1_min": 0.0,
-        "l1_max": 100.0,
-        "l1_required_cols": ["battery_voltage", "battery_current", "battery_temp_c"],
-    },
-    "vinfast_bms": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "timestamp",
-        "metric_col": "temp_c",
-        "relational_x": "voltage",
-        "relational_y": "charging_rate_kw",
-        "l1_min": -20.0,
-        "l1_max": 100.0,
-        "l1_required_cols": ["voltage", "temp_c"],
-    },
-    "vgreen_charging_sessions": {
-        "entity_id_col": "station_id",
-        "timestamp_col": "start_time",
-        "metric_col": "station_temp_c",
-        "relational_x": "power_kw",
-        "relational_y": "kwh_consumed",
-        "l1_min": -20.0,
-        "l1_max": 80.0,
-        "l1_required_cols": ["kwh_consumed", "power_kw"],
     },
     "charging_sessions": {
         "entity_id_col": "vehicle_vin",
@@ -135,36 +96,6 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_max": 80.0,
         "l1_required_cols": ["kwh_consumed", "power_kw"],
     },
-    "raw.charging_sessions": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "start_time",
-        "metric_col": "station_temp_c",
-        "relational_x": "power_kw",
-        "relational_y": "kwh_consumed",
-        "l1_min": -20.0,
-        "l1_max": 80.0,
-        "l1_required_cols": ["kwh_consumed", "power_kw"],
-    },
-    "acn_charging": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "start_time",
-        "metric_col": "station_temp_c",
-        "relational_x": "power_kw",
-        "relational_y": "kwh_consumed",
-        "l1_min": -20.0,
-        "l1_max": 80.0,
-        "l1_required_cols": ["kwh_consumed", "power_kw"],
-    },
-    "xanh_sm_trips": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "pickup_datetime",
-        "metric_col": "fare_amount",
-        "relational_x": "trip_distance_km",
-        "relational_y": "fare_amount",
-        "l1_min": 0.0,
-        "l1_max": None,
-        "l1_required_cols": ["fare_amount", "trip_distance_km"],
-    },
     "trips": {
         "entity_id_col": "vehicle_vin",
         "timestamp_col": "pickup_datetime",
@@ -175,25 +106,15 @@ _TABLE_SIGNAL_CONFIG = {
         "l1_max": None,
         "l1_required_cols": ["fare_amount", "trip_distance_km"],
     },
-    "raw.trips": {
+    "nlp_feedback": {
         "entity_id_col": "vehicle_vin",
-        "timestamp_col": "pickup_datetime",
-        "metric_col": "fare_amount",
-        "relational_x": "trip_distance_km",
-        "relational_y": "fare_amount",
-        "l1_min": 0.0,
+        "timestamp_col": "scenario_date",
+        "metric_col": "sentiment",
+        "relational_x": "sentiment",
+        "relational_y": "topic",
+        "l1_min": None,
         "l1_max": None,
-        "l1_required_cols": ["fare_amount", "trip_distance_km"],
-    },
-    "ride_trips": {
-        "entity_id_col": "vehicle_vin",
-        "timestamp_col": "pickup_datetime",
-        "metric_col": "fare_amount",
-        "relational_x": "trip_distance_km",
-        "relational_y": "fare_amount",
-        "l1_min": 0.0,
-        "l1_max": None,
-        "l1_required_cols": ["fare_amount", "trip_distance_km"],
+        "l1_required_cols": ["sentence", "sentiment", "topic"],
     },
 }
 
@@ -201,58 +122,15 @@ _TABLE_SIGNAL_CONFIG = {
 # Mapping from logical table name (used in _TABLE_SIGNAL_CONFIG / batch callers)
 # to the dataset_table value stored in the landing parquet.
 _PARQUET_TABLE_ALIAS: dict[str, str] = {
-    "vinfast_ev_telemetry": "ev_telemetry",
-    "vinfast_ev_telemetry_dirty": "ev_telemetry",
-    "raw.ev_telemetry": "ev_telemetry",
     "ev_telemetry": "ev_telemetry",
-    "vinfast_bms": "ev_telemetry",
-
-    "vgreen_charging_sessions": "acn_charging",
-    "vgreen_charging_stations": "acn_charging",
-    "vgreen_charging_stations_dirty": "acn_charging",
-    "raw.charging_sessions": "acn_charging",
     "charging_sessions": "acn_charging",
-    "acn_charging": "acn_charging",
-
-    "xanh_sm_trips": "ride_trips",
-    "xanh_sm_trips_dirty": "ride_trips",
-    "raw.trips": "ride_trips",
     "trips": "ride_trips",
-    "ride_trips": "ride_trips",
-
-    "xanh_sm_customer_feedback": "feedback",
-    "xanh_sm_customer_feedback_dirty": "feedback",
-    "raw.nlp_feedback": "feedback",
     "nlp_feedback": "feedback",
-    "feedback": "feedback",
-    "customer_nlp": "feedback",
 }
 
 
 def _table_candidates(table_name: str) -> list[str]:
-    aliases = {
-        "vinfast_ev_telemetry_dirty": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms", "vinfast_ev_telemetry"],
-        "vinfast_ev_telemetry": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms", "vinfast_ev_telemetry"],
-        "vinfast_bms": ["vinfast_bms", "raw.ev_telemetry", "ev_telemetry"],
-        "ev_telemetry": ["raw.ev_telemetry", "ev_telemetry", "vinfast_bms"],
-        "vgreen_charging_stations_dirty": ["raw.charging_sessions", "charging_sessions", "acn_charging", "vgreen_charging_sessions"],
-        "vgreen_charging_stations": ["raw.charging_sessions", "charging_sessions", "acn_charging", "vgreen_charging_sessions"],
-        "vgreen_charging_sessions": ["vgreen_charging_sessions", "raw.charging_sessions", "acn_charging"],
-        "acn_charging": ["raw.charging_sessions", "charging_sessions", "acn_charging"],
-        "xanh_sm_trips_dirty": ["raw.trips", "trips", "ride_trips", "xanh_sm_trips"],
-        "xanh_sm_trips": ["raw.trips", "trips", "ride_trips", "xanh_sm_trips"],
-        "ride_trips": ["raw.trips", "trips", "ride_trips"],
-        "xanh_sm_customer_feedback_dirty": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
-        "xanh_sm_customer_feedback": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
-        "customer_nlp": ["raw.nlp_feedback", "nlp_feedback", "feedback", "xanhsm_feedback"],
-        "nlp_feedback": ["raw.nlp_feedback", "nlp_feedback", "feedback"],
-    }
-    cands = list(aliases.get(table_name, [table_name]))
-    if table_name not in cands:
-        cands.append(table_name)
-    if not table_name.startswith("raw."):
-        cands.append(f"raw.{table_name}")
-    return cands
+    return [normalize_table_name(table_name)]
 
 
 def _load_table_as_dataframe(
@@ -263,6 +141,7 @@ def _load_table_as_dataframe(
     window_days: int = 10,
 ) -> pd.DataFrame:
     import duckdb
+    table_name = normalize_table_name(table_name)
 
     # --- Day-aware landing-parquet path (added in Giai đoạn 2) ---
     from src.config import get_settings
@@ -831,7 +710,7 @@ class DataTrustOrchestrator:
         from src.tools.rule_proposer import RuleProposerTool
         rule_tool = RuleProposerTool()
         for tbl in target_tables:
-            clean_tbl = tbl.replace("raw.", "")
+            clean_tbl = normalize_table_name(tbl)
             try:
                 rule_tool.execute({
                     "target_table": clean_tbl,
@@ -883,9 +762,9 @@ class DataTrustOrchestrator:
             session_ids = [
                 f"dataset:{dataset_key}",
                 "dataset:ev_telemetry",
-                "dataset:vgreen_charging",
-                "dataset:xanhsm_trips",
-                "dataset:xanhsm_feedback",
+                "dataset:charging_sessions",
+                "dataset:trips",
+                "dataset:nlp_feedback",
                 "default",
             ]
             
