@@ -13,7 +13,8 @@ RUN uv sync --frozen --no-install-project --no-dev
 
 # Copy source code and project directories
 COPY src/ ./src/
-COPY data_new/ ./data_new/
+COPY landing_data/ ./landing_data/
+COPY eval/rca_benchmark/ ./eval/rca_benchmark/
 COPY schemas/ ./schemas/
 COPY scripts/ ./scripts/
 
