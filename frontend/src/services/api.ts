@@ -845,6 +845,11 @@ export const hitlApi = {
       snapshot_id?: string;
       this_run?: boolean;
       sampled_rows?: number;
+      cell_diffs?: any[];
+      execute?: string;
+      run_id?: string;
+      per_rule_counts?: Record<string, number>;
+      tables?: string[];
     }>('/hitl/sandbox', {
       method: 'POST',
       body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),

@@ -40,12 +40,15 @@ def test_handle_sandbox_execute_calls_clean_and_writes_split_store():
     hitl = _hitl()
     sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const proposedCount", 1)[0]
     assert "approvalsApi.authorize" in sandbox_fn
-    assert "hitlApi.execute" in sandbox_fn
+    assert "hitlApi.execute" not in sandbox_fn
     assert "hitlApi.sandbox" in sandbox_fn
+    assert "hitlApi.getSandbox" in sandbox_fn
+    assert "SandboxDiff" in ui
+    assert "<SandboxDiff" in ui
     assert "mergeSplitRows" in sandbox_fn
     assert "cleanRan: true" in sandbox_fn
     assert "datatrust:sandbox-split" in sandbox_fn or "datatrust:split-refresh" in sandbox_fn
-    approve = ui.split("const handleApprove", 1)[1].split("const handleReject", 1)[0]
+    approve = ui.split("const handleApprove", 1)[1].split("const handleSandboxExecute", 1)[0]
     assert "hitlApi.sandbox" not in approve
     assert "hitlApi.execute" not in approve
     assert "sandbox:" in api.split("export const hitlApi", 1)[1]
@@ -99,6 +102,23 @@ def test_persist_sandbox_split_writes_measured_quarantine_only():
     assert "172" not in str(payload)
     stored = db.execute("SELECT count(*) FROM quarantine WHERE source_table = 'qa_sandbox'")
     assert stored and int(stored[0][0]) >= 1
+    assert payload.get("execute") == "off"
+    assert payload.get("promoted") is False
+    diffs = payload.get("cell_diffs") or []
+    assert diffs
+    assert diffs[0]["field"] == "battery_soc"
+    assert diffs[0]["before_value"] == -3
+    from fastapi.testclient import TestClient
+    from src.main import app
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    preview = client.get(f"/api/v1/hitl/sandbox/{payload['snapshot_id']}")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body.get("execute") == "off"
+    assert body.get("promoted") is False
+    assert int(body.get("quarantine_rows") or 0) >= 1
+    assert body.get("cell_diffs")
+    assert "sandbox." not in preview.text
 
 
 def test_approved_rules_for_clean_never_synthesizes():

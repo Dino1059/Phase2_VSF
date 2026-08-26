@@ -15,9 +15,7 @@ import {
 } from 'lucide-react';
 
 import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm } from '../../services/api';
-
-
-
+import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
 
@@ -204,6 +202,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const [sandboxAuthorized, setSandboxAuthorized] = useState(false);
   const [payloadHash, setPayloadHash] = useState<string | null>(null);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
+  const [sandboxDiff, setSandboxDiff] = useState<SandboxDiffData | null>(null);
   const [editingRule, setEditingRule] = useState<HITLProposal | null>(null);
   const [editExpression, setEditExpression] = useState('');
   const [rejectingRule, setRejectingRule] = useState<HITLProposal | null>(null);
@@ -396,18 +395,37 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     const storeKey = datasetStoreKey(datasetKey);
     try {
       const auth = await approvalsApi.authorize(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
-      for (const r of approved) {
-        await hitlApi.execute(r.rule_id);
-      }
       const sandbox = await hitlApi.sandbox(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
-      const qRows = (sandbox && Array.isArray(sandbox.quarantine)) ? sandbox.quarantine : [];
+      const runId = sandbox?.snapshot_id || '';
+      let preview = sandbox as SandboxDiffData;
+      if (runId) {
+        try {
+          preview = await hitlApi.getSandbox(runId);
+        } catch {
+          preview = sandbox as SandboxDiffData;
+        }
+      }
+      const qRows = (preview && Array.isArray(preview.quarantine)) ? preview.quarantine : (sandbox.quarantine || []);
       const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
-      const qCount = sandbox?.quarantine_rows ?? qRows.length;
+      const qCount = preview?.quarantine_rows ?? sandbox?.quarantine_rows ?? qRows.length;
       const cCount = sandbox?.clean_rows ?? cRows.length;
+      setSandboxDiff({
+        ...preview,
+        run_id: runId || preview.run_id,
+        dataset_key: datasetKey || 'ev_telemetry',
+        clean_rows: cCount,
+        quarantine_rows: qCount,
+        quarantine: qRows,
+        cell_diffs: preview.cell_diffs || sandbox.cell_diffs,
+        per_rule_counts: preview.per_rule_counts,
+        tables: preview.tables || [datasetKey || 'ev_telemetry'],
+        execute: 'off',
+        promoted: false,
+      });
       useWorkspaceStore.getState().replaceSplitRows(storeKey, {
         cleanRan: true,
         thisRun: true,
-        snapshotId: sandbox?.snapshot_id || '',
+        snapshotId: runId,
         quarantineRows: qRows,
         cleanRows: cRows,
         totalQuarantine: qCount,
@@ -416,7 +434,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       useWorkspaceStore.getState().mergeSplitRows(storeKey, {
         cleanRan: true,
         thisRun: true,
-        snapshotId: sandbox?.snapshot_id || '',
+        snapshotId: runId,
         quarantineRows: qRows,
         cleanRows: cRows,
         totalQuarantine: qCount,
@@ -436,7 +454,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         thisRun: true,
         cleanRan: true,
         dataset_key: datasetKey || 'ev_telemetry',
-        snapshot_id: sandbox?.snapshot_id,
+        snapshot_id: runId,
       };
       try {
         window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
@@ -451,6 +469,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       const msg = is504 ? (raw.startsWith('HTTP 504') ? raw : `HTTP 504: ${raw}`) : raw;
       setSandboxError(msg);
       setSandboxAuthorized(false);
+      setSandboxDiff(null);
       useWorkspaceStore.getState().replaceSplitRows(storeKey, { ...EMPTY_SPLIT });
       try {
         window.dispatchEvent(new CustomEvent('datatrust:sandbox-failed', {
@@ -707,6 +726,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         </div>
 
       </div>
+
+      {sandboxDiff && (
+        <SandboxDiff diffData={sandboxDiff} />
+      )}
 
       {/* RULES CARDS LIST */}
       {filteredProposals.length === 0 ? (

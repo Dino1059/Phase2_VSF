@@ -72,6 +72,23 @@ def _ensure_main_quarantine_table(db):
     """)
 
 
+def _this_run_quarantine_count(db) -> int:
+    try:
+        tr = db.execute(
+            "SELECT COUNT(*) FROM main.quarantine "
+            "WHERE CAST(snapshot_id AS VARCHAR) LIKE 'sandbox:%' OR rule_version_id = 'sandbox'"
+        )
+        return int(tr[0][0]) if tr else 0
+    except Exception:
+        return 0
+
+
+def _is_this_run_row(snapshot_id: Any, rule_version_id: Any) -> bool:
+    snap = str(snapshot_id or "")
+    ver = str(rule_version_id or "")
+    return snap.startswith("sandbox:") or ver == "sandbox"
+
+
 def _table_columns(db, schema: str, table: str) -> List[str]:
     res = db.execute(
         """
@@ -205,9 +222,16 @@ async def list_quarantine(
             "user_action": r[11],
             "action_at": str(r[12]) if r[12] else None,
             "action_by": r[13],
+            "this_run": _is_this_run_row(r[1], r[5]),
         })
 
-    return {"quarantine": items, "total_count": total_count, "limit": limit, "offset": offset}
+    return {
+        "quarantine": items,
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "this_run": _this_run_quarantine_count(db),
+    }
 
 
 @quarantine_router.get("/groups")
@@ -296,11 +320,18 @@ async def get_quarantine_groups(source_table: Optional[str] = None, status: Opti
 async def quarantine_count():
     db = get_db()
     _ensure_main_quarantine_table(db)
+    this_run = _this_run_quarantine_count(db)
     try:
         rows = db.execute("SELECT source_table, COUNT(*) FROM main.quarantine GROUP BY source_table")
-        return {"counts": {normalize_table_name(r[0]): r[1] for r in rows} if rows else {}}
+        counts = {}
+        for r in rows or []:
+            try:
+                counts[normalize_table_name(r[0])] = r[1]
+            except Exception:
+                counts[str(r[0] or "unknown")] = r[1]
+        return {"counts": counts, "this_run": this_run}
     except Exception:
-        return {"counts": {}}
+        return {"counts": {}, "this_run": this_run}
 
 
 @quarantine_router.post("/remediate")

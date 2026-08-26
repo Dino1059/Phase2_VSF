@@ -521,7 +521,7 @@ async def get_sandbox_run(run_id: str):
     try:
         q_rows = db.execute(
             "SELECT id, snapshot_id, source_table, source_row_id, rule_id, reason, original_data, lineage_hash "
-            "FROM quarantine WHERE snapshot_id = ? ORDER BY source_row_id LIMIT 100",
+            "FROM main.quarantine WHERE snapshot_id = ? ORDER BY source_row_id LIMIT 100",
             [snap],
         )
     except Exception as exc:
@@ -531,6 +531,7 @@ async def get_sandbox_run(run_id: str):
     import json as _json
     quarantine_items = []
     cell_diffs = []
+    per_rule: dict = {}
     dataset_key = ""
     for r in q_rows:
         orig = r[6]
@@ -541,40 +542,47 @@ async def get_sandbox_run(run_id: str):
                 orig = {"raw": orig}
         orig = orig if isinstance(orig, dict) else {}
         dataset_key = dataset_key or str(r[2] or "")
+        rid = str(r[4] or "")
+        reason = r[5]
+        per_rule[rid] = per_rule.get(rid, 0) + 1
         item = {
             "id": r[0],
             "run_id": r[1],
             "source_table": r[2],
             "source_row_id": r[3],
-            "rule_id": r[4],
-            "reason": r[5],
+            "rule_id": rid,
+            "reason": reason,
             "before": orig,
             "after": None,
         }
         quarantine_items.append(item)
-        for k, v in list(orig.items())[:3]:
-            if len(cell_diffs) >= 10:
-                break
-            cell_diffs.append({
-                "row_id": str(r[3]),
-                "field": str(k),
-                "source_table": r[2],
-                "rule_id": r[4],
-                "before_value": v,
-                "after_value": None,
-                "reason": r[5],
-            })
+        if len(cell_diffs) < 10:
+            field = next((k for k in orig if k and k in str(reason or "")), None) or (
+                next(iter(orig), None) if orig else None
+            )
+            if field:
+                cell_diffs.append({
+                    "row_id": str(r[3]),
+                    "field": str(field),
+                    "source_table": r[2],
+                    "rule_id": rid,
+                    "before_value": orig.get(field),
+                    "after_value": None,
+                    "reason": reason,
+                })
     return {
         "run_id": snap,
         "dataset_key": dataset_key,
         "health_before": None,
         "health_after": None,
-        "counts": {"quarantine_rows": len(quarantine_items)},
+        "counts": {"quarantine_rows": len(quarantine_items), "per_rule": per_rule},
         "clean_rows": 0,
         "quarantine_rows": len(quarantine_items),
         "quarantine": quarantine_items,
         "cell_diffs": cell_diffs[:10],
-        "promoted": True,
+        "per_rule_counts": per_rule,
+        "tables": [dataset_key] if dataset_key else [],
+        "promoted": False,
         "execute": "off",
     }
 

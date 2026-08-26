@@ -43,6 +43,7 @@ export interface SandboxDiffData {
   columns?: string[];
   manifest_hash?: string;
   promoted?: boolean;
+  execute?: string;
 }
 
 interface SandboxDiffProps {
@@ -365,7 +366,7 @@ export const SandboxDiff: React.FC<SandboxDiffProps> = ({
                 </span>
               ) : (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <Lock size={12} /> {isVi ? 'Chưa quảng bá vào bảng quarantine thật — bấm xác nhận để ghi nhận.' : 'Not yet written to prod quarantine — accept/promote to persist.'}
+                  <Lock size={12} /> {isVi ? 'Xem trước cô lập trên quarantine canonical — execute tắt.' : 'Isolated preview on canonical quarantine — execute off.'}
                 </span>
               )}
             </div>
