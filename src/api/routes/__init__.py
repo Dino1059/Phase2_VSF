@@ -601,8 +601,11 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
 
 
 @router.post("/chat/send")
-async def send_chat_message(request: ChatRequest):
+async def send_chat_message(request: ChatRequest, http: Request):
     session_id = request.session_id or "default"
+    prior = conversation_store.get_messages(session_id)
+    is_session_start = not prior
+    user_id = getattr(http.state, "user_id", None) or "usr_steward_01"
     effective_use_llm = request.use_llm if request.use_llm is not None else True
     msg_metadata = {}
     if request.dataset_key:
@@ -886,6 +889,17 @@ async def send_chat_message(request: ChatRequest):
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
 
+    if is_session_start:
+        try:
+            from src.memory.state_tracker import session_state_tracker
+            from src.memory.context_provider import memory_context_provider
+            session_state_tracker.start_session(session_id, str(user_id), request.dataset_key)
+            mem_block = memory_context_provider.build_user_memory_context(str(user_id))
+            if mem_block:
+                context["user_memory"] = mem_block
+        except Exception as mem_exc:
+            print(f"[memory] session-start inject skipped: {mem_exc}")
+
     day_ctx_str = ""
     if request.active_day is not None:
         context["active_day"] = request.active_day
@@ -1011,6 +1025,11 @@ async def send_chat_message(request: ChatRequest):
             "type": "agent",
             "agentId": "orchestrator",
             "content": final_content,
+            "metadata": {
+                "total_tokens": getattr(result, "total_tokens", 0),
+                "tokens": {"total_tokens": getattr(result, "total_tokens", 0), "tokens_used": getattr(result, "total_tokens", 0)},
+                "status": getattr(result, "status", ""),
+            },
         },
         session_id=session_id,
     )

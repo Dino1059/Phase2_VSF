@@ -389,20 +389,18 @@ async def edit_rule(rule_id: str, req: EditRequest):
 
 @hitl_router.post("/execute/{rule_id}")
 async def execute_hitl_rule(rule_id: str):
-    check_rule_approved(rule_id)
-    return {"status": "executed", "rule_id": rule_id}
+    raise HTTPException(
+        status_code=403,
+        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
+    )
 
 
 @hitl_router.post("/execute")
 async def execute_hitl_rules(payload: Optional[dict] = None):
-    rule_id = payload.get("rule_id") if payload else None
-    if not rule_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Rule execution denied: Rule is not approved by HITL"
-        )
-    check_rule_approved(rule_id)
-    return {"status": "executed", "rule_id": rule_id}
+    raise HTTPException(
+        status_code=403,
+        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
+    )
 
 
 
@@ -511,6 +509,74 @@ async def sandbox_clean(req: SandboxRequest):
     )
     _log_sandbox_clean_beat(dataset_key, payload)
     return payload
+
+
+@hitl_router.get("/sandbox/{run_id}")
+async def get_sandbox_run(run_id: str):
+    """Preview a sandbox run from canonical quarantine (snapshot_id), not sandbox.*."""
+    db = get_db()
+    snap = (run_id or "").strip()
+    if not snap:
+        raise HTTPException(status_code=400, detail="run_id is required")
+    try:
+        q_rows = db.execute(
+            "SELECT id, snapshot_id, source_table, source_row_id, rule_id, reason, original_data, lineage_hash "
+            "FROM quarantine WHERE snapshot_id = ? ORDER BY source_row_id LIMIT 100",
+            [snap],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not q_rows:
+        raise HTTPException(status_code=404, detail=f"Sandbox run '{snap}' not found")
+    import json as _json
+    quarantine_items = []
+    cell_diffs = []
+    dataset_key = ""
+    for r in q_rows:
+        orig = r[6]
+        if isinstance(orig, str):
+            try:
+                orig = _json.loads(orig)
+            except Exception:
+                orig = {"raw": orig}
+        orig = orig if isinstance(orig, dict) else {}
+        dataset_key = dataset_key or str(r[2] or "")
+        item = {
+            "id": r[0],
+            "run_id": r[1],
+            "source_table": r[2],
+            "source_row_id": r[3],
+            "rule_id": r[4],
+            "reason": r[5],
+            "before": orig,
+            "after": None,
+        }
+        quarantine_items.append(item)
+        for k, v in list(orig.items())[:3]:
+            if len(cell_diffs) >= 10:
+                break
+            cell_diffs.append({
+                "row_id": str(r[3]),
+                "field": str(k),
+                "source_table": r[2],
+                "rule_id": r[4],
+                "before_value": v,
+                "after_value": None,
+                "reason": r[5],
+            })
+    return {
+        "run_id": snap,
+        "dataset_key": dataset_key,
+        "health_before": None,
+        "health_after": None,
+        "counts": {"quarantine_rows": len(quarantine_items)},
+        "clean_rows": 0,
+        "quarantine_rows": len(quarantine_items),
+        "quarantine": quarantine_items,
+        "cell_diffs": cell_diffs[:10],
+        "promoted": True,
+        "execute": "off",
+    }
 
 
 @hitl_router.get("/history")

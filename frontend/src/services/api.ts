@@ -644,6 +644,10 @@ export const tracesApi = {
     request<{ session_id: string; steps: Array<Record<string, any>> }>(
       `/traces/${encodeURIComponent(sessionId)}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
+  timeline: (sessionId: string, since?: string) =>
+    request<{ session_id: string; events: Array<Record<string, any>>; cot: boolean; execute: string }>(
+      `/traces/${encodeURIComponent(sessionId)}/timeline${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
 };
 
 export const executionsApi = {
@@ -715,11 +719,12 @@ export const evaluationApi = {
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null) {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null, signal?: AbortSignal) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
   return request('/chat/send', {
     method: 'POST',
+    signal,
     body: JSON.stringify({
       message,
       session_id: sessionId,
@@ -844,6 +849,15 @@ export const hitlApi = {
       method: 'POST',
       body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
     }),
+  getSandbox: (runId: string) =>
+    request<{
+      run_id: string;
+      dataset_key?: string;
+      quarantine_rows?: number;
+      quarantine?: any[];
+      cell_diffs?: any[];
+      execute?: string;
+    }>(`/hitl/sandbox/${encodeURIComponent(runId)}`),
   history: () =>
     request<{ history: Array<{ event_hash?: string; previous_event_hash?: string; action?: string; timestamp?: string }> }>('/hitl/history'),
 };

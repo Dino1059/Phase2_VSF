@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     model_name: str = "gemini-3.5-flash-lite"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_timeout: int = Field(default=60, ge=5, le=300)
+    llm_kill_switch: bool = Field(default=False, validation_alias="LLM_KILL_SWITCH")
+    llm_max_tokens: int = Field(default=10000, validation_alias="LLM_MAX_TOKENS")
+    llm_max_spend_usd: float = Field(default=10.0, validation_alias="LLM_MAX_SPEND_USD")
 
     # Database - Official VinGroup Pilot DB (with injected faults)
     database_url: str = "duckdb:///./data_new/db/vingroup_pilot.db"

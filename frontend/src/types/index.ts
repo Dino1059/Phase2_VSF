@@ -29,6 +29,12 @@ export interface ChatMessage {
   timestamp: string;
   agentId?: AgentId;
   metadata?: Record<string, unknown>;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  retrievedTables?: string[];
+  retrievedRules?: string[];
 }
 
 export interface RuleProposal {

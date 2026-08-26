@@ -13,7 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { tracesApi, hitlApi } from '../../services/api';
-import { actorLabel, inTimeRange, mapTraceStep, redactSecrets } from '../../demo/stewardLabels';
+import { actorChipFromTrace, actorLabel, inTimeRange, mapTraceStep, rangeStart, redactSecrets } from '../../demo/stewardLabels';
 import type { DemoBeat } from '../../demo/stewardSession';
 import type { TimeFilter } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
@@ -58,6 +58,7 @@ function isRealAuditHash(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const t = value.trim();
   if (t.length < 16 || t.includes('...')) return false;
+  if (t.toLowerCase().startsWith('e3b0c442')) return false;
   return /^[0-9a-fA-F]+$/.test(t);
 }
 
@@ -112,8 +113,6 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   onSelectStep,
   pendingRun = false,
   active = false,
-  dayIdx = null,
-  runId = null,
 }) => {
   const storeKey = datasetStoreKey(datasetKey, sessionId);
   const traces = useWorkspaceStore((s) => s.tracesByDataset[storeKey] || EMPTY_TRACES);
@@ -126,11 +125,16 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   const isVi = i18n.language === 'vi';
   const resolvedSessionRef = useRef<string | null>(null);
 
-  const effectiveSessionId = sessionId.startsWith('dataset:')
-    ? sessionId
-    : datasetKey
-      ? `dataset:${datasetKey}`
-      : sessionId;
+  // Respect the live chat session when it is a real session (e.g. session_… or
+  // dataset:…); only fall back to the canonical dataset session when the chat
+  // session is 'default'/empty. Fixes traces vanishing when chat runs under a
+  // session-switcher session while the tab hard-queried dataset:<key>.
+  const effectiveSessionId =
+    sessionId && sessionId !== 'default'
+      ? sessionId
+      : datasetKey
+        ? `dataset:${datasetKey}`
+        : sessionId;
 
   const loadTraces = useCallback(async () => {
     if (replayBeats && replayBeats.length > 0) {
@@ -138,12 +142,12 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     } else {
       setLoading(true);
       try {
+        const since = rangeStart(timeFilter).toISOString();
         const tryIds: string[] = [];
         const addId = (id?: string | null) => {
           const t = (id || '').trim();
           if (t && !tryIds.includes(t)) tryIds.push(t);
         };
-        addId(runId);
         addId(resolvedSessionRef.current);
         addId(effectiveSessionId);
         if (datasetKey) {
@@ -168,7 +172,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 
         let applied = false;
         for (const id of tryIds) {
-          const res = await tracesApi.get(id);
+          const res = await tracesApi.get(id, since);
           const steps = Array.isArray(res?.steps) ? res.steps : [];
           if (applySteps(steps)) {
             resolvedSessionRef.current = res?.session_id || id;
@@ -187,7 +191,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
             );
           });
           if (hit) {
-            const res = await tracesApi.get(hit.session_id);
+            const res = await tracesApi.get(hit.session_id, since);
             const steps = Array.isArray(res?.steps) ? res.steps : [];
             if (applySteps(steps)) {
               resolvedSessionRef.current = res?.session_id || hit.session_id;
@@ -224,11 +228,11 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
 
   useEffect(() => {
     void loadTraces();
-  }, [loadTraces, dayIdx]);
+  }, [loadTraces]);
 
   useEffect(() => {
     if (active) void loadTraces();
-  }, [active, dayIdx, loadTraces]);
+  }, [active, loadTraces]);
 
   useEffect(() => {
     const onTrace = () => {
@@ -400,7 +404,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontWeight: 700, color: 'var(--text-muted)', fontSize: 11 }}>#{stepNum}</span>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: 'rgba(2,132,199,0.08)', color: '#0284c7' }}>
-                      {actorLabel(trace.actor_kind, isVi)}
+                      {actorChipFromTrace(trace, isVi) || actorLabel(trace.actor_kind, isVi)}
                     </span>
                     <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, fontWeight: 700, background: failed ? 'rgba(220,38,38,0.1)' : isRun ? 'rgba(2,132,199,0.1)' : 'rgba(5,150,105,0.1)', color: failed ? '#dc2626' : isRun ? '#0284c7' : '#059669' }}>
                       {isRun ? (isVi ? 'đang chạy' : 'running') : failed ? (isVi ? 'lỗi' : 'failed') : (isVi ? 'xong' : 'done')}

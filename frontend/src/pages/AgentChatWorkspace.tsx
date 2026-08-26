@@ -32,6 +32,9 @@ import { SourceIngestionRunFilter } from '../components/chat/SourceIngestionRunF
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
 import { MarkdownContent } from '../components/chat/MarkdownContent';
+import { MessageMetaStrip } from '../components/chat/MessageMetaStrip';
+import { SessionSwitcher } from '../components/chat/SessionSwitcher';
+import { scanRenderable } from '../lib/injectionGuard';
 import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
@@ -137,7 +140,7 @@ export function AgentChatWorkspace() {
   const isHappy = story === 'happy';
   const isReplay = demoMode === 'replay';
   const isNewChat = searchParams.has('new') || (!datasetKey && !id);
-  const setChatSessionId = useChatStore((s) => s.setSessionId);
+  const liveChatSessionId = useChatStore((s) => s.sessionId);
   const chatMessages = useChatStore((s) => s.messages);
   const store = usePipelineStore();
 
@@ -293,18 +296,14 @@ export function AgentChatWorkspace() {
     };
   }, []);
 
-  // Keep the selected dataset scoped to a stable temporary chat session.
+  // Live chat session (SessionSwitcher). Do not overwrite with dataset:<key>.
   useEffect(() => {
     if (isNewChat) {
       resetPipeline();
-      setChatSessionId('default');
-      useChatStore.getState().clearMessages();
-      agentSocket.connect('default');
+      agentSocket.connect(useChatStore.getState().sessionId || 'default');
       return;
     }
-    const sessionId = datasetKey ? `dataset:${datasetKey}` : 'default';
-    setChatSessionId(sessionId);
-    useChatStore.getState().clearMessages();
+    const sessionId = liveChatSessionId || 'default';
     agentSocket.connect(sessionId);
     void fetchChatHistory(sessionId).then((history) => {
       if (Array.isArray(history.messages)) {
@@ -313,7 +312,7 @@ export function AgentChatWorkspace() {
     }).catch((error) => {
       console.error('Failed to load chat history:', error);
     });
-  }, [datasetKey, isNewChat, resetPipeline, setChatSessionId]);
+  }, [liveChatSessionId, isNewChat, resetPipeline]);
 
   useEffect(() => {
     const handleDbReset = () => {
@@ -651,6 +650,7 @@ export function AgentChatWorkspace() {
         {/* Day History Ingestion Control Header Bar */}
         <div className="in-stream-filter-bar">
           <div className="time-filter-left">
+            <SessionSwitcher />
             <SourceIngestionRunFilter
               value={store.sourceIngestionRunId}
               onChange={(runId) => store.setSourceIngestionRunId(runId)}
@@ -778,6 +778,7 @@ export function AgentChatWorkspace() {
                         </button>
                       ) : null}
                       {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
+                      <MessageMetaStrip message={msg} flaggedPatterns={scanRenderable(msg.content || '').flags} />
                     </div>
                   </div>
                 </div>
@@ -908,7 +909,7 @@ export function AgentChatWorkspace() {
           <div hidden={rightTab !== 'tab-traces'}>
             <AgentTracesTab
               datasetKey={datasetKey}
-              sessionId={datasetKey ? `dataset:${datasetKey}` : 'default'}
+              sessionId={liveChatSessionId || (datasetKey ? `dataset:${datasetKey}` : 'default')}
               timeFilter={store.timeFilter}
               replayBeats={isReplay ? replayBeats : undefined}
               selectedStep={selectedTraceStep}
