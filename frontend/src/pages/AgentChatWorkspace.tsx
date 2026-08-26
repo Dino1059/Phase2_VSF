@@ -36,20 +36,13 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, ensureDemoAuth, resetDemoSession } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, resetDemoSession } from '../services/api';
 import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
 // import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
-
-function historyAlreadyProfiled(messages: Array<{ content?: string; type?: string }> | undefined): boolean {
-  return (messages || []).some((m) => {
-    const c = m.content || '';
-    return c.includes('Quality Rule Proposals') || c.includes('Đề Xuất Luật Chất Lượng') || c.includes('propose_quality_rules');
-  });
-}
 
 function toolFromMessage(msg: { agentId?: string; content?: string; agent?: string }): string {
   const id = (msg.agentId || msg.agent || '').trim();
@@ -209,7 +202,7 @@ export function AgentChatWorkspace() {
   const [editText, setEditText] = useState(currentRuleLogic);
   const [ruleCardState, setRuleCardState] = useState<'pending' | 'accepted' | 'rejected'>('pending');
   const [pipelineResult, setPipelineResult] = useState<Awaited<ReturnType<typeof pipelineApi.result>> | null>(null);
-  const [waitingForBackendAgentEvents, setWaitingForBackendAgentEvents] = useState(false);
+  const [waitingForBackendAgentEvents] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [replayBeats, setReplayBeats] = useState<DemoBeat[]>([]);
   const [selectedTraceStep, setSelectedTraceStep] = useState<number | null>(null);
@@ -241,24 +234,49 @@ export function AgentChatWorkspace() {
     }
   }, [datasetKey, i18n, isRunningPipeline]);
 
-  // Context-Aware Auto-Switch: display-only tab change.
-  // Must not reload snapshot, reset story, or clobber traces/split store.
+  const [pipelineToast, setPipelineToast] = useState<{ message: string; details?: any } | null>(null);
+
+  // Context-Aware Auto-Switch: smooth single switch when pipeline is idle/completed
+  const lastSwitchKeyRef = useRef('');
   useEffect(() => {
+    if (isRunningPipeline || waitingForBackendAgentEvents) return;
     if (chatMessages.length === 0) return;
     const lastMsg = chatMessages[chatMessages.length - 1];
     if (lastMsg.type === 'agent') {
+      const msgId = lastMsg.id || `${chatMessages.length}-${lastMsg.content?.slice(0, 10)}`;
+      if (lastSwitchKeyRef.current === msgId) return;
+      lastSwitchKeyRef.current = msgId;
+
       const content = lastMsg.content || '';
-      if (content.includes('Profile Summary') || content.includes('profile_dataset') || content.includes('Khảo sát') || content.includes('Khảo Sát')) {
-        setRightTab('tab-profiler');
-      } else if (content.includes('Dị Thường') || content.includes('detect_anomalies') || content.includes('Anomaly') || content.includes('Incidents')) {
-        setRightTab('tab-traces');
+      if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database') || content.includes('Làm Sạch') || content.includes('Làm sạch')) {
+        setRightTab('tab-split');
       } else if (content.includes('Quality Rule Proposals') || content.includes('propose_quality_rules') || content.includes('Đề Xuất Luật') || content.includes('Đề xuất luật')) {
         setRightTab('tab-rules');
-      } else if (content.includes('Cleansing & Quarantine Complete') || content.includes('clean_database') || content.includes('Làm Sạch') || content.includes('Làm sạch')) {
-        setRightTab('tab-split');
+      } else if (content.includes('Dị Thường') || content.includes('detect_anomalies') || content.includes('Anomaly') || content.includes('Incidents')) {
+        setRightTab('tab-traces');
+      } else if (content.includes('Profile Summary') || content.includes('profile_dataset') || content.includes('Khảo sát') || content.includes('Khảo Sát')) {
+        setRightTab('tab-profiler');
       }
     }
-  }, [chatMessages]);
+  }, [chatMessages, isRunningPipeline, waitingForBackendAgentEvents, executionStage]);
+
+  useEffect(() => {
+    const handleToast = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      const dayStr = detail.day_idx !== undefined && detail.day_idx !== null ? `Day ${detail.day_idx}` : '';
+      const summary = detail.summary || {};
+      const rows = summary.ingested_rows ?? 0;
+      const incidents = summary.incidents ?? 0;
+      const msg = isVi
+        ? `${dayStr ? `${dayStr} — ` : ''}Phân tích hoàn tất: ${rows.toLocaleString()} dòng dữ liệu, ${incidents} sự cố phát hiện.`
+        : `${dayStr ? `${dayStr} — ` : ''}Analysis complete: ${rows.toLocaleString()} rows ingested, ${incidents} incidents found.`;
+      setPipelineToast({ message: msg, details: detail });
+      const timer = setTimeout(() => setPipelineToast(null), 6000);
+      return () => clearTimeout(timer);
+    };
+    window.addEventListener('datatrust:pipeline-completed-toast', handleToast);
+    return () => window.removeEventListener('datatrust:pipeline-completed-toast', handleToast);
+  }, [isVi]);
 
   useEffect(() => {
     const onSandbox = (ev: Event) => {
@@ -401,51 +419,16 @@ export function AgentChatWorkspace() {
       return () => clearTimers();
     }
 
-    const forceLive = demoMode === 'live' || story === 'unhappy';
     const bootstrap = async () => {
       if (!datasetKey) return;
-      const bootKey = `dt-hitl-boot:${datasetKey}:${story || 'none'}:${demoMode || 'none'}`;
       try {
-        const lang = i18n?.language || 'vi';
         const session = datasetKey ? `dataset:${datasetKey}` : useChatStore.getState().sessionId;
-        const existing = forceLive ? { messages: [] } : await fetchChatHistory(session);
-        if (!forceLive && Array.isArray(existing.messages) && existing.messages.length) {
+        const existing = await fetchChatHistory(session);
+        if (Array.isArray(existing.messages) && existing.messages.length) {
           useChatStore.getState().setMessages(existing.messages);
         }
-        if (!forceLive) {
-          const already =
-            historyAlreadyProfiled(existing.messages) ||
-            proposeStartedRef.current ||
-            (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(bootKey));
-          if (already) {
-            proposeStartedRef.current = true;
-            try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
-            setRightTab('tab-rules');
-            return;
-          }
-        }
-        // forceLive / Unhappy: hitlBootsInFlight (sync, effect entry) blocks
-        // StrictMode remount. Do not use leftover sessionStorage — Happy→Unhappy
-        // must still Profile & Propose once. Tab show never reaches here.
-        proposeStartedRef.current = true;
-        try { sessionStorage.setItem(bootKey, '1'); } catch { /* ignore */ }
-        store.setStepIndex(1);
-        setRightTab('tab-traces');
-        setWaitingForBackendAgentEvents(true);
-        setIsRunningPipeline(true);
-        await ensureDemoAuth();
-        await sendChatMessage(lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN, session, datasetKey, lang);
-        const history = await fetchChatHistory(session);
-        if (Array.isArray(history.messages)) {
-          useChatStore.getState().setMessages(history.messages);
-        }
-        window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
-        setRightTab('tab-traces');
       } catch {
-        return;
-      } finally {
-        setWaitingForBackendAgentEvents(false);
-        setIsRunningPipeline(false);
+        /* ignore */
       }
     };
     void bootstrap();
@@ -977,6 +960,43 @@ export function AgentChatWorkspace() {
               <button className="btn-accept" onClick={handleSaveEdit}><Save size={14} /> {t('applyModifiedRule')}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PIPELINE COMPLETION TOAST */}
+      {pipelineToast && (
+        <div
+          role="status"
+          className="pipeline-completed-toast"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 99,
+            background: 'rgba(15, 23, 42, 0.92)',
+            border: '1px solid var(--electric-green, #10b981)',
+            backdropFilter: 'blur(8px)',
+            color: '#ffffff',
+            padding: '12px 18px',
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
+            animation: 'fadeInUp 0.3s ease-out',
+          }}
+        >
+          <span style={{ display: 'inline-flex', width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+          <span>{pipelineToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setPipelineToast(null)}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', marginLeft: 8, padding: 2 }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

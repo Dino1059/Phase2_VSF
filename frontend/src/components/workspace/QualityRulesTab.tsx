@@ -233,7 +233,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     const myGen = fetchGenRef.current;
     if (!silent) setLoading(true);
     try {
-      const res = await hitlApi.queue();
+      const targetKey = datasetKey || 'ev_telemetry';
+      const res = await hitlApi.queue(targetKey);
       if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
         const fromDb = res.proposals;

@@ -152,11 +152,16 @@ export const datasetsApi = {
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
     request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}`),
-  profile: (key: string, sampleSize?: number) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(
-      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile${sampleSize !== undefined ? `?sample_size=${sampleSize}` : ''}`,
+  profile: (key: string, sampleSize?: number, dayIdx?: number | null) => {
+    const params = new URLSearchParams();
+    if (sampleSize !== undefined && sampleSize !== null) params.append('sample_size', String(sampleSize));
+    if (dayIdx !== undefined && dayIdx !== null) params.append('day_idx', String(dayIdx));
+    const qs = params.toString();
+    return request<{ dataset: string; sample_size: number; profile: any }>(
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile${qs ? `?${qs}` : ''}`,
       { method: 'POST' }
-    ),
+    );
+  },
   proposeRules: (key: string, variant: string = 'A1', sampleSize?: number) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
       `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}${sampleSize !== undefined ? `&sample_size=${sampleSize}` : ''}`,
@@ -795,8 +800,8 @@ export interface HITLProposal {
 }
 
 export const hitlApi = {
-  queue: () =>
-    request<{ proposals: HITLProposal[] }>('/hitl/queue'),
+  queue: (datasetKey?: string) =>
+    request<{ proposals: HITLProposal[] }>(`/hitl/queue${datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : ''}`),
   synthesizeLlm: (datasetKey?: string, tableName?: string, useLlm?: boolean) =>
     request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean; model_used?: string }>('/hitl/synthesize-llm', {
       method: 'POST',

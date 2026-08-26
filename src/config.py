@@ -68,17 +68,9 @@ class Settings(BaseSettings):
         "vingroup_pilot": "data_new/db/vingroup_pilot.db",
         "vingroup_pilot_db": "data_new/db/vingroup_pilot.db",
         "ev_telemetry": "data_new/db/vingroup_pilot.db",
-        "vinfast_ev_telemetry": "data_new/db/vingroup_pilot.db",
-        "vinfast_ev_telemetry_dirty": "data_new/db/vingroup_pilot.db",
-        "vgreen_charging": "data_new/db/vingroup_pilot.db",
-        "vgreen_charging_stations": "data_new/db/vingroup_pilot.db",
-        "vgreen_charging_stations_dirty": "data_new/db/vingroup_pilot.db",
-        "xanh_sm_trips": "data_new/db/vingroup_pilot.db",
-        "xanhsm_trips": "data_new/db/vingroup_pilot.db",
-        "xanh_sm_trips_dirty": "data_new/db/vingroup_pilot.db",
-        "customer_nlp": "data_new/db/vingroup_pilot.db",
-        "xanh_sm_customer_feedback": "data_new/db/vingroup_pilot.db",
-        "xanh_sm_customer_feedback_dirty": "data_new/db/vingroup_pilot.db",
+        "charging_sessions": "data_new/db/vingroup_pilot.db",
+        "trips": "data_new/db/vingroup_pilot.db",
+        "nlp_feedback": "data_new/db/vingroup_pilot.db",
     }
 
     dataset_provenance_map: dict = {
@@ -88,14 +80,10 @@ class Settings(BaseSettings):
         "vietnam_trips": DataProvenance.SYNTHETIC,
         "vietnam_trips_dirty": DataProvenance.SYNTHETIC,
         "vietnam_ecommerce_test": DataProvenance.SYNTHETIC,
-        "vinfast_ev_telemetry_dirty": DataProvenance.SEMI_SYNTHETIC,
-        "vgreen_charging_stations_dirty": DataProvenance.SEMI_SYNTHETIC,
-        "xanh_sm_trips_dirty": DataProvenance.SEMI_SYNTHETIC,
-        "xanh_sm_customer_feedback_dirty": DataProvenance.SEMI_SYNTHETIC,
-        "real_vinfast_ev_telemetry": DataProvenance.SEMI_SYNTHETIC,
-        "real_vgreen_charging_stations": DataProvenance.SEMI_SYNTHETIC,
-        "real_xanh_sm_trips": DataProvenance.SEMI_SYNTHETIC,
-        "real_xanh_sm_customer_feedback": DataProvenance.PUBLIC_PROXY,
+        "ev_telemetry": DataProvenance.SEMI_SYNTHETIC,
+        "charging_sessions": DataProvenance.SEMI_SYNTHETIC,
+        "trips": DataProvenance.SEMI_SYNTHETIC,
+        "nlp_feedback": DataProvenance.SEMI_SYNTHETIC,
         "integrated_benchmark": DataProvenance.SEMI_SYNTHETIC,
     }
 
@@ -108,37 +96,21 @@ class Settings(BaseSettings):
             "vin_count": 30,
             "station_count": 4,
         },
-        "vinfast_ev_telemetry_dirty": {
+        "ev_telemetry": {
             "provenance": DataProvenance.SEMI_SYNTHETIC,
             "tag": "Semi-Synthetic Causal Digital Twin",
         },
-        "vgreen_charging_stations_dirty": {
+        "charging_sessions": {
             "provenance": DataProvenance.SEMI_SYNTHETIC,
             "tag": "Semi-Synthetic Causal Digital Twin",
         },
-        "xanh_sm_trips_dirty": {
+        "trips": {
             "provenance": DataProvenance.SEMI_SYNTHETIC,
             "tag": "Semi-Synthetic Causal Digital Twin",
         },
-        "xanh_sm_customer_feedback_dirty": {
+        "nlp_feedback": {
             "provenance": DataProvenance.SEMI_SYNTHETIC,
             "tag": "Semi-Synthetic Causal Digital Twin",
-        },
-        "real_vinfast_ev_telemetry": {
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": "Semi-Synthetic Causal Digital Twin",
-        },
-        "real_vgreen_charging_stations": {
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": "Semi-Synthetic Causal Digital Twin",
-        },
-        "real_xanh_sm_trips": {
-            "provenance": DataProvenance.SEMI_SYNTHETIC,
-            "tag": "Semi-Synthetic Causal Digital Twin",
-        },
-        "real_xanh_sm_customer_feedback": {
-            "provenance": DataProvenance.PUBLIC_PROXY,
-            "tag": "Public Proxy Dataset",
         },
         "nyc_fhvhv": {
             "provenance": DataProvenance.PUBLIC_PROXY,

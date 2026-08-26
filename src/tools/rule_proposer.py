@@ -79,4 +79,36 @@ class RuleProposerTool(BaseTool):
                     "rationale": f"3-sigma bounds from statistical analysis (mean={stats['mean']}, std={stats['std']})"
                 })
 
+        # Persist proposed rules into DuckDB quality_rules table for HITL review
+        try:
+            from src.tools.chat_tools import persist_hitl_proposals
+            d_key = "ev_telemetry"
+            if "charging" in table or "vgreen" in table:
+                d_key = "vgreen_charging"
+            elif "trip" in table or "ride" in table:
+                d_key = "xanhsm_trips"
+            elif "feedback" in table:
+                d_key = "xanhsm_feedback"
+            
+            proposals_to_persist = []
+            for idx, r in enumerate(rules, 1):
+                proposals_to_persist.append({
+                    "id": f"{d_key}__{r.get('rule_name', f'rule_{idx}')}",
+                    "rule_name": r.get("rule_name"),
+                    "rule_type": r.get("rule_type", "range_check"),
+                    "rule_expression": r.get("rule_expression", "1=1"),
+                    "confidence": r.get("confidence", 0.95),
+                    "dataset_key": d_key,
+                    "target_table": table,
+                    "status": "proposed",
+                    "proposed_by": "rule_proposer_agent",
+                    "problem_discovered": r.get("rationale", "Discovered data quality issue during batch analysis."),
+                    "why_proposed": f"Rule generated during analysis of table '{table}'.",
+                    "quality_impact": "Prevents invalid or corrupt data from entering clean warehouse."
+                })
+            persist_hitl_proposals(d_key, proposals_to_persist)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Could not persist rules in RuleProposerTool: {e}")
+
         return {"proposed_rules": rules, "proposals": rules, "rule_count": len(rules), "target_table": table}

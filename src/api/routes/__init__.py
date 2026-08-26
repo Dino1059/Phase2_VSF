@@ -718,11 +718,9 @@ async def send_chat_message(request: ChatRequest):
         await ws_manager.broadcast({"type": "chat.message", "data": m4}, session_id=session_id)
         steps_executed.append("clean_database")
 
-        # Background sync with DataTrustOrchestrator for right-panel tabs
+        # Background sync with DataTrustOrchestrator for right-panel tabs (using preceding tool results)
         try:
             import uuid
-            from src.orchestrator.orchestrator import DataTrustOrchestrator
-            from src.services.llm import GemmaLLMAdapter
             from src.api.pipeline import _build_pipeline_result, _update_pipeline_run
             from src.db.connection import get_db
 
@@ -732,9 +730,91 @@ async def send_chat_message(request: ChatRequest):
                 "INSERT INTO pipeline_runs (run_id, project_id, dataset_key, status) VALUES (?, ?, ?, ?)",
                 [run_id, "proj-vingroup-pilot", target_dataset, "running"],
             )
-            orch = DataTrustOrchestrator(llm=GemmaLLMAdapter(use_llm=effective_use_llm), project_id="proj-vingroup-pilot")
-            orch_res = orch.run_analysis(target_dataset)
-            payload = _build_pipeline_result(run_id, target_dataset, orch_res)
+
+            # Map the incidents to the structure expected by _build_pipeline_result
+            raw_incidents = anom_data.get("incidents", []) if isinstance(anom_data, dict) else []
+            incidents_payload = []
+            for inv in raw_incidents:
+                incidents_payload.append({
+                    "id": inv.get("incident_id"),
+                    "incident_id": inv.get("incident_id"),
+                    "severity": inv.get("severity"),
+                    "status": inv.get("status", "OPEN"),
+                    "supporting_layers": inv.get("supporting_layers"),
+                    "admission_reason": inv.get("admission_reason"),
+                    "entity_ids": inv.get("entity_ids"),
+                    "target_entity": inv.get("entity_ids")[0] if inv.get("entity_ids") else "VIN-001",
+                    "signal_ids": inv.get("signal_ids", []),
+                    "llm_claim": inv.get("hypothesis_claim", ""),
+                    "llm_classification": inv.get("classification", "DATA"),
+                    "confidence": inv.get("confidence", 0.88),
+                    "hypothesis": {
+                        "id": inv.get("hypothesis_id"),
+                        "claim": inv.get("hypothesis_claim", ""),
+                        "classification": inv.get("classification", "DATA"),
+                        "confidence": inv.get("confidence", 0.88),
+                        "supporting_evidence": inv.get("supporting_evidence", []),
+                        "contradicting_evidence": inv.get("contradicting_evidence", []),
+                        "missing_evidence": inv.get("missing_evidence", []),
+                    },
+                    "recommendation": {
+                        "id": inv.get("recommendation_id"),
+                        "type": inv.get("recommendation_type", "DATA"),
+                        "action_type": inv.get("action_type", "QUARANTINE_DATA"),
+                        "summary": inv.get("recommendation_summary", ""),
+                    },
+                    "meta": inv.get("meta", {}),
+                    "tool_trace": inv.get("tool_trace", []),
+                    "tokens_spent": inv.get("tokens_spent", 0),
+                    "source_table": inv.get("source_table"),
+                    "dataset_key": inv.get("dataset_key"),
+                    "cross_table": inv.get("cross_table", False),
+                })
+
+            stage1 = {
+                "stage": "profiling",
+                "agent": "profiler",
+                "status": "completed" if prof_res.status == "success" else "failed",
+                "steps": 1,
+                "summary": prof_obs[:500] if isinstance(prof_obs, str) else "Profile completed.",
+                "tables_profiled": [target_dataset],
+            }
+
+            stage2 = {
+                "stage": "anomaly_detection",
+                "agent": "reliability_orchestrator",
+                "status": "completed" if anom_res.status == "success" else "failed",
+                "incident_count": len(incidents_payload),
+                "incidents": incidents_payload,
+                "anomaly_findings": {
+                    "incidents": incidents_payload,
+                    "total_incidents": len(incidents_payload),
+                    "per_table": anom_data.get("per_table", []) if isinstance(anom_data, dict) else [],
+                    "cross_table_count": sum(1 for inv in incidents_payload if inv.get("cross_table")),
+                },
+                "summary": anom_data.get("summary", "") if isinstance(anom_data, dict) else "",
+                "tables_processed": anom_data.get("tables_checked", [target_dataset]) if isinstance(anom_data, dict) else [target_dataset],
+            }
+
+            stage4 = {
+                "stage": "rule_proposal",
+                "agent": "rule_proposer",
+                "status": "completed" if rules_res.status == "success" else "failed",
+                "steps": 1,
+                "summary": rules_obs[:500] if isinstance(rules_obs, str) else "Rule proposal completed."
+            }
+
+            class MockOrchestratorResult:
+                def __init__(self, stages, status="completed"):
+                    self.stages = stages
+                    self.status = status
+
+            mock_orch_res = MockOrchestratorResult(
+                stages=[stage1, stage2, stage4],
+                status="completed"
+            )
+
+            payload = _build_pipeline_result(run_id, target_dataset, mock_orch_res)
             _update_pipeline_run(run_id, payload["status"], payload)
         except Exception as oe:
             print(f"[WARN] Failed background orchestrator sync: {oe}")

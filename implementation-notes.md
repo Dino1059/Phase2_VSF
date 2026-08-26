@@ -104,3 +104,14 @@
   - Created `tests/reliability/test_fault_correlation.py` covering 5 key scenarios (100 signals single key compression, multiple rules separation, mixed signals, empty signals, missing optional fields backward compatibility).
 - Verification: 67/67 tests passed in `tests/reliability/`.
 
+## 2026-08-26 — Canonical DB contract Phase 0/1
+
+- Applied user decision: landing parquet is source of truth; existing DB fact rows are disposable.
+- Froze core data table contract in `src/utils/table_utils.py`: only `ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback` across `main`, `clean`, `quarantine`; legacy names now raise instead of aliasing.
+- Replaced legacy `schema.sql` fact DDL with canonical `main.*` tables.
+- Added destructive migration `src/db/migrations/0003_main_canonical_truth.sql`: drops legacy `main` objects, drops `raw`, recreates canonical `main.*`, normalizes metadata strings, and creates `ref.fleet_index_ref`.
+- Reworked `src/db/seed.py` to rebuild `main.*` directly from landing parquet and seed `feedback` into `main.nlp_feedback`.
+- Rebuilt `data_new/db/vingroup_pilot.db`: `main.ev_telemetry=86400`, `main.charging_sessions=1340`, `main.trips=10382`, `main.nlp_feedback=100`, `ref.fleet_index_ref=60`.
+- Verification: DB acceptance query found 12 canonical tables across `main/clean/quarantine`; legacy object negative gate returned 0 rows. `python -m py_compile src/db/seed.py src/utils/table_utils.py src/config.py` passed. `python -m pytest tests/test_table_utils.py` passed 6 tests.
+- Remaining legacy runtime references are intentionally left for Phase 2+ approval.
+

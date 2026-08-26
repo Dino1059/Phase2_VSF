@@ -377,6 +377,12 @@ def _ingest_day_only(day_idx: int, dataset_key: str, conn, progress_callback: Op
                 VALUES (?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?, 0, ?)""",
                 [result.run_id, run_uuid, day_idx, result.duration_ms, ingestion_run_id],
             )
+        
+        # Mark day as active in landing_day_snapshots
+        conn.execute(
+            "UPDATE demo_ops.landing_day_snapshots SET is_activated = TRUE WHERE day_idx = ?",
+            [day_idx],
+        )
         conn.commit()
         _notify(progress_callback, "Phase A Ingest", f"Day {day_idx} ingestion finished (+{row_cnt} rows).", {"day_idx": day_idx, "rows": row_cnt})
 
@@ -407,8 +413,20 @@ def run_warmup_then_day(
     warmup_start = max(0, target_day - window_days)
     _notify(progress_callback, "Warmup Sequence", f"Starting two-phase batch execution for target Day {target_day} (baseline days {warmup_start}..{target_day-1})...", {"target_day": target_day, "warmup_start": warmup_start})
 
+    # Query already activated days to skip them quietly
+    activated_days = set()
+    try:
+        rows = conn.execute(
+            "SELECT day_idx FROM demo_ops.landing_day_snapshots WHERE is_activated = TRUE"
+        ).fetchall()
+        activated_days = {r[0] for r in rows}
+    except Exception as e:
+        logger.warning(f"Failed to query activated days: {e}")
+
     # ── Phase A: Ingest-only (accumulate timeseries context for missing baseline days) ──
     for day in range(warmup_start, target_day):
+        if day in activated_days:
+            continue
         results.append(_ingest_day_only(day, dataset_key, conn, progress_callback=progress_callback))
 
     # ── Phase B: Single full analysis on target day with complete window ──

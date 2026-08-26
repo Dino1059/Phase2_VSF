@@ -517,8 +517,13 @@ class IncidentService:
         return matched
 
     def list_incidents(self, project_id: Optional[str] = None) -> List[Incident]:
+        self._load_from_db()
         if project_id:
-            return [inc for inc in self._incidents.values() if inc.project_id == project_id]
+            norm_p = project_id.replace("proj-", "").replace("proj_", "").replace("-", "_")
+            return [
+                inc for inc in self._incidents.values()
+                if not inc.project_id or inc.project_id == project_id or (inc.project_id and inc.project_id.replace("proj-", "").replace("proj_", "").replace("-", "_") == norm_p)
+            ]
         return list(self._incidents.values())
 
     def list_all_evidence(self) -> List[Evidence]:

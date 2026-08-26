@@ -405,6 +405,29 @@ async def activate_warmup():
         total_incidents = sum(getattr(r, 'incident_count', 0) for r in results)
         total_duration = sum(getattr(r, 'duration_ms', 0) for r in results)
 
+        # Broadcast datatrust:pipeline-completed event
+        try:
+            total_rows = 0
+            for r in results:
+                row_res = db.execute("SELECT row_count FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [r.day_idx])
+                if row_res:
+                    total_rows += row_res[0][0] or 0
+
+            await ws_manager.broadcast({
+                "type": "datatrust:pipeline-completed",
+                "data": {
+                    "run_id": "WARMUP-009-DONE",
+                    "day_idx": 9,
+                    "status": "completed",
+                    "summary": {
+                        "incidents": total_incidents,
+                        "ingested_rows": total_rows,
+                    }
+                }
+            })
+        except Exception as ws_err:
+            logger.warning(f"Could not broadcast pipeline completion event for warmup: {ws_err}")
+
         return ActivateResponse(
             day_idx=9,
             status="warmup_completed",
@@ -553,6 +576,26 @@ async def activate_day(day_idx: int, request: ActivateRequest):
             })
         except Exception as rt_err:
             logger.warning(f"Could not auto-start realtime runner for day {day_idx + 1}: {rt_err}")
+
+        # Broadcast datatrust:pipeline-completed event
+        try:
+            row_res = db.execute("SELECT row_count FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [day_idx])
+            rows_cnt = row_res[0][0] if row_res else 0
+
+            await ws_manager.broadcast({
+                "type": "datatrust:pipeline-completed",
+                "data": {
+                    "run_id": ingestion_run_id,
+                    "day_idx": day_idx,
+                    "status": "completed",
+                    "summary": {
+                        "incidents": inc_cnt,
+                        "ingested_rows": rows_cnt,
+                    }
+                }
+            })
+        except Exception as ws_err:
+            logger.warning(f"Could not broadcast pipeline completion event for day {day_idx}: {ws_err}")
 
         return ActivateResponse(
             day_idx=day_idx,

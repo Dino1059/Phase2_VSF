@@ -12,57 +12,81 @@ CREATE TABLE IF NOT EXISTS raw_snapshots (
     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS xanhsm_feedback (
-    id INTEGER PRIMARY KEY,
-    review_text VARCHAR,
-    normalized_text VARCHAR,
-    rating FLOAT,
-    location VARCHAR,
-    timestamp TIMESTAMP,
-    source VARCHAR,
-    aspects JSON,
-    snapshot_id VARCHAR
+CREATE TABLE IF NOT EXISTS ev_telemetry (
+    record_id VARCHAR,
+    vehicle_vin VARCHAR,
+    day_idx BIGINT,
+    sample_idx BIGINT,
+    timestamp VARCHAR,
+    speed_kmh DOUBLE,
+    motor_rpm BIGINT,
+    battery_soc DOUBLE,
+    battery_voltage DOUBLE,
+    battery_current DOUBLE,
+    battery_temp_c DOUBLE,
+    state_at_sample VARCHAR,
+    assigned_day_index BIGINT,
+    ved_reference_veh_id BIGINT,
+    synthetic_gap_indicator BOOLEAN,
+    event_sequence_index BIGINT,
+    latitude DOUBLE,
+    longitude DOUBLE,
+    accel_z DOUBLE,
+    telemetry_coverage VARCHAR,
+    snapshot_id VARCHAR,
+    source_ingestion_run_id VARCHAR
 );
 
-CREATE TABLE IF NOT EXISTS vgreen_telemetry (
-    id INTEGER PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS charging_sessions (
+    vehicle_vin VARCHAR,
+    session_id VARCHAR,
     station_id VARCHAR,
-    station_name VARCHAR,
-    temperature_celsius FLOAT,
-    voltage FLOAT,
-    current_amps FLOAT,
-    duty_cycle FLOAT,
+    charger_id VARCHAR,
+    start_time VARCHAR,
+    duration_mins DOUBLE,
+    kwh_consumed DOUBLE,
+    power_kw DOUBLE,
+    charging_pattern VARCHAR,
+    assigned_day_index BIGINT,
+    station_temp_c DOUBLE,
+    cost_vnd DOUBLE,
     status VARCHAR,
-    fault_code VARCHAR,
-    timestamp TIMESTAMP,
-    snapshot_id VARCHAR
+    soft_overlap_flag BOOLEAN,
+    event_sequence_index BIGINT,
+    snapshot_id VARCHAR,
+    source_ingestion_run_id VARCHAR
 );
 
-CREATE TABLE IF NOT EXISTS vinfast_bms (
-    id INTEGER PRIMARY KEY,
-    vehicle_id VARCHAR,
-    battery_soc FLOAT,
-    battery_voltage FLOAT,
-    cell_temp_max FLOAT,
-    cell_temp_min FLOAT,
-    bms_fault_code VARCHAR,
-    charging_station_id VARCHAR,
-    timestamp TIMESTAMP,
-    snapshot_id VARCHAR
-);
-
-CREATE TABLE IF NOT EXISTS xanhsm_trips (
-    id INTEGER PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS trips (
     trip_id VARCHAR,
+    vehicle_vin VARCHAR,
     driver_id VARCHAR,
-    pickup_location VARCHAR,
-    dropoff_location VARCHAR,
-    distance_km FLOAT,
-    fare_vnd FLOAT,
-    duration_minutes FLOAT,
-    rating FLOAT,
-    timestamp TIMESTAMP,
-    snapshot_id VARCHAR
+    pickup_datetime VARCHAR,
+    dropoff_datetime VARCHAR,
+    assigned_day_index BIGINT,
+    trip_distance_km DOUBLE,
+    fare_amount DOUBLE,
+    currency_unverified BOOLEAN,
+    tip_amount DOUBLE,
+    total_fare DOUBLE,
+    pickup_latitude DOUBLE,
+    pickup_longitude DOUBLE,
+    vehicle_type VARCHAR,
+    event_sequence_index BIGINT,
+    snapshot_id VARCHAR,
+    source_ingestion_run_id VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS nlp_feedback (
+    feedback_id VARCHAR,
+    vehicle_vin VARCHAR,
+    sentence VARCHAR,
+    sentiment BIGINT,
+    topic BIGINT,
+    scenario_date VARCHAR,
+    raw_comment_text VARCHAR,
+    snapshot_id VARCHAR,
+    source_ingestion_run_id VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS profile_results (

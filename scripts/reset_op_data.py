@@ -67,6 +67,15 @@ def run():
                 print(f"Cleared {tbl} via DELETE")
             except Exception as ex:
                 print(f"Failed to clear {tbl}: {ex}")
+
+    try:
+        db.execute("UPDATE demo_ops.landing_day_snapshots SET is_activated = FALSE WHERE TRUE")
+        db.execute("UPDATE demo_ops.demo_state SET warmup_completed = FALSE, current_day_idx = 0 WHERE TRUE")
+        db.execute("DELETE FROM demo_ops.batch_run_log")
+        db.execute("DELETE FROM demo_ops.ingestion_runs")
+        print("Reset landing_day_snapshots is_activated = FALSE and demo_state.")
+    except Exception as ex:
+        print(f"Failed to reset demo_ops states: {ex}")
             
     print("Done resetting operational data.")
 
