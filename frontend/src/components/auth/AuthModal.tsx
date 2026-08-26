@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Eye, KeyRound, X, CheckCircle2, Crown, Sparkles } from 'lucide-react';
+import { Shield, Eye, KeyRound, X, CheckCircle2, Crown, Sparkles, BarChart3 } from 'lucide-react';
 import { useAuthStore, UserRole } from '../../stores/authStore';
 
 export const AuthModal: React.FC = () => {
@@ -38,19 +38,30 @@ export const AuthModal: React.FC = () => {
     }
   };
 
-  const personas: Array<{ role: UserRole; label: string; email: string; desc: string; icon: any; color: string }> = [
+  const personas: Array<{ role: UserRole; label: string; email: string; department: string; desc: string; icon: any; color: string }> = [
     {
       role: 'Admin',
       label: 'Administrator',
       email: 'admin@datatrust.os',
+      department: 'Operations',
       desc: 'Full system control, DB reset, prompt injection, rule execution & config.',
       icon: Crown,
       color: 'var(--alert-magenta, #f43f5e)',
     },
     {
+      role: 'Analyst',
+      label: 'Fleet Analyst',
+      email: 'analyst@datatrust.os',
+      department: 'Fleet Analytics',
+      desc: 'Profile datasets, propose rules, run eval vs GT. No reset / HITL approve.',
+      icon: BarChart3,
+      color: '#38bdf8',
+    },
+    {
       role: 'Steward',
       label: 'Data Steward',
       email: 'steward@datatrust.os',
+      department: 'Data Quality',
       desc: 'Rule proposals, HITL approvals, quarantine triage & telemetry inspection.',
       icon: Shield,
       color: 'var(--electric-green, #10b981)',
@@ -59,6 +70,7 @@ export const AuthModal: React.FC = () => {
       role: 'Viewer',
       label: 'Read-Only Viewer',
       email: 'viewer@datatrust.os',
+      department: 'Audit',
       desc: 'Observability & audit logs view only. No execution or reset permissions.',
       icon: Eye,
       color: 'var(--text-cyan, #06b6d4)',
@@ -224,7 +236,7 @@ export const AuthModal: React.FC = () => {
                             color: 'var(--text-muted, #94a3b8)',
                           }}
                         >
-                          {p.email}
+                          {p.email} · {p.department}
                         </span>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', marginTop: '2px' }}>

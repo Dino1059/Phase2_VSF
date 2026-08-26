@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Play,
   Sparkles,
+  FlaskConical,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 
@@ -210,6 +211,7 @@ export function Sidebar() {
           { key: 'alerts', label: isVi ? 'Bảng Cảnh Báo' : 'Alert Dashboard', icon: Bell, color: '#f43f5e' },
           { key: 'rules', label: isVi ? 'Bộ Luật Đang Áp Dụng' : 'Active Quality Rules', icon: ShieldCheck, color: '#10b981' },
           { key: 'quarantine', label: isVi ? 'Khu Vực Cách Ly' : 'Quarantine Zone', icon: ShieldAlert, color: '#f43f5e' },
+          { key: 'eval', label: isVi ? 'Eval vs GT' : 'Eval vs GT', icon: FlaskConical, color: '#0284c7' },
           { key: 'governance', label: isVi ? 'Quản Trị & Sổ Cái' : 'Governance & Policies', icon: CheckCircle, color: '#38bdf8' },
         ].map(({ key, label, icon: Icon, color }) => (
           <NavLink

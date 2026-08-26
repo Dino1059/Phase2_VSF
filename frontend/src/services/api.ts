@@ -716,6 +716,7 @@ export const searchApi = {
 
 export const evaluationApi = {
   get: () => request<EvaluationMetricsInfo>('/evaluation'),
+  getGt: () => request<Record<string, any>>('/evaluation/gt'),
 };
 
 // Legacy exported standalone helpers
