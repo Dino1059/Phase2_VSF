@@ -28,11 +28,10 @@ def test_c1_operational_investigation():
     )
 
     hyp, rec = investigator.investigate_incident(inc, [ev])
-    assert hyp.classification == "OPERATIONAL"
-    assert "Operational asset defect" in hyp.claim
-    assert rec.recommendation_type == "OPERATIONAL_RECOMMENDATION"
-    assert rec.action_type in ("OPERATIONAL_RECOMMENDATION", "MAINTENANCE_ROUTING")
-    assert rec.requires_hitl_approval is False
+    assert hyp.classification == "HARDWARE_SENSOR_FAULT"
+    assert "Hardware / sensor fault" in hyp.claim
+    assert rec.assigned_team == "Hardware_Maintenance_Team"
+    assert rec.requires_hitl_approval is True
 
 
 def test_c1_data_investigation():
@@ -56,9 +55,8 @@ def test_c1_data_investigation():
     )
 
     hyp, rec = investigator.investigate_incident(inc, [ev])
-    assert hyp.classification == "DATA"
-    assert rec.recommendation_type == "PREVENTIVE_DATA_CONTROL"
-    assert rec.action_type in ("PREVENTIVE_DATA_CONTROL", "PREVENTIVE_DQ_RULE_PROPOSAL")
+    assert hyp.classification == "SYSTEM_DATA_LOGIC"
+    assert rec.assigned_team == "Data_Engineering_Team"
     assert rec.requires_hitl_approval is True
 
 
@@ -76,8 +74,7 @@ def test_c1_abstention_investigation():
     hyp, rec = investigator.investigate_incident(inc, [])
     assert hyp.classification == "UNKNOWN"
     assert hyp.confidence == 0.0
-    assert rec.recommendation_type == "ABSTENTION"
-    assert rec.action_type in ("ABSTENTION", "ABSTAIN_AND_REQUEST_CONTEXT")
+    assert rec.assigned_team == "Tier2_Support_Team"
     assert rec.requires_hitl_approval is False
 
 
@@ -105,7 +102,7 @@ def test_c1_llm_schema_validation_valid():
     raw_llm_output = {
         "incident_id": "inc-schema-1",
         "claim": "Data contract violation due to missing fare column",
-        "classification": "DATA",
+        "classification": "SYSTEM_DATA_LOGIC",
         "supporting_evidence_ids": ["ev_schema_log_ev-schema-1"],
         "contradicting_evidence_ids": [],
         "missing_evidence": [],
@@ -114,10 +111,10 @@ def test_c1_llm_schema_validation_valid():
     }
 
     hyp, rec = investigator.investigate_incident(inc, [ev], raw_llm_response=raw_llm_output)
-    assert hyp.classification == "DATA"
+    assert hyp.classification == "SYSTEM_DATA_LOGIC"
     assert hyp.confidence == 0.95
     assert hyp.supporting_evidence == ["ev_schema_log_ev-schema-1"]
-    assert rec.recommendation_type == "PREVENTIVE_DATA_CONTROL"
+    assert rec.assigned_team == "Data_Engineering_Team"
 
 
 def test_c1_llm_schema_validation_invalid_fields():
@@ -147,7 +144,7 @@ def test_c1_llm_schema_validation_invalid_fields():
     invalid_confidence_output = {
         "incident_id": "inc-invalid-1",
         "claim": "Some claim",
-        "classification": "DATA",
+        "classification": "SYSTEM_DATA_LOGIC",
         "confidence": 1.5
     }
 
@@ -179,7 +176,7 @@ def test_c1_evidence_id_validation_strips_hallucinated_ids():
     raw_llm_output = {
         "incident_id": "inc-hallucination-1",
         "claim": "Battery thermal runaway",
-        "classification": "OPERATIONAL",
+        "classification": "HARDWARE_SENSOR_FAULT",
         "supporting_evidence_ids": ["ev_telemetry_ev-valid-100", "ev-fake-999"],  # ev-fake-999 is hallucinated!
         "contradicting_evidence_ids": ["ev-fake-888"],
         "confidence": 0.9
@@ -188,7 +185,7 @@ def test_c1_evidence_id_validation_strips_hallucinated_ids():
     hyp, rec = investigator.investigate_incident(inc, [valid_ev], raw_llm_response=raw_llm_output)
     assert hyp.supporting_evidence == ["ev_telemetry_ev-valid-100"]
     assert hyp.contradicting_evidence == []
-    assert rec.recommendation_type == "OPERATIONAL_RECOMMENDATION"
+    assert rec.assigned_team == "Hardware_Maintenance_Team"
 
 
 def test_c1_context_builder_bundle_compilation():

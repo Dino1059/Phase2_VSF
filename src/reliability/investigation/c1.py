@@ -17,7 +17,7 @@ class LLMAnalysisResult(BaseModel):
     """
     incident_id: str
     claim: str = Field(..., min_length=1, description="Root cause claim formulated by LLM analysis")
-    classification: CauseClassification = Field(..., description="Root cause classification: DATA, OPERATIONAL, MIXED, or UNKNOWN")
+    classification: CauseClassification = Field(..., description="Root cause classification: SYSTEM_DATA_LOGIC, HARDWARE_SENSOR_FAULT, REAL_WORLD_EVENT, or UNKNOWN")
     supporting_evidence_ids: List[str] = Field(default_factory=list, description="IDs of evidence supporting the claim")
     contradicting_evidence_ids: List[str] = Field(default_factory=list, description="IDs of evidence contradicting the claim")
     missing_evidence: List[str] = Field(default_factory=list, description="List of missing evidence types/sources if cause is UNKNOWN")
@@ -245,7 +245,7 @@ class C1FixedInvestigator:
                     "{\n"
                     f'  "incident_id": "{incident.incident_id}",\n'
                     '  "claim": "concise description of root cause defect",\n'
-                    '  "classification": "DATA" | "OPERATIONAL" | "MIXED" | "UNKNOWN",\n'
+                    '  "classification": "REAL_WORLD_EVENT" | "SYSTEM_DATA_LOGIC" | "HARDWARE_SENSOR_FAULT" | "UNKNOWN",\n'
                     '  "supporting_evidence_ids": ["ev_id1", "ev_id2"],\n'
                     '  "contradicting_evidence_ids": [],\n'
                     '  "missing_evidence": [],\n'
@@ -332,21 +332,21 @@ class C1FixedInvestigator:
         has_data = any(w in combined_summary for w in data_keywords)
 
         if has_op and not has_data:
-            classification = "OPERATIONAL"
+            classification = "HARDWARE_SENSOR_FAULT"
             supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in op_keywords)]
             lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
-            claim = f"Operational asset defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
+            claim = f"Hardware / sensor fault detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
             conf = 0.85
             missing = []
         elif has_data and not has_op:
-            classification = "DATA"
+            classification = "SYSTEM_DATA_LOGIC"
             supporting_candidates = [e for e in diagnostic_ev if any(w in e.summary.lower() for w in data_keywords)]
             lead_ev = supporting_candidates[0] if supporting_candidates else diagnostic_ev[0]
-            claim = f"Data contract / pipeline defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
+            claim = f"System data logic / pipeline defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {lead_ev.summary}"
             conf = 0.85
             missing = []
         elif has_data and has_op:
-            classification = "DATA" if any(w in incident.admission_reason.lower() for w in data_keywords) else "OPERATIONAL"
+            classification = "SYSTEM_DATA_LOGIC" if any(w in incident.admission_reason.lower() for w in data_keywords) else "HARDWARE_SENSOR_FAULT"
             supporting_candidates = diagnostic_ev
             claim = f"Defect detected in entity {incident.entity_ids[0] if incident.entity_ids else 'unknown'}: {supporting_candidates[0].summary}"
             conf = 0.85
@@ -386,10 +386,12 @@ class C1FixedInvestigator:
         # Step 3: Perform structured LLM analysis with strict schema validation
         analysis = self.analyze_with_llm(incident, bundle.all_evidence, raw_llm_response=raw_llm_response)
 
+        entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
         hyp = Hypothesis(
             incident_id=incident.incident_id,
             claim=analysis.claim,
             classification=analysis.classification,
+            target_entity_id=entity_id,
             supporting_evidence=analysis.supporting_evidence_ids,
             contradicting_evidence=analysis.contradicting_evidence_ids,
             missing_evidence=analysis.missing_evidence,

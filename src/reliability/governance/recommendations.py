@@ -1,69 +1,125 @@
 from typing import Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
-from src.reliability.models.hypothesis import Hypothesis
+from src.reliability.models.hypothesis import Hypothesis, CauseClassification
 import uuid
 
-RecommendationType = Literal["PREVENTIVE_DATA_CONTROL", "OPERATIONAL_RECOMMENDATION", "ABSTENTION"]
+RecommendationPriority = Literal["P0_CRITICAL", "P1_HIGH", "P2_MEDIUM", "P3_LOW"]
 
 
-class Recommendation(BaseModel):
+class ActionRecommendation(BaseModel):
     recommendation_id: str = Field(default_factory=lambda: f"rec-{uuid.uuid4().hex[:8]}")
     incident_id: str
-    recommendation_type: Optional[RecommendationType] = None
-    cause_type: Literal["DATA", "OPERATIONAL", "UNKNOWN"]
-    action_type: str = "ABSTENTION"
-    summary: str
-    details: Dict[str, Any] = Field(default_factory=dict)
+    cause_type: CauseClassification = "UNKNOWN"
+    priority: RecommendationPriority = "P2_MEDIUM"
+
+    # 1. Target Entity (Đối tượng nào)
+    target_entity_id: str
+    target_sub_component: Optional[str] = None
+
+    # 2. Identified Issue (Vấn đề gì)
+    identified_issue: str
+
+    # 3. Recommended Action (Nên làm gì ngắn gọn)
+    recommended_action: str
+    assigned_team: str
     requires_hitl_approval: bool = True
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.recommendation_type is None:
-            if self.cause_type == "DATA":
-                self.recommendation_type = "PREVENTIVE_DATA_CONTROL"
-            elif self.cause_type == "OPERATIONAL":
-                self.recommendation_type = "OPERATIONAL_RECOMMENDATION"
-            else:
-                self.recommendation_type = "ABSTENTION"
+    # Backward compatibility properties
+    @property
+    def action_type(self) -> str:
+        if self.cause_type == "REAL_WORLD_EVENT":
+            return "OPS_REDIRECT_DISPATCH"
+        elif self.cause_type == "SYSTEM_DATA_LOGIC":
+            return "PREVENTIVE_DQ_RULE_PROPOSAL"
+        elif self.cause_type == "HARDWARE_SENSOR_FAULT":
+            return "HARDWARE_MAINTENANCE_INSPECTION"
+        return "ABSTENTION"
+
+    @property
+    def summary(self) -> str:
+        return f"[{self.assigned_team}] {self.identified_issue} -> {self.recommended_action}"
+
+    @property
+    def details(self) -> Dict[str, Any]:
+        return {
+            "target_entity_id": self.target_entity_id,
+            "target_sub_component": self.target_sub_component,
+            "identified_issue": self.identified_issue,
+            "recommended_action": self.recommended_action,
+            "assigned_team": self.assigned_team,
+            "priority": self.priority,
+        }
+
+
+# Alias for backward compatibility
+Recommendation = ActionRecommendation
 
 
 class RecommendationRouter:
     """
-    Routes investigation outcomes conditionally based on cause classification.
-    Produces typed recommendations:
-    - PREVENTIVE_DATA_CONTROL for data/pipeline/contract causes
-    - OPERATIONAL_RECOMMENDATION for asset/real-world operational causes
-    - ABSTENTION for unknown/insufficient evidence
+    Routes investigation outcomes conditionally based on cause classification taxonomy.
+    Produces entity-targeted actionable recommendations:
+    - REAL_WORLD_EVENT -> Ops_Dispatch_Team (P1_HIGH, auto-dispatch/reroute)
+    - SYSTEM_DATA_LOGIC -> Data_Engineering_Team (P2_MEDIUM, DQ rule update, HITL approval)
+    - HARDWARE_SENSOR_FAULT -> Hardware_Maintenance_Team (P0_CRITICAL, sensor/cable repair, HITL approval)
+    - UNKNOWN -> Tier2_Support_Team (P3_LOW, evidence collection)
     """
 
-    def route_hypothesis(self, incident_id: str, hypothesis: Hypothesis) -> Recommendation:
-        if hypothesis.classification == "DATA":
-            return Recommendation(
+    def route_hypothesis(self, incident_id: str, hypothesis: Hypothesis) -> ActionRecommendation:
+        target_entity = hypothesis.target_entity_id or "unknown_entity"
+        sub_component = hypothesis.target_sub_component or hypothesis.target_metric or hypothesis.target_component
+        issue = hypothesis.claim or "Unclassified telemetry anomaly detected."
+
+        if hypothesis.classification == "REAL_WORLD_EVENT":
+            action = f"Alert operational dispatch team to inspect operational environment or re-route active assets away from {target_entity}."
+            return ActionRecommendation(
                 incident_id=incident_id,
-                recommendation_type="PREVENTIVE_DATA_CONTROL",
-                cause_type="DATA",
-                action_type="PREVENTIVE_DQ_RULE_PROPOSAL",
-                summary=f"Propose preventive data control rule for: {hypothesis.claim}",
-                details={"hypothesis_id": hypothesis.hypothesis_id, "rule_proposal": hypothesis.claim},
-                requires_hitl_approval=True
+                cause_type="REAL_WORLD_EVENT",
+                priority="P1_HIGH",
+                target_entity_id=target_entity,
+                target_sub_component=sub_component,
+                identified_issue=issue,
+                recommended_action=action,
+                assigned_team="Ops_Dispatch_Team",
+                requires_hitl_approval=False,
             )
-        elif hypothesis.classification == "OPERATIONAL":
-            return Recommendation(
+        elif hypothesis.classification == "SYSTEM_DATA_LOGIC":
+            action = f"Request Data Engineering team to add/adjust Data Quality Rule and boundary constraints for metric '{sub_component or 'telemetry'}' on entity {target_entity}."
+            return ActionRecommendation(
                 incident_id=incident_id,
-                recommendation_type="OPERATIONAL_RECOMMENDATION",
-                cause_type="OPERATIONAL",
-                action_type="MAINTENANCE_ROUTING",
-                summary=f"Route operational maintenance recommendation: {hypothesis.claim}",
-                details={"hypothesis_id": hypothesis.hypothesis_id, "target_team": "Maintenance_Ops"},
-                requires_hitl_approval=False
+                cause_type="SYSTEM_DATA_LOGIC",
+                priority="P2_MEDIUM",
+                target_entity_id=target_entity,
+                target_sub_component=sub_component,
+                identified_issue=issue,
+                recommended_action=action,
+                assigned_team="Data_Engineering_Team",
+                requires_hitl_approval=True,
+            )
+        elif hypothesis.classification == "HARDWARE_SENSOR_FAULT":
+            action = f"Request Hardware Maintenance team to inspect physical connections, CAN-bus wiring, and calibrate sensors for {target_entity}."
+            return ActionRecommendation(
+                incident_id=incident_id,
+                cause_type="HARDWARE_SENSOR_FAULT",
+                priority="P0_CRITICAL",
+                target_entity_id=target_entity,
+                target_sub_component=sub_component,
+                identified_issue=issue,
+                recommended_action=action,
+                assigned_team="Hardware_Maintenance_Team",
+                requires_hitl_approval=True,
             )
         else:
-            return Recommendation(
+            return ActionRecommendation(
                 incident_id=incident_id,
-                recommendation_type="ABSTENTION",
                 cause_type="UNKNOWN",
-                action_type="ABSTENTION",
-                summary="Insufficient evidence to classify root cause. Investigation abstained.",
-                details={"missing_evidence": hypothesis.missing_evidence},
-                requires_hitl_approval=False
+                priority="P3_LOW",
+                target_entity_id=target_entity,
+                target_sub_component=sub_component,
+                identified_issue="Insufficient empirical evidence to determine root cause.",
+                recommended_action="Escalate to Tier 2 support team to collect additional telemetry diagnostic logs and baseline metrics.",
+                assigned_team="Tier2_Support_Team",
+                requires_hitl_approval=False,
             )
+
 

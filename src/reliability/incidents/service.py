@@ -152,15 +152,18 @@ class IncidentService:
                     rec_id = f"rec-{inc_id[-6:]}"
                     if rec_id not in self._recommendations:
                         expected_action = case.get("expected_action", "QUARANTINE_DATA")
-                        c_type = case.get("expected_classification", "DATA")
-                        cause_type = c_type if c_type in ["DATA", "OPERATIONAL", "UNKNOWN"] else "DATA"
+                        c_type = case.get("expected_classification", "SYSTEM_DATA_LOGIC")
+                        cause_type = c_type if c_type in ["REAL_WORLD_EVENT", "SYSTEM_DATA_LOGIC", "HARDWARE_SENSOR_FAULT", "UNKNOWN"] else "SYSTEM_DATA_LOGIC"
+                        target_ent = entity_ids[0] if entity_ids else "target_entity"
                         rec = Recommendation(
                             recommendation_id=rec_id,
                             incident_id=inc_id,
                             cause_type=cause_type,
-                            action_type=expected_action,
-                            summary=f"Automated remediation: {expected_action} for entity {entity_ids[0] if entity_ids else 'target'}",
-                            details={"action": expected_action, "target": entity_ids, "rule": case.get("fault_family")},
+                            priority="P2_MEDIUM",
+                            target_entity_id=target_ent,
+                            identified_issue=f"Fault detected: {case.get('fault_family', 'Anomaly')}",
+                            recommended_action=f"Remediation action: {expected_action} for entity {target_ent}",
+                            assigned_team="Data_Engineering_Team" if cause_type == "SYSTEM_DATA_LOGIC" else ("Hardware_Maintenance_Team" if cause_type == "HARDWARE_SENSOR_FAULT" else "Ops_Dispatch_Team"),
                             requires_hitl_approval=True
                         )
                         self.add_recommendation(rec)
@@ -315,13 +318,20 @@ class IncidentService:
             )
             for row in rec_rows:
                 details = json.loads(row[5]) if isinstance(row[5], str) else (row[5] or {})
+                c_type = row[2]
+                if c_type not in ["REAL_WORLD_EVENT", "SYSTEM_DATA_LOGIC", "HARDWARE_SENSOR_FAULT", "UNKNOWN"]:
+                    c_type = "SYSTEM_DATA_LOGIC" if c_type == "DATA" else ("HARDWARE_SENSOR_FAULT" if c_type == "OPERATIONAL" else "UNKNOWN")
+
                 rec = Recommendation(
                     recommendation_id=row[0],
                     incident_id=row[1],
-                    cause_type=row[2],
-                    action_type=row[3],
-                    summary=row[4],
-                    details=details,
+                    cause_type=c_type,
+                    priority=details.get("priority", "P2_MEDIUM"),
+                    target_entity_id=details.get("target_entity_id") or "unknown_entity",
+                    target_sub_component=details.get("target_sub_component"),
+                    identified_issue=details.get("identified_issue") or row[4] or "Telemetry anomaly detected.",
+                    recommended_action=details.get("recommended_action") or row[4] or "Inspect telemetry signals.",
+                    assigned_team=details.get("assigned_team") or "Tier2_Support_Team",
                     requires_hitl_approval=bool(row[6])
                 )
                 self._recommendations[rec.recommendation_id] = rec

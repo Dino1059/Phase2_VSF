@@ -457,7 +457,7 @@ def test_incident_service_db_persistence(tmp_path):
         hypothesis_id="hyp-persist-1",
         incident_id=inc.incident_id,
         claim="Overheating caused voltage spike",
-        classification="OPERATIONAL",
+        classification="HARDWARE_SENSOR_FAULT",
         supporting_evidence=["ev-persist-1"],
         confidence=0.9,
         status="CONFIRMED"
@@ -468,9 +468,12 @@ def test_incident_service_db_persistence(tmp_path):
     rec = Recommendation(
         recommendation_id="rec-persist-1",
         incident_id=inc.incident_id,
-        cause_type="OPERATIONAL",
-        action_type="MAINTENANCE_ROUTING",
-        summary="Route vehicle for thermal check",
+        cause_type="HARDWARE_SENSOR_FAULT",
+        priority="P1_HIGH",
+        target_entity_id="VIN-100",
+        identified_issue="Overheating caused voltage spike",
+        recommended_action="Route vehicle for thermal check",
+        assigned_team="Hardware_Maintenance_Team",
         requires_hitl_approval=False
     )
     service1.add_recommendation(rec)
@@ -515,8 +518,8 @@ def test_incident_service_db_persistence(tmp_path):
 
     loaded_rec = service2.get_recommendation("rec-persist-1")
     assert loaded_rec is not None
-    assert loaded_rec.action_type == "MAINTENANCE_ROUTING"
-    assert loaded_rec.cause_type == "OPERATIONAL"
+    assert loaded_rec.assigned_team == "Hardware_Maintenance_Team"
+    assert loaded_rec.cause_type == "HARDWARE_SENSOR_FAULT"
 
     loaded_dec = service2.get_decision("dec-persist-1")
     assert loaded_dec is not None

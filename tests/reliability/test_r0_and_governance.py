@@ -28,7 +28,7 @@ def test_r0_investigator_known_rule():
     hyp, rec = investigator.investigate_incident(inc, [ev])
 
     assert hyp is not None
-    assert hyp.classification == "DATA"
+    assert hyp.classification == "SYSTEM_DATA_LOGIC"
     assert hyp.status == "CONFIRMED"
     assert rec is not None
     assert rec.action_type == "PREVENTIVE_DQ_RULE_PROPOSAL"
@@ -68,4 +68,3 @@ def test_preventive_control_governance():
 
     assert mgr.verify_authorization(auth.authorization_id) is True
     assert auth.authorized_actor == "data_steward_1"
-

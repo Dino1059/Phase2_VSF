@@ -60,9 +60,9 @@ def test_hypothesis_contract():
     hyp = Hypothesis(
         incident_id="inc-1",
         claim="Battery degradation starting at day 35",
-        classification="OPERATIONAL",
+        classification="HARDWARE_SENSOR_FAULT",
         confidence=0.85
     )
     assert hyp.hypothesis_id.startswith("hyp-")
-    assert hyp.classification == "OPERATIONAL"
+    assert hyp.classification == "HARDWARE_SENSOR_FAULT"
     assert hyp.status == "PROPOSED"
