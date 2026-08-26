@@ -57,7 +57,7 @@ def test_controls_and_authorizations_endpoint():
         "control_id": "ctrl-test-1",
         "rule_type": "range",
         "rule_expression": "battery_soc >= 0",
-        "target_table": "vinfast_bms",
+        "target_table": "ev_telemetry",
         "target_column": "battery_soc"
     }
     res_prop = client.post("/api/v1/controls/propose", json=payload, headers=HEADERS)
@@ -92,7 +92,7 @@ def test_incident_chat_endpoint():
 
 
 def test_hitl_synthesize_llm_endpoint():
-    payload = {"dataset_key": "vgreen_charging_stations"}
+    payload = {"dataset_key": "charging_sessions"}
     res = client.post("/api/v1/hitl/synthesize-llm", json=payload, headers=HEADERS)
     assert res.status_code == 200
     data = res.json()
@@ -112,7 +112,7 @@ def test_incident_investigate_endpoint():
         project_id="proj-vingroup-pilot",
         entity_ids=["VG_STA_0001_JPL"],
         signal_ids=["sig-99"],
-        admission_reason="Voltage overvoltage spike test",
+        admission_reason="Voltage overpower_kw spike test",
         severity="HIGH"
     )
     res = client.post(f"/api/v1/incidents/{inc.incident_id}/investigate?mode=A1&use_llm=false", headers=HEADERS)
@@ -120,5 +120,6 @@ def test_incident_investigate_endpoint():
     data = res.json()
     assert data["incident_id"] == inc.incident_id
     assert "hypothesis" in data
+
 
 

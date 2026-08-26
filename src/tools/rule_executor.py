@@ -181,9 +181,9 @@ class RuleExecutorTool(BaseTool):
                 cols = [desc[0] for desc in conn.description] if conn.description else []
 
                 quarantine_records = []
-                for row in violation_rows:
+                for idx, row in enumerate(violation_rows, start=1):
                     row_dict = dict(zip(cols, row)) if cols else {}
-                    source_row_id = row_dict.get("id") or row_dict.get("row_id") or row[0]
+                    source_row_id = row_dict.get("id") or row_dict.get("row_id") or row_dict.get("event_sequence_index") or idx
                     q_id = str(uuid.uuid4())[:8]
                     orig_data_json = json.dumps(row_dict, default=str)
                     lineage_str = f"{effective_snapshot_id}:{effective_rule_version_id}:{source_row_id}"

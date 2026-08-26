@@ -19,7 +19,7 @@ def test_r0_investigator_known_rule():
 
     ev = Evidence(
         source_type="telemetry",
-        source_id="bms-1",
+        source_id="ev-1",
         entity_ids=["VIN-001"],
         content_hash="hash1",
         summary="Sensor value -10.0"
@@ -58,7 +58,7 @@ def test_preventive_control_governance():
         control_id="ctrl-01",
         rule_type="range",
         rule_expression="battery_soc >= 0 AND battery_soc <= 100",
-        target_table="vinfast_bms",
+        target_table="ev_telemetry",
         target_column="battery_soc"
     )
 
@@ -68,3 +68,4 @@ def test_preventive_control_governance():
 
     assert mgr.verify_authorization(auth.authorization_id) is True
     assert auth.authorized_actor == "data_steward_1"
+

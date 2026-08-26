@@ -18,8 +18,8 @@ export const DOMAINS: Record<string, DomainInfo> = {
     id: 'ev_telemetry',
     shortcut: 'ev',
     name: 'VinFast EV Telemetry',
-    dbName: 'vinfast_bms',
-    table: 'vinfast_bms',
+    dbName: 'ev_telemetry',
+    table: 'ev_telemetry',
     rows: '86,400',
     size: '15-day batch',
     engine: 'DuckDB',
@@ -29,12 +29,12 @@ export const DOMAINS: Record<string, DomainInfo> = {
     anomalySummary: 'Thermal runaway risk detected on Pack ID #VF8-BMS-9941 (Temp > 64.2°C, Voltage Delta 0.48V)',
     defaultRule: 'IF battery_temp > 62.0 AND cell_voltage_delta > 0.40 THEN QUARANTINE(\'THERMAL_RUNAWAY_RISK\')',
   },
-  vgreen_charging: {
-    id: 'vgreen_charging',
+  charging_sessions: {
+    id: 'charging_sessions',
     shortcut: 'vgreen',
     name: 'V-GREEN Charging',
-    dbName: 'vgreen_charging_sessions',
-    table: 'vgreen_charging_sessions',
+    dbName: 'charging_sessions',
+    table: 'charging_sessions',
     rows: '1,331',
     size: '1,513 rows / 182 dups',
     engine: 'DuckDB',
@@ -44,12 +44,12 @@ export const DOMAINS: Record<string, DomainInfo> = {
     anomalySummary: 'Grid harmonic distortion spike on Landmark 81 Charging Hub (Station #VG-H81-04)',
     defaultRule: 'IF connector_temp > 75.0 OR grid_pf < 0.88 THEN QUARANTINE(\'CONNECTOR_OVERHEAT\')',
   },
-  xanhsm_trips: {
-    id: 'xanhsm_trips',
+  trips: {
+    id: 'trips',
     shortcut: 'xanhsm',
     name: 'Xanh SM Trips',
-    dbName: 'xanhsm_trips',
-    table: 'xanhsm_trips',
+    dbName: 'trips',
+    table: 'trips',
     rows: '10,382',
     size: '15-day batch',
     engine: 'DuckDB',
@@ -59,12 +59,12 @@ export const DOMAINS: Record<string, DomainInfo> = {
     anomalySummary: 'Unusual kWh depletion rate vs GPS trajectory on Route SG-NB-92',
     defaultRule: 'IF energy_consumption_per_km > 0.35 AND avg_speed < 15 THEN QUARANTINE(\'ODOMETER_DESYNC\')',
   },
-  customer_nlp: {
-    id: 'customer_nlp',
+  nlp_feedback: {
+    id: 'nlp_feedback',
     shortcut: 'nlp',
     name: 'Customer Feedback NLP',
-    dbName: 'xanhsm_feedback',
-    table: 'xanhsm_feedback',
+    dbName: 'nlp_feedback',
+    table: 'nlp_feedback',
     rows: 'measured',
     size: 'batch',
     engine: 'DuckDB',
@@ -87,9 +87,9 @@ export function domainToBackendKey(domain: DomainInfo): string {
   const map: Record<string, string> = {
     vingroup_pilot: 'vingroup_pilot',
     ev_telemetry: 'ev_telemetry',
-    vgreen_charging: 'vgreen_charging_stations',
-    xanhsm_trips: 'xanh_sm_trips',
-    customer_nlp: 'customer_nlp',
+    charging_sessions: 'charging_sessions',
+    trips: 'trips',
+    nlp_feedback: 'nlp_feedback',
   };
   return map[domain.id] || domain.id;
 }
@@ -247,7 +247,7 @@ export const SPLIT_SAMPLES: Record<DomainId, { clean: SplitRow[]; quarantine: Sp
       { id: 'EV-ERR-943', timestamp: '02:24:50', vehicleId: 'VF5-VN-0098', battTemp: '66.1°C', vDelta: '0.51V', status: 'QUARANTINED', code: 'CAN_BUS_CORRECTED' },
     ],
   },
-  vgreen_charging: {
+  charging_sessions: {
     clean: [
       { id: 'VG-88102', timestamp: '02:30:10', vehicleId: 'VG-STN-01', battTemp: '38.0°C', vDelta: '0.01V', status: 'CLEAN', code: 'PASS_GRID' },
       { id: 'VG-88103', timestamp: '02:30:45', vehicleId: 'VG-STN-04', battTemp: '41.2°C', vDelta: '0.02V', status: 'CLEAN', code: 'PASS_GRID' },
@@ -256,7 +256,7 @@ export const SPLIT_SAMPLES: Record<DomainId, { clean: SplitRow[]; quarantine: Sp
       { id: 'VG-ERR-04', timestamp: '02:22:15', vehicleId: 'VG-STN-88', battTemp: '78.4°C', vDelta: '0.85V', status: 'QUARANTINED', code: 'CONNECTOR_OVERHEAT' },
     ],
   },
-  xanhsm_trips: {
+  trips: {
     clean: [
       { id: 'TRIP-7710', timestamp: '02:29:01', vehicleId: 'XSM-DRIVER-44', battTemp: '29.5°C', vDelta: '0.02V', status: 'CLEAN', code: 'PASS_ROUTE' },
     ],
@@ -264,7 +264,7 @@ export const SPLIT_SAMPLES: Record<DomainId, { clean: SplitRow[]; quarantine: Sp
       { id: 'TRIP-ERR-99', timestamp: '02:15:00', vehicleId: 'XSM-DRIVER-12', battTemp: '45.0°C', vDelta: '0.33V', status: 'QUARANTINED', code: 'ODOMETER_DESYNC' },
     ],
   },
-  customer_nlp: {
+  nlp_feedback: {
     clean: [
       { id: 'NLP-4401', timestamp: '02:28:10', vehicleId: 'USER-9941', battTemp: 'N/A', vDelta: 'N/A', status: 'CLEAN', code: 'POSITIVE_SENTIMENT' },
     ],
@@ -273,3 +273,6 @@ export const SPLIT_SAMPLES: Record<DomainId, { clean: SplitRow[]; quarantine: Sp
     ],
   },
 };
+
+
+

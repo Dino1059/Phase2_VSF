@@ -173,7 +173,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
     db = get_db()
     _ensure_hitl_columns(db)
 
-    dataset_key = (payload or {}).get("dataset_key", "vgreen_charging_stations")
+    dataset_key = (payload or {}).get("dataset_key", "charging_sessions")
     table_name = (payload or {}).get("table_name")
     use_llm = bool((payload or {}).get("use_llm", False))
 
@@ -549,3 +549,4 @@ async def reset_hitl_and_rules():
         "message": "DB rule history and audit log reset successfully",
         "details": deleted_counts
     }
+

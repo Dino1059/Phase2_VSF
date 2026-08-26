@@ -14,6 +14,7 @@ from typing import Literal, Protocol, Any, runtime_checkable
 from src.db.connection import get_db
 from src.teencode.vietnamese_nlp import VietnameseNLPService
 from src.services.llm import GemmaLLMAdapter
+from src.utils.table_utils import normalize_table_name
 
 
 @dataclass
@@ -119,39 +120,45 @@ class BaselineR0:
         tier_name = "C0" if self.tier in ("R0", "C0") else self.tier
         result = BaselineResult(tier=tier_name, table_name=table_name)
 
-        if table_name == "vgreen_telemetry":
+        try:
+            table_name = normalize_table_name(table_name)
+        except ValueError:
+            table_name = "ev_telemetry"
+        db_table = f"main.{table_name}"
+
+        if table_name == "charging_sessions":
             result.rules_proposed = [
-                {"rule_name": "temp_range", "rule_expression": "temperature_celsius BETWEEN -10 AND 85"},
-                {"rule_name": "voltage_range", "rule_expression": "voltage BETWEEN 0 AND 1000"},
-                {"rule_name": "duty_cycle_range", "rule_expression": "duty_cycle BETWEEN 0 AND 100"}
+                {"rule_name": "station_temp_range", "rule_expression": "station_temp_c BETWEEN -10 AND 85"},
+                {"rule_name": "energy_non_negative", "rule_expression": "kwh_consumed >= 0"},
+                {"rule_name": "duration_positive", "rule_expression": "duration_mins > 0"},
             ]
             for rule in result.rules_proposed:
                 try:
-                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    count = db.execute(f"SELECT COUNT(*) FROM {db_table} WHERE NOT ({rule['rule_expression']})")
                     rule["violations"] = count[0][0] if count else 0
                 except Exception:
                     rule["violations"] = -1
 
-        elif table_name == "vinfast_bms":
+        elif table_name == "ev_telemetry":
             result.rules_proposed = [
                 {"rule_name": "soc_range", "rule_expression": "battery_soc BETWEEN 0 AND 100"},
-                {"rule_name": "cell_temp_range", "rule_expression": "cell_temp_max BETWEEN -20 AND 60"}
+                {"rule_name": "battery_temp_range", "rule_expression": "battery_temp_c BETWEEN -20 AND 65"},
             ]
             for rule in result.rules_proposed:
                 try:
-                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    count = db.execute(f"SELECT COUNT(*) FROM {db_table} WHERE NOT ({rule['rule_expression']})")
                     rule["violations"] = count[0][0] if count else 0
                 except Exception:
                     rule["violations"] = -1
 
-        elif table_name == "xanhsm_feedback":
+        elif table_name == "nlp_feedback":
             result.rules_proposed = [
-                {"rule_name": "rating_range", "rule_expression": "rating BETWEEN 1 AND 5"},
-                {"rule_name": "text_not_null", "rule_expression": "review_text IS NOT NULL"}
+                {"rule_name": "sentiment_range", "rule_expression": "sentiment BETWEEN 0 AND 2"},
+                {"rule_name": "sentence_not_null", "rule_expression": "sentence IS NOT NULL"},
             ]
             for rule in result.rules_proposed:
                 try:
-                    count = db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE NOT ({rule['rule_expression']})")
+                    count = db.execute(f"SELECT COUNT(*) FROM {db_table} WHERE NOT ({rule['rule_expression']})")
                     rule["violations"] = count[0][0] if count else 0
                 except Exception:
                     rule["violations"] = -1

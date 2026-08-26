@@ -1039,11 +1039,11 @@ function NewChatLanding() {
     let targetKey = 'vinfast_ev_telemetry';
     const lower = trimmed.toLowerCase();
     if (lower.includes('vgreen') || lower.includes('v-green') || lower.includes('charg')) {
-      targetKey = 'vgreen_charging_stations';
+      targetKey = 'charging_sessions';
     } else if (lower.includes('xanh') || lower.includes('trip') || lower.includes('taxi')) {
-      targetKey = 'xanh_sm_trips';
+      targetKey = 'trips';
     } else if (lower.includes('feedback') || lower.includes('review') || lower.includes('nlp')) {
-      targetKey = 'xanh_sm_customer_feedback';
+      targetKey = 'nlp_feedback';
     }
 
     try {
@@ -1163,3 +1163,4 @@ function NewChatLanding() {
     </main>
   );
 }
+

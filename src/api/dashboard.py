@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from src.db.connection import get_db
+from src.utils.table_utils import CANONICAL_DATA_TABLES
 
 dashboard_router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -8,9 +9,10 @@ dashboard_router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 async def get_stats():
     db = get_db()
     stats = {}
-    for table in ["raw_snapshots", "xanhsm_feedback", "vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "quality_rules", "quarantine", "audit_log", "agent_traces"]:
+    for table in ["raw_snapshots", *CANONICAL_DATA_TABLES, "quality_rules", "quarantine", "audit_log", "agent_traces"]:
         try:
-            count = db.execute(f"SELECT COUNT(*) FROM {table}")
+            prefix = "main." if table in CANONICAL_DATA_TABLES else ""
+            count = db.execute(f"SELECT COUNT(*) FROM {prefix}{table}")
             stats[table] = count[0][0] if count else 0
         except Exception:
             stats[table] = 0
@@ -19,7 +21,7 @@ async def get_stats():
     rules = db.execute("SELECT status, COUNT(*) FROM quality_rules GROUP BY status")
     rule_stats = {r[0]: r[1] for r in rules} if rules else {}
     quarantine_count = stats.get("quarantine", 0)
-    total_records = sum(stats.get(t, 0) for t in ["xanhsm_feedback", "vgreen_telemetry", "vinfast_bms", "xanhsm_trips"])
+    total_records = sum(stats.get(t, 0) for t in CANONICAL_DATA_TABLES)
     quality_score = round((1 - quarantine_count / max(total_records, 1)) * 100, 1)
 
     return {

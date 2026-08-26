@@ -67,9 +67,9 @@ type Row = Record<string, any>;
 const MULTI_DATASET_OPTIONS = [
   { key: 'all', label: { en: 'All Sources', vi: 'Tất Cả Nguồn Dữ Liệu' }, icon: Database, color: 'var(--neon-cyan)' },
   { key: 'vinfast_ev_telemetry', label: { en: 'VinFast EV Telemetry', vi: 'VinFast EV Telemetry' }, icon: Car, color: '#0284c7' },
-  { key: 'vgreen_charging_stations', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
-  { key: 'xanh_sm_trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
-  { key: 'xanh_sm_customer_feedback', label: { en: 'Xanh SM Customer Feedback', vi: 'Phản Hồi Xanh SM' }, icon: MessageSquare, color: '#8b5cf6' },
+  { key: 'charging_sessions', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
+  { key: 'trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
+  { key: 'nlp_feedback', label: { en: 'Xanh SM Customer Feedback', vi: 'Phản Hồi Xanh SM' }, icon: MessageSquare, color: '#8b5cf6' },
   { key: 'vietnam_trips', label: { en: 'Vietnam Trips Benchmark', vi: 'Tập Chuẩn Vietnam Trips' }, icon: Database, color: '#f59e0b' },
 ];
 
@@ -2169,3 +2169,4 @@ export const OperationsWorkspace: React.FC = () => {
     </section>
   );
 };
+

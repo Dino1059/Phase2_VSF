@@ -130,5 +130,22 @@
   - `python -m py_compile scripts/landing-data-ingestion/day_ingestor.py src/api/routes/telemetry.py src/services/ingestion/streaming_worker.py src/api/pipeline.py src/orchestrator/orchestrator.py src/tools/profiler.py src/tools/anomaly_detector.py src/tools/rule_executor.py src/tools/rule_proposer.py src/tools/telemetry_query.py` passed.
   - `python -m pytest tests/test_table_utils.py` passed 6 tests.
   - Smoke: profiler `ev_telemetry` row_count 86400; anomaly detector on `ev_telemetry.battery_soc` ran with stats; telemetry query returned 2 charging + 2 EV sample rows; `day_ingestor.verify_day(0)` read canonical rows from DB.
-- Plan updated in `.plan/DB/phuong_an_xu_ly_tiet_de_vinfast_bms.md` section 10. Stop here until user approves Phase 4+.
+- Plan updated in `.plan/DB/phuong_an_xu_ly_tiet_de_vinfast_bms.md` section 10.
+
+## 2026-08-26 - Canonical DB contract Phase 4/5/6
+
+- Phase 4 rules, proposals, quarantine & remediation:
+  - `src/api/routes/rules.py`: Dataset metadata and default rules normalized to 4 canonical datasets (`ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`). Rule expressions use canonical schema columns.
+  - `src/api/quarantine_api.py`: Input validation rejects legacy keys with HTTP 400. Remediation endpoint updated to best-effort copy clean rows from `main.<canonical>` to `clean.<canonical>` by `source_row_id` and mark status `RESOLVED` (no direct `UPDATE main.*`).
+  - `src/tools/rule_executor.py`: Stabilized `source_row_id` generation for canonical tables without an explicit `id` column.
+  - `src/services/conversation_store.py`: Added robust error handling fallback for DuckDB primary key index updates to prevent FatalExceptions.
+- Phase 5 frontend canonical-only:
+  - `frontend/src/types/index.ts` & `frontend/src/stores/pipelineStore.ts`: Updated domain IDs, `dbName`, `table` to canonical keys (`ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`).
+  - `frontend/src/components/workspace/QuarantineZoneTab.tsx`, `frontend/src/pages/AgentChatWorkspace.tsx`, `frontend/src/pages/OperationsWorkspace.tsx`: Replaced legacy domain filter options with canonical domain keys.
+- Phase 6 test suite & verification gates:
+  - Updated fixtures and expected schemas across 9 test files: `test_quarantine_remediation.py`, `test_quarantine_idempotency.py`, `test_v5_api.py`, `test_governance.py`, `test_r0_and_governance.py`, `test_baselines_protocol.py`, `test_db.py`, `test_tools.py`, `test_table_utils.py`.
+- Verification:
+  - `python -m pytest tests/security/test_governance.py tests/test_table_utils.py tests/test_quarantine_remediation.py tests/test_quarantine_idempotency.py tests/test_v5_api.py tests/reliability/test_r0_and_governance.py`: 34/34 passed (100% pass).
+  - `pnpm --dir frontend exec tsc --noEmit`: passed with 0 errors.
+
 

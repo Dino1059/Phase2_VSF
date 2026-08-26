@@ -27,5 +27,7 @@ def test_synthesize_remediation_sql_canonical_table():
         reason="battery_soc range_boundary_check: battery_soc >= 0 AND battery_soc <= 100",
         source_table="ev_telemetry",
     )
-    assert "UPDATE ev_telemetry SET battery_soc = 0.0 WHERE battery_soc < 0.0;" in sql
+    assert "INSERT INTO clean.ev_telemetry" in sql
+    assert "main.ev_telemetry" in sql
+    assert "UPDATE" not in sql
     assert sev == "CRITICAL"

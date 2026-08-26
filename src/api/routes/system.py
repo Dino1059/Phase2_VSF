@@ -87,7 +87,7 @@ class ResetAllResponse(BaseModel):
 @router.post("/reset-all", response_model=ResetAllResponse)
 async def reset_all_db(
     authorization: Optional[str] = Header(None),
-    reload_warehouse: bool = Query(True, description="Reload raw.* tables from data_new CSVs"),
+    reload_warehouse: bool = Query(True, description="Reload canonical main.* tables from data_new CSVs"),
 ):
     """Admin-only full system reset: purges runtime state, reloads data_new warehouse, reseeds Algolia."""
     # 1. Role Guard
@@ -256,14 +256,12 @@ def _measure_warehouse(db) -> dict:
         except Exception:
             return default
 
-    charging = _count("SELECT count(DISTINCT session_id) FROM raw.charging_sessions")
-    if charging == 0:
-        charging = _count("SELECT count(DISTINCT session_id) FROM vgreen_charging_sessions")
+    charging = _count("SELECT count(DISTINCT session_id) FROM main.charging_sessions")
     return {
-        "telemetry": _count("SELECT count(*) FROM raw.ev_telemetry"),
+        "telemetry": _count("SELECT count(*) FROM main.ev_telemetry"),
         "charging_sessions": charging,
-        "trips": _count("SELECT count(*) FROM raw.trips"),
-        "soc_below_zero": _count("SELECT count(*) FROM raw.ev_telemetry WHERE battery_soc < 0"),
+        "trips": _count("SELECT count(*) FROM main.trips"),
+        "soc_below_zero": _count("SELECT count(*) FROM main.ev_telemetry WHERE battery_soc < 0"),
         "open_incidents": _count("SELECT count(*) FROM incidents WHERE status = 'OPEN'"),
     }
 

@@ -14,7 +14,7 @@ def _resolve_table_target(dataset_key: str) -> Tuple[str, Optional[str], Optiona
     Decompose `dataset_key` into (file_path, table_name_or_None, base_dataset_key).
 
     Supports both legacy single-table datasets and the multi-table notation
-    `uploaded_demo::vgreen_telemetry`. The base key is what is registered in the
+    `uploaded_demo::charging_sessions`. The base key is what is registered in the
     dataset registry; the optional table name selects a specific user table inside
     a DuckDB file.
 
@@ -905,3 +905,4 @@ class RunFullPipelineTool(BaseTool):
                 "stage_4_clean": clean_data,
             }
         )
+
