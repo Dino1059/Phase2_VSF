@@ -133,6 +133,15 @@ FAULT_FAMILY_RCA_SPECS: Dict[str, Dict[str, Any]] = {
         "expected_keywords": ["frequency", "shift", "cusum", "regime", "charging", "temporal", "pattern", "changepoint", "operational"],
         "expected_action": "ALERT_OPERATIONS",
     },
+    "F17_ForeignKey_Orphan": {
+        "layer": "L4",
+        "domain": "CHARGING_NETWORK",
+        "expected_classification": "DATA",
+        "target_entity": "vgreen_charging_sessions",
+        "ground_truth_cause": "Referential integrity failure: charging session VIN does not exist in fleet_index.",
+        "expected_keywords": ["orphan", "foreign", "vin", "fleet", "referential", "integrity", "unknown"],
+        "expected_action": "QUARANTINE_DATA",
+    },
     "F16_FareDistribution_Regime": {
         "layer": "L4",
         "domain": "RIDE_HAILING",
@@ -159,7 +168,53 @@ class RCAGroundTruthMatcher:
     def _load_manifest(self) -> None:
         with open(self.manifest_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            self.faults = data.get("faults", [])
+        raw = data.get("faults") or data.get("incidents") or []
+        self.faults = []
+        for f in raw:
+            item = dict(f)
+            item["original_index"] = item.get("original_index", item.get("row_index"))
+            item["affected_vin"] = item.get("affected_vin") or item.get("entity_id")
+            self.faults.append(item)
+
+    @staticmethod
+    def rank_families(claim: str) -> List[str]:
+        """Keyword rank over FAULT_FAMILY_RCA_SPECS (deterministic; LLM-judge off)."""
+        tokens = set(re.findall(r"[a-z0-9]+", (claim or "").lower()))
+        scored = []
+        for fam, spec in FAULT_FAMILY_RCA_SPECS.items():
+            kws = {k.lower() for k in spec.get("expected_keywords") or []}
+            kws |= {t for t in re.findall(r"[a-z0-9]+", fam.lower()) if len(t) > 1}
+            scored.append((len(tokens & kws), fam))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return [f for _, f in scored]
+
+    def score_frozen_testset(self, testset_path: str | Path) -> Dict[str, Any]:
+        """Adapter over FrozenRCABenchmarkRunner's gold JSON — keyword top-1/top-3, no LLM."""
+        path = Path(testset_path)
+        if not path.exists():
+            return {"available": False, "n": 0}
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        top1 = top3 = 0
+        for case in cases:
+            fam = case.get("fault_family")
+            gt = (case.get("ground_truth") or {}).get("ground_truth_cause") or ""
+            obs = case.get("admission_observation") or ""
+            ranked = self.rank_families(f"{fam} {gt} {obs}")
+            if ranked and ranked[0] == fam:
+                top1 += 1
+            if fam in ranked[:3]:
+                top3 += 1
+        n = max(len(cases), 1)
+        return {
+            "available": True,
+            "n": len(cases),
+            "top1": round(top1 / n, 4),
+            "top3": round(top3 / n, 4),
+            "top1_hits": top1,
+            "top3_hits": top3,
+            "runner": "FrozenRCABenchmarkRunner.testset + RCAGroundTruthMatcher.rank_families",
+            "llm_judge": "off",
+        }
 
     def match_incident_to_fault(
         self,
@@ -213,6 +268,8 @@ class RCAGroundTruthMatcher:
                 return {"fault_family": "F15_ChargingFrequency_Shift", "spec": FAULT_FAMILY_RCA_SPECS["F15_ChargingFrequency_Shift"], "matched_by": "signal_metric"}
             if sig.layer == "L4" and ("distance" in metric or "driver" in det):
                 return {"fault_family": "F16_FareDistribution_Regime", "spec": FAULT_FAMILY_RCA_SPECS["F16_FareDistribution_Regime"], "matched_by": "signal_metric"}
+            if "orphan" in det or "orphan" in metric or "foreign" in metric:
+                return {"fault_family": "F17_ForeignKey_Orphan", "spec": FAULT_FAMILY_RCA_SPECS["F17_ForeignKey_Orphan"], "matched_by": "signal_metric"}
 
         # Priority 2: Match by direct fault family keyword in reason or signals
         for fam, spec in FAULT_FAMILY_RCA_SPECS.items():

@@ -1,19 +1,22 @@
-"""Ngan GT pack scorer: landing_data incidents[] vs canonical parquet.
+"""Adapter: Ngan landing incidents[] onto existing GroundTruthMatcher + RCA matchers.
 
-Detection P/R/F1, location (table+row_index), time-window (day_idx),
-RCA top-1/top-3, hallucination on warmup days 0–8, unanswerable abstention.
-LLM-judge is off. Batch = all-days scan; realtime = per-day scan union.
+Does not add a third BenchmarkHarness. Detection scores go through
+GroundTruthMatcher; RCA through RCAGroundTruthMatcher / frozen testset
+(same JSON FrozenRCABenchmarkRunner loads). Signal emission uses L1–L4
+predicates on canonical table names. LLM-judge off.
 """
 from __future__ import annotations
 
 import json
-import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from src.reliability.benchmark.rca_ground_truth_matcher import FAULT_FAMILY_RCA_SPECS
+from src.reliability.benchmark.ground_truth_matcher import GroundTruthMatcher
+from src.reliability.benchmark.rca_ground_truth_matcher import FAULT_FAMILY_RCA_SPECS, RCAGroundTruthMatcher
+from src.reliability.models.signal import Signal
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_CANDIDATES = [
@@ -196,15 +199,73 @@ def detect_anomalies(df: pd.DataFrame, day_idx: int | None = None) -> list[dict[
 
 
 def _rank_families(claim: str) -> list[str]:
-    tokens = set(re.findall(r"[a-z0-9]+", (claim or "").lower()))
-    scored = []
-    for fam, spec in FAULT_FAMILY_RCA_SPECS.items():
-        kws = {k.lower() for k in spec.get("expected_keywords") or []}
-        kws |= {t for t in re.findall(r"[a-z0-9]+", fam.lower()) if len(t) > 1}
-        overlap = len(tokens & kws)
-        scored.append((overlap, fam))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [f for _, f in scored]
+    return RCAGroundTruthMatcher.rank_families(claim)
+
+
+def _dets_to_signals(dets: list[dict[str, Any]]) -> list[Signal]:
+    now = datetime.now(timezone.utc)
+    out: list[Signal] = []
+    for d in dets:
+        fam = str(d.get("fault_family") or "")
+        layer = (FAULT_FAMILY_RCA_SPECS.get(fam) or {}).get("layer") or "L1"
+        if layer not in ("L1", "L2", "L3", "L4"):
+            layer = "L1"
+        col = str(d.get("column") or fam)
+        ent = d.get("entity_id")
+        day = d.get("day_idx")
+        event = now
+        if day is not None:
+            try:
+                event = datetime(2026, 1, 1, tzinfo=timezone.utc) + pd.Timedelta(days=int(day))
+            except (TypeError, ValueError):
+                event = now
+        out.append(Signal(
+            project_id="ngan-gt",
+            entity_ids=[str(ent)] if ent else [],
+            layer=layer,
+            signal_type=fam,
+            metric_or_relationship=f"{col} {fam}",
+            event_time=event,
+            window_start=event,
+            window_end=event,
+            score=1.0,
+            detector=fam,
+            source_table=str(d.get("dataset_table") or d.get("canonical_table") or ""),
+        ))
+    return out
+
+
+def _pack_dfs(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    dfs = {str(name): g.copy().reset_index(drop=True) for name, g in df.groupby("dataset_table", sort=False)}
+    if "acn_charging" in dfs:
+        dfs["charging_sessions"] = dfs["acn_charging"]
+    if "ride_trips" in dfs:
+        dfs["trips"] = dfs["ride_trips"]
+    return dfs
+
+
+def _cluster_dets(dets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One Signal per (family, entity, day, table) so matcher FP is not row-exploded."""
+    seen: dict[tuple, dict[str, Any]] = {}
+    for d in dets:
+        key = (d.get("fault_family"), d.get("entity_id") or d.get("row_index"), d.get("day_idx"), d.get("dataset_table"))
+        seen.setdefault(key, d)
+    return list(seen.values())
+
+
+def _matcher_detection(manifest_path: Path, df: pd.DataFrame, dets: list[dict]) -> dict[str, Any]:
+    matcher = GroundTruthMatcher(manifest_path)
+    raw = matcher.evaluate_signals({"all": _dets_to_signals(_cluster_dets(dets))}, _pack_dfs(df))
+    om = raw.get("overall_metrics") or {}
+    return {
+        "precision": float(om.get("precision") or 0.0),
+        "recall": float(om.get("recall") or 0.0),
+        "f1": float(om.get("f1_score") or 0.0),
+        "tp": int(om.get("true_positives") or 0),
+        "fp": int(om.get("false_positives") or 0),
+        "fn": int(om.get("false_negatives") or 0),
+        "scorer": "GroundTruthMatcher.evaluate_signals",
+    }
 
 
 def _matches_incident(det: dict, inc: dict) -> bool:
@@ -218,7 +279,7 @@ def _matches_incident(det: dict, inc: dict) -> bool:
     return False
 
 
-def _score_flow(incidents: list[dict], detections: list[dict]) -> dict[str, Any]:
+def _score_flow(incidents: list[dict], detections: list[dict], detection: dict[str, Any] | None = None) -> dict[str, Any]:
     matched_ids = set()
     loc_ok = time_ok = rca_top1 = rca_top3 = 0
     used = set()
@@ -262,7 +323,7 @@ def _score_flow(incidents: list[dict], detections: list[dict]) -> dict[str, Any]
     hall = [d for d in detections if d.get("day_idx") is not None and int(d["day_idx"]) <= WARMUP_MAX_DAY]
     hall_clusters = {(d.get("fault_family"), d.get("entity_id"), d.get("day_idx")) for d in hall}
     return {
-        "detection": _prf(tp, fp, fn),
+        "detection": detection or _prf(tp, fp, fn),
         "location": {"accuracy": round(loc_ok / n, 4), "matched": loc_ok, "total": len(incidents)},
         "time_window": {"accuracy": round(time_ok / n, 4), "matched": time_ok, "total": len(incidents), "unit": "day_idx"},
         "rca": {
@@ -271,7 +332,7 @@ def _score_flow(incidents: list[dict], detections: list[dict]) -> dict[str, Any]
             "top1_hits": rca_top1,
             "top3_hits": rca_top3,
             "total": len(incidents),
-            "note": "GT has one cause per incident; top-1 = family match, top-3 = family in ranked keyword overlap",
+            "note": "RCAGroundTruthMatcher.rank_families over FAULT_FAMILY_RCA_SPECS; top-1 = family match",
         },
         "hallucination": {
             "warmup_days": f"0-{WARMUP_MAX_DAY}",
@@ -302,6 +363,7 @@ def score_unanswerable(df: pd.DataFrame) -> dict[str, Any]:
 
 
 def evaluate_ngan_gt(llm_judge: bool = False) -> dict[str, Any]:
+    manifest_path = _first_existing(MANIFEST_CANDIDATES)
     manifest, df = load_gt_pack()
     incidents = list(manifest.get("incidents") or [])
     batch_dets = detect_anomalies(df, day_idx=None)
@@ -351,11 +413,19 @@ def evaluate_ngan_gt(llm_judge: bool = False) -> dict[str, Any]:
             "tables": sorted(CANONICAL_TABLE.items()),
             "llm_judge": "off",
         },
-        "batch": {**_score_flow(incidents, batch_dets), "implemented": True, "runner": "detect_anomalies(all_days)"},
-        "realtime": {
-            **_score_flow(incidents, rt_dets),
+        "batch": {
+            **_score_flow(incidents, batch_dets, _matcher_detection(manifest_path, df, batch_dets)),
             "implemented": True,
-            "runner": "detect_anomalies(per_day) + RealtimeRunner" if realtime_available else "detect_anomalies(per_day)",
+            "runner": "GroundTruthMatcher + detect_anomalies(all_days)",
+        },
+        "realtime": {
+            **_score_flow(incidents, rt_dets, _matcher_detection(manifest_path, df, rt_dets)),
+            "implemented": True,
+            "runner": (
+                "GroundTruthMatcher + detect_anomalies(per_day) + RealtimeRunner"
+                if realtime_available
+                else "GroundTruthMatcher + detect_anomalies(per_day)"
+            ),
             "realtime_runner_present": realtime_available,
             "day_batch_present": batch_available,
         },
@@ -390,25 +460,4 @@ def _gt_blockers(incidents: list[dict], df: pd.DataFrame) -> list[dict[str, Any]
 
 def _score_frozen_rca() -> dict[str, Any]:
     path = ROOT / "eval" / "rca_benchmark" / "frozen_testset_v3.json"
-    if not path.exists():
-        return {"available": False, "n": 0}
-    cases = json.loads(path.read_text(encoding="utf-8"))
-    top1 = top3 = 0
-    for case in cases:
-        fam = case.get("fault_family")
-        gt = (case.get("ground_truth") or {}).get("ground_truth_cause") or ""
-        obs = case.get("admission_observation") or ""
-        ranked = _rank_families(f"{fam} {gt} {obs}")
-        if ranked and ranked[0] == fam:
-            top1 += 1
-        if fam in ranked[:3]:
-            top3 += 1
-    n = max(len(cases), 1)
-    return {
-        "available": True,
-        "n": len(cases),
-        "top1": round(top1 / n, 4),
-        "top3": round(top3 / n, 4),
-        "top1_hits": top1,
-        "top3_hits": top3,
-    }
+    return RCAGroundTruthMatcher().score_frozen_testset(path)
