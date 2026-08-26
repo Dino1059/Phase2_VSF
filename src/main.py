@@ -36,6 +36,7 @@ from src.api.quarantine_api import quarantine_router
 from src.api.snapshots import snapshots_router
 from src.api.ingestion import router as ingestion_router
 from src.api.routes.telemetry import telemetry_router
+from src.memory.routes import memory_router
 from src.services.ingestion import streaming_worker
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
@@ -191,6 +192,7 @@ app.include_router(ingestion_router, prefix="/api/v1")
 app.include_router(hitl_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
 app.include_router(system_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")
 
 
 
