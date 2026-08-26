@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-08-24T20:12:22.608761",
+  "random_seed": 2026,
+  "dataset_name": "vingroup_pilot_landing_demo.parquet",
+  "total_days": 15,
+  "warmup_days": 10,
+  "daily_step_days": 5,
+  "total_incidents": 14,
+  "fault_summary_by_layer": {
+    "L1": 6,
+    "L2": 2,
+    "L3": 3,
+    "L4": 3
+  },
+  "incidents": [
+    {
+      "incident_id": "INC_001",
+      "day_idx": 9,
+      "layer": "L1",
+      "fault_family": "F1_Negative_SOC",
+      "dataset_table": "ev_telemetry",
+      "row_index": 874,
+      "column": "battery_soc",
+      "description": "BMS sensor glitch: battery_soc set to -12.5% (was 97.45%)",
+      "expected_rule": "Rule_L1_Range_SOC_Negative"
+    },
+    {
+      "incident_id": "INC_002",
+      "day_idx": 9,
+      "layer": "L1",
+      "fault_family": "F5_Negative_Cost",
+      "dataset_table": "acn_charging",
+      "row_index": 84,
+      "column": "cost_vnd",
+      "description": "Billing anomaly: cost_vnd set to -150,000 VND (was 96078.0)",
+      "expected_rule": "Rule_L1_Range_Cost_Negative"
+    },
+    {
+      "incident_id": "INC_003",
+      "day_idx": 10,
+      "layer": "L1",
+      "fault_family": "F2_Voltage_Overvoltage_Spike",
+      "dataset_table": "ev_telemetry",
+      "row_index": 975,
+      "column": "battery_voltage",
+      "description": "CAN-bus bus spike: battery_voltage = 1850.0V (threshold: 1000V)",
+      "expected_rule": "Rule_L1_Range_Voltage_Overvoltage"
+    },
+    {
+      "incident_id": "INC_004",
+      "day_idx": 10,
+      "layer": "L1",
+      "fault_family": "F7_Negative_Fare",
+      "dataset_table": "ride_trips",
+      "row_index": 137,
+      "column": "fare_amount",
+      "description": "Ledger calculation error: fare_amount = -55,000 VND",
+      "expected_rule": "Rule_L1_Range_Fare_Negative"
+    },
+    {
+      "incident_id": "INC_005",
+      "day_idx": 11,
+      "layer": "L1",
+      "fault_family": "F8_Ledger_Mismatch",
+      "dataset_table": "ride_trips",
+      "row_index": 317,
+      "column": "total_fare",
+      "description": "Arithmetic mismatch: total_fare (641085.0) != fare (488391.0) + tip (32694.0)",
+      "expected_rule": "Rule_L1_Arithmetic_TotalFare_Mismatch"
+    },
+    {
+      "incident_id": "INC_006",
+      "day_idx": 11,
+      "layer": "L2",
+      "fault_family": "F11_BatteryTemp_Drift",
+      "dataset_table": "ev_telemetry",
+      "row_index": 1056,
+      "column": "battery_temp_c",
+      "description": "Thermal drift: vehicle VF8VNF_0001 battery temp elevated by +18.5°C above 10-day baseline",
+      "expected_rule": "Rule_L2_Contextual_BatteryTemp_Drift",
+      "entity_id": "VF8VNF_0001"
+    },
+    {
+      "incident_id": "INC_007",
+      "day_idx": 12,
+      "layer": "L2",
+      "fault_family": "F10_SOC_Degradation_Drift",
+      "dataset_table": "ev_telemetry",
+      "row_index": 2592,
+      "column": "battery_soc",
+      "description": "Rapid SOC discharge drift: vehicle VF8VNF_0002 SOC dropped 55% faster than baseline",
+      "expected_rule": "Rule_L2_Contextual_SOC_Degradation",
+      "entity_id": "VF8VNF_0002"
+    },
+    {
+      "incident_id": "INC_008",
+      "day_idx": 12,
+      "layer": "L3",
+      "fault_family": "F14_DurationEnergy_Mismatch",
+      "dataset_table": "acn_charging",
+      "row_index": 44,
+      "column": "duration_mins",
+      "description": "Relational break: charging duration 240 mins but energy consumed only 1.2 kWh",
+      "expected_rule": "Rule_L3_Relational_Duration_Energy_Mismatch"
+    },
+    {
+      "incident_id": "INC_009",
+      "day_idx": 12,
+      "layer": "L3",
+      "fault_family": "F6_GPS_Alleyway_Drift",
+      "dataset_table": "ride_trips",
+      "row_index": 160,
+      "column": "pickup_latitude",
+      "description": "Multivariate spatial anomaly: pickup coordinates (40.7128, -74.0060) outside Hanoi bounding box",
+      "expected_rule": "Rule_L3_Spatial_Bounding_Box_Violation"
+    },
+    {
+      "incident_id": "INC_010",
+      "day_idx": 13,
+      "layer": "L3",
+      "fault_family": "F13_ChargingTrip_Mismatch",
+      "dataset_table": "acn_charging",
+      "row_index": 67,
+      "column": "vehicle_vin",
+      "description": "Cross-table mismatch: vehicle VF8VNF_0003 has 5 charging sessions on Day 13 but 0 completed trips",
+      "expected_rule": "Rule_L3_CrossTable_Charging_Trip_Anomaly",
+      "entity_id": "VF8VNF_0003"
+    },
+    {
+      "incident_id": "INC_011",
+      "day_idx": 13,
+      "layer": "L4",
+      "fault_family": "F15_ChargingFrequency_Shift",
+      "dataset_table": "acn_charging",
+      "row_index": 1331,
+      "column": "session_id",
+      "description": "Sequential changepoint: vehicle VF8VNF_0004 charging frequency jumped from 1/day to 4/day starting Day 13",
+      "expected_rule": "Rule_L4_Changepoint_Charging_Frequency",
+      "entity_id": "VF8VNF_0004"
+    },
+    {
+      "incident_id": "INC_012",
+      "day_idx": 14,
+      "layer": "L4",
+      "fault_family": "F16_FareDistribution_Regime",
+      "dataset_table": "ride_trips",
+      "row_index": 176,
+      "column": "trip_distance_km",
+      "description": "Distribution regime shift: driver DRV_XANH_0001 mean trip distance shifted +65% on Day 14",
+      "expected_rule": "Rule_L4_Regime_Shift_Driver_Distance",
+      "entity_id": "DRV_XANH_0001"
+    },
+    {
+      "incident_id": "INC_013",
+      "day_idx": 14,
+      "layer": "L1",
+      "fault_family": "F3_RPM_Speed_Mismatch",
+      "dataset_table": "ev_telemetry",
+      "row_index": 1349,
+      "column": "motor_rpm",
+      "description": "Rule violation: vehicle speed = 0 km/h but motor RPM = 13,500 RPM",
+      "expected_rule": "Rule_L1_Logic_RPM_Speed_Mismatch"
+    },
+    {
+      "incident_id": "INC_014",
+      "day_idx": 14,
+      "layer": "L4",
+      "fault_family": "F17_ForeignKey_Orphan",
+      "dataset_table": "acn_charging",
+      "row_index": 1339,
+      "column": "vehicle_vin",
+      "description": "Referential integrity failure: VIN 'VIN_UNKNOWN_999_ORPHAN' in charging sessions does not exist in fleet_index",
+      "expected_rule": "Rule_L4_Relational_FK_Orphan_Check",
+      "entity_id": "VIN_UNKNOWN_999_ORPHAN"
+    }
+  ]
+}
