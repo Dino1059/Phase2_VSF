@@ -128,11 +128,73 @@ def test_approved_rules_for_clean_never_synthesizes():
     assert empty == [] or all(str(r.get("decision") or "").lower() in ("approved", "edit", "edited") for r in empty)
 
 
+def test_execute_off_is_design_not_csrf_or_auth():
+    """POST /hitl/execute 403 is execute-off for Admin too. Missing JWT is 401. Viewer write is role 403."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.middleware.auth import create_access_token
+
+    anon = TestClient(app)
+    missing = anon.post("/api/v1/hitl/execute", json={})
+    assert missing.status_code == 401, missing.text
+
+    token = create_access_token(
+        {"sub": "admin@datatrust.os", "user_id": "usr_admin_01", "role": "Admin"}
+    )
+    admin = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    off = admin.post("/api/v1/hitl/execute", json={"rule_id": "any"})
+    assert off.status_code == 403, off.text
+    detail = str(off.json().get("detail") or "").lower()
+    assert "execute off" in detail or "not execute" in detail
+    assert "csrf" not in detail
+    assert "token" not in detail
+    assert "viewer" not in detail
+
+    viewer = TestClient(app, headers={"X-User-Role": "Viewer"})
+    blocked = viewer.post("/api/v1/hitl/sandbox", json={"dataset_key": "ev_telemetry", "rule_ids": ["x"]})
+    assert blocked.status_code == 403, blocked.text
+    vdetail = str(blocked.json().get("detail") or "").lower()
+    assert "viewer" in vdetail or "read-only" in vdetail
+
+
+def test_admin_authorize_accepts_edited_then_sandbox_preview():
+    """Admin HITL path is authorize + sandbox + GET quarantine preview, never execute."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.db.connection import get_db
+    from src.middleware.auth import create_access_token
+
+    rid = "qa_edited_auth__R1"
+    db = get_db()
+    try:
+        db.execute("DELETE FROM quality_rules WHERE id = ?", [rid])
+    except Exception:
+        pass
+    db.execute(
+        "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [rid, "soc", "range", "battery_soc >= 0", 0.9, "edited"],
+    )
+    token = create_access_token(
+        {"sub": "admin@datatrust.os", "user_id": "usr_admin_01", "role": "Admin"}
+    )
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    auth = client.post(
+        "/api/v1/approvals/authorize",
+        json={"dataset_key": "qa_edited_auth", "rule_ids": [rid]},
+    )
+    assert auth.status_code == 200, auth.text
+    assert auth.json().get("payload_hash")
+    exe = client.post(f"/api/v1/hitl/execute/{rid}")
+    assert exe.status_code == 403
+    assert "not execute" in str(exe.json().get("detail") or "").lower() or "execute off" in str(exe.json().get("detail") or "").lower()
+
+
 def test_sandbox_endpoint_exists_and_requires_approved_rule():
     from fastapi.testclient import TestClient
     from src.main import app
     client = TestClient(app, headers={"X-User-Role": "Admin"})
-    res = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "vingroup_pilot", "rule_ids": []})
+    res = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "no_such_dataset_xyz", "rule_ids": []})
     assert res.status_code in (403, 400, 422)
     missing = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "", "rule_ids": ["x"]})
     assert missing.status_code in (400, 422)

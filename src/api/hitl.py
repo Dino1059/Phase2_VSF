@@ -389,6 +389,7 @@ async def edit_rule(rule_id: str, req: EditRequest):
 
 @hitl_router.post("/execute/{rule_id}")
 async def execute_hitl_rule(rule_id: str):
+    # Intentional for every role including Admin. Not CSRF/auth. Path is authorize + POST /sandbox + GET preview.
     raise HTTPException(
         status_code=403,
         detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
