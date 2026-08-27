@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import uuid
@@ -168,12 +169,13 @@ def quarantine_violating_data_for_rule(rule_id: str, db=None) -> Dict[str, Any]:
     dataset_key = ds_info["dataset_key"]
     target_table = normalize_table_name(ds_info["target_table"])
 
-    from src.services.dataset_engine import load_dataset, safe_eval_rule
+    from src.services.dataset_engine import SANDBOX_SAMPLE_CAP, load_dataset, safe_eval_rule
+    sample_cap = int(SANDBOX_SAMPLE_CAP)
     try:
-        df = load_dataset(dataset_key=dataset_key, sample_size=None)
+        df = load_dataset(dataset_key=dataset_key, sample_size=sample_cap)
     except Exception:
         try:
-            df = conn.execute(f"SELECT * FROM main.{target_table}").df()
+            df = conn.execute(f"SELECT * FROM main.{target_table} LIMIT {sample_cap}").df()
         except Exception:
             df = pd.DataFrame()
 
@@ -393,23 +395,34 @@ async def reject_rule_endpoint(rule_id: str):
 
 @router.post("/batch-approve")
 async def batch_approve_rules(payload: Dict[str, Any]):
-    rule_ids = payload.get("rule_ids", [])
+    rule_ids = [str(rid) for rid in (payload.get("rule_ids") or []) if rid]
     if not rule_ids:
         raise HTTPException(status_code=400, detail="No rule_ids provided.")
 
-    from src.db.connection import get_db
-    db = get_db()
-    results = []
-    total_quarantined = 0
-    for rid in rule_ids:
-        try:
-            db.execute("UPDATE quality_rules SET status = 'approved', approved_by = 'human_steward', approved_at = CURRENT_TIMESTAMP WHERE id = ?", [rid])
-            res = quarantine_violating_data_for_rule(rid, db=db)
-            total_quarantined += res.get("quarantined_count", 0)
-            results.append(res)
-        except Exception as err:
-            results.append({"rule_id": rid, "status": "error", "error": str(err)})
-    return {"status": "success", "processed_count": len(rule_ids), "total_quarantined": total_quarantined, "results": results}
+    def _mark_approved() -> List[str]:
+        from src.db.connection import get_db
+        db = get_db()
+        placeholders = ",".join(["?"] * len(rule_ids))
+        updated = db.execute(
+            f"""UPDATE quality_rules
+                SET status = 'approved',
+                    approved_by = 'human_steward',
+                    approved_at = CURRENT_TIMESTAMP
+                WHERE id IN ({placeholders})
+                  AND lower(status) IN ('proposed','pending','draft','queued')
+                RETURNING id""",
+            list(rule_ids),
+        )
+        return [row[0] for row in (updated or [])]
+
+    marked_ids = await asyncio.to_thread(_mark_approved)
+    return {
+        "status": "success",
+        "processed_count": len(marked_ids),
+        "total_quarantined": 0,
+        "execute": "off",
+        "results": [{"rule_id": rid, "status": "approved"} for rid in marked_ids],
+    }
 
 
 @router.post("/seed-defaults")

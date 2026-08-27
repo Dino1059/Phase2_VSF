@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm } from '../../services/api';
+import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm, rulesApi } from '../../services/api';
 import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
@@ -341,7 +341,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   }, [active, dayIdx, fetchRules]);
 
   useEffect(() => {
-    const id = window.setInterval(() => { void fetchRules({ silent: true }); }, 2000);
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void fetchRules({ silent: true });
+    }, 8000);
     return () => window.clearInterval(id);
   }, [fetchRules]);
 
@@ -389,18 +392,23 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     if (pendingRules.length === 0) return;
 
     setActionLoading('batch');
+    setSandboxError(null);
     try {
-      await Promise.all(
-        pendingRules.map((r) =>
-          hitlApi.approve(r.rule_id, 'human')
-        )
-      );
+      await rulesApi.batchApprove(pendingRules.map((r) => r.rule_id));
       setProposals((prev) =>
-        prev.map((r) => ({ ...r, status: 'approved' }))
+        prev.map((r) => {
+          const st = (r.status || 'proposed').toLowerCase();
+          if (st === 'proposed' || st === 'pending') return { ...r, status: 'approved' };
+          return r;
+        })
       );
       await fetchRules({ silent: true });
-    } catch (err: any) {
-      alert(`Batch approval error: ${err.message}`);
+    } catch {
+      const busy = isVi
+        ? 'Máy chủ đang bận. Thử lại Approve All sau vài giây.'
+        : 'Server busy. Retry Approve All in a few seconds.';
+      setSandboxError(busy);
+      alert(busy);
     } finally {
       setActionLoading(null);
     }
