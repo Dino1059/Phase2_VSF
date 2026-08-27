@@ -258,11 +258,12 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     # Fallback to rich domain synthesis if LLM returned empty or use_llm is False
     if not proposals:
+        rid_pfx = "RULE_DET" if not use_llm else "RULE_LLM"
 
         if "vgreen" in dataset_key or "charging" in dataset_key:
             proposals = [
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Trần Điện Áp Cấp Nguồn Trụ Sạc DC",
                     "rule_type": "range",
                     "rule_expression": "voltage BETWEEN 180.0 AND 1000.0",
@@ -273,7 +274,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.97
                 },
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tốc Độ Biến Thiên Nhiệt Trạm Sạc",
                     "rule_type": "contextual_drift_limit",
                     "rule_expression": "ABS(temperature_celsius - 25.0) < 60.0",
@@ -284,7 +285,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.94
                 },
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tính Bất Biến Năng Lượng Phiên Sạc",
                     "rule_type": "relational_invariant",
                     "rule_expression": "kwh_delivered > 0.0 OR duration_minutes < 5",
@@ -298,7 +299,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
         else:
             proposals = [
                 {
-                    "rule_id": f"RULE_LLM_BMS_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_BMS_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Pin SOC Trong Ngưỡng Hóa Học",
                     "rule_type": "range",
                     "rule_expression": "battery_soc BETWEEN 0.0 AND 100.0",
@@ -309,7 +310,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.98
                 },
                 {
-                    "rule_id": f"RULE_LLM_BMS_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_BMS_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tốc Độ Biến Thiên Điện Áp Telemetry",
                     "rule_type": "contextual_drift_limit",
                     "rule_expression": "ABS(rate_of_change) < 3.5",
@@ -323,7 +324,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     # Persist proposals into DuckDB
     for p in proposals:
-        r_id = p.get("rule_id") or f"RULE_LLM_{uuid.uuid4().hex[:8]}"
+        r_id = p.get("rule_id") or f"{'RULE_DET' if not use_llm else 'RULE_LLM'}_{uuid.uuid4().hex[:8]}"
         r_name = p.get("rule_name") or f"{p.get('rule_type')} rule"
         r_type = p.get("rule_type") or "range"
         r_expr = p.get("rule_expression") or "1=1"

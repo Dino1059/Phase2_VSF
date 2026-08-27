@@ -162,4 +162,14 @@ Fixes on `fix/v5-qa-t086-ship-blockers` (PR into `v5`). Not applied on t086.
 ### Verification
 - `uv run pytest tests/test_qa_t086_gates.py tests/test_hitl.py tests/test_ngan_gt_eval.py tests/test_v2_features.py tests/test_reset_wipe.py -q`
 
+---
+
+## 12. QA t086 remaining MEDIUM/LOW + PONG (2026-08-27)
+
+- **PONG / Trục B:** `is_pong_ping` short-circuits `/chat/send` — LLM ON → `PONG`, OFF → 4-dataset inventory. No ReAct, no dataset_key inject, no inventory append.
+- **A-08/A-09:** KPI wrap at 768; rules `TARGET COLUMN` / `QUARANTINED ROWS` wider + wrap.
+- **A-10:** session switcher title + tooltip; workspace send passes `lang`.
+- **A-11:** alerts empty + dashboard hint cite GT pack 14.
+- **A-12–A-16:** Not signed in ghost; login labels; Sign In `#0369a1`; `RULE_DET_` when synth OFF; Reset DB gap from LLM toggle.
+
 

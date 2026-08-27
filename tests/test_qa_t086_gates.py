@@ -172,3 +172,58 @@ def test_os_compose_sets_production_without_breaking_d086_example():
     assert "Unknown" in profiler
     assert "activeHealthScore == null" in profiler
     assert "setAggregateHealth<number>(100)" not in profiler
+
+
+def test_pong_ping_llm_on_vs_off_are_distinct():
+    from src.api.routes import is_pong_ping
+    assert is_pong_ping("Reply PONG only. One word.")
+    assert is_pong_ping("QA ping LLM-ON: reply with the word PONG only.")
+    assert not is_pong_ping("list datasets")
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    off = client.post("/api/v1/chat/send", json={
+        "message": "Reply PONG only. One word.",
+        "session_id": f"qa-pong-off-{uuid.uuid4().hex[:8]}",
+        "use_llm": False,
+        "lang": "en",
+    })
+    on = client.post("/api/v1/chat/send", json={
+        "message": "Reply PONG only. One word.",
+        "session_id": f"qa-pong-on-{uuid.uuid4().hex[:8]}",
+        "use_llm": True,
+        "lang": "en",
+    })
+    assert off.status_code == 200 and on.status_code == 200
+    assert off.json()["response"] != on.json()["response"]
+    assert on.json()["response"].strip() == "PONG"
+    assert "4 datasets" in off.json()["response"]
+    assert "PONG" not in off.json()["response"]
+
+
+def test_synth_off_uses_rule_det_prefix():
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    res = client.post("/api/v1/hitl/synthesize-llm", json={
+        "dataset_key": "vinfast_ev_telemetry",
+        "use_llm": False,
+    })
+    assert res.status_code == 200
+    ids = [p["rule_id"] for p in res.json()["proposals"]]
+    assert ids and all(i.startswith("RULE_DET_") for i in ids)
+    assert not any(i.startswith("RULE_LLM_") for i in ids)
+
+
+def test_remaining_medium_low_ui_gates():
+    auth = _src("frontend/src/components/auth/AuthModal.tsx")
+    assert "Not signed in" in auth
+    assert 'htmlFor="dt-login-user"' in auth
+    assert "#0369a1" in auth
+    css = _src("frontend/src/assets/dashboard.css")
+    assert "overflow-wrap: anywhere" in css
+    assert "@media (max-width: 768px)" in css
+    ops = _src("frontend/src/pages/OperationsWorkspace.tsx")
+    assert "gt-pack-banner" in ops
+    assert "minWidth: '120px'" in ops
+    header = _src("frontend/src/components/layout/Header.tsx")
+    assert "hud-reset-db" in header
+    api = _src("frontend/src/services/api.ts")
+    assert "export function isPongPing" in api
+    assert "!ping && datasetKey" in api

@@ -648,7 +648,12 @@ class UnifiedLLMAdapter:
             )
 
         # 3. Chat / General Inquiry Fallback
-        if "dataset" in last_msg or "how many" in last_msg:
+        if "pong" in last_msg and any(k in last_msg for k in ("reply", "only", "one word", "ping")):
+            reply = (
+                "You have **4 datasets** registered in the DataTrust OS repository "
+                "including ev_telemetry, charging_sessions, trips, and nlp_feedback."
+            )
+        elif "dataset" in last_msg or "how many" in last_msg:
             reply = "You have **4 datasets** registered in the DataTrust OS repository including ev_telemetry, charging_sessions, trips, and nlp_feedback."
         elif "evidence" in last_msg or "summarize" in last_msg:
             reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."

@@ -917,20 +917,27 @@ export const OperationsWorkspace: React.FC = () => {
                 ? (isVi ? `Không tìm thấy dòng nào khớp với "${filterQuery}".` : `No rows matched "${filterQuery}".`)
                 : (isVi ? 'Tất cả các hệ thống đang hoạt động trong ngưỡng cho phép.' : 'All systems operating within acceptable parameters.')}
             </div>
+            {(activeSubTab === 'alerts' || activeSubTab === 'incidents') && !filterQuery && (
+              <div data-testid="gt-pack-banner" style={{ marginTop: 12, fontSize: 12, color: 'var(--text-main)' }}>
+                {isVi
+                  ? 'Gói GT Ngan: 14 sự cố (eval F1=0.8). Kho cảnh báo live: 0 — chưa chạy detect.'
+                  : 'Ngan GT pack: 14 incidents (eval F1=0.8). Live alert store: 0 until detect runs.'}
+              </div>
+            )}
           </div>
         ) : activeSubTab === 'rules' ? (
           /* ACTIVE RULES SPECIALIZED TABLE */
           <div style={{ width: '100%', overflowX: 'auto', overflowY: 'visible', height: 'auto', maxHeight: 'none', borderRadius: 'var(--radius-card)' }}>
-            <table className="data-table" style={{ width: '100%', minWidth: '1050px', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <table className="data-table" style={{ width: '100%', minWidth: '1180px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   <th style={{ width: '18%', minWidth: '160px' }}>{isVi ? 'MÃ BỘ LUẬT & TÊN' : 'RULE ID & NAME'}</th>
                   <th style={{ width: '14%', minWidth: '130px' }}>{isVi ? 'NGUỒN DỮ LIỆU' : 'DATASET SOURCE'}</th>
                   <th style={{ width: '8%', minWidth: '80px' }}>{isVi ? 'TẦNG' : 'LAYER'}</th>
-                  <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'CỘT MỤC TIÊU' : 'TARGET COLUMN'}</th>
+                  <th style={{ width: '11%', minWidth: '120px' }}>{isVi ? 'CỘT MỤC TIÊU' : 'TARGET COLUMN'}</th>
                   <th style={{ width: '17%', minWidth: '150px' }}>{isVi ? 'BIỂU THỨC RÀNG BUỘC' : 'RULE EXPRESSION'}</th>
                   <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'TRẠNG THÁI' : 'STATUS'}</th>
-                  <th style={{ width: '9%', minWidth: '90px' }}>{isVi ? 'BẢN GHI ĐÃ CÁCH LY' : 'QUARANTINED ROWS'}</th>
+                  <th style={{ width: '12%', minWidth: '130px' }}>{isVi ? 'BẢN GHI ĐÃ CÁCH LY' : 'QUARANTINED ROWS'}</th>
                   <th style={{ width: '16%', minWidth: '150px', textAlign: 'right' }}>{isVi ? 'THAO TÁC' : 'ACTIONS'}</th>
                 </tr>
               </thead>

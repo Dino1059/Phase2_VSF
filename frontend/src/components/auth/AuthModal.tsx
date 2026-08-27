@@ -3,7 +3,7 @@ import { Shield, Eye, KeyRound, X, CheckCircle2, Crown, Sparkles, BarChart3 } fr
 import { useAuthStore, UserRole } from '../../stores/authStore';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, setAuthModalOpen, user, quickSwitchRole, login } = useAuthStore();
+  const { isAuthModalOpen, setAuthModalOpen, user, isAuthenticated, quickSwitchRole, login } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
@@ -127,8 +127,10 @@ export const AuthModal: React.FC = () => {
             </div>
             <div>
               <div style={{ fontSize: '16px', fontWeight: 600 }}>Role & Identity Access</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-                Active: <strong style={{ color: 'var(--neon-cyan)' }}>{user?.username}</strong> ({user?.role})
+              <div style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }} data-testid="auth-active-identity">
+                {isAuthenticated && user
+                  ? <>Active: <strong style={{ color: 'var(--neon-cyan)' }}>{user.username}</strong> ({user.role})</>
+                  : 'Not signed in'}
               </div>
             </div>
           </div>
@@ -187,7 +189,7 @@ export const AuthModal: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {personas.map((p) => {
               const Icon = p.icon;
-              const isActive = user?.role?.toLowerCase() === p.role.toLowerCase();
+              const isActive = isAuthenticated && user?.role?.toLowerCase() === p.role.toLowerCase();
               return (
                 <button
                   key={p.role}
@@ -261,37 +263,45 @@ export const AuthModal: React.FC = () => {
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '10px' }}>
             Or Sign In with Custom Credentials
           </div>
-          <form onSubmit={handleCustomLogin} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Username / Email"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={{
-                flex: '1 1 140px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--glass-border)',
-                backgroundColor: 'var(--bg-page, #0b0f19)',
-                color: 'var(--text-main, #ffffff)',
-                fontSize: '12px',
-              }}
-            />
-            <input
-              type="password"
-              placeholder="Password (optional)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                flex: '1 1 120px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--glass-border)',
-                backgroundColor: 'var(--bg-page, #0b0f19)',
-                color: 'var(--text-main, #ffffff)',
-                fontSize: '12px',
-              }}
-            />
+          <form onSubmit={handleCustomLogin} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: '1 1 140px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label htmlFor="dt-login-user" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Username / Email</label>
+              <input
+                id="dt-login-user"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--glass-border)',
+                  backgroundColor: 'var(--bg-page, #0b0f19)',
+                  color: 'var(--text-main, #ffffff)',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+            <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label htmlFor="dt-login-pass" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Password (optional)</label>
+              <input
+                id="dt-login-pass"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--glass-border)',
+                  backgroundColor: 'var(--bg-page, #0b0f19)',
+                  color: 'var(--text-main, #ffffff)',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
 
             <button
               type="submit"
@@ -299,12 +309,13 @@ export const AuthModal: React.FC = () => {
               style={{
                 padding: '8px 16px',
                 borderRadius: '8px',
-                backgroundColor: 'var(--neon-cyan, #0284c7)',
+                backgroundColor: '#0369a1',
                 color: '#ffffff',
                 border: 'none',
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
+                minHeight: 36,
               }}
             >
               Sign In

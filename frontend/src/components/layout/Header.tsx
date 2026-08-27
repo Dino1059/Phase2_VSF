@@ -452,11 +452,11 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
           </button>
 
 
-          {/* Admin-Only DB & Baseline Reset Button */}
+          {/* Admin-Only DB & Baseline Reset Button — separated from LLM toggle */}
           {isAuthenticated && isAdmin() && (
             <button
               type="button"
-              className="hud-action-pill danger"
+              className="hud-action-pill danger hud-reset-db"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -470,6 +470,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
                 gap: '6px',
                 padding: '0 12px',
                 height: '32px',
+                marginLeft: 10,
                 borderRadius: '9999px',
                 backgroundColor: resetSuccess ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
                 border: `1px solid ${resetSuccess ? 'var(--electric-green)' : 'rgba(239, 68, 68, 0.35)'}`,

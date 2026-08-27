@@ -111,6 +111,7 @@ export function SessionSwitcher() {
             aria-label="Active conversation session"
             value={activeSessionId}
             onChange={(e) => void switchSession(e.target.value)}
+            title={activeSession?.title}
             style={{
               background: 'transparent',
               border: 'none',
@@ -119,7 +120,9 @@ export function SessionSwitcher() {
               fontWeight: 600,
               cursor: 'pointer',
               outline: 'none',
-              maxWidth: '160px',
+              maxWidth: '220px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
             {sessions.map((s) => (

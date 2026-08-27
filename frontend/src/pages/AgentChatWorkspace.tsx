@@ -1050,7 +1050,7 @@ function NewChatLanding() {
     }
 
     try {
-      await sendChatMessage(trimmed, sessionId, targetKey);
+      await sendChatMessage(trimmed, sessionId, targetKey, i18n.language);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
