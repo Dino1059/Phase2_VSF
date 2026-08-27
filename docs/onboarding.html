@@ -295,6 +295,7 @@ flowchart TB
       </tbody>
     </table>
     <p>Backend còn <code>Auditor</code> / <code>auditor@datatrust.os</code> (đọc + review). Modal 1-click chỉ 4 persona trên. Không ghi mật khẩu ở đây. Nhãn “department” trên modal là copy demo — <strong>chưa có RBAC phòng ban</strong>.</p>
+    <p><strong>HITL nút Approve / Edit / Reject / Approve All:</strong> chỉ <code>Steward</code>, <code>Admin</code>, <code>Auditor</code>. Analyst được chat Propose (10 luật hiện) nhưng <em>không</em> duyệt — API <code>POST /hitl/approve</code> = 403. Chip header nếu ghi Analyst/Viewer thì Rules &amp; HITL không có nút xanh/đỏ. Đổi persona (góc phải) → Data Steward. Dòng <code>Execute disabled</code> là sandbox sau khi đã duyệt, không phải lý do mất nút Approve.</p>
   </div>
   <div class="card">
     <h3>LLM ON / OFF</h3>
@@ -350,6 +351,7 @@ flowchart TB
       <li>Trang này: <a href="https://d086.w9.nu/onboarding.html">https://d086.w9.nu/onboarding.html</a></li>
       <li>API health: <code>https://d086.w9.nu/health</code> (nginx proxy).</li>
       <li>Đăng nhập 1-click: <code>admin@datatrust.os</code> · <code>analyst@datatrust.os</code> · <code>steward@datatrust.os</code> · <code>viewer@datatrust.os</code>.</li>
+      <li>Sau Propose: Rules &amp; HITL chỉ hiện Approve/Edit/Reject khi chip là <strong>Steward</strong> (hoặc Admin). Analyst Propose được, không duyệt.</li>
       <li><strong>Không</strong> dùng <code>t086.w9.nu</code> cho onboarding / deploy v5.</li>
     </ul>
   </div>

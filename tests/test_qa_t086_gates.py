@@ -37,6 +37,10 @@ def test_rbac_ui_hides_write_actions_by_role():
     chat = _src("frontend/src/components/chat/ChatInput.tsx")
     store = _src("frontend/src/stores/authStore.ts")
     assert "canReviewRules" in store
+    assert "normalizeUserRole" in store
+    assert "roleCan" in store
+    assert "hitl-role-gate" in rules
+    assert "hitl-approve-all" in rules
     assert "canReviewRules" in rules
     assert "canReviewRules" in ops
     assert "canReviewRules" in dash
@@ -45,6 +49,17 @@ def test_rbac_ui_hides_write_actions_by_role():
     assert "canExecute" in chat
     assert "Batch approve all now" in ops
     assert "canReviewRules ?" in ops or "canReviewRules &&" in ops
+
+
+def test_hitl_role_gate_copy_and_role_normalize():
+    store = _src("frontend/src/stores/authStore.ts")
+    assert "export function normalizeUserRole" in store
+    assert "data steward" in store
+    assert "export function roleCan" in store
+    rules = _src("frontend/src/components/workspace/QualityRulesTab.tsx")
+    assert 'roleCan(s.user?.role, \'review_rules\')' in rules or 'roleCan(s.user?.role, "review_rules")' in rules
+    assert "Switch persona" in rules
+    assert "Steward/Admin to approve" in rules
 
 
 def test_analyst_lacks_review_rules_permission():
