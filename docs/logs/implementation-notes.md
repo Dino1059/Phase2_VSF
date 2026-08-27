@@ -172,4 +172,12 @@ Fixes on `fix/v5-qa-t086-ship-blockers` (PR into `v5`). Not applied on t086.
 - **A-11:** alerts empty + dashboard hint cite GT pack 14.
 - **A-12–A-16:** Not signed in ghost; login labels; Sign In `#0369a1`; `RULE_DET_` when synth OFF; Reset DB gap from LLM toggle.
 
+---
+
+## 13. QA loop close on d086 (2026-08-27)
+
+- Eval is its own ops `mainGroup` (no Governance KPI first paint). `EvalVsGtPanel` binds `detection` onto `batch`.
+- Alerts always show Ngan GT pack banner (14 / F1=0.8) even when live cases exist.
+- Playwright on **d086 only**: 16 PASS / 0 FAIL. t086 not deployed.
+
 
