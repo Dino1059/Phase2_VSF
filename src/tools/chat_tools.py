@@ -347,10 +347,12 @@ class ProfileDatasetTool(BaseTool):
             total_rows = 0
 
             if user_tables and not table_name:
+                from src.services.dataset_engine import PROFILE_SAMPLE_CAP
+                sample = min(int(input_data.get("sample_size") or PROFILE_SAMPLE_CAP), PROFILE_SAMPLE_CAP)
                 for tbl in user_tables:
                     try:
-                        df = load_dataset(dataset_key=f"{base_key}::{tbl}")
-                        prof = profile_rows(df.to_dict("records"))
+                        df = load_dataset(dataset_key=f"{base_key}::{tbl}", sample_size=sample)
+                        prof = profile_rows(df)
                         tables_profile[tbl] = {
                             "total_rows": len(df),
                             "columns_count": len(df.columns),
@@ -361,8 +363,10 @@ class ProfileDatasetTool(BaseTool):
                     except Exception as inner:
                         tables_profile[tbl] = {"error": str(inner)}
             else:
-                df = load_dataset(dataset_key=dataset_key)
-                prof = profile_rows(df.to_dict("records"))
+                from src.services.dataset_engine import PROFILE_SAMPLE_CAP
+                sample = min(int(input_data.get("sample_size") or PROFILE_SAMPLE_CAP), PROFILE_SAMPLE_CAP)
+                df = load_dataset(dataset_key=dataset_key, sample_size=sample)
+                prof = profile_rows(df)
                 key_name = table_name or base_key
                 tables_profile[key_name] = {
                     "total_rows": len(df),

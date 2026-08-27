@@ -1,72 +1,53 @@
-# V5 overnight (2026-08-27)
+# V5 overnight (2026-08-27) — battle-test FAIL fixes (not live-proven)
 
-Branch: `v5-integration` @ **`cdc09d6`**. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
+Branch: `v5-integration`. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
 
-**MERGE VERDICT: NO.** N6=A still fails. HITL sandbox preview on d086 was not completed with an approved-rule run (queue empty). Frontend HTML still stamped `7070309` (one behind HEAD). Do not merge.
+**MERGE VERDICT: NO.** Do not merge PR #27 until both FAILs are re-proven on live d086. t086 untouched.
 
-## P0 — d086-api 502 (fixed)
+Seeded logins (username-only): `admin@datatrust.os` / `analyst@datatrust.os` / `viewer@datatrust.os`.
 
-**Cause:** `datatrust-dev-backend-1` crash-loop (35 restarts, unhealthy). Native DuckDB **WAL replay abort** on `vingroup_pilot.db.wal` (413K, 00:58Z) after a bind-mount restart. Python never reached the WAL-delete handler in `src/db/connection.py` — process died in `WriteAheadLogReplayer`. Cloudflare 502 on `https://d086-api.w9.nu` (`/`, `/health`, `/docs`). Dest SHA file was already `3a83bc1` (not the stale `731c55c` note).
+## This code pass (local)
 
-**Fix (no backend image rebuild, no t086):**
-1. `docker stop datatrust-dev-backend-1` only.
-2. Delete **`.wal` only** — keep `data_new/db/vingroup_pilot.db` (100M).
-3. `docker compose -p datatrust-dev up -d --no-build --no-deps backend`
+| Item | Result | Evidence |
+|---|---|---|
+| FAIL 1 sandbox GET `main.quarantine` | **FIXED in code / not live-proven** | Sandbox sample is `load_sandbox_rows` from **`main.{table}`** (not WAP/`raw` LIMIT 3000). Pulls `WHERE NOT (rule)` + `battery_soc < 0` hint, then fills. SQL `BETWEEN` now evaluates in `safe_eval_rule`. GET still reads `main.quarantine WHERE snapshot_id=?`. Execute-off 403 unchanged. Tests: `test_load_sandbox_rows_includes_tail_soc_faults`, `test_between_rule_quarantines_negative_soc`, existing GET preview persist test. |
+| FAIL 2 `/health` under Profiler | **FIXED in code / not live-proven** | Profiler `POST /datasets/.../profile` + chat tool executes run in `asyncio.to_thread`; default profile cap 3000; `/health` is sync + `health_fastpath` (no DuckDB). Master DuckDB `fetchdf` takes `_conn_lock`. WAL: still never delete `.db`. |
+| Execute 403 (design) | **kept** | `POST /hitl/execute` still 403 execute-off. |
+| t086 | **untouched** | No compose/image work on `/opt/datatrust-os`. |
 
-**Evidence after fix:**
-- `GET https://d086-api.w9.nu/health` → **200** `{"status":"ok","app":"DataTrust OS",...}`
-- `GET /` and `/docs` → **401** (auth), not 502
-- Local `8001/health` 200; bind-mounts: `src`, `landing_data`, `eval`, `schemas`, `scripts`
-- t086 StartedAt **unchanged:** backend `2026-08-25T08:32:58Z`, frontend `08:36:50Z`, cloudflared `2026-08-16T16:30:41Z`
+## Why merge stays NO
 
-## d086 frontend (already this era)
+Live d086 bind-mount + GET sandbox preview 200 with quarantine rows, and `/health` 200 while Profiler is `running`, are **not yet re-proven on this pass**. Code-only. N6=A needs that live evidence.
 
-`https://d086.w9.nu` last-modified **Wed, 26 Aug 2026 22:24:04 GMT** (not Aug 21). HTML `<!-- d086-v5 7070309 -->`. One commit behind HEAD `3a83bc1` (ingestion empty-timeline guard is on bind-mounted `src`).
+## Fixes (this SHA)
 
-## HITL (not a 403 bug)
+1. **Canonical sandbox sample** — `src/services/dataset_engine.py` `load_sandbox_rows`: query `main.ev_telemetry` (etc.) for rule violators so the 12 SOC<0 faults are in the 3000-cap sample. Persist still writes `main.quarantine` with `snapshot_id`.
+2. **BETWEEN** — Ngan proposer rules (`battery_soc BETWEEN 0 AND 100`) used to fail-safe pass and write 0 quarantine even if faults were sampled.
+3. **Profiler must not own the event loop** — `datasets.profile_dataset` offloaded; chat pipeline + missing-tool force-run offloaded; profile sample capped; health does not use DuckDB.
 
-`POST /hitl/execute` **403** `"Execute off: HITL approve is not execute. Sandbox + authorize required."` is **design for every role including Admin**. Not CSRF/auth.
+## Prior live numbers (pass 2, still the last live eval)
 
-| Who | What |
+| Metric | Batch / realtime |
 |---|---|
-| Missing JWT | **401** |
-| Viewer POST | **403** read-only (role) |
-| Admin execute | **403** execute-off (design) |
-| Admin path | authorize + `POST /hitl/sandbox` + `GET /hitl/sandbox/{run_id}` on **`main.quarantine`** (`snapshot_id`), SandboxDiff. Never WAP `sandbox.*` |
-
-UI on d086 Admin: Rules & HITL shows **Execute disabled · sandbox not run · quarantine=0**. Queue was empty this pass — **SandboxDiff preview not proven on live d086**. `7070309` authorize accepts `edited`. Viewer execute-off vs role-403: both OK.
-
-## Eval scores (d086 Chrome + API)
-
-LLM-judge **off**. 14 incidents. No “adapter TBD”.
-
-| Metric | Realtime / batch |
-|---|---|
-| Detection P/R/F1 | 0.68 / 0.93 / **0.79** (tp=13, fn=1) |
-| Location / time | 0.93 |
-| RCA top-1 / top-3 | 0.93 |
+| Detection P/R/F1 | 0.684 / 0.929 / **0.788** (tp=13, fp=6, fn=1) |
+| Location / time | 0.929 |
+| RCA top-1 / top-3 | 0.929 |
 | Hallucination FA | 0 |
 | Unanswerable | 1.0 |
 | Frozen RCA | **13/13** |
 
-**INC_010 / F13:** known 13/14. Manifest: VF8VNF_0003 day 13 → 5 charging / 0 trips; parquet charging=1 trips=6. Shown on Eval vs GT panel. **Not cheap** (need landing parquet regen). Leave documented.
+**INC_010 / F13:** manifest 5 charging / 0 trips vs parquet charging=1 trips=6. Leave documented.
 
-## Chrome smoke (`d086-battle`)
+## Host / dest (no t086, no backend image rebuild)
 
-- Admin persona on `https://d086.w9.nu`
-- `#/operations/eval`: numbers + INC_010 warning
-- `#/workspace?dataset_key=ev_telemetry`: chat compose, Propose/Traces/HITL, profiler tables live after API recover
-- Chat abort proven earlier (ABORT → EXECUTE)
+- Compose `datatrust-dev` 3001/8001. Bind-mount `./src:/app/src` then `docker compose -p datatrust-dev up -d --no-build --no-deps backend`.
+- If WAL replay abort: stop `datatrust-dev-backend-1` only, delete **`.wal` only**, never `.db`.
+- Disk tight: no image rebuild.
 
-## Commits on PR #27 this overnight
+## Live re-check still required
 
-- `7070309` fix(hitl): Admin authorize accepts edited; execute-off is design
-- `3a83bc1` fix(ingestion): empty timeline if `demo_ops.batch_run_log` missing
-- `cdc09d6` docs(loop): d086-api 502 was WAL crash; merge still no
-
-## Still open (blocks merge)
-
-- HITL sandbox **preview** with approved rules + SandboxDiff on d086 (queue empty)
-- Frontend stamp vs HEAD (`7070309` vs `3a83bc1`) — optional nginx refresh
-- INC_010 F13 parquet mismatch
-- N6=A: merge only after d086 battle-test **and** HITL sandbox actually works
+```
+POST /api/v1/hitl/sandbox  {dataset_key: ev_telemetry, sample_size: 3000}
+GET  /api/v1/hitl/sandbox/{snapshot_id}  → 200, quarantine_rows>=1, execute=off
+GET  /health while Profiler running → 200 within healthcheck timeout
+```

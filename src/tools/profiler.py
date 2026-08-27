@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+import time
 import numpy as np
 import pandas as pd
 
@@ -55,7 +56,9 @@ class Profiler:
         candidate_keys: List[str] = []
         quality_flags: List[QualityFlag] = []
 
-        for col in data.columns:
+        for i, col in enumerate(data.columns):
+            if i and i % 8 == 0:
+                time.sleep(0)
             col_series = data[col]
             null_cnt = int(col_series.isna().sum())
             null_pct = float(null_cnt / row_count) if row_count > 0 else 0.0

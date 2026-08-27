@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 from typing import Any, Optional
@@ -43,7 +44,15 @@ async def profile_dataset(
     day_idx: Optional[int] = Query(None),
 ):
     """Profile a registered dataset with server-side file loading and multi-table support."""
-    try:
+    if sample_size is None:
+        sample_size = 3000
+    else:
+        try:
+            sample_size = max(1, min(int(sample_size), 8000))
+        except (TypeError, ValueError):
+            sample_size = 3000
+
+    def _run():
         from src.services.dataset_engine import load_dataset, profile_rows
         from src.tools.profiler import Profiler
         from src.tools.datasource import StructuredSource
@@ -226,6 +235,11 @@ async def profile_dataset(
             "health_score": health_score,
             "profile": profile_data,
         }
+
+    try:
+        return await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
     except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

@@ -180,7 +180,11 @@ class StructuredSource(DataSource):
 
                 if sample_size:
                     query += f" LIMIT {int(sample_size)}"
-                return conn.execute(query).fetchdf()
+                if should_close:
+                    return conn.execute(query).fetchdf()
+                from src.db.connection import get_db
+                with get_db()._conn_lock:
+                    return conn.execute(query).fetchdf()
             finally:
                 if should_close:
                     try:

@@ -203,15 +203,15 @@ def test_sandbox_handler_is_bounded_not_full_50k_blocking_scan():
     """POST /hitl/sandbox must sample, not scan 50k as the only path (504 >90s)."""
     import re
     hitl = _hitl()
-    fn = hitl.split("async def sandbox_clean", 1)[1].split("async def get_history", 1)[0]
+    fn = hitl.split("async def sandbox_clean", 1)[1].split("async def get_sandbox_run", 1)[0]
     assert "SANDBOX_SAMPLE_CAP" in hitl
     cap = int(re.search(r"SANDBOX_SAMPLE_CAP\s*=\s*(\d+)", hitl).group(1))
     assert cap <= 8000
-    assert "sample_size=cap" in fn or "sample_size=cap" in fn.replace(" ", "")
-    assert "load_dataset(dataset_key=dataset_key, sample_size=" in fn
-    assert "load_dataset(dataset_key=dataset_key)" not in fn
+    assert "load_sandbox_rows" in fn
+    assert "sample_size=cap" not in fn or "load_sandbox_rows" in fn
     assert "snapshot_id" in fn
     assert "persist_sandbox_split" in fn
+    assert "asyncio.to_thread" in fn
 
 
 def test_sandbox_504_does_not_keep_leftover_split_as_success():
@@ -299,4 +299,86 @@ def test_quarantine_count_this_run_matches_persist():
     mine = [r for r in listed_body.get("quarantine") or [] if r.get("source_table") == "qa_dash"]
     assert mine
     assert all(r.get("this_run") or str(r.get("snapshot_id") or "").startswith("sandbox:") for r in mine)
+
+
+def test_between_rule_quarantines_negative_soc():
+    from src.services.dataset_engine import execute_compiled_rules, safe_eval_rule
+
+    assert safe_eval_rule("battery_soc BETWEEN 0 AND 100", {"battery_soc": -12.5}) is False
+    assert safe_eval_rule("battery_soc BETWEEN 0.0 AND 100.0", {"battery_soc": 64}) is True
+    rows = [
+        {"vin": "FAULT", "battery_soc": -12.5},
+        {"vin": "CLEAN", "battery_soc": 64},
+    ]
+    rules = [{
+        "rule_id": "qa_between__R1",
+        "decision": "approved",
+        "expression": "battery_soc BETWEEN 0 AND 100",
+        "name": "soc",
+    }]
+    res = execute_compiled_rules(rows, rules)
+    assert res["quarantine_count"] == 1
+    assert res["clean_count"] == 1
+
+
+def test_load_sandbox_rows_includes_tail_soc_faults():
+    """Head LIMIT 3000 misses tail faults; sandbox must pull violators from main.*."""
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import load_sandbox_rows
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR)")
+    conn.execute("INSERT INTO ev_telemetry SELECT 64.0, 'c' || i FROM range(4000) t(i)")
+    for i in range(12):
+        conn.execute("INSERT INTO ev_telemetry VALUES (?, ?)", [-12.5, f"FAULT{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "soc",
+        "id": "soc",
+        "decision": "approved",
+        "expression": "battery_soc BETWEEN 0 AND 100",
+        "rule_expression": "battery_soc BETWEEN 0 AND 100",
+    }]
+    rows = load_sandbox_rows("ev_telemetry", rules, 3000, db=_DB(conn))
+    bad = [r for r in rows if float(r.get("battery_soc") or 0) < 0]
+    assert len(bad) == 12, f"expected 12 SOC<0 rows, got {len(bad)} of {len(rows)}"
+    assert len(rows) <= 3000
+
+
+def test_profile_and_health_offload_event_loop():
+    datasets = (ROOT / "src/api/routes/datasets.py").read_text()
+    fn = datasets.split("async def profile_dataset", 1)[1].split("async def sample_dataset", 1)[0]
+    assert "asyncio.to_thread" in fn
+    assert "sample_size = 3000" in fn
+    main = (ROOT / "src/main.py").read_text()
+    assert "async def health():" not in main
+    assert "\ndef health():" in main
+    assert "health_fastpath" in main
+    conn = (ROOT / "src/db/connection.py").read_text()
+    assert "def fetch_df" in conn
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    pipe = routes.split("is_full_pipeline_req", 1)[1].split("Standard Dynamic ReAct", 1)[0]
+    assert "asyncio.to_thread(prof_tool.execute" in pipe
 

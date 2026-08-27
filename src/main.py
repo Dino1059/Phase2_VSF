@@ -3,7 +3,7 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import (
@@ -139,6 +139,16 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def health_fastpath(request: Request, call_next):
+    if request.url.path in ("/health", "/health/"):
+        s = get_settings()
+        return JSONResponse(
+            {"status": "ok", "app": s.app_name, "env": s.app_env, "version": s.app_version}
+        )
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def log_request_timing(request: Request, call_next):
     start_time = time.perf_counter()
     try:
@@ -197,7 +207,7 @@ app.include_router(memory_router, prefix="/api/v1")
 
 
 @app.get("/health")
-async def health():
+def health():
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env, "version": settings.app_version}
 
 

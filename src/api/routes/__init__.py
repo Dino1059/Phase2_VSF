@@ -665,7 +665,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             }
         }, session_id=session_id)
         prof_tool = ProfileDatasetTool()
-        prof_res = prof_tool.execute({"dataset_key": target_dataset})
+        prof_res = await asyncio.to_thread(prof_tool.execute, {"dataset_key": target_dataset})
         prof_data = prof_res.output_data if prof_res.status == "success" else {}
         prof_obs = format_friendly_observation("profile_dataset", prof_data, lang=lang_pref)
         m1 = conversation_store.save_message({"type": "agent", "agentId": "profile_dataset", "content": prof_obs, "metadata": {"raw_data": prof_data, "profile": prof_data}}, session_id=session_id)
@@ -682,7 +682,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             }
         }, session_id=session_id)
         anom_tool = DetectAnomaliesTool()
-        anom_res = anom_tool.execute({"dataset_key": target_dataset})
+        anom_res = await asyncio.to_thread(anom_tool.execute, {"dataset_key": target_dataset})
         anom_data = anom_res.output_data if anom_res.status == "success" else {}
         anom_obs = format_friendly_observation("detect_anomalies", anom_data, lang=lang_pref)
         m2 = conversation_store.save_message({"type": "agent", "agentId": "detect_anomalies", "content": anom_obs}, session_id=session_id)
@@ -699,7 +699,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             }
         }, session_id=session_id)
         rules_tool = ProposeQualityRulesTool()
-        rules_res = rules_tool.execute({"dataset_key": target_dataset, "anomaly_findings": anom_data})
+        rules_res = await asyncio.to_thread(rules_tool.execute, {"dataset_key": target_dataset, "anomaly_findings": anom_data})
         rules_obs = format_friendly_observation("propose_quality_rules", rules_res.output_data if rules_res.status == "success" else {}, lang=lang_pref)
         m3 = conversation_store.save_message({"type": "agent", "agentId": "propose_quality_rules", "content": rules_obs}, session_id=session_id)
         await ws_manager.broadcast({"type": "chat.message", "data": m3}, session_id=session_id)
@@ -715,7 +715,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             }
         }, session_id=session_id)
         clean_tool = CleanDatabaseTool()
-        clean_res = clean_tool.execute({"dataset_key": target_dataset})
+        clean_res = await asyncio.to_thread(clean_tool.execute, {"dataset_key": target_dataset})
         clean_obs = format_friendly_observation("clean_database", clean_res.output_data if clean_res.status == "success" else {}, lang=lang_pref)
         m4 = conversation_store.save_message({"type": "agent", "agentId": "clean_database", "content": clean_obs}, session_id=session_id)
         await ws_manager.broadcast({"type": "chat.message", "data": m4}, session_id=session_id)
@@ -952,7 +952,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             )
             react_engine._log_trace(session_id, step, status="running")
             try:
-                tool_result = registry.execute(tool_name, step.action_input)
+                tool_result = await asyncio.to_thread(registry.execute, tool_name, step.action_input)
                 output_data = getattr(tool_result, "output_data", {}) or {}
                 step.observation = json.dumps(output_data, default=str)
                 step.duration_ms = int(getattr(tool_result, "duration_ms", 0) or 0)

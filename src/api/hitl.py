@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
@@ -461,7 +462,7 @@ async def sandbox_clean(req: SandboxRequest):
         raise HTTPException(status_code=400, detail="dataset_key is required")
     db = get_db()
     from src.tools.chat_tools import approved_rules_for_clean, persist_sandbox_split
-    from src.services.dataset_engine import load_dataset, execute_compiled_rules
+    from src.services.dataset_engine import load_sandbox_rows, execute_compiled_rules
 
     rule_ids = list(req.rule_ids or [])
     for rid in rule_ids:
@@ -479,10 +480,19 @@ async def sandbox_clean(req: SandboxRequest):
         except (TypeError, ValueError):
             cap = SANDBOX_SAMPLE_CAP
     snapshot_id = f"sandbox:{dataset_key}:{uuid.uuid4().hex[:12]}"
-    try:
-        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
-        rows = df.to_dict("records")
+
+    def _run():
+        rows = load_sandbox_rows(dataset_key, rules, cap, db=db)
         exec_res = execute_compiled_rules(rows, rules)
+        payload = persist_sandbox_split(
+            dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
+        )
+        payload["sampled_rows"] = len(rows)
+        payload["sample_cap"] = cap
+        return payload
+
+    try:
+        payload = await asyncio.to_thread(_run)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (FileNotFoundError, KeyError) as exc:
@@ -492,11 +502,6 @@ async def sandbox_clean(req: SandboxRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    payload = persist_sandbox_split(
-        dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
-    )
-    payload["sampled_rows"] = len(rows)
-    payload["sample_cap"] = cap
     AuditService.log(
         "SANDBOX_CLEAN",
         "HITL_USER",

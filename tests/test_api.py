@@ -21,6 +21,25 @@ def test_health_endpoint():
     assert data["status"] == "ok"
 
 
+def test_health_stays_ok_while_worker_holds_gil_briefly():
+    import threading
+    import time
+
+    started = threading.Event()
+
+    def hog():
+        started.set()
+        time.sleep(0.25)
+
+    t = threading.Thread(target=hog)
+    t.start()
+    started.wait(1)
+    response = client.get("/health")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ok"
+    t.join()
+
+
 def test_status_endpoint():
     response = client.get("/api/v1/status")
     assert response.status_code == 200, response.text

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import random
+import re
 import time
 import uuid
 from typing import List, Dict, Any, Tuple, Optional, Union
@@ -194,6 +195,8 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
         else:
             settings = get_settings()
             file_path = settings.get_dataset_path(dataset_key)
+            if dataset_key in ("ev_telemetry", "charging_sessions", "trips", "nlp_feedback"):
+                table_name = dataset_key
     elif file_path is None:
         settings = get_settings()
     if not os.path.exists(file_path):
@@ -211,6 +214,133 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
     
     return df
 
+
+SANDBOX_SAMPLE_CAP = 3000
+PROFILE_SAMPLE_CAP = 3000
+
+_CANONICAL_MAIN = {
+    "ev_telemetry": "ev_telemetry",
+    "charging_sessions": "charging_sessions",
+    "acn_charging": "charging_sessions",
+    "trips": "trips",
+    "ride_trips": "trips",
+    "nlp_feedback": "nlp_feedback",
+    "synthetic_feedback": "nlp_feedback",
+}
+_FAULT_HINTS = {
+    "ev_telemetry": "battery_soc < 0",
+    "charging_sessions": "cost_vnd < 0",
+    "trips": "fare_amount < 0",
+}
+
+
+def canonical_main_table(dataset_key: str) -> str:
+    raw = (dataset_key or "").split("::")[-1].strip().lower()
+    if raw in _CANONICAL_MAIN:
+        return _CANONICAL_MAIN[raw]
+    try:
+        from src.utils.table_utils import normalize_table_name
+        return normalize_table_name(raw)
+    except Exception:
+        return "ev_telemetry"
+
+
+def _sql_safe_expr(expr: str) -> Optional[str]:
+    e = (expr or "").strip()
+    if not e or len(e) > 500 or ";" in e or "--" in e or "/*" in e:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_\.\s\+\-*/%<>=!(),]+", e):
+        return None
+    return e
+
+
+def _fetch_df(db, sql: str, params: list = None):
+    if hasattr(db, "fetch_df"):
+        return db.fetch_df(sql, params)
+    conn = db._get_master_conn() if hasattr(db, "_get_master_conn") else db
+    lock = getattr(db, "_conn_lock", None)
+    if lock:
+        with lock:
+            cur = conn.execute(sql, params) if params is not None else conn.execute(sql)
+            return cur.fetchdf()
+    cur = conn.execute(sql, params) if params is not None else conn.execute(sql)
+    return cur.fetchdf()
+
+
+def _dicts_from_sql(db, sql: str, params: list = None) -> list:
+    try:
+        df = _fetch_df(db, sql, params)
+    except Exception:
+        return []
+    if df is None or getattr(df, "empty", True):
+        return []
+    return df.to_dict("records")
+
+
+def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
+    """Bounded main.* sample that includes rule violators / GT faults, not a random head that misses them."""
+    if db is None:
+        db = get_db()
+    cap = max(1, min(int(cap or SANDBOX_SAMPLE_CAP), SANDBOX_SAMPLE_CAP))
+    table = canonical_main_table(dataset_key)
+    qtable = f"main.{table}"
+    seen: set = set()
+    out: list = []
+
+    def _key(row: dict) -> str:
+        for k in ("record_id", "trip_id", "session_id", "vehicle_vin", "vin"):
+            v = row.get(k)
+            if v is not None and str(v) != "":
+                return f"{k}:{v}"
+        return json.dumps(row, sort_keys=True, default=str)[:240]
+
+    def _add(rows: list) -> None:
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            k = _key(row)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(row)
+            if len(out) >= cap:
+                return
+
+    try:
+        exists = db.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'main' AND lower(table_name) = ? LIMIT 1",
+            [table],
+        )
+    except Exception:
+        exists = []
+    if not exists:
+        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
+        return df.to_dict("records")
+
+    for r in rules or []:
+        if str(r.get("decision") or "").lower() not in ("approved", "edit", "edited"):
+            continue
+        expr = _sql_safe_expr(
+            r.get("custom_expression") or r.get("expression") or r.get("rule_expression") or ""
+        )
+        if not expr:
+            continue
+        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} WHERE NOT ({expr}) LIMIT {cap}"))
+        if len(out) >= cap:
+            return out[:cap]
+
+    hint = _FAULT_HINTS.get(table)
+    if hint and len(out) < cap:
+        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} WHERE {hint} LIMIT {cap}"))
+
+    if len(out) < cap:
+        fill_n = cap - len(out)
+        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} LIMIT {fill_n}"))
+
+    if not out:
+        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
+        return df.to_dict("records")
+    return out[:cap]
 
 
 _SIGNED_PHYSICAL_PREFIXES = ("accel", "acc_", "gyro", "magnet", "mag_")
@@ -237,7 +367,9 @@ def profile_rows(rows: Any) -> Dict[str, Any]:
     column_profiles = []
     total_anomalies = 0
 
-    for col in df.columns:
+    for i, col in enumerate(df.columns):
+        if i and i % 8 == 0:
+            time.sleep(0)
         series = df[col]
         col_name = str(col)
         
@@ -364,7 +496,7 @@ def hide_sample_health_if_warehouse_faults(profile):
         def _count(sql):
             res = db.execute(sql)
             return int(res[0][0]) if res else 0
-        soc = _count("SELECT count(*) FROM raw.ev_telemetry WHERE battery_soc < 0")
+        soc = _count("SELECT count(*) FROM main.ev_telemetry WHERE battery_soc < 0")
         open_n = _count("SELECT count(*) FROM incidents WHERE status = 'OPEN'")
         profile["warehouse_soc_below_zero"] = soc
         profile["warehouse_open_incidents"] = open_n
@@ -588,7 +720,13 @@ def safe_eval_rule(expression: str, row: Dict[str, Any]) -> bool:
         local_vars["trim"] = lambda s: str(s).strip() if s is not None else None
 
         # SQL function → Python
-        expr = expression
+        expr = expression or ""
+        expr = re.sub(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\s+BETWEEN\s+(\S+)\s+AND\s+(\S+)",
+            r"(\1 >= \2 and \1 <= \3)",
+            expr,
+            flags=re.IGNORECASE,
+        )
         # Order matters: longer / more-specific tokens first to avoid partial replacement.
         sql_to_py = [
             ("IS NOT NULL", "is not None"),
@@ -642,7 +780,10 @@ def safe_eval_rule(expression: str, row: Dict[str, Any]) -> bool:
 
 def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Execute active/approved rules on rows, outputting CleanDB and QuarantineTable with Lineage Trace."""
-    active_rules = [r for r in rules if r.get("decision") in ("approved", "edit")]
+    active_rules = [
+        r for r in rules
+        if str(r.get("decision") or "").lower() in ("approved", "edit", "edited")
+    ]
     if not active_rules:
         raise ValueError("Rule execution denied: No rules are approved by HITL")
 
@@ -657,7 +798,7 @@ def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any
         reasons = []
 
         for r in active_rules:
-            expr = r.get("custom_expression") or r.get("expression")
+            expr = r.get("custom_expression") or r.get("expression") or r.get("rule_expression")
             passed = safe_eval_rule(expr, row)
             if not passed:
                 rule_name_str = r.get("name") or r.get("rule_name") or "Rule"

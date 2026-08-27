@@ -438,6 +438,17 @@ class DuckDBManager:
             except Exception as e:
                 logger.error(f"Error executing migration 0002: {e}")
 
+    def fetch_df(self, query: str, params: list = None):
+        """Run a SELECT and return a DataFrame. Caller must not hold this across pandas work."""
+        import pandas as pd
+        conn = self._get_master_conn()
+        with self._conn_lock:
+            res = conn.execute(query, params) if params is not None else conn.execute(query)
+            try:
+                return res.fetchdf()
+            except Exception:
+                return pd.DataFrame()
+
     def execute(self, query: str, params: list = None) -> list:
         conn = self._get_master_conn()
         with self._conn_lock:
