@@ -7,6 +7,7 @@ from src.tools.base import BaseTool, ToolResult
 from src.services.dataset_engine import load_dataset, profile_rows, generate_rules_for_baseline, execute_compiled_rules
 from src.config import get_settings
 from src.api.state_machine import WorkflowState
+from src.utils.table_utils import canonical_pipeline_table, pipeline_target_tables
 
 
 def _resolve_table_target(dataset_key: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -20,7 +21,7 @@ def _resolve_table_target(dataset_key: str) -> Tuple[str, Optional[str], Optiona
 
     Returns:
         file_path: absolute (or cwd-relative) path to the underlying file.
-        table_name: explicit table to load, or None for legacy single-table files.
+        table_name: canonical table when the key names one, else None for warehouse-wide.
         base_key: registry key (without the `::table` suffix).
     """
     base_key = dataset_key
@@ -30,7 +31,22 @@ def _resolve_table_target(dataset_key: str) -> Tuple[str, Optional[str], Optiona
 
     settings = get_settings()
     file_path = settings.get_dataset_path(base_key)
+    if table_name:
+        table_name = canonical_pipeline_table(table_name) or table_name
+    else:
+        singles = pipeline_target_tables(base_key)
+        table_name = singles[0] if len(singles) == 1 else None
     return file_path, table_name, base_key
+
+
+def _pipeline_tables(dataset_key: str, file_path: Optional[str], table_name: Optional[str], base_key: Optional[str]) -> List[str]:
+    listed = _list_user_tables(file_path) if file_path and os.path.exists(file_path) else []
+    tables = pipeline_target_tables(dataset_key, listed=listed)
+    if tables:
+        return tables
+    if table_name:
+        return [table_name]
+    return [base_key] if base_key else ["ev_telemetry"]
 
 
 def _list_user_tables(file_path: str) -> List[str]:
@@ -418,8 +434,7 @@ class DetectAnomaliesTool(BaseTool):
             from src.reliability.incidents.service import IncidentService
 
             file_path, table_name, base_key = _resolve_table_target(dataset_key)
-            user_tables = _list_user_tables(file_path) if file_path and os.path.exists(file_path) else []
-            target_tables = [table_name] if table_name else (user_tables if user_tables else [base_key])
+            target_tables = _pipeline_tables(dataset_key, file_path, table_name, base_key)
 
             all_incidents: List[Dict[str, Any]] = []
             signals_summary = {"L1": 0, "L2": 0, "L3": 0, "L4": 0}
@@ -567,32 +582,59 @@ class ProposeQualityRulesTool(BaseTool):
 
     def execute(self, input_data: dict) -> ToolResult:
         dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
-        anomaly_findings = input_data.get("anomaly_findings")
-
-        # Guarantee flow dependency: if anomaly findings not passed in, run anomaly detection now
-        if not anomaly_findings:
-            anom_tool = DetectAnomaliesTool()
-            anom_res = anom_tool.execute({"dataset_key": dataset_key})
-            if anom_res.status == "success":
-                anomaly_findings = anom_res.output_data
-            else:
-                anomaly_findings = {}
+        anomaly_findings = input_data.get("anomaly_findings") if isinstance(input_data.get("anomaly_findings"), dict) else {}
 
         try:
             file_path, table_name, base_key = _resolve_table_target(dataset_key)
-            user_tables = _list_user_tables(file_path) if file_path and os.path.exists(file_path) else []
-            target_tables = [table_name] if table_name else (user_tables if user_tables else [None])
+            target_tables = _pipeline_tables(dataset_key, file_path, table_name, base_key)
 
             proposals: List[Dict[str, Any]] = []
+            from src.services.dataset_engine import PROFILE_SAMPLE_CAP
+            from src.tools.rule_proposer import RuleProposerTool
 
             for tbl in target_tables:
-                effective_key = f"{base_key}::{tbl}" if tbl else base_key
+                canon = canonical_pipeline_table(tbl) or tbl or "ev_telemetry"
+                effective_key = f"{base_key}::{canon}" if canon else base_key
                 try:
-                    df = load_dataset(dataset_key=effective_key)
-                    profile_data = profile_rows(df.to_dict("records"))
+                    extra = RuleProposerTool().execute({
+                        "target_table": canon,
+                        "anomaly_findings": anomaly_findings,
+                    })
+                    for r in extra.get("proposed_rules") or extra.get("proposals") or []:
+                        if not isinstance(r, dict):
+                            continue
+                        expr = r.get("rule_expression") or r.get("expression")
+                        if not expr:
+                            continue
+                        proposals.append({
+                            "id": r.get("rule_name") or f"{canon}_rule",
+                            "type": r.get("rule_type", "range"),
+                            "column": str(expr).split()[0] if expr else canon,
+                            "expression": expr,
+                            "description": r.get("problem_discovered") or r.get("rule_name") or "canonical policy rule",
+                            "severity": "warning",
+                            "status": "pending",
+                            "table_name": canon,
+                            "dataset_key": dataset_key,
+                            "source": "rule_proposer",
+                            "rule_name": r.get("rule_name"),
+                            "rule_expression": expr,
+                            "remediation_action": r.get("remediation_action"),
+                            "remediation_sql_expr": r.get("remediation_sql_expr"),
+                            "confidence": r.get("confidence", 0.95),
+                            "problem_discovered": r.get("problem_discovered"),
+                            "why_proposed": r.get("why_proposed"),
+                            "quality_impact": r.get("quality_impact"),
+                        })
+                except Exception:
+                    pass
+                try:
+                    sample = min(int(input_data.get("sample_size") or PROFILE_SAMPLE_CAP), PROFILE_SAMPLE_CAP)
+                    df = load_dataset(dataset_key=effective_key, sample_size=sample)
+                    profile_data = profile_rows(df)
                     rules, _ = generate_rules_for_baseline("A1", profile_data)
                 except Exception:
-                    continue
+                    rules = []
 
                 for i, r in enumerate(rules):
                     if isinstance(r, dict):
@@ -622,8 +664,8 @@ class ProposeQualityRulesTool(BaseTool):
                         "description": desc,
                         "severity": sev_norm,
                         "status": "pending",
-                        "table_name": tbl,
-                        "dataset_key": effective_key,
+                        "table_name": canon,
+                        "dataset_key": dataset_key,
                         "source": "baseline_profiler",
                     })
 

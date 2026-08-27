@@ -320,6 +320,7 @@ class ReActEngine:
             result.session_id = session_id
         elif context and "session_id" in context:
             result.session_id = context["session_id"]
+        self._trace_dataset_key = (context or {}).get("dataset_key")
 
 
         # Build system prompt with available tools
@@ -423,7 +424,7 @@ class ReActEngine:
                         break
                     continue
 
-                if self._skip_duplicate_propose(result.session_id, step.action):
+                if self._skip_duplicate_propose(result.session_id, step.action) or self._skip_duplicate_detect(result.session_id, step.action):
                     continue
 
                 self._log_trace(result.session_id, step, status="running")
@@ -510,7 +511,7 @@ class ReActEngine:
                         result.final_answer = result.final_answer or "Stopping for HITL review."
                         break
                     continue
-                if self._skip_duplicate_propose(result.session_id, action_name):
+                if self._skip_duplicate_propose(result.session_id, action_name) or self._skip_duplicate_detect(result.session_id, action_name):
                     continue
                 self._log_trace(result.session_id, step, status="running")
                 try:
@@ -676,6 +677,8 @@ class ReActEngine:
         aliases = {want}
         if want in ("propose_quality_rules", "quality_rule_proposer"):
             aliases.update({"propose_quality_rules", "quality_rule_proposer"})
+        if want in ("detect_anomalies", "anomaly_detector"):
+            aliases.update({"detect_anomalies", "anomaly_detector"})
         try:
             rows = get_db().execute(
                 "SELECT tool_name, action FROM agent_traces WHERE session_id = ?",
@@ -693,6 +696,13 @@ class ReActEngine:
         """Tab/remount must not re-run Propose. Profile-then-FINISH still force-runs once."""
         name = self._normalize_tool_name(self._resolve_tool_name(action) or action)
         if name not in ("propose_quality_rules", "quality_rule_proposer"):
+            return False
+        return self._has_tool_beat(session_id, name)
+
+    def _skip_duplicate_detect(self, session_id: str, action: str | None) -> bool:
+        """One L1-L4 detect per session. Nested propose must not start a second running beat."""
+        name = self._normalize_tool_name(self._resolve_tool_name(action) or action)
+        if name not in ("detect_anomalies", "anomaly_detector"):
             return False
         return self._has_tool_beat(session_id, name)
 
@@ -791,13 +801,13 @@ class ReActEngine:
                 output_preview = json_preview(step.observation, 1500)
                 duration = step.duration_ms
 
-            existing = db.execute(
-                "SELECT id FROM agent_traces WHERE session_id = ? AND step_index = ? "
-                "AND coalesce(tool_name, action, '') = ? ORDER BY timestamp DESC LIMIT 1",
-                [session_id, step.step_index, tool_name],
-            )
-            if not existing and self._skip_duplicate_propose(session_id, tool_name):
-                return
+            session_ids = [session_id]
+            alias_key = getattr(self, "_trace_dataset_key", None)
+            if alias_key:
+                alias = alias_key if str(alias_key).startswith("dataset:") else f"dataset:{alias_key}"
+                if alias not in session_ids:
+                    session_ids.append(alias)
+
             params_core = [
                 thought,
                 step.action,
@@ -812,45 +822,57 @@ class ReActEngine:
                 tool_about,
                 agent_type,
             ]
-            if existing:
-                # Never let FINISH/ABSTAIN clobber a real tool beat (seeded Profile).
-                if (step.action or "") in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
-                    prev = db.execute(
-                        "SELECT action, tool_name FROM agent_traces WHERE id = ?",
-                        [existing[0][0]],
+            wrote = False
+            for sid in session_ids:
+                existing = db.execute(
+                    "SELECT id FROM agent_traces WHERE session_id = ? AND step_index = ? "
+                    "AND coalesce(tool_name, action, '') = ? ORDER BY timestamp DESC LIMIT 1",
+                    [sid, step.step_index, tool_name],
+                )
+                if not existing and (self._skip_duplicate_propose(sid, tool_name) or self._skip_duplicate_detect(sid, tool_name)):
+                    continue
+                if existing:
+                    if (step.action or "") in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
+                        prev = db.execute(
+                            "SELECT action, tool_name FROM agent_traces WHERE id = ?",
+                            [existing[0][0]],
+                        )
+                        prev_action = (prev[0][0] or "") if prev else ""
+                        if prev_action not in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
+                            continue
+                    db.execute(
+                        "UPDATE agent_traces SET thought = ?, action = ?, tool_name = ?, tool_input = ?, "
+                        "tool_output = ?, observation = ?, tokens_used = ?, duration_ms = ?, "
+                        "status = ?, tool_title = ?, tool_about = ?, agent_type = ? WHERE id = ?",
+                        params_core + [existing[0][0]],
                     )
-                    prev_action = (prev[0][0] or "") if prev else ""
-                    if prev_action not in ("FINISH", "ABSTAIN", "FINISH_DEFAULT", ""):
-                        return
-                db.execute(
-                    "UPDATE agent_traces SET thought = ?, action = ?, tool_name = ?, tool_input = ?, "
-                    "tool_output = ?, observation = ?, tokens_used = ?, duration_ms = ?, "
-                    "status = ?, tool_title = ?, tool_about = ?, agent_type = ? WHERE id = ?",
-                    params_core + [existing[0][0]],
-                )
-            else:
-                db.execute(
-                    "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
-                    "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms, "
-                    "status, tool_title, tool_about) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        str(uuid.uuid4())[:8],
-                        session_id,
-                        agent_type,
-                        step.step_index,
-                        thought,
-                        step.action,
-                        tool_name,
-                        json_preview(step.action_input, 1500),
-                        output_preview,
-                        summary,
-                        step.tokens_used,
-                        duration,
-                        status,
-                        tool_title,
-                        tool_about,
-                    ],
-                )
+                    wrote = True
+                else:
+                    db.execute(
+                        "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
+                        "tool_name, tool_input, tool_output, observation, tokens_used, duration_ms, "
+                        "status, tool_title, tool_about) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [
+                            str(uuid.uuid4())[:8],
+                            sid,
+                            agent_type,
+                            step.step_index,
+                            thought,
+                            step.action,
+                            tool_name,
+                            json_preview(step.action_input, 1500),
+                            output_preview,
+                            summary,
+                            step.tokens_used,
+                            duration,
+                            status,
+                            tool_title,
+                            tool_about,
+                        ],
+                    )
+                    wrote = True
+            if not wrote:
+                return
         except Exception:
             logging.getLogger(__name__).exception("agent_traces insert failed")
             try:

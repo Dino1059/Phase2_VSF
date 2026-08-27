@@ -5,6 +5,7 @@ from typing import Optional, Any
 CANONICAL_DATA_TABLES = ("ev_telemetry", "charging_sessions", "trips", "nlp_feedback")
 CANONICAL_DATA_SCHEMAS = ("main", "clean", "quarantine")
 CANONICAL_TABLES = set(CANONICAL_DATA_TABLES)
+SKIP_PIPELINE_SCHEMAS = frozenset({"clean", "quarantine"})
 
 
 def normalize_table_name(table_name: Optional[str]) -> str:
@@ -39,6 +40,45 @@ def normalize_table_name(table_name: Optional[str]) -> str:
         return raw_lower
 
     raise ValueError(f"Unknown canonical data table: {table_name}")
+
+
+def canonical_pipeline_table(name: Optional[str]) -> Optional[str]:
+    """Unqualified canonical table, or None. Maps clean.*/main.* and synthetic_feedback."""
+    raw = (name or "").strip()
+    if not raw:
+        return None
+    try:
+        return normalize_table_name(raw)
+    except ValueError:
+        leaf = raw.split(".")[-1].strip().lower()
+        if leaf == "synthetic_feedback":
+            return "nlp_feedback"
+        return None
+
+
+def pipeline_target_tables(dataset_key: str, listed: Optional[list] = None) -> list[str]:
+    """Tables for Run All / L1-L4 / propose. Never clean.* or quarantine.*."""
+    key = (dataset_key or "").strip()
+    listed = list(listed or [])
+    if "::" in key:
+        c = canonical_pipeline_table(key.rsplit("::", 1)[1])
+        return [c] if c else []
+    c = canonical_pipeline_table(key)
+    if c:
+        return [c]
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in listed:
+        raw = str(t)
+        schema = raw.split(".", 1)[0].lower() if "." in raw else "main"
+        if schema in SKIP_PIPELINE_SCHEMAS:
+            continue
+        canon = canonical_pipeline_table(raw)
+        if not canon or canon in seen:
+            continue
+        seen.add(canon)
+        out.append(canon)
+    return out
 
 
 def _exec_fetch(db: Any, sql: str, params: list = None) -> list:

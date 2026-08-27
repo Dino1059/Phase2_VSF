@@ -1,5 +1,7 @@
+import concurrent.futures
 import json
 import logging
+import os
 from typing import Any, Dict, List
 
 from src.canonical_policy import get_canonical_policy
@@ -8,6 +10,7 @@ from src.tools.base import BaseTool
 from src.utils.table_utils import normalize_table_name
 
 logger = logging.getLogger(__name__)
+LLM_RULE_TIMEOUT = float(os.environ.get("RULE_PROPOSER_LLM_TIMEOUT", "8"))
 
 
 class RuleProposerTool(BaseTool):
@@ -134,8 +137,19 @@ Return JSON with key "rules" containing an array of objects. Schema for each obj
             "required": ["rules"]
         }
 
-        llm = self.llm or GemmaLLMAdapter()
-        res = llm.generate_structured(prompt=prompt, schema=schema)
+        def _call():
+            llm = self.llm or GemmaLLMAdapter()
+            return llm.generate_structured(prompt=prompt, schema=schema)
+
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            res = pool.submit(_call).result(timeout=LLM_RULE_TIMEOUT)
+        except Exception as err:
+            logger.warning("LLM rule generation timed out or failed (%s). Using heuristic/Ngan path.", err)
+            pool.shutdown(wait=False, cancel_futures=True)
+            return []
+        else:
+            pool.shutdown(wait=False)
         if isinstance(res, dict) and "rules" in res and isinstance(res["rules"], list):
             cleaned = []
             for r in res["rules"]:

@@ -1,0 +1,42 @@
+{
+  "fails": [],
+  "passes": [
+    "stamp: d086-v5 qa-loop -->\n  <script>(function(){functi",
+    "A-12 ghost steward: Not signed in",
+    "A-15 login labels",
+    "Run All HITL \u22651 rule: http=200 n=22",
+    "Run All propose finished: []",
+    "Run All propose beat done",
+    "Run All traces hide clean.*: []",
+    "1440 layout loaded",
+    "A-02 eval paints: Eval vs GT\nGovernance & Policies\nEVAL VS GROUND TRUTH\nEval vs GT \u00b7 Ngan pack\nRefresh\nEval vs GT\nNgan pack \u00b7 LLM-judge off \u00b7 14 incidents\nBATCH\nDETECTION P\n66.7%\nDETECTION R\n100.0%\nDETECTION F1\n80.0%\nLOCATION\n100.0%\nTIME ",
+    "A-11 GT banner",
+    "A-09 rules header",
+    "B OFF inventory: You have 4 datasets registered in the DataTrust OS repository including ev_telemetry, charging_sessions, trips, and nlp_feedback.\n\norchestrator\nTokens: 327 total\nContext: 40.5k/10k",
+    "B ON PONG visible: PONG\n\norchestrator\nTokens: 1992 total\nContext: 42.5k/10k",
+    "A-03 viewer no approve: RULES\nAlert Dashboard\nActive Quality Rules\nQuarantine Zone\nEval vs GT\nGovernance",
+    "A-01 hamburger visible",
+    "A-01 drawer opens",
+    "A-08 no 103,43 clip",
+    "A-04 analyst 403: 403",
+    "API ON PONG: 200",
+    "API OFF inventory"
+  ],
+  "shots": [
+    "1440_login_modal",
+    "1440_workspace_runall",
+    "1440_dashboard_admin",
+    "1440_ops-eval",
+    "1440_ops-alerts",
+    "1440_ops-rules",
+    "1440_chat_llmOff_pong",
+    "1440_chat_llmOn_pong",
+    "1440_rules_viewer",
+    "375_dashboard",
+    "375_nav_open",
+    "375_ingestion",
+    "375_workspace",
+    "768_dashboard"
+  ],
+  "base": "https://d086.w9.nu"
+}

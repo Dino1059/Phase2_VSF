@@ -16,7 +16,7 @@ from src.agents.diagnosis_agent import DiagnosisAgent
 from src.agents.rule_proposer_agent import RuleProposerAgent
 from src.agents.executor_agent import ExecutorAgent
 from src.db.connection import get_db
-from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name
+from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name, pipeline_target_tables, canonical_pipeline_table
 
 logger = logging.getLogger(__name__)
 
@@ -31,37 +31,8 @@ def _notify(progress_callback: Optional[Callable[[str, str, dict], None]], stage
         except Exception:
             pass
     logger.info(msg)
-    
-    # Write to agent_traces table for UI trace observability across dataset sessions
-    try:
-        from src.db.connection import get_db
-        import uuid, json
-        db = get_db()
-        target_ds = (metadata or {}).get("dataset") or "ev_telemetry"
-        session_ids = [f"dataset:{target_ds}"]
-        if target_ds in ("vingroup_pilot", "all", "ev_telemetry"):
-            session_ids = [f"dataset:{table}" for table in CANONICAL_DATA_TABLES] + ["default"]
-        
-        json_meta = json.dumps(metadata or {})
-        json_out = json.dumps({"message": message})
-        for sess in session_ids:
-            db.execute(
-                "INSERT INTO agent_traces (id, session_id, agent_type, step_index, thought, action, "
-                "tool_name, tool_input, tool_output, observation, status, tool_title, timestamp) "
-                "VALUES (?, ?, 'orchestrator', 1, ?, 'batch_progress', ?, ?, ?, ?, 'done', ?, CURRENT_TIMESTAMP)",
-                [
-                    str(uuid.uuid4())[:8],
-                    sess,
-                    f"[{stage}] {message}",
-                    stage.lower().replace(" ", "_"),
-                    json_meta,
-                    json_out,
-                    message[:200],
-                    stage,
-                ]
-            )
-    except Exception as err:
-        logger.warning(f"Could not insert trace step in _notify: {err}")
+    # Do not INSERT skip/progress rows into agent_traces. Those showed up as
+    # duplicate L1 Detector beats ("No signal config") on every workspace session.
 
     if progress_callback:
         try:
@@ -350,6 +321,9 @@ def _get_all_tables_for_dataset(dataset_key: Optional[str]) -> List[str]:
         if not file_path or not os.path.exists(file_path):
             return []
         tables = StructuredSource(file_path).list_tables()
+        targeted = pipeline_target_tables(dataset_key, listed=tables)
+        if targeted:
+            return targeted
         if tables:
             return tables
     except Exception:
@@ -378,9 +352,10 @@ def _detect_l1_l4_signals(
     from src.reliability.detectors.l3_relational import L3RelationalDetector
     from src.reliability.detectors.l4_changepoint import L4ChangepointDetector
 
-    cfg = _TABLE_SIGNAL_CONFIG.get(table_name) or _auto_signal_config(table_name, df)
+    logical = canonical_pipeline_table(table_name) or table_name
+    cfg = _TABLE_SIGNAL_CONFIG.get(logical) or _TABLE_SIGNAL_CONFIG.get(table_name) or _auto_signal_config(logical, df)
     if not cfg:
-        _notify(progress_callback, "Anomaly Detect", f"Table '{table_name}': No signal config. Skipping L1-L4.", {"table": table_name})
+        _notify(progress_callback, "Anomaly Detect", f"Table '{logical}': No signal config. Skipping L1-L4.", {"table": logical})
         return {"L1": [], "L2": [], "L3": [], "L4": []}
 
     entity_col = cfg.get("entity_id_col")
