@@ -1,36 +1,71 @@
 # V5 overnight (2026-08-27)
 
-Branch: `v5-integration` (pushed). **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
+Branch: `v5-integration` @ **`3a83bc1`**. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
 
-N6=A: merge only when slice 1 + slice 2 complete, GT metrics scoring, HITL sandbox correct on canonical, d086 battle-tested. **Never t086.**
+**MERGE VERDICT: NO.** N6=A still fails. HITL sandbox preview on d086 was not completed with an approved-rule run (queue empty). Frontend HTML still stamped `7070309` (one behind HEAD). Do not merge.
 
-## Seeded identities (N5=A)
+## P0 — d086-api 502 (fixed)
 
-| Username | Role | Department label |
-|---|---|---|
-| `admin@datatrust.os` / `admin` | Admin | Operations |
-| `analyst@datatrust.os` / `analyst` | Analyst | Fleet Analytics |
-| `viewer@datatrust.os` / `viewer` | Viewer | Audit |
-| `steward@datatrust.os` / `steward` | Steward | Data Quality (kept) |
+**Cause:** `datatrust-dev-backend-1` crash-loop (35 restarts, unhealthy). Native DuckDB **WAL replay abort** on `vingroup_pilot.db.wal` (413K, 00:58Z) after a bind-mount restart. Python never reached the WAL-delete handler in `src/db/connection.py` — process died in `WriteAheadLogReplayer`. Cloudflare 502 on `https://d086-api.w9.nu` (`/`, `/health`, `/docs`). Dest SHA file was already `3a83bc1` (not the stale `731c55c` note).
 
-Quick-switch in AuthModal. No new IAM. Reset stays Admin-only.
+**Fix (no backend image rebuild, no t086):**
+1. `docker stop datatrust-dev-backend-1` only.
+2. Delete **`.wal` only** — keep `data_new/db/vingroup_pilot.db` (100M).
+3. `docker compose -p datatrust-dev up -d --no-build --no-deps backend`
 
-## Slice 1 (sandbox)
+**Evidence after fix:**
+- `GET https://d086-api.w9.nu/health` → **200** `{"status":"ok","app":"DataTrust OS",...}`
+- `GET /` and `/docs` → **401** (auth), not 502
+- Local `8001/health` 200; bind-mounts: `src`, `landing_data`, `eval`, `schemas`, `scripts`
+- t086 StartedAt **unchanged:** backend `2026-08-25T08:32:58Z`, frontend `08:36:50Z`, cloudflared `2026-08-16T16:30:41Z`
 
-- Run sandbox: authorize + POST `/hitl/sandbox` + GET preview. **No** `hitlApi.execute` (403).
-- Persist + preview on `main.quarantine` (`snapshot_id=sandbox:…`). SandboxDiff wired.
-- d086 mapping: compose project **`datatrust-dev`** at `/opt/datatrust-os-dev`, host ports **3001/8001**. Tunnel is existing `datatrust-cloudflared` on **t086** compose — do not recreate. `d086.w9.nu` last-modified 21 Aug = stale `datatrust-dev-frontend`.
+## d086 frontend (already this era)
 
-## Slice 2 (eval)
+`https://d086.w9.nu` last-modified **Wed, 26 Aug 2026 22:24:04 GMT** (not Aug 21). HTML `<!-- d086-v5 7070309 -->`. One commit behind HEAD `3a83bc1` (ingestion empty-timeline guard is on bind-mounted `src`).
 
-- `GET /api/v1/evaluation/gt` is an **adapter** over existing `GroundTruthMatcher` + `RCAGroundTruthMatcher` / frozen testset (same JSON `FrozenRCABenchmarkRunner` loads). No third BenchmarkHarness.
-- Matcher now accepts Ngan `incidents[]`, canonical tables (`ev_telemetry` / `acn_charging`→`charging_sessions` / `ride_trips`→`trips`), `row_index`→`original_index`, `day_idx`. F17 in RCA specs.
-- Local scores (LLM-judge **off**): realtime P/R/F1 **0.68 / 0.93 / 0.79**, tp=13/14, location+time 0.93, RCA top-1/top-3 0.93, hall=0, unanswerable 1.0, frozen RCA **13/13**.
-- Memory already on this commit: `MemoryStore` + `SessionStateTracker` + `build_user_memory_context()` once at session-start in `POST /chat/send`. Not duplicated.
-- **Blocker:** INC_010 F13 — manifest says 5 charging / 0 trips for `VF8VNF_0003` day 13; parquet has charging=1 trips=6 (extra sessions not in landing parquet).
+## HITL (not a 403 bug)
 
-## Deploy rule
+`POST /hitl/execute` **403** `"Execute off: HITL approve is not execute. Sandbox + authorize required."` is **design for every role including Admin**. Not CSRF/auth.
 
-- Slice 1 → d086 after sandbox-perfect (`docker compose -p datatrust-dev` only).
-- Slice 2 on d086 only with real GT scores (no TBD panel).
-- Confirm t086 `datatrust-os` StartedAt unchanged after any rebuild.
+| Who | What |
+|---|---|
+| Missing JWT | **401** |
+| Viewer POST | **403** read-only (role) |
+| Admin execute | **403** execute-off (design) |
+| Admin path | authorize + `POST /hitl/sandbox` + `GET /hitl/sandbox/{run_id}` on **`main.quarantine`** (`snapshot_id`), SandboxDiff. Never WAP `sandbox.*` |
+
+UI on d086 Admin: Rules & HITL shows **Execute disabled · sandbox not run · quarantine=0**. Queue was empty this pass — **SandboxDiff preview not proven on live d086**. `7070309` authorize accepts `edited`. Viewer execute-off vs role-403: both OK.
+
+## Eval scores (d086 Chrome + API)
+
+LLM-judge **off**. 14 incidents. No “adapter TBD”.
+
+| Metric | Realtime / batch |
+|---|---|
+| Detection P/R/F1 | 0.68 / 0.93 / **0.79** (tp=13, fn=1) |
+| Location / time | 0.93 |
+| RCA top-1 / top-3 | 0.93 |
+| Hallucination FA | 0 |
+| Unanswerable | 1.0 |
+| Frozen RCA | **13/13** |
+
+**INC_010 / F13:** known 13/14. Manifest: VF8VNF_0003 day 13 → 5 charging / 0 trips; parquet charging=1 trips=6. Shown on Eval vs GT panel. **Not cheap** (need landing parquet regen). Leave documented.
+
+## Chrome smoke (`d086-battle`)
+
+- Admin persona on `https://d086.w9.nu`
+- `#/operations/eval`: numbers + INC_010 warning
+- `#/workspace?dataset_key=ev_telemetry`: chat compose, Propose/Traces/HITL, profiler tables live after API recover
+- Chat abort proven earlier (ABORT → EXECUTE)
+
+## Commits on PR #27 this overnight
+
+- `7070309` fix(hitl): Admin authorize accepts edited; execute-off is design
+- `3a83bc1` fix(ingestion): empty timeline if `demo_ops.batch_run_log` missing
+
+## Still open (blocks merge)
+
+- HITL sandbox **preview** with approved rules + SandboxDiff on d086 (queue empty)
+- Frontend stamp vs HEAD (`7070309` vs `3a83bc1`) — optional nginx refresh
+- INC_010 F13 parquet mismatch
+- N6=A: merge only after d086 battle-test **and** HITL sandbox actually works
