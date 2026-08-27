@@ -10,7 +10,7 @@ from src.tools.base import BaseTool
 from src.utils.table_utils import normalize_table_name
 
 logger = logging.getLogger(__name__)
-LLM_RULE_TIMEOUT = float(os.environ.get("RULE_PROPOSER_LLM_TIMEOUT", "20"))
+LLM_RULE_TIMEOUT = float(os.environ.get("RULE_PROPOSER_LLM_TIMEOUT", "8"))
 
 
 class RuleProposerTool(BaseTool):

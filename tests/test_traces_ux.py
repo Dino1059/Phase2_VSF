@@ -289,7 +289,7 @@ def test_missing_requested_tools_propose_only():
     assert missing_requested_tools(
         "Profile this dataset and propose quality rules. Stop for HITL.",
         ["profile_dataset"],
-    ) == ["propose_quality_rules"]
+    ) == ["detect_anomalies", "propose_quality_rules"]
     assert missing_requested_tools("just profile the dataset", ["profile_dataset"]) == []
     assert "profile_dataset" not in missing_requested_tools(
         "Profile and propose quality rules",
@@ -623,7 +623,7 @@ def test_engine_skips_second_propose_execute_and_log(monkeypatch):
     assert missing_requested_tools(
         "Profile this dataset and propose quality rules. Stop for HITL.",
         ["profile_dataset", "FINISH"],
-    ) == ["propose_quality_rules"]
+    ) == ["detect_anomalies", "propose_quality_rules"]
 
 
 

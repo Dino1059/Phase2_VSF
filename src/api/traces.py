@@ -375,18 +375,40 @@ def _latest_session_for_dataset(db, dataset_key: str) -> str | None:
         return None
 
 
+_PIPELINE_TRACE_TOOLS = frozenset({
+    "profile_dataset", "detect_anomalies", "propose_quality_rules",
+    "quality_rule_proposer", "anomaly_detector",
+})
+
+
+def _rows_have_pipeline_beat(rows) -> bool:
+    for r in rows or []:
+        action = str(r[2] or "").strip().lower()
+        tool = str(r[3] or "").strip().lower()
+        if tool in _PIPELINE_TRACE_TOOLS or action in _PIPELINE_TRACE_TOOLS:
+            return True
+    return False
+
+
 def resolve_trace_rows(db, session_id: str):
-    """Return (resolved_session_id, rows). Exact id, then dataset alias, then latest dataset session."""
+    """Return (resolved_session_id, rows). Prefer real Run All beats over skip/notify rows."""
+    notify_fallback = None
     for sid in workspace_trace_sessions(session_id):
         rows = _fetch_trace_rows(db, sid)
-        if rows:
+        if not rows:
+            continue
+        if _rows_have_pipeline_beat(rows):
             return sid, rows
+        if notify_fallback is None:
+            notify_fallback = (sid, rows)
     key = _dataset_key_from_session(session_id)
     latest = _latest_session_for_dataset(db, key) if key else None
     if latest:
         rows = _fetch_trace_rows(db, latest)
-        if rows:
+        if rows and _rows_have_pipeline_beat(rows):
             return latest, rows
+    if notify_fallback:
+        return notify_fallback
     return session_id, []
 
 
