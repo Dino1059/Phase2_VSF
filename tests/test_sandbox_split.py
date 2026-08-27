@@ -367,6 +367,66 @@ def test_load_sandbox_rows_includes_tail_soc_faults():
     assert len(rows) <= 3000
 
 
+def test_load_sandbox_rows_keeps_soc_faults_when_other_violators_fill_cap():
+    """WHERE NOT LIMIT 3000 of SOC>100 must not drop the 12 tail SOC<0 faults."""
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import load_sandbox_rows
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, record_id VARCHAR)")
+    conn.execute(
+        "INSERT INTO ev_telemetry SELECT 200.0, 'h' || i, 'H' || i FROM range(4000) t(i)"
+    )
+    for i in range(12):
+        conn.execute("INSERT INTO ev_telemetry VALUES (?, ?, ?)", [-12.5, f"FAULT{i}", f"F{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "soc",
+        "id": "soc",
+        "decision": "approved",
+        "expression": "battery_soc >= 0 AND battery_soc <= 100",
+        "rule_expression": "battery_soc >= 0 AND battery_soc <= 100",
+    }]
+    rows = load_sandbox_rows("ev_telemetry", rules, 3000, db=_DB(conn))
+    bad = [r for r in rows if float(r.get("battery_soc") or 0) < 0]
+    assert len(bad) == 12, f"expected 12 SOC<0 rows, got {len(bad)} of {len(rows)}"
+
+
+def test_and_range_rule_quarantines_negative_soc():
+    from src.services.dataset_engine import execute_compiled_rules, safe_eval_rule
+
+    expr = "battery_soc >= 0 AND battery_soc <= 100"
+    assert safe_eval_rule(expr, {"battery_soc": -12.5}) is False
+    assert safe_eval_rule(expr, {"battery_soc": 64}) is True
+    res = execute_compiled_rules(
+        [{"vin": "FAULT", "battery_soc": -12.5}, {"vin": "CLEAN", "battery_soc": 64}],
+        [{"rule_id": "qa_and__R1", "decision": "approved", "expression": expr, "name": "soc"}],
+    )
+    assert res["quarantine_count"] == 1
+
+
 def test_profile_and_health_offload_event_loop():
     datasets = (ROOT / "src/api/routes/datasets.py").read_text()
     fn = datasets.split("async def profile_dataset", 1)[1].split("async def sample_dataset", 1)[0]

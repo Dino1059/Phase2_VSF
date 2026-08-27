@@ -277,18 +277,42 @@ def _dicts_from_sql(db, sql: str, params: list = None) -> list:
     return df.to_dict("records")
 
 
+def _sandbox_source_tables(db, table: str) -> list:
+    """Prefer main.* (Ngan SoT); fall back to raw.* if that is where landing faults live."""
+    found: list = []
+    try:
+        rows = db.execute(
+            "SELECT table_schema FROM information_schema.tables "
+            "WHERE lower(table_name) = ? AND lower(table_schema) IN ('main', 'raw') "
+            "ORDER BY CASE lower(table_schema) WHEN 'main' THEN 0 ELSE 1 END",
+            [table],
+        )
+        for r in rows or []:
+            sch = str(r[0] or "").strip()
+            if sch:
+                found.append(f"{sch}.{table}")
+    except Exception:
+        found = []
+    return found or [f"main.{table}"]
+
+
 def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
-    """Bounded main.* sample that includes rule violators / GT faults, not a random head that misses them."""
+    """Bounded sample that includes GT/rule faults, not a head LIMIT that misses them.
+
+    Persist still writes main.quarantine. Source rows come from main.* first, then raw.*
+    if main has no matching violators. Fault-hint rows are always pulled before other
+    WHERE NOT hits so 3000 over-range rows cannot crowd out the 12 SOC<0 faults.
+    """
     if db is None:
         db = get_db()
     cap = max(1, min(int(cap or SANDBOX_SAMPLE_CAP), SANDBOX_SAMPLE_CAP))
     table = canonical_main_table(dataset_key)
-    qtable = f"main.{table}"
+    sources = _sandbox_source_tables(db, table)
     seen: set = set()
     out: list = []
 
     def _key(row: dict) -> str:
-        for k in ("record_id", "trip_id", "session_id", "vehicle_vin", "vin"):
+        for k in ("record_id", "trip_id", "session_id"):
             v = row.get(k)
             if v is not None and str(v) != "":
                 return f"{k}:{v}"
@@ -306,18 +330,21 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
             if len(out) >= cap:
                 return
 
-    try:
-        exists = db.execute(
-            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'main' AND lower(table_name) = ? LIMIT 1",
-            [table],
-        )
-    except Exception:
-        exists = []
-    if not exists:
-        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
-        return df.to_dict("records")
+    def _from(sql: str) -> None:
+        if len(out) >= cap:
+            return
+        for qtable in sources:
+            _add(_dicts_from_sql(db, sql.format(qtable=qtable)))
+            if len(out) >= cap:
+                return
+
+    hint = _FAULT_HINTS.get(table)
+    if hint:
+        _from(f"SELECT * FROM {{qtable}} WHERE {hint} LIMIT {cap}")
 
     for r in rules or []:
+        if len(out) >= cap:
+            break
         if str(r.get("decision") or "").lower() not in ("approved", "edit", "edited"):
             continue
         expr = _sql_safe_expr(
@@ -325,17 +352,11 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
         )
         if not expr:
             continue
-        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} WHERE NOT ({expr}) LIMIT {cap}"))
-        if len(out) >= cap:
-            return out[:cap]
-
-    hint = _FAULT_HINTS.get(table)
-    if hint and len(out) < cap:
-        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} WHERE {hint} LIMIT {cap}"))
+        _from(f"SELECT * FROM {{qtable}} WHERE NOT ({expr}) LIMIT {cap}")
 
     if len(out) < cap:
         fill_n = cap - len(out)
-        _add(_dicts_from_sql(db, f"SELECT * FROM {qtable} LIMIT {fill_n}"))
+        _from(f"SELECT * FROM {{qtable}} LIMIT {fill_n}")
 
     if not out:
         df = load_dataset(dataset_key=dataset_key, sample_size=cap)
@@ -709,7 +730,22 @@ def safe_eval_rule(expression: str, row: Dict[str, Any]) -> bool:
     """
     try:
         # Build local environment variables for the expression
-        local_vars = {**row}
+        def _py(v):
+            if v is None:
+                return None
+            try:
+                if pd.isna(v):
+                    return None
+            except Exception:
+                pass
+            if hasattr(v, "item") and not isinstance(v, (bytes, str, dict, list)):
+                try:
+                    return v.item()
+                except Exception:
+                    return v
+            return v
+
+        local_vars = {str(k): _py(v) for k, v in row.items()}
         local_vars["abs"] = abs
         local_vars["len"] = len
         local_vars["str"] = str
