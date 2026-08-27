@@ -51,9 +51,14 @@ export const EvalVsGtPanel: React.FC = () => {
     try {
       const raw = await evaluationApi.getGt(ac.signal);
       const normalized = normalizeGtResponse(raw);
+      const det = normalized?.batch?.detection || raw?.batch?.detection || raw?.detection;
       if (!normalized) throw new Error('Empty GT response');
-      lastGt = normalized;
-      setData(normalized);
+      if (normalized && det) {
+        lastGt = { ...normalized, batch: { ...(normalized.batch || {}), detection: det } };
+      } else {
+        lastGt = normalized;
+      }
+      setData(lastGt);
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         setErr('GT scoring timed out. Retry Refresh.');

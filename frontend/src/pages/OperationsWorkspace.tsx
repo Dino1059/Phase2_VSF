@@ -62,7 +62,7 @@ function thisRunAuditCount(entries: Array<{ action?: string; target_table?: stri
   }).length;
 }
 
-type DashboardGroup = 'alerts' | 'governance';
+type DashboardGroup = 'alerts' | 'governance' | 'eval';
 type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'rules' | 'quarantine' | 'governance' | 'executions' | 'snapshots' | 'eval';
 type Row = Record<string, any>;
 
@@ -133,8 +133,8 @@ export const OperationsWorkspace: React.FC = () => {
   const canReviewRules = useAuthStore((s) => s.canReviewRules());
 
   // Determine main dashboard group and active subtab
-  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || view === 'eval' || !!ruleParam;
-  const mainGroup: DashboardGroup = isGovernanceView ? 'governance' : 'alerts';
+  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || !!ruleParam;
+  const mainGroup: DashboardGroup = view === 'eval' ? 'eval' : isGovernanceView ? 'governance' : 'alerts';
 
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>(() => {
     if (ruleParam) return 'quarantine';
@@ -533,16 +533,20 @@ export const OperationsWorkspace: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div className="menu-label" style={{ padding: 0, color: 'var(--neon-cyan)', letterSpacing: '0.08em' }}>
-            {mainGroup === 'alerts'
-              ? (isVi ? 'VẬN HÀNH & GIÁM SÁT' : 'OPERATIONS & OBSERVABILITY')
-              : (isVi ? 'QUẢN TRỊ & BỘ LUẬT CHẤT LƯỢNG' : 'GOVERNANCE & QUALITY RULES')}
+            {mainGroup === 'eval'
+              ? (isVi ? 'ĐÁNH GIÁ VS GT' : 'EVAL VS GROUND TRUTH')
+              : mainGroup === 'alerts'
+                ? (isVi ? 'VẬN HÀNH & GIÁM SÁT' : 'OPERATIONS & OBSERVABILITY')
+                : (isVi ? 'QUẢN TRỊ & BỘ LUẬT CHẤT LƯỢNG' : 'GOVERNANCE & QUALITY RULES')}
           </div>
           <h1 style={{ margin: '4px 0 0', color: 'var(--text-main)', fontSize: '24px', fontWeight: 600 }}>
             {activeSubTab === 'rules'
               ? (isVi ? 'Bộ Luật Đang Áp Dụng (Multi-Dataset Quality Rules)' : 'Active Quality Rules Control Room')
-              : mainGroup === 'alerts'
-                ? (isVi ? 'Bảng Cảnh Báo Điều Hành' : 'Alert Dashboard')
-                : (isVi ? 'Bảng Quản Trị & Chính Sách' : 'Governance Dashboard')}
+              : mainGroup === 'eval'
+                ? (isVi ? 'Bảng Eval vs GT (Ngan pack)' : 'Eval vs GT · Ngan pack')
+                : mainGroup === 'alerts'
+                  ? (isVi ? 'Bảng Cảnh Báo Điều Hành' : 'Alert Dashboard')
+                  : (isVi ? 'Bảng Quản Trị & Chính Sách' : 'Governance Dashboard')}
           </h1>
         </div>
 
@@ -646,7 +650,16 @@ export const OperationsWorkspace: React.FC = () => {
             </div>
           </div>
         </div>
-      ) : mainGroup === 'alerts' ? (
+      ) : mainGroup === 'eval' ? null : mainGroup === 'alerts' ? (
+        <>
+        <div data-testid="gt-pack-banner" style={{
+          marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+          border: '1px solid var(--glass-border)', fontSize: 12, color: 'var(--text-main)',
+        }}>
+          {isVi
+            ? `Gói GT Ngan: 14 sự cố (eval F1=0.8). Live: ${operationalStats.total} ca.`
+            : `Ngan GT pack: 14 incidents (eval F1=0.8). Live alert store: ${operationalStats.total} cases.`}
+        </div>
         <div className="kpi-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           <div className="kpi-card" style={{ borderLeft: '3px solid #f43f5e' }}>
             <div className="kpi-label">{isVi ? 'Tổng Sự Cố & Cảnh Báo' : 'Total Incidents & Alerts'}</div>
@@ -696,6 +709,7 @@ export const OperationsWorkspace: React.FC = () => {
             </div>
           </div>
         </div>
+        </>
       ) : (
         <div className="kpi-grid" style={{ marginBottom: '24px' }}>
           <div className="kpi-card">

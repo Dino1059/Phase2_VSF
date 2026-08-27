@@ -221,6 +221,9 @@ def test_remaining_medium_low_ui_gates():
     assert "@media (max-width: 768px)" in css
     ops = _src("frontend/src/pages/OperationsWorkspace.tsx")
     assert "gt-pack-banner" in ops
+    assert "view === 'eval' ? 'eval'" in ops
+    assert "mainGroup === 'eval' ? null" in ops
+    assert "Ngan GT pack: 14 incidents" in ops
     assert "minWidth: '120px'" in ops
     header = _src("frontend/src/components/layout/Header.tsx")
     assert "hud-reset-db" in header
