@@ -3,6 +3,8 @@
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
 > **Last Updated:** 2026-08-27
 
+**2026-08-27 Approve All 504:** Workspace `Approve All` fired `Promise.all` of N `POST /hitl/approve` calls; each loaded the full table under the DuckDB singleton lock and Cloudflare returned 504 / WS 524. Fix: one `rulesApi.batchApprove` → `POST /rules/batch-approve` as a single status UPDATE (execute-off, `total_quarantined: 0`), quarantine sample cap 3000, HITL approve off the event loop, HITL poll 8s and skip when hidden. t086 untouched.
+
 **2026-08-27 Run All hang:** Workspace `ev_telemetry` listed `clean.*` / `quarantine.*`. L1 skipped (“No signal config”), Propose re-ran detect + unsampled profile and never finished (0 HITL rules). Fix: `pipeline_target_tables` (canonical `main` only), no nested detect, LLM propose timeout → Ngan/heuristic rules, skip-trace inserts removed. `resolve_trace_rows` now drops stale `anomaly_detect` skip beats when real detect/propose rows exist. Live d086: Run All 66s → HITL 22 (`soc_range`, battery rules); traces hide `clean.trips`. Playwright **20 PASS / 0 FAIL**. t086 untouched.  
 > **Pytest Gate:** 125 / 125 Tests Passing (`54.34s`)  
 > **Git Rule Constraint:** Commit locally; DO NOT execute `git push` unless explicitly ordered by user.

@@ -230,3 +230,88 @@ def test_remaining_medium_low_ui_gates():
     api = _src("frontend/src/services/api.ts")
     assert "export function isPongPing" in api
     assert "!ping && datasetKey" in api
+
+
+def test_workspace_batch_approve_uses_rules_api_not_parallel_hitl():
+    tab = _src("frontend/src/components/workspace/QualityRulesTab.tsx")
+    start = tab.index("const handleBatchApprove")
+    end = tab.index("const handleSaveEdit")
+    body = tab[start:end]
+    assert "rulesApi.batchApprove" in body
+    assert "Promise.all" not in body
+    assert "hitlApi.approve" not in body
+    poll = tab[tab.index("window.setInterval"):tab.index("handleApprove")]
+    assert "8000" in poll
+    assert "document.hidden" in poll
+    assert ", 2000)" not in poll and ",2000)" not in poll
+
+
+def test_batch_approve_source_is_status_sql_not_quarantine_loop():
+    src = _src("src/api/routes/rules.py")
+    start = src.index("async def batch_approve_rules")
+    nxt = src.find("@router.post", start + 1)
+    body = src[start:nxt if nxt != -1 else None]
+    assert "quarantine_violating_data_for_rule" not in body
+    assert "load_dataset" not in body
+    assert "asyncio.to_thread" in body
+    assert "total_quarantined" in body
+    assert "execute" in body
+    assert "sample_size=None" not in _src("src/api/routes/rules.py").split("def quarantine_violating_data_for_rule", 1)[1][:1200]
+
+
+def test_analyst_batch_approve_is_403():
+    token = create_access_token({
+        "sub": "analyst@datatrust.os",
+        "user_id": "usr_analyst_01",
+        "role": "Analyst",
+    })
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    resp = client.post("/api/v1/rules/batch-approve", json={"rule_ids": ["RULE_QA_FAKE"]})
+    assert resp.status_code == 403
+
+
+def test_steward_batch_approve_marks_without_full_scan(tmp_path, monkeypatch):
+    from src.db.connection import DuckDBManager
+
+    db_path = str(tmp_path / "qa_batch_approve.duckdb")
+    db = DuckDBManager(db_path=db_path)
+    db.init_schema()
+    for col_sql in (
+        "ALTER TABLE quality_rules ADD COLUMN approved_by VARCHAR",
+        "ALTER TABLE quality_rules ADD COLUMN approved_at TIMESTAMP",
+    ):
+        try:
+            db.execute(col_sql)
+        except Exception:
+            pass
+    monkeypatch.setattr("src.db.connection.get_db", lambda *a, **k: db)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("load_dataset must not run on batch-approve")
+
+    monkeypatch.setattr("src.services.dataset_engine.load_dataset", _boom)
+    ids = [f"QA_BATCH_{i}" for i in range(3)]
+    for rid in ids:
+        db.execute(
+            "INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by) "
+            "VALUES (?, 'ev_telemetry', 'r', 'range', 'x > 0', 0.9, 'proposed', 'agent')",
+            [rid],
+        )
+    token = create_access_token({
+        "sub": "steward@datatrust.os",
+        "user_id": "usr_steward_01",
+        "role": "Steward",
+    })
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    resp = client.post("/api/v1/rules/batch-approve", json={"rule_ids": ids})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["processed_count"] == 3
+    assert body["total_quarantined"] == 0
+    assert body["execute"] == "off"
+    rows = db.execute(
+        f"SELECT status FROM quality_rules WHERE id IN ({','.join(['?'] * len(ids))})",
+        ids,
+    )
+    assert all((r[0] or "").lower() == "approved" for r in rows)
+    db.close()

@@ -373,7 +373,7 @@ async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
     quarantined_count = 0
     try:
         from src.api.routes.rules import quarantine_violating_data_for_rule
-        q_res = quarantine_violating_data_for_rule(rule_id, db=db)
+        q_res = await asyncio.to_thread(quarantine_violating_data_for_rule, rule_id, db)
         quarantined_count = q_res.get("quarantined_count", 0)
     except Exception as qe:
         print(f"[WARN] Error executing quarantine on HITL approval: {qe}")
