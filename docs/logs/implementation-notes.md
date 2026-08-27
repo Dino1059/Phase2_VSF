@@ -1,7 +1,9 @@
 # DataTrust OS v5 Operational Trust Console — Technical Implementation Notes & Developer Log
 
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
-> **Last Updated:** 2026-08-02  
+> **Last Updated:** 2026-08-27
+
+**2026-08-27 Run All hang:** Workspace `ev_telemetry` listed `clean.*` / `quarantine.*`. L1 skipped (“No signal config”), Propose re-ran detect + unsampled profile and never finished (0 HITL rules). Fix: `pipeline_target_tables` (canonical `main` only), no nested detect, LLM propose timeout → Ngan/heuristic rules, skip-trace inserts removed.  
 > **Pytest Gate:** 125 / 125 Tests Passing (`54.34s`)  
 > **Git Rule Constraint:** Commit locally; DO NOT execute `git push` unless explicitly ordered by user.
 

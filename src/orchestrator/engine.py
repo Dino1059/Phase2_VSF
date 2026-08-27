@@ -423,7 +423,7 @@ class ReActEngine:
                         break
                     continue
 
-                if self._skip_duplicate_propose(result.session_id, step.action):
+                if self._skip_duplicate_propose(result.session_id, step.action) or self._skip_duplicate_detect(result.session_id, step.action):
                     continue
 
                 self._log_trace(result.session_id, step, status="running")
@@ -510,7 +510,7 @@ class ReActEngine:
                         result.final_answer = result.final_answer or "Stopping for HITL review."
                         break
                     continue
-                if self._skip_duplicate_propose(result.session_id, action_name):
+                if self._skip_duplicate_propose(result.session_id, action_name) or self._skip_duplicate_detect(result.session_id, action_name):
                     continue
                 self._log_trace(result.session_id, step, status="running")
                 try:
@@ -676,6 +676,8 @@ class ReActEngine:
         aliases = {want}
         if want in ("propose_quality_rules", "quality_rule_proposer"):
             aliases.update({"propose_quality_rules", "quality_rule_proposer"})
+        if want in ("detect_anomalies", "anomaly_detector"):
+            aliases.update({"detect_anomalies", "anomaly_detector"})
         try:
             rows = get_db().execute(
                 "SELECT tool_name, action FROM agent_traces WHERE session_id = ?",
@@ -693,6 +695,13 @@ class ReActEngine:
         """Tab/remount must not re-run Propose. Profile-then-FINISH still force-runs once."""
         name = self._normalize_tool_name(self._resolve_tool_name(action) or action)
         if name not in ("propose_quality_rules", "quality_rule_proposer"):
+            return False
+        return self._has_tool_beat(session_id, name)
+
+    def _skip_duplicate_detect(self, session_id: str, action: str | None) -> bool:
+        """One L1-L4 detect per session. Nested propose must not start a second running beat."""
+        name = self._normalize_tool_name(self._resolve_tool_name(action) or action)
+        if name not in ("detect_anomalies", "anomaly_detector"):
             return False
         return self._has_tool_beat(session_id, name)
 
@@ -796,7 +805,7 @@ class ReActEngine:
                 "AND coalesce(tool_name, action, '') = ? ORDER BY timestamp DESC LIMIT 1",
                 [session_id, step.step_index, tool_name],
             )
-            if not existing and self._skip_duplicate_propose(session_id, tool_name):
+            if not existing and (self._skip_duplicate_propose(session_id, tool_name) or self._skip_duplicate_detect(session_id, tool_name)):
                 return
             params_core = [
                 thought,

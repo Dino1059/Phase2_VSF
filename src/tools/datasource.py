@@ -213,29 +213,37 @@ class StructuredSource(DataSource):
 
     @staticmethod
     def _get_user_tables(conn) -> List[str]:
-        # Fetch tables ONLY from the 'raw' schema
-        query = "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema = 'raw'"
-        
-        # Hardcoded allowlist per user request to only profile operational tables
-        allowed_tables = {
-            'ev_telemetry',
-            'trips',
-            'charging_sessions',
-            'synthetic_feedback'
-        }
-        
+        from src.utils.table_utils import CANONICAL_DATA_TABLES, canonical_pipeline_table
+
+        allowed = set(CANONICAL_DATA_TABLES) | {"synthetic_feedback"}
         try:
-            tables = [row[0] for row in conn.execute(query).fetchall()]
-            if not tables:
-                # Fallback to all tables in non-system schemas (e.g. main)
-                fallback_query = "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog')"
-                tables = [row[0] for row in conn.execute(fallback_query).fetchall()]
-            user = []
-            for t in tables:
-                schema, name = t.split('.', 1) if '.' in t else ('raw', t)
-                if name.lower() in allowed_tables:
-                    user.append(t)
-            return user if user else tables
+            query = (
+                "SELECT table_schema, table_name FROM information_schema.tables "
+                "WHERE lower(table_schema) IN ('main', 'raw')"
+            )
+            rows = conn.execute(query).fetchall()
+            if not rows:
+                fallback = (
+                    "SELECT table_schema, table_name FROM information_schema.tables "
+                    "WHERE lower(table_schema) NOT IN "
+                    "('information_schema', 'pg_catalog', 'clean', 'quarantine')"
+                )
+                rows = conn.execute(fallback).fetchall()
+            out: List[str] = []
+            seen = set()
+            ordered = sorted(rows or [], key=lambda r: 0 if str(r[0] or "").lower() == "main" else 1)
+            for schema, name in ordered:
+                if str(schema or "").lower() in ("clean", "quarantine"):
+                    continue
+                leaf = str(name or "").split(".")[-1]
+                if leaf.lower() not in allowed:
+                    continue
+                canon = canonical_pipeline_table(leaf)
+                if not canon or canon in seen:
+                    continue
+                seen.add(canon)
+                out.append(canon)
+            return out
         except Exception:
             return []
 
