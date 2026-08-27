@@ -161,7 +161,8 @@ def _get_demo_state(db) -> dict:
 
 def _get_day_snapshots(db) -> list[DaySnapshot]:
     """Read landing_day_snapshots timeline with run status and alert metrics."""
-    rows = db.execute("""
+    try:
+        rows = db.execute("""
         SELECT 
             s.day_idx, 
             s.snapshot_id, 
@@ -178,6 +179,8 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
         ) b ON s.day_idx = b.day_idx AND b.rn = 1
         ORDER BY s.day_idx ASC
     """)
+    except Exception:
+        return []
 
     state = _get_demo_state(db)
     curr_day = state.get("current_day_idx", -1)
