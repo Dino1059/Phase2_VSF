@@ -859,6 +859,8 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "response": final_summary,
             "analysis": f"4-Stage Sequential Pipeline Completed: [{', '.join(steps_executed)}]. State: {state_machine.current_state.value}.",
             "steps_count": 4,
+            "total_tokens": 0,
+            "tokens": {"total_tokens": 0, "tokens_used": 0},
         }
 
     # Standard Dynamic ReAct Engine Execution for open-ended queries
@@ -1039,12 +1041,17 @@ async def send_chat_message(request: ChatRequest, http: Request):
         session_id=session_id,
     )
 
+    token_total = int(getattr(result, "total_tokens", 0) or 0)
+    run_status = getattr(result, "status", "") or "completed"
+    http_status = "token_budget_exceeded" if run_status == "token_budget_exceeded" else "completed"
     return {
-        "status": "completed",
+        "status": http_status,
         "session_id": session_id,
         "response": final_content,
         "analysis": analysis_str,
         "steps_count": len(result.steps),
+        "total_tokens": token_total,
+        "tokens": {"total_tokens": token_total, "tokens_used": token_total},
     }
 
 

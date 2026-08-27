@@ -301,7 +301,7 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
 
     Persist still writes main.quarantine. Source rows come from main.* first, then raw.*
     if main has no matching violators. Fault-hint rows are always pulled before other
-    WHERE NOT hits so 3000 over-range rows cannot crowd out the 12 SOC<0 faults.
+    WHERE NOT hits so 3000 over-range rows cannot crowd out labeled SOC<0 faults.
     """
     if db is None:
         db = get_db()

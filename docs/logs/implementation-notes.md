@@ -135,3 +135,13 @@ Per user request, moved the Vietnamese NLP/teencode service into its own top-lev
 
 ### Verification
 - Full suite: `345 passed, 7 skipped` via `.venv/Scripts/python.exe -m pytest tests/ -q` — identical pass count to before the move, confirming no regressions.
+
+---
+
+## 10. v5 leftovers after PR #27 (2026-08-27)
+
+- **INC_010 F13:** landing parquet was 1 charging / 6 trips while the manifest claimed 5 / 0 (generator skipped injection when the VIN already had a session). Patched `landing_data/vingroup_pilot_landing_demo.parquet` to 5 charging / 0 trips for `VF8VNF_0003` day 13; generator now always pads + strips trips. `_gt_blockers` compares parquet counts to manifest `charging_sessions` / `completed_trips`. Local eval: blockers `[]`, detection tp=14 fn=0 F1=0.8.
+- **Landing SoT path:** default `LANDING_PARQUET_PATH` is `landing_data/vingroup_pilot_landing_demo.parquet`; seed walks landing_data then data_demo then data_new.
+- **Memory HTTP:** `GET /api/v1/memory` and `GET /api/v1/memory/stats` (registered before `/{user_id}`) so the index is 200/401 instead of 404/405. Session-start inject on `POST /chat/send` was already present.
+- **10k cap:** ReAct preflight already hard-stops; mid-loop breaks now set `final_answer`. `POST /chat/send` returns `total_tokens`. Meta strip shows `k/10k` from real metadata totals.
+

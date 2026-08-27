@@ -444,15 +444,17 @@ def _gt_blockers(incidents: list[dict], df: pd.DataFrame) -> list[dict[str, Any]
             continue
         vin = inc.get("entity_id")
         day = inc.get("day_idx")
+        want_ch = int(inc.get("charging_sessions") or 5)
+        want_tr = int(inc.get("completed_trips") if inc.get("completed_trips") is not None else 0)
         n_ch = int(((ch["vehicle_vin"] == vin) & (ch["day_idx"] == day)).sum()) if vin else 0
         n_tr = int(((tr["vehicle_vin"] == vin) & (tr["day_idx"] == day)).sum()) if vin and "vehicle_vin" in tr.columns else 0
-        if n_ch < 5 or n_tr != 0:
+        if n_ch != want_ch or n_tr != want_tr:
             out.append({
                 "incident_id": inc.get("incident_id"),
                 "fault_family": "F13_ChargingTrip_Mismatch",
                 "reason": (
-                    f"Manifest describes 5 charging sessions and 0 trips for {vin} on day {day}; "
-                    f"parquet has charging={n_ch} trips={n_tr} (injected extra sessions not in landing parquet)."
+                    f"Manifest describes {want_ch} charging sessions and {want_tr} trips for {vin} on day {day}; "
+                    f"parquet has charging={n_ch} trips={n_tr}."
                 ),
             })
     return out

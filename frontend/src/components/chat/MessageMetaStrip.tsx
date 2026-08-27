@@ -12,6 +12,7 @@ function getRealTokenCounts(message: ChatMessage): {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  split: boolean;
 } | null {
   const meta = (message.metadata || {}) as Record<string, any>;
   const tokensObj = (meta.tokens && typeof meta.tokens === 'object')
@@ -52,7 +53,7 @@ function getRealTokenCounts(message: ChatMessage): {
   const completionTokens = hasCompletion ? rawCompletion : 0;
   const totalTokens = hasTotal ? rawTotal : promptTokens + completionTokens;
 
-  return { promptTokens, completionTokens, totalTokens };
+  return { promptTokens, completionTokens, totalTokens, split: hasPrompt || hasCompletion };
 }
 
 export function MessageMetaStrip({ message, flaggedPatterns }: MessageMetaStripProps) {
@@ -108,7 +109,9 @@ export function MessageMetaStrip({ message, flaggedPatterns }: MessageMetaStripP
       {/* Token Usage */}
       <span style={{ fontSize: '10.5px' }}>
         {realTokens
-          ? `Tokens: ${realTokens.promptTokens} in / ${realTokens.completionTokens} out (${realTokens.totalTokens} total)`
+          ? (realTokens.split
+            ? `Tokens: ${realTokens.promptTokens} in / ${realTokens.completionTokens} out (${realTokens.totalTokens} total)`
+            : `Tokens: ${realTokens.totalTokens} total`)
           : 'Tokens: —'}
       </span>
 

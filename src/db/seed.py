@@ -41,14 +41,13 @@ def seed_database(db_path: str = None) -> None:
     from src.config import get_settings
 
     parquet_rel_path = get_settings().landing_parquet_path
-    pq_path = (
-        parquet_rel_path
-        if os.path.isabs(parquet_rel_path)
-        else os.path.join(project_root, parquet_rel_path)
-    )
-
-    if not os.path.exists(pq_path):
-        pq_path = os.path.join(project_root, "data_demo", "vingroup_pilot_landing_demo.parquet")
+    candidates = [
+        parquet_rel_path if os.path.isabs(parquet_rel_path) else os.path.join(project_root, parquet_rel_path),
+        os.path.join(project_root, "landing_data", "vingroup_pilot_landing_demo.parquet"),
+        os.path.join(project_root, "data_demo", "vingroup_pilot_landing_demo.parquet"),
+        os.path.join(project_root, "data_new", "vingroup_pilot_landing.parquet"),
+    ]
+    pq_path = next((p for p in candidates if os.path.exists(p)), candidates[0])
 
     if not os.path.exists(pq_path):
         print(f"Warning: Landing parquet not found at {pq_path}. Skipping database seed.")

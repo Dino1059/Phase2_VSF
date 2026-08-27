@@ -251,22 +251,31 @@ def inject_demo_incidents(dfs: dict[str, pd.DataFrame]) -> list[dict]:
     # Fault 10: Day 13 - L3 Charging / Trip Mismatch across tables
     target_vin_mismatch = vins[2] if len(vins) > 2 else "VIN_VFE34_DEMO"
     mask_day13_chg = (df_chg["vehicle_vin"] == target_vin_mismatch) & (get_day_mask(df_chg, 13))
-    if not mask_day13_chg.any():
-        # Duplicate 4 charging sessions for this VIN on day 13
-        sample_row = df_chg.iloc[0].copy()
-        sample_row["vehicle_vin"] = target_vin_mismatch
-        sample_row["assigned_day_index"] = 13
-        sample_row["session_id"] = "SESS_DEMO_DUP_01"
-        df_chg = pd.concat([df_chg, pd.DataFrame([sample_row]*4)], ignore_index=True)
+    n_chg = int(mask_day13_chg.sum())
+    if n_chg < 5:
+        sample_row = df_chg.loc[mask_day13_chg].iloc[0].copy() if n_chg else df_chg.iloc[0].copy()
+        extras = []
+        for i in range(5 - n_chg):
+            r = sample_row.copy()
+            r["vehicle_vin"] = target_vin_mismatch
+            r["assigned_day_index"] = 13
+            if "day_idx" in r.index:
+                r["day_idx"] = 13
+            r["session_id"] = f"SESS_F13_{target_vin_mismatch}_13_{i+1}"
+            extras.append(r)
+        df_chg = pd.concat([df_chg, pd.DataFrame(extras)], ignore_index=True)
         dfs["acn_charging"] = df_chg
-        first_idx = len(df_chg) - 4
-    else:
-        first_idx = df_chg.index[mask_day13_chg][0]
+    mask_day13_trips = (df_trips["vehicle_vin"] == target_vin_mismatch) & (get_day_mask(df_trips, 13))
+    if mask_day13_trips.any():
+        df_trips = df_trips.loc[~mask_day13_trips].reset_index(drop=True)
+        dfs["ride_trips"] = df_trips
+    first_idx = df_chg.index[(df_chg["vehicle_vin"] == target_vin_mismatch) & (get_day_mask(df_chg, 13))][0]
 
     record_fault(
         "INC_010", 13, "L3", "F13_ChargingTrip_Mismatch", "acn_charging", first_idx, "vehicle_vin",
         f"Cross-table mismatch: vehicle {target_vin_mismatch} has 5 charging sessions on Day 13 but 0 completed trips",
-        "Rule_L3_CrossTable_Charging_Trip_Anomaly", entity_id=target_vin_mismatch
+        "Rule_L3_CrossTable_Charging_Trip_Anomaly", entity_id=target_vin_mismatch,
+        charging_sessions=5, completed_trips=0
     )
 
     # Fault 11: Day 13 - L4 Charging Frequency Shift in acn_charging

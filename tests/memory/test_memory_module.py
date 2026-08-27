@@ -323,3 +323,16 @@ class TestWorkstreamCRoutes:
             f"/api/v1/memory/{uid}/profile?refresh=false", headers={"X-Test-User-Id": uid}
         )
         assert follow_up.json() is None
+
+    def test_get_memory_index_and_stats(self, memory_client):
+        uid = _uid()
+        idx = memory_client.get("/api/v1/memory", headers={"X-Test-User-Id": uid})
+        assert idx.status_code == 200
+        body = idx.json()
+        assert body["module"] == "memory"
+        assert body["user_id"] == uid
+        assert body["session_count"] == 0
+        stats = memory_client.get("/api/v1/memory/stats", headers={"X-Test-User-Id": uid})
+        assert stats.status_code == 200
+        assert stats.json()["user_id"] == uid
+        assert stats.json()["sessions"] == 0

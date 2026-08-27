@@ -364,6 +364,8 @@ class ReActEngine:
         for step_idx in range(self.max_steps):
             if result.total_tokens >= self.token_budget:
                 result.status = "token_budget_exceeded"
+                if not result.final_answer:
+                    result.final_answer = "Stopped: 10k token cap (memory block counted)."
                 break
 
             step_start = time.time()
@@ -384,6 +386,8 @@ class ReActEngine:
             if result.total_tokens + step.tokens_used > self.token_budget and step_idx > 0:
                 result.status = "token_budget_exceeded"
                 result.total_tokens += step.tokens_used
+                if not result.final_answer:
+                    result.final_answer = "Stopped: 10k token cap (memory block counted)."
                 break
 
             result.total_tokens += step.tokens_used
@@ -563,6 +567,8 @@ class ReActEngine:
             if not result.status:
                 result.status = "max_steps"
 
+        if result.status == "token_budget_exceeded" and not result.final_answer:
+            result.final_answer = "Stopped: 10k token cap (memory block counted)."
         result.total_duration_ms = int((time.time() - start_time) * 1000)
         return result
 

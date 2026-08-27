@@ -29,7 +29,8 @@ def test_ngan_gt_metrics_are_real_scores():
     assert frozen["available"] is True
     assert frozen["n"] == 13
     assert isinstance(frozen["top1"], float)
-    # Realtime should catch day-gated L4 families; only INC_010 is a parquet/GT mismatch.
+    # Realtime should catch day-gated L4 families; INC_010 F13 must match parquet SoT.
+    assert result["blockers"] == []
     assert result["realtime"]["detection"]["tp"] >= 11
     assert result["realtime"]["detection"]["f1"] > 0
 

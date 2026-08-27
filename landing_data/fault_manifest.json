@@ -124,7 +124,9 @@
       "column": "vehicle_vin",
       "description": "Cross-table mismatch: vehicle VF8VNF_0003 has 5 charging sessions on Day 13 but 0 completed trips",
       "expected_rule": "Rule_L3_CrossTable_Charging_Trip_Anomaly",
-      "entity_id": "VF8VNF_0003"
+      "entity_id": "VF8VNF_0003",
+      "charging_sessions": 5,
+      "completed_trips": 0
     },
     {
       "incident_id": "INC_011",
