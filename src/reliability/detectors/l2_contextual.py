@@ -114,6 +114,7 @@ class L2ContextualDetector:
         entity_id_col: str,
         timestamp_col: str,
         metric_col: str,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -192,6 +193,8 @@ class L2ContextualDetector:
                         detector="L2_MAD_Robust_ZScore",
                         detector_version="1.0.0",
                         evidence_refs=[f"median={median:.2f}", f"mad={mad:.2f}", f"z_score={z_score:.2f}"],
+                        source_table=source_table,
+                        violation_direction="zscore_outlier",
                         provenance=provenance
                     )
                     signals.append(sig)

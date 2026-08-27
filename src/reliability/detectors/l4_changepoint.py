@@ -79,6 +79,7 @@ class L4ChangepointDetector:
         entity_id_col: str,
         timestamp_col: str,
         metric_col: str,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -210,6 +211,8 @@ class L4ChangepointDetector:
                             f"cusum_score={score:.2f}",
                             f"shift_direction={'UP' if change_magnitude > 0 else 'DOWN'}"
                         ],
+                        source_table=source_table,
+                        violation_direction="shift_up" if change_magnitude > 0 else "shift_down",
                         provenance=provenance
                     )
                     signals.append(sig)
@@ -237,6 +240,7 @@ class L4ChangepointDetector:
         timestamp_col: str,
         metric_col: str,
         pen: Optional[float] = None,
+        source_table: Optional[str] = None,
         provenance: str = "SEMI_SYNTHETIC"
     ) -> List[Signal]:
         """
@@ -339,6 +343,8 @@ class L4ChangepointDetector:
                         f"pelt_penalty={pen_val}",
                         f"shift_direction={'UP' if change_magnitude > 0 else 'DOWN'}"
                     ],
+                    source_table=source_table,
+                    violation_direction="shift_up" if change_magnitude > 0 else "shift_down",
                     provenance=provenance
                 )
                 signals.append(sig)

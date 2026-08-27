@@ -4,7 +4,7 @@ from src.db.connection import get_db
 
 class TelemetryQueryTool(BaseTool):
     name = "telemetry_query"
-    description = "Query V-GREEN charging station and VinFast BMS telemetry data by station ID, location, time range, or fault status."
+    description = "Query canonical charging_sessions and ev_telemetry data by station ID, time range, or status."
     input_schema = {
         "type": "object",
         "properties": {
@@ -22,33 +22,27 @@ class TelemetryQueryTool(BaseTool):
         db = get_db()
         limit = input_data.get("limit", 100)
 
-        # Query V-GREEN telemetry
-        vgreen_conditions = []
+        charging_conditions = []
         params = []
         if input_data.get("station_id"):
-            vgreen_conditions.append("station_id = ?")
+            charging_conditions.append("station_id = ?")
             params.append(input_data["station_id"])
         if input_data.get("fault_only"):
-            vgreen_conditions.append("fault_code IS NOT NULL AND fault_code != ''")
-        where = " AND ".join(vgreen_conditions) if vgreen_conditions else "1=1"
-        vgreen = db.execute(f"SELECT * FROM vgreen_telemetry WHERE {where} LIMIT ?", params + [limit])
+            charging_conditions.append("status IS NOT NULL AND status NOT IN ('COMPLETED', 'ACTIVE', 'NORMAL')")
+        where = " AND ".join(charging_conditions) if charging_conditions else "1=1"
+        charging = db.execute(f"SELECT * FROM main.charging_sessions WHERE {where} LIMIT ?", params + [limit])
 
-        # Query BMS
-        bms_conditions = []
-        bms_params = []
-        if input_data.get("station_id"):
-            bms_conditions.append("charging_station_id = ?")
-            bms_params.append(input_data["station_id"])
+        ev_conditions = []
+        ev_params = []
         if input_data.get("fault_only"):
-            bms_conditions.append("bms_fault_code IS NOT NULL AND bms_fault_code != ''")
-        bms_where = " AND ".join(bms_conditions) if bms_conditions else "1=1"
-        bms = db.execute(f"SELECT * FROM vinfast_bms WHERE {bms_where} LIMIT ?", bms_params + [limit])
+            ev_conditions.append("battery_soc < 0 OR battery_soc > 100")
+        ev_where = " AND ".join(ev_conditions) if ev_conditions else "1=1"
+        ev = db.execute(f"SELECT * FROM main.ev_telemetry WHERE {ev_where} LIMIT ?", ev_params + [limit])
 
-        total_faults = len([r for r in vgreen if r[7]]) + len([r for r in bms if r[6]])
         return {
-            "vgreen_records": len(vgreen),
-            "bms_records": len(bms),
-            "total_faults_found": total_faults,
-            "vgreen_sample": [list(r) for r in vgreen[:5]],
-            "bms_sample": [list(r) for r in bms[:5]]
+            "charging_records": len(charging),
+            "ev_records": len(ev),
+            "total_faults_found": len(charging) + len(ev) if input_data.get("fault_only") else 0,
+            "charging_sample": [list(r) for r in charging[:5]],
+            "ev_sample": [list(r) for r in ev[:5]],
         }

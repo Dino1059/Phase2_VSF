@@ -9,6 +9,9 @@ export const ACTOR_LABELS: Record<string, { en: string; vi: string }> = {
   R0: { en: 'R0', vi: 'R0' },
   C1_AI: { en: 'C1 AI', vi: 'C1 AI' },
   A1_AI: { en: 'A1 AI', vi: 'A1 AI' },
+  PROFILER: { en: 'Profiler', vi: 'Khảo sát' },
+  PROPOSER: { en: 'Proposer', vi: 'Đề xuất' },
+  REPAIR: { en: 'Repair', vi: 'Sửa chữa' },
   DATA_STEWARD: { en: 'Data Steward', vi: 'Data Steward' },
   EXECUTOR: { en: 'Executor', vi: 'Thực thi' },
   SYSTEM: { en: 'System', vi: 'Hệ thống' },
@@ -75,6 +78,50 @@ export function actorLabel(kind: string | undefined, isVi: boolean): string {
   return kind;
 }
 
+export const TRACE_ACTOR_BY_TOOL: Record<string, 'Profiler' | 'Proposer' | 'Repair' | 'Benchmark'> = {
+  profile_dataset: 'Profiler',
+  data_profiler: 'Profiler',
+  list_tables: 'Profiler',
+  propose_quality_rules: 'Proposer',
+  quality_rule_proposer: 'Proposer',
+  propose_patches: 'Repair',
+  apply_patches: 'Repair',
+  benchmark_dataset: 'Benchmark',
+};
+const ZONE_NOT_CHIP = new Set(['quarantine']);
+export function lastToolSegment(name?: string | null): string {
+  if (!name) return '';
+  const raw = String(name).trim();
+  if (!raw) return '';
+  const parts = raw.split(/[/\\.]/).filter(Boolean);
+  return (parts[parts.length - 1] || raw).toLowerCase();
+}
+function chipForToolSegment(seg: string): string | undefined {
+  if (!seg || seg === 'clean_database') return undefined;
+  if (ZONE_NOT_CHIP.has(seg)) return undefined;
+  return TRACE_ACTOR_BY_TOOL[seg];
+}
+/** Chip from tool_name, then action, then actor_kind. Quarantine is a zone unless nothing else to name. */
+export function actorChipFromTrace(
+  raw: { tool_name?: string | null; tool?: string | null; action?: string | null; actor_kind?: string | null },
+  isVi: boolean,
+): string {
+  const fromTool = chipForToolSegment(lastToolSegment(raw.tool_name || raw.tool));
+  if (fromTool) return fromTool;
+  const fromAction = chipForToolSegment(lastToolSegment(raw.action));
+  if (fromAction) return fromAction;
+  if (raw.actor_kind) {
+    const kindSeg = lastToolSegment(raw.actor_kind);
+    const fromKind = chipForToolSegment(kindSeg);
+    if (fromKind) return fromKind;
+    if (ZONE_NOT_CHIP.has(kindSeg)) return 'Quarantine';
+    return actorLabel(String(raw.actor_kind), isVi);
+  }
+  const leftover = lastToolSegment(raw.tool_name || raw.tool || raw.action);
+  if (ZONE_NOT_CHIP.has(leftover)) return 'Quarantine';
+  return actorLabel(undefined, isVi);
+}
+
 export function preferActorKind(raw: Record<string, any>): string | undefined {
   const blob = [raw.actor_kind, raw.agent_type, raw.action, raw.tool, raw.tool_name]
     .filter(Boolean)
@@ -121,9 +168,9 @@ export function inTimeRange(iso: string | null | undefined, filter: TimeFilter, 
 
 export function catalogFor(toolName?: string | null): { name: string; title: string; about: string } | null {
   if (!toolName) return null;
-  const row = TOOL_CATALOG[toolName];
+  const row = TOOL_CATALOG[toolName] || TOOL_CATALOG[lastToolSegment(toolName)] || null;
   if (!row) return null;
-  return { name: toolName, title: row.title, about: row.about };
+  return { name: lastToolSegment(toolName) || toolName, title: row.title, about: row.about };
 }
 
 

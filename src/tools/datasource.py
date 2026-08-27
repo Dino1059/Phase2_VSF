@@ -17,7 +17,12 @@ class DataSource(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def load_data(self) -> Any:
+    def load_data(
+        self,
+        sample_size: Optional[int] = None,
+        table_name: Optional[str] = None,
+        day_idx: Optional[int] = None,
+    ) -> Any:
         """Load data from the source file into memory or DataFrame representation."""
         pass
 
@@ -94,7 +99,12 @@ class StructuredSource(DataSource):
                 from src.db.connection import get_db
                 return get_db()._get_master_conn(), False
 
-    def load_data(self, sample_size: Optional[int] = None, table_name: Optional[str] = None) -> pd.DataFrame:
+    def load_data(
+        self,
+        sample_size: Optional[int] = None,
+        table_name: Optional[str] = None,
+        day_idx: Optional[int] = None,
+    ) -> pd.DataFrame:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Source file not found: {self.file_path}")
 
@@ -160,9 +170,21 @@ class StructuredSource(DataSource):
 
                 safe_target = StructuredSource._quote_identifier(target)
                 query = f'SELECT * FROM {safe_target}'
+                if day_idx is not None:
+                    columns_info = conn.execute(f"PRAGMA table_info('{safe_target}')").fetchall()
+                    column_names = {c[1] for c in columns_info}
+                    if "day_idx" in column_names:
+                        query += f" WHERE day_idx = {int(day_idx)}"
+                    elif "assigned_day_index" in column_names:
+                        query += f" WHERE assigned_day_index = {int(day_idx)}"
+
                 if sample_size:
                     query += f" LIMIT {int(sample_size)}"
-                return conn.execute(query).fetchdf()
+                if should_close:
+                    return conn.execute(query).fetchdf()
+                from src.db.connection import get_db
+                with get_db()._conn_lock:
+                    return conn.execute(query).fetchdf()
             finally:
                 if should_close:
                     try:
@@ -204,6 +226,10 @@ class StructuredSource(DataSource):
         
         try:
             tables = [row[0] for row in conn.execute(query).fetchall()]
+            if not tables:
+                # Fallback to all tables in non-system schemas (e.g. main)
+                fallback_query = "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog')"
+                tables = [row[0] for row in conn.execute(fallback_query).fetchall()]
             user = []
             for t in tables:
                 schema, name = t.split('.', 1) if '.' in t else ('raw', t)

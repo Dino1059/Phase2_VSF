@@ -20,11 +20,7 @@ class ConversationStore:
         metadata_json = json.dumps(message.get("metadata") or {})
 
         conn = self.db.get_connection()
-        conn.execute("DELETE FROM messages WHERE id = ?", [msg_id])
-        conn.execute("""
-            INSERT INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, [
+        values = [
             msg_id,
             session_id,
             message.get("type", "user"),
@@ -32,7 +28,44 @@ class ConversationStore:
             message.get("content", ""),
             metadata_json,
             timestamp
-        ])
+        ]
+        existing = conn.execute("SELECT 1 FROM messages WHERE id = ? LIMIT 1", [msg_id]).fetchall()
+        if existing:
+            try:
+                conn.execute(
+                    """
+                    UPDATE messages
+                    SET session_id = ?, type = ?, agent_id = ?, content = ?, metadata_json = ?, timestamp = ?
+                    WHERE id = ?
+                    """,
+                    [session_id, values[2], values[3], values[4], metadata_json, timestamp, msg_id],
+                )
+            except Exception:
+                try:
+                    conn.execute("DELETE FROM messages WHERE id = ?", [msg_id])
+                except Exception:
+                    pass
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        values,
+                    )
+                except Exception:
+                    pass
+        else:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO messages (id, session_id, type, agent_id, content, metadata_json, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    values,
+                )
+            except Exception:
+                pass
 
         return {
             "id": msg_id,

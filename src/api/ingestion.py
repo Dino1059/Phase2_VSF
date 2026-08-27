@@ -161,7 +161,8 @@ def _get_demo_state(db) -> dict:
 
 def _get_day_snapshots(db) -> list[DaySnapshot]:
     """Read landing_day_snapshots timeline with run status and alert metrics."""
-    rows = db.execute("""
+    try:
+        rows = db.execute("""
         SELECT 
             s.day_idx, 
             s.snapshot_id, 
@@ -178,6 +179,8 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
         ) b ON s.day_idx = b.day_idx AND b.rn = 1
         ORDER BY s.day_idx ASC
     """)
+    except Exception:
+        return []
 
     state = _get_demo_state(db)
     curr_day = state.get("current_day_idx", -1)
@@ -187,7 +190,7 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
     for r in rows:
         d_idx = int(r[0]) if r[0] is not None else 0
         snap_id = str(r[1]) if r[1] else f"SNAP_{d_idx:03d}"
-        is_act = (bool(r[2]) if r[2] is not None else False) or (curr_day >= 0 and d_idx <= curr_day)
+        is_act = (bool(r[2]) if r[2] is not None else False) or (curr_day >= 0 and d_idx < curr_day)
         rows_cnt = int(r[3]) if r[3] is not None else 0
         run_status = str(r[4]) if r[4] else ("completed" if is_act else "idle")
         alerts_cnt = int(r[5]) if r[5] is not None else 0
@@ -405,6 +408,29 @@ async def activate_warmup():
         total_incidents = sum(getattr(r, 'incident_count', 0) for r in results)
         total_duration = sum(getattr(r, 'duration_ms', 0) for r in results)
 
+        # Broadcast datatrust:pipeline-completed event
+        try:
+            total_rows = 0
+            for r in results:
+                row_res = db.execute("SELECT row_count FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [r.day_idx])
+                if row_res:
+                    total_rows += row_res[0][0] or 0
+
+            await ws_manager.broadcast({
+                "type": "datatrust:pipeline-completed",
+                "data": {
+                    "run_id": "WARMUP-009-DONE",
+                    "day_idx": 9,
+                    "status": "completed",
+                    "summary": {
+                        "incidents": total_incidents,
+                        "ingested_rows": total_rows,
+                    }
+                }
+            })
+        except Exception as ws_err:
+            logger.warning(f"Could not broadcast pipeline completion event for warmup: {ws_err}")
+
         return ActivateResponse(
             day_idx=9,
             status="warmup_completed",
@@ -553,6 +579,26 @@ async def activate_day(day_idx: int, request: ActivateRequest):
             })
         except Exception as rt_err:
             logger.warning(f"Could not auto-start realtime runner for day {day_idx + 1}: {rt_err}")
+
+        # Broadcast datatrust:pipeline-completed event
+        try:
+            row_res = db.execute("SELECT row_count FROM demo_ops.landing_day_snapshots WHERE day_idx = ?", [day_idx])
+            rows_cnt = row_res[0][0] if row_res else 0
+
+            await ws_manager.broadcast({
+                "type": "datatrust:pipeline-completed",
+                "data": {
+                    "run_id": ingestion_run_id,
+                    "day_idx": day_idx,
+                    "status": "completed",
+                    "summary": {
+                        "incidents": inc_cnt,
+                        "ingested_rows": rows_cnt,
+                    }
+                }
+            })
+        except Exception as ws_err:
+            logger.warning(f"Could not broadcast pipeline completion event for day {day_idx}: {ws_err}")
 
         return ActivateResponse(
             day_idx=day_idx,

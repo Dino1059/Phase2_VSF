@@ -2,14 +2,19 @@ from fastapi import APIRouter, Query
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from src.db.connection import get_db
+from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name
 
 summary_router = APIRouter(prefix="/summary", tags=["summary"])
 
 
 def _resolve_dataset_tables(dataset_key: Optional[str]) -> List[str]:
-    """Resolve user tables for an optional dataset_key. Empty list means 'use legacy default tables'."""
+    """Resolve user tables for an optional dataset_key. Empty list means canonical defaults."""
     if not dataset_key:
         return []
+    try:
+        return [normalize_table_name(dataset_key)]
+    except ValueError:
+        pass
     try:
         from src.config import get_settings
         from src.tools.datasource import StructuredSource
@@ -36,12 +41,12 @@ def get_summary(dataset_key: Optional[str] = Query(None)):
 
     tables = _resolve_dataset_tables(dataset_key)
     if not tables:
-        tables = ["xanhsm_feedback", "vgreen_telemetry", "vinfast_bms", "xanhsm_trips"]
+        tables = list(CANONICAL_DATA_TABLES)
 
     total_data_records = 0
     for table in tables:
         try:
-            res = db.execute(f"SELECT COUNT(*) FROM {table}")
+            res = db.execute(f"SELECT COUNT(*) FROM main.{table}")
             total_data_records += res[0][0] if res else 0
         except Exception:
             pass

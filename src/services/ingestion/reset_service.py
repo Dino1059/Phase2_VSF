@@ -3,7 +3,7 @@ reset_service.py — Giai đoạn 7: Reset & State machine.
 Lưu tại: src/services/ingestion/reset_service.py
 
 Responsibilities:
-1. Clean quarantine, clean, batch_run_log (PRESERVE raw.* per acceptance criteria)
+1. Clean quarantine, clean, main canonical data, batch_run_log
 2. Reset demo_state to IDLE (day_idx = -1, warmup_completed = FALSE)
 3. Stop realtime runner
 4. Mark all snapshots as inactive
@@ -78,7 +78,7 @@ def get_transition_target(current_phase: DemoPhase, target_day_idx: int, warmup_
 def reset_demo() -> ResetResult:
     """
     Reset demo state: clear quarantine, clean, batch_run_log.
-    PRESERVE raw.* tables (per acceptance criteria).
+    Main canonical tables are rebuilt from landing parquet after reset.
     Reset demo_state to IDLE (day_idx = -1).
     Mark all snapshots as inactive.
     Stop realtime runner.
@@ -106,20 +106,8 @@ def reset_demo() -> ResetResult:
         # Clear clean tables
         _clear_schema_tables(db, "clean")
 
-        # Clear raw data tables (raw.ev_telemetry, raw.trips, raw.charging_sessions, raw.synthetic_feedback, etc.)
-        raw_data_tables = ["ev_telemetry", "trips", "charging_sessions", "synthetic_feedback", "nlp_feedback"]
-        for tbl in raw_data_tables:
-            try:
-                db.execute(f"TRUNCATE TABLE raw.{tbl}")
-            except Exception:
-                try:
-                    db.execute(f"DELETE FROM raw.{tbl}")
-                except Exception:
-                    pass
-        
-        # Clear legacy main data tables to ensure 100% single-path Parquet ingestion
-        legacy_data_tables = ["vgreen_charging_sessions", "xanhsm_trips", "xanhsm_feedback", "vinfast_bms", "vgreen_telemetry", "raw_taxi_trips"]
-        for tbl in legacy_data_tables:
+        # Clear canonical main data tables to ensure single-path Parquet ingestion.
+        for tbl in ["ev_telemetry", "charging_sessions", "trips", "nlp_feedback"]:
             try:
                 db.execute(f"TRUNCATE TABLE main.{tbl}")
             except Exception:
@@ -156,11 +144,11 @@ def reset_demo() -> ResetResult:
             SET is_activated = FALSE, activated_at = NULL
         """)
         
-        logger.info("Demo reset complete: quarantine, clean, raw data, and batch_run_log cleared.")
+        logger.info("Demo reset complete: quarantine, clean, main data, and batch_run_log cleared.")
         
         return ResetResult(
             status="success",
-            message="Demo state reset complete. All raw data tables reset to 0 rows pending day activation from Parquet.",
+            message="Demo state reset complete. Canonical main tables reset to 0 rows pending day activation from Parquet.",
             phase=DemoPhase.IDLE,
         )
         
@@ -218,15 +206,14 @@ def verify_reset_complete() -> dict:
         "SELECT COUNT(*) FROM quarantine.ev_telemetry"
     )[0][0] if db.execute("SELECT COUNT(*) FROM quarantine.ev_telemetry") else 0
     
-    # Check raw.* should still have data (if previously ingested)
-    raw_count = db.execute(
-        "SELECT COUNT(*) FROM raw.ev_telemetry"
-    )[0][0] if db.execute("SELECT COUNT(*) FROM raw.ev_telemetry") else 0
+    main_count = db.execute(
+        "SELECT COUNT(*) FROM main.ev_telemetry"
+    )[0][0] if db.execute("SELECT COUNT(*) FROM main.ev_telemetry") else 0
     
     return {
         "demo_state_day_idx": int(state[0]) if state[0] else -1,
         "warmup_completed": bool(state[1]) if state[1] else False,
         "quarantine_rows": quarantine_count,
-        "raw_rows": raw_count,
+        "main_rows": main_count,
         "reset_verified": state[0] == -1 and quarantine_count == 0,
     }

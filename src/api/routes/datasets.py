@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 from typing import Any, Optional
@@ -40,9 +41,18 @@ async def profile_dataset(
     dataset_key: str,
     table: Optional[str] = Query(None),
     sample_size: Optional[int] = Query(None),
+    day_idx: Optional[int] = Query(None),
 ):
     """Profile a registered dataset with server-side file loading and multi-table support."""
-    try:
+    if sample_size is None:
+        sample_size = 3000
+    else:
+        try:
+            sample_size = max(1, min(int(sample_size), 8000))
+        except (TypeError, ValueError):
+            sample_size = 3000
+
+    def _run():
         from src.services.dataset_engine import load_dataset, profile_rows
         from src.tools.profiler import Profiler
         from src.tools.datasource import StructuredSource
@@ -69,7 +79,7 @@ async def profile_dataset(
 
         # If a specific table is requested
         if table_name:
-            df = src.load_data(sample_size=sample_size, table_name=table_name)
+            df = src.load_data(sample_size=sample_size, table_name=table_name, day_idx=day_idx)
             if len(df) == 0:
                 return {
                     "dataset": base_key,
@@ -125,7 +135,7 @@ async def profile_dataset(
 
             for tbl in user_tables:
                 try:
-                    tdf = src.load_data(sample_size=sample_size, table_name=tbl)
+                    tdf = src.load_data(sample_size=sample_size, table_name=tbl, day_idx=day_idx)
                     if len(tdf) == 0:
                         tables_dict[tbl] = {
                             "table_name": tbl,
@@ -201,7 +211,7 @@ async def profile_dataset(
             }
 
         # Single table file (CSV, Parquet, or single-table SQLite/DuckDB)
-        df = src.load_data(sample_size=sample_size)
+        df = src.load_data(sample_size=sample_size, day_idx=day_idx)
         result = profiler.profile(df, file_path=base_key)
         profile_data = _sanitize_nans(result.model_dump())
         flags_penalty = min(30.0, len(result.quality_flags) * 5.0)
@@ -225,6 +235,11 @@ async def profile_dataset(
             "health_score": health_score,
             "profile": profile_data,
         }
+
+    try:
+        return await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
     except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

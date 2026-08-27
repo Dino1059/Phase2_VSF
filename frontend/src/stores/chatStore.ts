@@ -1,8 +1,18 @@
 import { create } from 'zustand';
 import type { ChatMessage, AgentId, AgentStatus, WorkspaceView, RuleProposal } from '../types';
+import { fetchChatSessions, fetchChatHistory, clearChatDatabase } from '../services/api';
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  messages: ChatMessage[];
+}
 
 interface ChatState {
   messages: ChatMessage[];
+  sessions: ChatSession[];
+  activeSessionId: string;
   isConnected: boolean;
   agentStatuses: Record<AgentId, AgentStatus>;
   activeWorkspace: WorkspaceView;
@@ -25,10 +35,82 @@ interface ChatState {
   setSessionId: (id: string) => void;
   appendStreamChunk: (id: string, delta: string) => void;
   appendStreamThought: (id: string, delta: string) => void;
+
+  // Session Actions
+  fetchSessions: () => Promise<void>;
+  createSession: (title?: string) => string;
+  switchSession: (sessionId: string) => Promise<void>;
+  renameSession: (sessionId: string, newTitle: string) => void;
+  deleteSession: (sessionId: string) => Promise<void>;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+function updateSessionList(sessions: ChatSession[], activeSessionId: string, messages: ChatMessage[]): ChatSession[] {
+  const title = messages.find((m) => m.type === 'user')?.content?.slice(0, 32) || 'Chat Session';
+  const exists = sessions.some((s) => s.id === activeSessionId);
+  if (!exists) {
+    return [
+      {
+        id: activeSessionId,
+        title,
+        createdAt: new Date().toISOString(),
+        messages,
+      },
+      ...sessions,
+    ];
+  }
+  return sessions.map((s) => (s.id === activeSessionId ? { ...s, messages, title: s.title === 'New Agent Chat' ? title : s.title } : s));
+}
+
+const ACTIVE_SESSION_KEY = 'dsh.chat.activeSession';
+
+function getSavedSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(ACTIVE_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveSessionId(id: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (id) {
+      localStorage.setItem(ACTIVE_SESSION_KEY, id);
+    } else {
+      localStorage.removeItem(ACTIVE_SESSION_KEY);
+    }
+  } catch {}
+}
+
+const initialActiveId = getSavedSessionId() || 'default';
+
+export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
+  sessions: initialActiveId === 'default'
+    ? [
+        {
+          id: 'default',
+          title: 'Default Session',
+          createdAt: new Date().toISOString(),
+          messages: [],
+        },
+      ]
+    : [
+        {
+          id: initialActiveId,
+          title: 'Chat Session',
+          createdAt: new Date().toISOString(),
+          messages: [],
+        },
+        {
+          id: 'default',
+          title: 'Default Session',
+          createdAt: new Date().toISOString(),
+          messages: [],
+        },
+      ],
+  activeSessionId: initialActiveId,
   isConnected: false,
   agentStatuses: {
     orchestrator: 'idle',
@@ -43,16 +125,32 @@ export const useChatStore = create<ChatState>((set) => ({
   anomalyData: null,
   auditData: null,
   pendingProposals: [],
-  sessionId: 'default',
+  sessionId: initialActiveId,
 
-  setSessionId: (sessionId) => set({ sessionId }),
+  setSessionId: (sessionId) =>
+    set((state) => ({
+      sessionId,
+      activeSessionId: sessionId,
+      sessions: state.sessions.some((s) => s.id === sessionId)
+        ? state.sessions
+        : [
+            ...state.sessions,
+            {
+              id: sessionId,
+              title: 'Chat Session',
+              createdAt: new Date().toISOString(),
+              messages: state.messages,
+            },
+          ],
+    })),
 
   addMessage: (message) =>
     set((state) => {
       if (state.messages.some((m) => m.id === message.id)) return state;
       const newMessages = [...state.messages, message];
       const updates = syncWorkspaceFromMessages(newMessages);
-      return { messages: newMessages, ...updates };
+      const updatedSessions = updateSessionList(state.sessions, state.activeSessionId, newMessages);
+      return { messages: newMessages, sessions: updatedSessions, ...updates };
     }),
 
   appendStreamChunk: (id, delta) =>
@@ -76,7 +174,8 @@ export const useChatStore = create<ChatState>((set) => ({
         updated = [...state.messages, newMsg];
       }
       const updates = syncWorkspaceFromMessages(updated);
-      return { messages: updated, ...updates };
+      const updatedSessions = updateSessionList(state.sessions, state.activeSessionId, updated);
+      return { messages: updated, sessions: updatedSessions, ...updates };
     }),
 
   appendStreamThought: (id, delta) =>
@@ -102,7 +201,8 @@ export const useChatStore = create<ChatState>((set) => ({
           metadata: { reasoning: delta },
           timestamp: new Date().toISOString(),
         };
-        return { messages: [...state.messages, newMsg] };
+        const updated = [...state.messages, newMsg];
+        return { messages: updated };
       }
     }),
 
@@ -132,12 +232,150 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
 
   setMessages: (messages) =>
-    set(() => {
+    set((state) => {
       const updates = syncWorkspaceFromMessages(messages);
-      return { messages, ...updates };
+      const updatedSessions = updateSessionList(state.sessions, state.activeSessionId, messages);
+      return { messages, sessions: updatedSessions, ...updates };
     }),
 
-  clearMessages: () => set({ messages: [], pendingProposals: [], activeWorkspace: 'empty', workspaceData: null }),
+  clearMessages: () =>
+    set((state) => ({
+      messages: [],
+      pendingProposals: [],
+      activeWorkspace: 'empty',
+      workspaceData: null,
+      sessions: state.sessions.map((s) => (s.id === state.activeSessionId ? { ...s, messages: [] } : s)),
+    })),
+
+  fetchSessions: async () => {
+    try {
+      const res = await fetchChatSessions();
+      if (res && Array.isArray(res.sessions)) {
+        set((state) => {
+          const currentSessions = [...state.sessions];
+          for (const s of res.sessions) {
+            const idx = currentSessions.findIndex((ex) => ex.id === s.session_id);
+            if (idx >= 0) {
+              currentSessions[idx] = {
+                ...currentSessions[idx],
+                title: s.title || currentSessions[idx].title,
+                createdAt: s.last_updated || currentSessions[idx].createdAt,
+              };
+            } else {
+              currentSessions.push({
+                id: s.session_id,
+                title: s.title || 'Chat Session',
+                createdAt: s.last_updated || new Date().toISOString(),
+                messages: [],
+              });
+            }
+          }
+          return { sessions: currentSessions };
+        });
+      }
+
+      const savedId = getSavedSessionId();
+      if (savedId) {
+        const exists = get().sessions.some((s) => s.id === savedId);
+        if (exists) {
+          await get().switchSession(savedId);
+        } else {
+          saveActiveSessionId(null);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch sessions:', err);
+    }
+  },
+
+  createSession: (title) => {
+    const newId = `session_${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: title || 'New Agent Chat',
+      createdAt: new Date().toISOString(),
+      messages: [],
+    };
+    saveActiveSessionId(newId);
+    set((state) => ({
+      sessions: [newSession, ...state.sessions],
+      activeSessionId: newId,
+      sessionId: newId,
+      messages: [],
+    }));
+    return newId;
+  },
+
+  switchSession: async (sessionId) => {
+    saveActiveSessionId(sessionId);
+    set({ activeSessionId: sessionId, sessionId });
+    const session = get().sessions.find((s) => s.id === sessionId);
+    if (session && session.messages.length > 0) {
+      set({ messages: session.messages });
+      return;
+    }
+    try {
+      const history = await fetchChatHistory(sessionId);
+      if (history && Array.isArray(history.messages)) {
+        set((state) => ({
+          messages: history.messages,
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, messages: history.messages } : s
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch history for session:', sessionId, err);
+    }
+  },
+
+  renameSession: (sessionId, newTitle) => {
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, title: newTitle } : s
+      ),
+    }));
+  },
+
+  deleteSession: async (sessionId) => {
+    try {
+      await clearChatDatabase(sessionId);
+    } catch (err) {
+      console.error('Failed to delete session:', sessionId, err);
+    }
+    const currentSaved = getSavedSessionId();
+    if (currentSaved === sessionId) {
+      saveActiveSessionId(null);
+    }
+    set((state) => {
+      const remaining = state.sessions.filter((s) => s.id !== sessionId);
+      let nextActive = state.activeSessionId;
+      let nextMessages = state.messages;
+      if (state.activeSessionId === sessionId) {
+        if (remaining.length > 0) {
+          nextActive = remaining[0].id;
+          nextMessages = remaining[0].messages || [];
+        } else {
+          const defSession: ChatSession = {
+            id: 'default',
+            title: 'Default Session',
+            createdAt: new Date().toISOString(),
+            messages: [],
+          };
+          remaining.push(defSession);
+          nextActive = 'default';
+          nextMessages = [];
+        }
+        saveActiveSessionId(nextActive);
+      }
+      return {
+        sessions: remaining,
+        activeSessionId: nextActive,
+        sessionId: nextActive,
+        messages: nextMessages,
+      };
+    });
+  },
 }));
 
 function autoRepairJson(str: string): any {

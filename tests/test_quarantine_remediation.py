@@ -33,18 +33,18 @@ async def test_quarantine_remediation_and_rejection_flow(tmp_db):
         INSERT INTO quarantine (id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, reason, original_data, lineage_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ["q_1", "snap_10", "vinfast_bms", 101, "R1_SOC", "v1.0", "battery_soc < 0.0 violation", '{"battery_soc": -5.2}', "hash_101"]
+        ["q_1", "snap_10", "ev_telemetry", 101, "R1_SOC", "v1.0", "battery_soc < 0.0 violation", '{"battery_soc": -5.2}', "hash_101"]
     )
     tmp_db.execute(
         """
         INSERT INTO quarantine (id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, reason, original_data, lineage_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ["q_2", "snap_10", "vinfast_bms", 102, "R1_SOC", "v1.0", "battery_soc < 0.0 violation", '{"battery_soc": -12.0}', "hash_102"]
+        ["q_2", "snap_10", "ev_telemetry", 102, "R1_SOC", "v1.0", "battery_soc < 0.0 violation", '{"battery_soc": -12.0}', "hash_102"]
     )
 
     # 1. Check initial group status (defaults to QUARANTINED)
-    groups_res = await get_quarantine_groups(source_table="vinfast_bms")
+    groups_res = await get_quarantine_groups(source_table="ev_telemetry")
     assert groups_res["groups_count"] == 1
     grp = groups_res["groups"][0]
     assert grp["status"] == "QUARANTINED"
@@ -53,7 +53,7 @@ async def test_quarantine_remediation_and_rejection_flow(tmp_db):
     # 2. Reject the remediation recommendation
     reject_res = await reject_quarantine_group(RejectRequest(
         rule_id="R1_SOC",
-        source_table="vinfast_bms",
+        source_table="ev_telemetry",
         reason="Operator rejected automated SQL patch; retaining for manual audit",
         action_by="Operator_Test"
     ))
@@ -69,29 +69,31 @@ async def test_quarantine_remediation_and_rejection_flow(tmp_db):
     assert rows[0][2] == "Operator_Test"
 
     # Verify filtering groups by status
-    pending_groups = await get_quarantine_groups(source_table="vinfast_bms", status="QUARANTINED")
+    pending_groups = await get_quarantine_groups(source_table="ev_telemetry", status="QUARANTINED")
     assert pending_groups["groups_count"] == 0
 
-    rejected_groups = await get_quarantine_groups(source_table="vinfast_bms", status="REJECTED_HELD")
+    rejected_groups = await get_quarantine_groups(source_table="ev_telemetry", status="REJECTED_HELD")
     assert rejected_groups["groups_count"] == 1
     assert rejected_groups["groups"][0]["status"] == "REJECTED_HELD"
 
     # 3. User changes mind and Accepts remediation on the REJECTED_HELD group
     rem_res = await remediate_quarantine_group(RemediateRequest(
         rule_id="R1_SOC",
-        source_table="vinfast_bms",
-        sql_query="UPDATE vinfast_bms SET battery_soc = 0.0 WHERE battery_soc < 0.0;",
+        source_table="ev_telemetry",
+        sql_query=None,
         action_by="Operator_Test"
     ))
     assert rem_res["status"] == "success"
     assert rem_res["remediated_count"] == 2
 
-    # Verify records cleared from quarantine table
-    final_q = tmp_db.execute("SELECT COUNT(*) FROM quarantine WHERE rule_id = 'R1_SOC'")[0][0]
-    assert final_q == 0
+    # Verify records keep lineage and are marked resolved
+    final_q = tmp_db.execute("SELECT COUNT(*) FROM quarantine WHERE rule_id = 'R1_SOC' AND status = 'RESOLVED'")[0][0]
+    assert final_q == 2
 
     # Verify audit log recorded
     audit_rows = tmp_db.execute("SELECT action, actor, target_table FROM audit_log WHERE target_id = 'R1_SOC' ORDER BY timestamp ASC")
     assert len(audit_rows) == 2
     assert audit_rows[0][0] == "QUARANTINE_REJECT"
     assert audit_rows[1][0] == "QUARANTINE_REMEDIATE"
+
+

@@ -31,8 +31,8 @@ def test_init_schema_creates_all_tables(tmp_db):
     table_names = [t[0] for t in tables]
     expected = [
         "agent_traces", "audit_log", "profile_results", "quality_rules",
-        "quarantine", "raw_snapshots", "vgreen_telemetry", "vinfast_bms",
-        "xanhsm_feedback", "xanhsm_trips"
+        "quarantine", "raw_snapshots", "charging_sessions", "ev_telemetry",
+        "nlp_feedback", "trips"
     ]
     for name in expected:
         assert name in table_names, f"Missing table: {name}"
@@ -51,42 +51,42 @@ def test_init_schema_idempotent(tmp_db):
 def test_insert_and_query_raw_snapshots(tmp_db):
     """Can insert and query raw_snapshots."""
     tmp_db.execute(
-        "INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count) VALUES (?, ?, ?, ?, ?, ?)",
-        ["snap-1", "test_source", "/tmp/test.csv", "abc123" * 10 + "abcd", 100, 5]
+        "INSERT INTO raw_snapshots (id, topic_name, file_path, sha256_hash, row_count, column_count) VALUES (?, ?, ?, ?, ?, ?)",
+        ["snap-1", "test_topic", "/tmp/test.csv", "abc123" * 10 + "abcd", 100, 5]
     )
     rows = tmp_db.execute("SELECT * FROM raw_snapshots WHERE id = 'snap-1'")
     assert len(rows) == 1
-    assert rows[0][1] == "test_source"
+    assert rows[0][1] == "test_topic"
 
 
-def test_insert_and_query_xanhsm_feedback(tmp_db):
-    """Can insert and query xanhsm_feedback."""
+def test_insert_and_query_nlp_feedback(tmp_db):
+    """Can insert and query nlp_feedback."""
     tmp_db.execute(
-        "INSERT INTO xanhsm_feedback (id, review_text, rating, source) VALUES (?, ?, ?, ?)",
+        "INSERT INTO nlp_feedback (id, sentence, sentiment, topic) VALUES (?, ?, ?, ?)",
         [1, "Trạm sạc rất tốt", 4.5, "google_maps"]
     )
-    rows = tmp_db.execute("SELECT * FROM xanhsm_feedback WHERE id = 1")
+    rows = tmp_db.execute("SELECT * FROM nlp_feedback WHERE id = 1")
     assert len(rows) == 1
     assert rows[0][1] == "Trạm sạc rất tốt"
 
 
-def test_insert_and_query_vgreen_telemetry(tmp_db):
-    """Can insert and query vgreen_telemetry."""
+def test_insert_and_query_charging_sessions(tmp_db):
+    """Can insert and query charging_sessions."""
     tmp_db.execute(
-        "INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, status) VALUES (?, ?, ?, ?)",
+        "INSERT INTO charging_sessions (id, station_id, station_temp_c, status) VALUES (?, ?, ?, ?)",
         [1, "VG-001", 85.5, "THERMAL_FAULT"]
     )
-    rows = tmp_db.execute("SELECT temperature_celsius FROM vgreen_telemetry WHERE station_id = 'VG-001'")
+    rows = tmp_db.execute("SELECT station_temp_c FROM charging_sessions WHERE station_id = 'VG-001'")
     assert rows[0][0] == 85.5
 
 
-def test_insert_and_query_vinfast_bms(tmp_db):
-    """Can insert and query vinfast_bms."""
+def test_insert_and_query_ev_telemetry(tmp_db):
+    """Can insert and query ev_telemetry."""
     tmp_db.execute(
-        "INSERT INTO vinfast_bms (id, vehicle_id, battery_soc, bms_fault_code) VALUES (?, ?, ?, ?)",
+        "INSERT INTO ev_telemetry (id, vehicle_vin, battery_soc, record_id) VALUES (?, ?, ?, ?)",
         [1, "VF8-001", 72.5, "0x4B"]
     )
-    rows = tmp_db.execute("SELECT bms_fault_code FROM vinfast_bms WHERE vehicle_id = 'VF8-001'")
+    rows = tmp_db.execute("SELECT record_id FROM ev_telemetry WHERE vehicle_vin = 'VF8-001'")
     assert rows[0][0] == "0x4B"
 
 
@@ -94,7 +94,7 @@ def test_insert_and_query_quality_rules(tmp_db):
     """Can insert quality rules with default status."""
     tmp_db.execute(
         "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence) VALUES (?, ?, ?, ?, ?)",
-        ["rule-1", "temp_check", "range", "temperature_celsius < 80.0", 0.95]
+        ["rule-1", "temp_check", "range", "station_temp_c < 80.0", 0.95]
     )
     rows = tmp_db.execute("SELECT status FROM quality_rules WHERE id = 'rule-1'")
     assert rows[0][0] == "proposed"
@@ -103,8 +103,8 @@ def test_insert_and_query_quality_rules(tmp_db):
 def test_insert_and_query_quarantine(tmp_db):
     """Can insert quarantine records."""
     tmp_db.execute(
-        "INSERT INTO quarantine (id, source_table, source_row_id, reason, lineage_hash) VALUES (?, ?, ?, ?, ?)",
-        ["q-1", "vgreen_telemetry", 1, "Temperature exceeds threshold", "sha256hash"]
+        "INSERT INTO quarantine (id, topic_table, topic_row_id, reason, lineage_hash) VALUES (?, ?, ?, ?, ?)",
+        ["q-1", "charging_sessions", 1, "Temperature exceeds threshold", "sha256hash"]
     )
     rows = tmp_db.execute("SELECT reason FROM quarantine WHERE id = 'q-1'")
     assert "Temperature" in rows[0][0]
@@ -120,13 +120,13 @@ def test_insert_and_query_agent_traces(tmp_db):
     assert rows[0][0] == "orchestrator"
 
 
-def test_insert_and_query_xanhsm_trips(tmp_db):
-    """Can insert and query xanhsm_trips."""
+def test_insert_and_query_trips(tmp_db):
+    """Can insert and query trips."""
     tmp_db.execute(
-        "INSERT INTO xanhsm_trips (id, trip_id, driver_id, distance_km, fare_vnd) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO trips (id, trip_id, driver_id, trip_distance_km, fare_amount) VALUES (?, ?, ?, ?, ?)",
         [1, "TRIP-001", "DRV-001", 12.5, 85000.0]
     )
-    rows = tmp_db.execute("SELECT fare_vnd FROM xanhsm_trips WHERE trip_id = 'TRIP-001'")
+    rows = tmp_db.execute("SELECT fare_amount FROM trips WHERE trip_id = 'TRIP-001'")
     assert rows[0][0] == 85000.0
 
 
@@ -164,16 +164,16 @@ def test_seed_database(tmp_db):
     snaps = tmp_db.execute("SELECT COUNT(*) FROM raw_snapshots")
     assert snaps[0][0] == 4
 
-    feedback = tmp_db.execute("SELECT COUNT(*) FROM xanhsm_feedback")
+    feedback = tmp_db.execute("SELECT COUNT(*) FROM nlp_feedback")
     assert feedback[0][0] > 0
 
-    vgreen = tmp_db.execute("SELECT COUNT(*) FROM vgreen_telemetry")
+    vgreen = tmp_db.execute("SELECT COUNT(*) FROM charging_sessions")
     assert vgreen[0][0] > 0
 
-    bms = tmp_db.execute("SELECT COUNT(*) FROM vinfast_bms")
+    bms = tmp_db.execute("SELECT COUNT(*) FROM ev_telemetry")
     assert bms[0][0] > 0
 
-    trips = tmp_db.execute("SELECT COUNT(*) FROM xanhsm_trips")
+    trips = tmp_db.execute("SELECT COUNT(*) FROM trips")
     assert trips[0][0] > 0
 
 
@@ -184,7 +184,7 @@ def test_seed_database_provenance_verification(tmp_db):
 
     seed_database(db_path=tmp_db.db_path)
     
-    rows = tmp_db.execute("SELECT source_name, provenance, tag FROM raw_snapshots")
+    rows = tmp_db.execute("SELECT topic_name, provenance, tag FROM raw_snapshots")
     assert len(rows) == 4
     for r in rows:
         assert r[1] == DataProvenance.SEMI_SYNTHETIC.value
@@ -244,5 +244,6 @@ def test_data_provenance_enum_values():
     assert DataProvenance.REAL_OPERATIONAL.value == "REAL_OPERATIONAL"
     assert DataProvenance.PUBLIC_PROXY.value == "PUBLIC_PROXY"
     assert DataProvenance.SYNTHETIC.value == "SYNTHETIC"
+
 
 

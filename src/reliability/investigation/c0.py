@@ -31,10 +31,12 @@ class C0DeterministicBaseline:
         # Rule 1: Known L1 Range Violation on Battery SOC
         for sig_id in incident.signal_ids:
             if "RANGE_VIOLATION" in sig_id or "battery_soc" in incident.admission_reason:
+                entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
                 hyp = Hypothesis(
                     incident_id=incident.incident_id,
-                    claim=f"Deterministic C0 identified out-of-range sensor value for {incident.entity_ids[0] if incident.entity_ids else 'unknown'}.",
-                    classification="DATA",
+                    claim=f"Deterministic C0 identified out-of-range sensor value for {entity_id}.",
+                    classification="SYSTEM_DATA_LOGIC",
+                    target_entity_id=entity_id,
                     supporting_evidence=[e.evidence_id for e in initial_evidence],
                     confidence=1.0,
                     status="CONFIRMED"
@@ -44,10 +46,12 @@ class C0DeterministicBaseline:
 
         # Rule 2: Critical L1 NULL violation
         if "NULL_VIOLATION" in incident.admission_reason:
+            entity_id = incident.entity_ids[0] if incident.entity_ids else "unknown_entity"
             hyp = Hypothesis(
                 incident_id=incident.incident_id,
-                claim=f"Deterministic C0 confirmed missing mandatory attribute in {incident.entity_ids[0] if incident.entity_ids else 'unknown'}.",
-                classification="DATA",
+                claim=f"Deterministic C0 confirmed missing mandatory attribute in {entity_id}.",
+                classification="SYSTEM_DATA_LOGIC",
+                target_entity_id=entity_id,
                 supporting_evidence=[e.evidence_id for e in initial_evidence],
                 confidence=1.0,
                 status="CONFIRMED"

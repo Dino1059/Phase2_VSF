@@ -168,7 +168,7 @@ def get_incident(incident_id: str):
 
 
 @router.post("/{incident_id}/investigate")
-def investigate_incident(incident_id: str, mode: str = Query("A1"), use_llm: bool = Query(False)):
+def investigate_incident(incident_id: str, mode: str = Query("A1"), use_llm: bool = Query(True)):
     """
     Run incident investigation dynamically with A1 Bounded Investigator or other modes.
     When use_llm is True, instantiates LLMService and executes live multi-turn ReAct loop.

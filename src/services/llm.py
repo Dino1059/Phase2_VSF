@@ -80,6 +80,42 @@ class KeyRotator:
         return len(self._keys)
 
 
+_spend_lock = threading.Lock()
+_tokens_spent_total = 0
+_USD_PER_TOKEN = 1.5e-7  # conservative display estimate; cap is token-count first
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _llm_killed() -> bool:
+    if _env_flag("LLM_KILL_SWITCH"):
+        return True
+    try:
+        cap = int(os.environ.get("LLM_MAX_TOKENS", "10000") or "10000")
+    except ValueError:
+        cap = 10000
+    try:
+        spend_cap = float(os.environ.get("LLM_MAX_SPEND_USD", "10") or "10")
+    except ValueError:
+        spend_cap = 10.0
+    with _spend_lock:
+        if _tokens_spent_total >= max(1, cap):
+            return True
+        if _tokens_spent_total * _USD_PER_TOKEN >= spend_cap:
+            return True
+    return False
+
+
+def _record_spend(tokens: int) -> None:
+    global _tokens_spent_total
+    if not tokens:
+        return
+    with _spend_lock:
+        _tokens_spent_total += int(tokens)
+
+
 class UnifiedLLMAdapter:
     """
     Unified LLM Adapter with multi-provider support.
@@ -136,7 +172,7 @@ class UnifiedLLMAdapter:
         
         self.preferred_provider = os.environ.get("LLM_PROVIDER", "auto").lower()
         env_use_llm = os.environ.get("USE_LLM", "true").lower() not in ("false", "off", "0", "no")
-        if self.preferred_provider in ("off", "none", "mock", "heuristic", "false", "disabled") or not env_use_llm:
+        if self.preferred_provider in ("off", "none", "mock", "heuristic", "false", "disabled") or not env_use_llm or _llm_killed():
             self.use_llm = False
         else:
             self.use_llm = use_llm
@@ -164,44 +200,127 @@ class UnifiedLLMAdapter:
     def api_key(self) -> str:
         return (
             self._explicit_key
+            or self.openrouter_key
             or (self._google_keys._keys[0] if self._google_keys.has_keys else "")
             or self.openai_key
             or self.groq_key
-            or self.openrouter_key
         )
 
     @property
     def model(self) -> str:
         if self._explicit_model:
             return self._explicit_model
-        if self._google_keys.has_keys or os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL"):
+        if self.preferred_provider == "gemini" or os.environ.get("GOOGLE_AI_MODEL") or os.environ.get("AI_MODEL"):
+            return self.gemini_model
+        if self.preferred_provider == "openai":
+            return self.openai_model
+        if self.preferred_provider == "groq":
+            return self.groq_model
+        if self.preferred_provider == "ollama":
+            return self.ollama_model
+        if self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"):
+            return self.openrouter_model
+        if self._google_keys.has_keys:
             return self.gemini_model
         if self.openai_key and not self.openai_key.startswith("sk-your-") and not self.openai_key.startswith("test-"):
             return self.openai_model
-        return self.gemini_model
+        return self.openrouter_model
+
+    def get_status(self) -> dict[str, Any]:
+        """Check and return active provider and model status info."""
+        if not self.use_llm:
+            return {
+                "status": "disabled",
+                "provider": "heuristic",
+                "model": "Deterministic Rule Engine (LLM Off)",
+                "use_llm": False,
+                "has_api_key": False,
+                "kill_switch": _llm_killed(),
+                "tokens_spent": _tokens_spent_total,
+                "description": "LLM Off / Fallback to Deterministic Engine",
+            }
+
+        if self.preferred_provider == "openai":
+            order = ["openai", "openrouter", "gemini", "groq", "ollama"]
+        elif self.preferred_provider == "groq":
+            order = ["groq", "openrouter", "gemini", "openai", "ollama"]
+        elif self.preferred_provider == "gemini":
+            order = ["gemini", "openrouter", "openai", "groq", "ollama"]
+        else:
+            order = ["openrouter", "gemini", "openai", "groq", "ollama"]
+
+        active_prov = "heuristic"
+        active_mdl = "heuristic"
+        has_key = False
+
+        for p in order:
+            if p == "openrouter" and self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"):
+                active_prov = "openrouter"
+                active_mdl = self.openrouter_model
+                has_key = True
+                break
+            elif p == "gemini" and self._google_keys.has_keys:
+                active_prov = "gemini"
+                active_mdl = self.gemini_model
+                has_key = True
+                break
+            elif p == "openai" and self.openai_key and not self.openai_key.startswith("sk-your-") and not self.openai_key.startswith("test-"):
+                active_prov = "openai"
+                active_mdl = self.openai_model
+                has_key = True
+                break
+            elif p == "groq" and self.groq_key and not self.groq_key.startswith("gsk_your-"):
+                active_prov = "groq"
+                active_mdl = self.groq_model
+                has_key = True
+                break
+            elif p == "ollama" and self._check_ollama():
+                active_prov = "ollama"
+                active_mdl = self.ollama_model
+                has_key = True
+                break
+
+        return {
+            "status": "online" if has_key else "fallback_ready",
+            "provider": active_prov,
+            "model": active_mdl,
+            "use_llm": self.use_llm,
+            "has_api_key": has_key,
+            "kill_switch": _llm_killed(),
+            "tokens_spent": _tokens_spent_total,
+            "description": f"Active LLM: {active_prov} ({active_mdl})" if has_key else "LLM Fallback (No active provider key)",
+        }
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None, raise_on_error: bool = False) -> LLMResponse:
         """
-        Send chat messages with strictly gemini-3.5-flash-lite primary (with 4-key rate-limit rotation), gpt-5-nano fallback.
+        Send chat messages using multi-provider fallback order. Primary: openrouter (openai/gpt-4o-mini).
         """
-        if not self.use_llm:
+        if not self.use_llm or _llm_killed():
+            self.use_llm = False
             return self._heuristic_fallback(messages)
+
+        def _track(resp: LLMResponse) -> LLMResponse:
+            _record_spend(int(resp.tokens_used or 0))
+            if _llm_killed():
+                self.use_llm = False
+            return resp
 
         if self._explicit_key == "invalid-key":
             raise LLMUnavailableException("Invalid API key provided.")
 
-        # Strict 2-option chain: gemini-3.5-flash-lite -> openai gpt-5-nano
         if self.preferred_provider == "openai":
-            provider_order = ["openai", "gemini"]
+            provider_order = ["openai", "openrouter", "gemini", "groq", "ollama"]
         elif self.preferred_provider == "groq":
-            provider_order = ["groq", "gemini", "openai"]
+            provider_order = ["groq", "openrouter", "gemini", "openai", "ollama"]
+        elif self.preferred_provider == "gemini":
+            provider_order = ["gemini", "openrouter", "openai", "groq", "ollama"]
         else:
-            provider_order = ["gemini", "openai"]
+            provider_order = ["openrouter", "gemini", "openai", "groq", "ollama"]
 
         for provider in provider_order:
             if provider == "groq" and self.groq_key and not self.groq_key.startswith("gsk_your-"):
                 try:
-                    return self._call_groq(messages, tools)
+                    return _track(self._call_groq(messages, tools))
                 except Exception as e:
                     if raise_on_error:
                         raise LLMUnavailableException(f"Groq call failed: {e}") from e
@@ -209,7 +328,7 @@ class UnifiedLLMAdapter:
 
             elif provider == "openai" and self.openai_key and not self.openai_key.startswith("sk-your-"):
                 try:
-                    return self._call_openai(messages, tools)
+                    return _track(self._call_openai(messages, tools))
                 except Exception as e:
                     if raise_on_error:
                         raise LLMUnavailableException(f"OpenAI call failed: {e}") from e
@@ -217,7 +336,7 @@ class UnifiedLLMAdapter:
 
             elif provider == "openrouter" and self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"):
                 try:
-                    return self._call_openrouter(messages, tools)
+                    return _track(self._call_openrouter(messages, tools))
                 except Exception as e:
                     if raise_on_error:
                         raise LLMUnavailableException(f"OpenRouter call failed: {e}") from e
@@ -230,7 +349,7 @@ class UnifiedLLMAdapter:
                     if not key:
                         break
                     try:
-                        return self._call_gemini(messages, tools, key, self.gemini_model)
+                        return _track(self._call_gemini(messages, tools, key, self.gemini_model))
                     except urllib.error.HTTPError as http_err:
                         key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
                         if http_err.code in (429, 503, 500):
@@ -251,7 +370,7 @@ class UnifiedLLMAdapter:
 
             elif provider == "ollama" and self._check_ollama():
                 try:
-                    return self._call_ollama(messages, tools)
+                    return _track(self._call_ollama(messages, tools))
                 except Exception as e:
                     print(f"[LLM] Ollama/Gemma call failed: {e}.")
 

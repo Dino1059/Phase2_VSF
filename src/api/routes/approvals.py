@@ -101,10 +101,10 @@ async def authorize_execution(request: AuthorizeRequest):
     import hashlib
     db = get_db()
     try:
-        # Check that rules exist and are approved
         for rid in request.rule_ids:
             rows = db.execute("SELECT status FROM quality_rules WHERE id = ?", [rid])
-            if not rows or rows[0][0] != "approved":
+            status = str(rows[0][0]).strip().lower() if rows else ""
+            if status not in ("approved", "edited"):
                 raise HTTPException(
                     status_code=403,
                     detail=f"Rule '{rid}' is not approved by HITL. Execution authorization denied.",

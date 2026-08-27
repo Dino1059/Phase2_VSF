@@ -3,7 +3,7 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import (
@@ -36,6 +36,7 @@ from src.api.quarantine_api import quarantine_router
 from src.api.snapshots import snapshots_router
 from src.api.ingestion import router as ingestion_router
 from src.api.routes.telemetry import telemetry_router
+from src.memory.routes import memory_router
 from src.services.ingestion import streaming_worker
 from src.config import get_settings
 from src.services.dataset_engine import seed_dataset
@@ -89,6 +90,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Failed to auto-start RealtimeRunner: {e}")
 
+    # Centralized LLM Manager startup check
+    try:
+        from src.services.llm import UnifiedLLMAdapter
+        llm_status = UnifiedLLMAdapter().get_status()
+        print(f"[LLM Startup Check] Provider: {llm_status['provider']} | Model: {llm_status['model']} | Status: {llm_status['status']}")
+    except Exception as e:
+        print(f"[LLM Startup Check] Failed: {e}")
+
     yield
     try:
         from src.services.ingestion.realtime_runner import stop_realtime
@@ -127,6 +136,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def health_fastpath(request: Request, call_next):
+    if request.url.path in ("/health", "/health/"):
+        s = get_settings()
+        return JSONResponse(
+            {"status": "ok", "app": s.app_name, "env": s.app_env, "version": s.app_version}
+        )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -183,11 +202,12 @@ app.include_router(ingestion_router, prefix="/api/v1")
 app.include_router(hitl_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
 app.include_router(system_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")
 
 
 
 @app.get("/health")
-async def health():
+def health():
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env, "version": settings.app_version}
 
 

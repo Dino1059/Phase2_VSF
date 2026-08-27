@@ -17,6 +17,7 @@ from src.reliability.detectors.l1_rules import L1ConstraintDetector
 from src.reliability.detectors.l2_contextual import L2ContextualDetector
 from src.reliability.detectors.l3_relational import L3RelationalDetector
 from src.reliability.detectors.l4_changepoint import L4ChangepointDetector
+from src.reliability.fusion.engine import FusionEngine
 from src.reliability.investigation.reliability_orchestrator import (
     ReliabilityOrchestrator,
     InvestigationResult,
@@ -245,16 +246,19 @@ def test_orchestrator_dedupes_signals_by_id():
 
 
 def test_orchestrator_separates_incidents_by_entity():
-    """Signals from different entities (same project) must form separate incidents."""
-    orchestrator = ReliabilityOrchestrator()
+    """Without correlation, signals from different entities form separate incidents. With correlation, same rule signals compress."""
+    orchestrator_nocorr = ReliabilityOrchestrator(fusion_engine=FusionEngine(use_correlation=False))
     now = datetime.now(timezone.utc)
 
     sig_a = _make_signal("L1", "sig-a", "battery_soc", "CRITICAL", 9.0, "proj-split", ["VIN-A"], now)
     sig_b = _make_signal("L1", "sig-b", "battery_soc", "CRITICAL", 9.0, "proj-split", ["VIN-B"], now)
 
-    results = orchestrator.run_pipeline({"L1": [sig_a, sig_b]}, project_id="proj-split")
+    results_nocorr = orchestrator_nocorr.run_pipeline({"L1": [sig_a, sig_b]}, project_id="proj-split")
+    assert len(results_nocorr) == 2
 
-    assert len(results) == 2
-    entity_ids = {tuple(sorted(r.incident.entity_ids)) for r in results}
-    assert (("VIN-A",),) in entity_ids or (("VIN-A",)) in entity_ids
-    assert (("VIN-B",),) in entity_ids or (("VIN-B",)) in entity_ids
+    # With default correlation engine (Phase 3)
+    orchestrator = ReliabilityOrchestrator()
+    results = orchestrator.run_pipeline({"L1": [sig_a, sig_b]}, project_id="proj-split")
+    assert len(results) == 1
+    assert results[0].incident.occurrence_count == 2
+    assert sorted(results[0].incident.entity_ids) == ["VIN-A", "VIN-B"]

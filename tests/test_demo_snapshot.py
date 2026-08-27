@@ -146,7 +146,9 @@ def test_hitl_opens_sandbox_after_approve():
     ui = (ROOT / "frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
     assert "Run sandbox" in ui
     assert "approvalsApi.authorize" in ui
-    assert "hitlApi.execute" in ui
+    assert "hitlApi.execute" not in ui
+    assert "hitlApi.getSandbox" in ui
+    assert "SandboxDiff" in ui
     assert "Execute disabled · sandbox not run · quarantine=0" in ui
 
 
@@ -224,7 +226,7 @@ def test_hitl_approve_is_not_execute():
     assert "hitlApi.approve" in approve
     assert "hitlApi.execute" not in approve
     assert "approvalsApi.authorize" in ui
-    assert "hitlApi.execute" in ui
+    assert "hitlApi.execute" not in ui
     assert "Execute disabled · sandbox not run · quarantine=0" in ui
 
 

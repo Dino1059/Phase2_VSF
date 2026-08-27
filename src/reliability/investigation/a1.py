@@ -222,31 +222,33 @@ class A1BoundedInvestigator:
             f"Allowed Diagnostic Tools for domain {target_domain}:\n{tools_text}\n\n"
             "Investigation Instructions:\n"
             "1. Read the Admission Observation and Initial Evidence carefully.\n"
-            "2. The Admission Observation is only an unverified trigger. You must actively inspect raw telemetry, baseline drift, contracts, or data quality violations using diagnostic tools to differentiate between DATA corruption, SENSOR glitch, and OPERATIONAL degradation.\n"
+            "2. The Admission Observation is only an unverified trigger. You must actively inspect raw telemetry, baseline drift, contracts, or data quality violations using diagnostic tools to differentiate between SYSTEM_DATA_LOGIC defect, HARDWARE_SENSOR_FAULT, and REAL_WORLD_EVENT.\n"
             "3. Execute an ACTION to query relevant diagnostic tools. When you have gathered sufficient empirical evidence, synthesize your FINAL_HYPOTHESIS with concrete supporting evidence references.\n"
-            "4. Your diagnosis must be precise and derived strictly from observed evidence:\n"
-            "   - 'classification': 'DATA' (pipeline defect, sensor corruption, schema violation, negative bound), 'OPERATIONAL' (physical degradation, cooling failure, route regime shift), or 'MIXED'.\n"
-            "   - 'target_component': The specific subsystem/component/domain affected (e.g. 'BMS', 'BATTERY', 'MOTOR', 'TACHOMETER', 'CHARGING_STATION', 'GPS', 'BILLING_PIPELINE', 'ACCOUNTING_LEDGER', 'DRIVER_REGIME').\n"
-            "   - 'target_metric': The exact metric or column exhibiting abnormal behavior (e.g. 'battery_soc', 'battery_voltage', 'motor_rpm', 'cost_vnd', 'fare_amount', 'total_fare', 'pickup_latitude', 'battery_temp_c', 'charging_duration_vs_kwh', 'charging_frequency', 'trip_distance_km').\n"
-            "   - 'failure_mechanism': The hypothesized failure mode (e.g. 'SENSOR_GLITCH', 'RANGE_VIOLATION', 'DESYNCHRONIZATION', 'ARITHMETIC_ERROR', 'SCHEMA_MISMATCH', 'DEGRADATION_DRIFT', 'THERMAL_DRIFT', 'SPATIAL_DRIFT', 'RELATIONAL_BREAK', 'CHANGEPOINT_SHIFT').\n"
-            "   - 'claim': A concise technical statement detailing the exact root cause, component, and observed anomaly.\n\n"
+            "4. Your diagnosis must be precise and classified into one of 3 cause categories:\n"
+            "   - 'REAL_WORLD_EVENT': Valid data reflecting real-world events, operational dispatch shifts, grid outages, or human behaviors.\n"
+            "   - 'SYSTEM_DATA_LOGIC': Data pipeline bugs, schema drift, incorrect Data Quality rules, baseline math, or ETL logic errors.\n"
+            "   - 'HARDWARE_SENSOR_FAULT': Sensor glitch, thermal drift, voltage spike, or CAN-bus hardware/wiring degradation.\n"
+            "   - 'UNKNOWN': Insufficient evidence to determine root cause.\n"
+            "5. Specify exact target context:\n"
+            "   - 'target_entity_id': Affected entity ID (e.g. 'CS-101', 'VF8VNF_0006', 'vinfast_bms').\n"
+            "   - 'target_sub_component': Affected sub-component or signal metric (e.g. 'Pole_CP-04', 'battery_soc', 'BMS_CAN_Gateway').\n"
+            "   - 'claim': Concise 1-sentence root cause statement detailing the problem.\n\n"
             "Response Format Rules:\n"
             "- To call a tool, respond with:\n"
             "ACTION: <tool_name>\n"
             "ARGS: {\"arg_name\": \"value\"}\n\n"
             "- When ready to conclude, respond strictly in JSON:\n"
             "FINAL_HYPOTHESIS: {\n"
-            '  "classification": "DATA" | "OPERATIONAL" | "MIXED",\n'
-            '  "target_component": "<affected_component>",\n'
-            '  "target_metric": "<specific_metric_or_column>",\n'
-            '  "failure_mechanism": "<failure_mode>",\n'
-            '  "anomalous_value_observed": "<value_or_null>",\n'
+            '  "classification": "REAL_WORLD_EVENT" | "SYSTEM_DATA_LOGIC" | "HARDWARE_SENSOR_FAULT" | "UNKNOWN",\n'
+            '  "target_entity_id": "<affected_entity_id>",\n'
+            '  "target_sub_component": "<affected_sub_component>",\n'
+            '  "target_metric": "<specific_metric>",\n'
             '  "claim": "<concise_root_cause_statement>",\n'
+            '  "technical_summary": "<technical_explanation>",\n'
             '  "supporting_evidence_ids": ["<evidence_id_1>", "<evidence_id_2>"],\n'
             '  "contradicting_evidence_ids": [],\n'
             '  "missing_evidence": [],\n'
-            '  "confidence": 0.90,\n'
-            '  "reasoning": "<technical_explanation>"\n'
+            '  "confidence": 0.90\n'
             "}"
         )
 
@@ -398,26 +400,36 @@ class A1BoundedInvestigator:
         valid_ev_ids = {e.evidence_id for e in gathered_evidence}
         if final_parsed_hypothesis:
             claim = final_parsed_hypothesis.get("claim") or f"A1 root cause for {incident.incident_id}"
-            classification = final_parsed_hypothesis.get("classification") or "UNKNOWN"
-            if classification not in ["DATA", "OPERATIONAL", "MIXED", "UNKNOWN"]:
+            raw_class = final_parsed_hypothesis.get("classification") or "UNKNOWN"
+            if raw_class in ["REAL_WORLD_EVENT", "SYSTEM_DATA_LOGIC", "HARDWARE_SENSOR_FAULT", "UNKNOWN"]:
+                classification = raw_class
+            elif raw_class == "DATA":
+                classification = "SYSTEM_DATA_LOGIC"
+            elif raw_class in ("OPERATIONAL", "MIXED"):
+                classification = "HARDWARE_SENSOR_FAULT"
+            else:
                 classification = "UNKNOWN"
+
             conf = float(final_parsed_hypothesis.get("confidence", 0.85))
             sup = [eid for eid in final_parsed_hypothesis.get("supporting_evidence_ids", []) if eid in valid_ev_ids]
             if not sup and gathered_evidence:
                 sup = [gathered_evidence[-1].evidence_id]
             con = [eid for eid in final_parsed_hypothesis.get("contradicting_evidence_ids", []) if eid in valid_ev_ids]
             missing = final_parsed_hypothesis.get("missing_evidence", [])
-            target_comp = final_parsed_hypothesis.get("target_component")
+            target_ent = final_parsed_hypothesis.get("target_entity_id") or entity_id
+            target_sub = final_parsed_hypothesis.get("target_sub_component") or final_parsed_hypothesis.get("target_component")
             target_met = final_parsed_hypothesis.get("target_metric")
             fail_mech = final_parsed_hypothesis.get("failure_mechanism")
             anom_val = final_parsed_hypothesis.get("anomalous_value_observed")
-            tech_sum = final_parsed_hypothesis.get("reasoning") or claim
+            tech_sum = final_parsed_hypothesis.get("technical_summary") or final_parsed_hypothesis.get("reasoning") or claim
 
             hyp = Hypothesis(
                 incident_id=incident.incident_id,
                 claim=claim,
                 classification=classification,
-                target_component=target_comp,
+                target_entity_id=target_ent,
+                target_sub_component=target_sub,
+                target_component=target_sub,
                 target_metric=target_met,
                 failure_mechanism=fail_mech,
                 anomalous_value_observed=anom_val,
@@ -779,29 +791,34 @@ class A1BoundedInvestigator:
 
             detail_str = "; ".join(dict.fromkeys(anomaly_details)) if anomaly_details else ""
 
-            if is_data_focused or (len(data_supporting) > len(op_supporting) and len(data_contradicting) == 0):
-                classification = "DATA"
-                claim = f"Dynamic A1 verified data contract violation in entity {entity_id}: {detail_str}." if detail_str else f"Dynamic A1 verified data contract violation in entity {entity_id}."
+            if any(k in detail_str.lower() for k in ["regime shift", "ghost charging", "power stall", "grid"]):
+                classification = "REAL_WORLD_EVENT"
+                claim = f"Dynamic A1 verified real-world operational event in entity {entity_id}: {detail_str}." if detail_str else f"Dynamic A1 verified real-world operational event in entity {entity_id}."
+                conf = 0.90
+                sup = list(dict.fromkeys(op_supporting or gathered_evidence_ids))
+                con = list(dict.fromkeys(op_contradicting))
+            elif is_data_focused or any(k in detail_str.lower() for k in ["contract", "tariff", "ledger", "billing", "null", "range_violation"]):
+                classification = "SYSTEM_DATA_LOGIC"
+                claim = f"Dynamic A1 verified system data/logic pipeline defect in entity {entity_id}: {detail_str}." if detail_str else f"Dynamic A1 verified system data/logic pipeline defect in entity {entity_id}."
                 conf = 0.88 if len(data_supporting) >= 1 else 0.70
                 sup = list(dict.fromkeys(data_supporting or gathered_evidence_ids))
                 con = list(dict.fromkeys(data_contradicting))
-            elif any("duration" in d or "stall" in d for d in anomaly_details):
-                classification = "MIXED"
-                claim = f"Dynamic A1 verified relational and operational defect in entity {entity_id}: {detail_str}." if detail_str else f"Dynamic A1 verified relational defect in entity {entity_id}."
-                conf = 0.90
-                sup = list(dict.fromkeys(op_supporting + data_supporting or gathered_evidence_ids))
-                con = list(dict.fromkeys(op_contradicting))
             else:
-                classification = "OPERATIONAL"
-                claim = f"Dynamic A1 verified operational defect in entity {entity_id} via multi-tool evidence: {detail_str}." if detail_str else f"Dynamic A1 verified operational defect in entity {entity_id} via multi-tool evidence."
+                classification = "HARDWARE_SENSOR_FAULT"
+                claim = f"Dynamic A1 verified hardware/sensor fault in entity {entity_id} via multi-tool evidence: {detail_str}." if detail_str else f"Dynamic A1 verified hardware/sensor fault in entity {entity_id} via multi-tool evidence."
                 conf = 0.92 if len(op_supporting) >= 2 else 0.85
                 sup = list(dict.fromkeys(op_supporting or gathered_evidence_ids))
                 con = list(dict.fromkeys(op_contradicting))
+
+            sub_comp = anomaly_details[0].split()[0] if anomaly_details else None
 
             hyp = Hypothesis(
                 incident_id=incident.incident_id,
                 claim=claim,
                 classification=classification,
+                target_entity_id=entity_id,
+                target_sub_component=sub_comp,
+                target_component=sub_comp,
                 supporting_evidence=sup,
                 contradicting_evidence=con,
                 missing_evidence=missing_evidence,

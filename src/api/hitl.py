@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
@@ -87,18 +88,34 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     )
     if not dataset_key:
         return db.execute(select_sql + "ORDER BY created_at DESC")
-    like = f"{dataset_key}__%"
+
+    try:
+        dataset_key = normalize_table_name(dataset_key)
+    except ValueError:
+        return []
+    aliases = [dataset_key]
+
+    conditions = []
+    params = []
+    for alias in aliases:
+        conditions.append("dataset_key = ?")
+        params.append(alias)
+        conditions.append("id LIKE ?")
+        params.append(f"{alias}__%")
+        conditions.append("LOWER(rule_name) LIKE ?")
+        params.append(f"%{alias.lower()}%")
+
+    where_clause = " OR ".join(conditions)
     try:
         return db.execute(
-            select_sql
-            + "AND (dataset_key = ? OR id LIKE ?) "
-            "ORDER BY created_at DESC",
-            [dataset_key, like],
+            f"{select_sql} AND ({where_clause}) ORDER BY created_at DESC",
+            params,
         )
     except Exception:
+        like = f"%{dataset_key}%"
         return db.execute(
-            select_sql + "AND id LIKE ? ORDER BY created_at DESC",
-            [like],
+            select_sql + "AND (dataset_key LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
+            [like, like],
         )
 
 
@@ -157,9 +174,9 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
     db = get_db()
     _ensure_hitl_columns(db)
 
-    dataset_key = (payload or {}).get("dataset_key", "vgreen_charging_stations")
+    dataset_key = (payload or {}).get("dataset_key", "charging_sessions")
     table_name = (payload or {}).get("table_name")
-    use_llm = bool((payload or {}).get("use_llm", False))
+    use_llm = bool((payload or {}).get("use_llm", True))
 
     proposals = []
     model_used = "Deterministic Rule Engine (LLM Off)"
@@ -373,20 +390,19 @@ async def edit_rule(rule_id: str, req: EditRequest):
 
 @hitl_router.post("/execute/{rule_id}")
 async def execute_hitl_rule(rule_id: str):
-    check_rule_approved(rule_id)
-    return {"status": "executed", "rule_id": rule_id}
+    # Intentional for every role including Admin. Not CSRF/auth. Path is authorize + POST /sandbox + GET preview.
+    raise HTTPException(
+        status_code=403,
+        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
+    )
 
 
 @hitl_router.post("/execute")
 async def execute_hitl_rules(payload: Optional[dict] = None):
-    rule_id = payload.get("rule_id") if payload else None
-    if not rule_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Rule execution denied: Rule is not approved by HITL"
-        )
-    check_rule_approved(rule_id)
-    return {"status": "executed", "rule_id": rule_id}
+    raise HTTPException(
+        status_code=403,
+        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
+    )
 
 
 
@@ -446,7 +462,7 @@ async def sandbox_clean(req: SandboxRequest):
         raise HTTPException(status_code=400, detail="dataset_key is required")
     db = get_db()
     from src.tools.chat_tools import approved_rules_for_clean, persist_sandbox_split
-    from src.services.dataset_engine import load_dataset, execute_compiled_rules
+    from src.services.dataset_engine import load_sandbox_rows, execute_compiled_rules
 
     rule_ids = list(req.rule_ids or [])
     for rid in rule_ids:
@@ -464,10 +480,19 @@ async def sandbox_clean(req: SandboxRequest):
         except (TypeError, ValueError):
             cap = SANDBOX_SAMPLE_CAP
     snapshot_id = f"sandbox:{dataset_key}:{uuid.uuid4().hex[:12]}"
-    try:
-        df = load_dataset(dataset_key=dataset_key, sample_size=cap)
-        rows = df.to_dict("records")
+
+    def _run():
+        rows = load_sandbox_rows(dataset_key, rules, cap, db=db)
         exec_res = execute_compiled_rules(rows, rules)
+        payload = persist_sandbox_split(
+            dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
+        )
+        payload["sampled_rows"] = len(rows)
+        payload["sample_cap"] = cap
+        return payload
+
+    try:
+        payload = await asyncio.to_thread(_run)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (FileNotFoundError, KeyError) as exc:
@@ -477,11 +502,6 @@ async def sandbox_clean(req: SandboxRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    payload = persist_sandbox_split(
-        dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
-    )
-    payload["sampled_rows"] = len(rows)
-    payload["sample_cap"] = cap
     AuditService.log(
         "SANDBOX_CLEAN",
         "HITL_USER",
@@ -495,6 +515,82 @@ async def sandbox_clean(req: SandboxRequest):
     )
     _log_sandbox_clean_beat(dataset_key, payload)
     return payload
+
+
+@hitl_router.get("/sandbox/{run_id}")
+async def get_sandbox_run(run_id: str):
+    """Preview a sandbox run from canonical quarantine (snapshot_id), not sandbox.*."""
+    db = get_db()
+    snap = (run_id or "").strip()
+    if not snap:
+        raise HTTPException(status_code=400, detail="run_id is required")
+    try:
+        q_rows = db.execute(
+            "SELECT id, snapshot_id, source_table, source_row_id, rule_id, reason, original_data, lineage_hash "
+            "FROM main.quarantine WHERE snapshot_id = ? ORDER BY source_row_id LIMIT 100",
+            [snap],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not q_rows:
+        raise HTTPException(status_code=404, detail=f"Sandbox run '{snap}' not found")
+    import json as _json
+    quarantine_items = []
+    cell_diffs = []
+    per_rule: dict = {}
+    dataset_key = ""
+    for r in q_rows:
+        orig = r[6]
+        if isinstance(orig, str):
+            try:
+                orig = _json.loads(orig)
+            except Exception:
+                orig = {"raw": orig}
+        orig = orig if isinstance(orig, dict) else {}
+        dataset_key = dataset_key or str(r[2] or "")
+        rid = str(r[4] or "")
+        reason = r[5]
+        per_rule[rid] = per_rule.get(rid, 0) + 1
+        item = {
+            "id": r[0],
+            "run_id": r[1],
+            "source_table": r[2],
+            "source_row_id": r[3],
+            "rule_id": rid,
+            "reason": reason,
+            "before": orig,
+            "after": None,
+        }
+        quarantine_items.append(item)
+        if len(cell_diffs) < 10:
+            field = next((k for k in orig if k and k in str(reason or "")), None) or (
+                next(iter(orig), None) if orig else None
+            )
+            if field:
+                cell_diffs.append({
+                    "row_id": str(r[3]),
+                    "field": str(field),
+                    "source_table": r[2],
+                    "rule_id": rid,
+                    "before_value": orig.get(field),
+                    "after_value": None,
+                    "reason": reason,
+                })
+    return {
+        "run_id": snap,
+        "dataset_key": dataset_key,
+        "health_before": None,
+        "health_after": None,
+        "counts": {"quarantine_rows": len(quarantine_items), "per_rule": per_rule},
+        "clean_rows": 0,
+        "quarantine_rows": len(quarantine_items),
+        "quarantine": quarantine_items,
+        "cell_diffs": cell_diffs[:10],
+        "per_rule_counts": per_rule,
+        "tables": [dataset_key] if dataset_key else [],
+        "promoted": False,
+        "execute": "off",
+    }
 
 
 @hitl_router.get("/history")
@@ -533,3 +629,4 @@ async def reset_hitl_and_rules():
         "message": "DB rule history and audit log reset successfully",
         "details": deleted_counts
     }
+

@@ -40,12 +40,15 @@ def test_handle_sandbox_execute_calls_clean_and_writes_split_store():
     hitl = _hitl()
     sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const proposedCount", 1)[0]
     assert "approvalsApi.authorize" in sandbox_fn
-    assert "hitlApi.execute" in sandbox_fn
+    assert "hitlApi.execute" not in sandbox_fn
     assert "hitlApi.sandbox" in sandbox_fn
+    assert "hitlApi.getSandbox" in sandbox_fn
+    assert "SandboxDiff" in ui
+    assert "<SandboxDiff" in ui
     assert "mergeSplitRows" in sandbox_fn
     assert "cleanRan: true" in sandbox_fn
     assert "datatrust:sandbox-split" in sandbox_fn or "datatrust:split-refresh" in sandbox_fn
-    approve = ui.split("const handleApprove", 1)[1].split("const handleReject", 1)[0]
+    approve = ui.split("const handleApprove", 1)[1].split("const handleSandboxExecute", 1)[0]
     assert "hitlApi.sandbox" not in approve
     assert "hitlApi.execute" not in approve
     assert "sandbox:" in api.split("export const hitlApi", 1)[1]
@@ -99,6 +102,23 @@ def test_persist_sandbox_split_writes_measured_quarantine_only():
     assert "172" not in str(payload)
     stored = db.execute("SELECT count(*) FROM quarantine WHERE source_table = 'qa_sandbox'")
     assert stored and int(stored[0][0]) >= 1
+    assert payload.get("execute") == "off"
+    assert payload.get("promoted") is False
+    diffs = payload.get("cell_diffs") or []
+    assert diffs
+    assert diffs[0]["field"] == "battery_soc"
+    assert diffs[0]["before_value"] == -3
+    from fastapi.testclient import TestClient
+    from src.main import app
+    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    preview = client.get(f"/api/v1/hitl/sandbox/{payload['snapshot_id']}")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body.get("execute") == "off"
+    assert body.get("promoted") is False
+    assert int(body.get("quarantine_rows") or 0) >= 1
+    assert body.get("cell_diffs")
+    assert "sandbox." not in preview.text
 
 
 def test_approved_rules_for_clean_never_synthesizes():
@@ -108,11 +128,73 @@ def test_approved_rules_for_clean_never_synthesizes():
     assert empty == [] or all(str(r.get("decision") or "").lower() in ("approved", "edit", "edited") for r in empty)
 
 
+def test_execute_off_is_design_not_csrf_or_auth():
+    """POST /hitl/execute 403 is execute-off for Admin too. Missing JWT is 401. Viewer write is role 403."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.middleware.auth import create_access_token
+
+    anon = TestClient(app)
+    missing = anon.post("/api/v1/hitl/execute", json={})
+    assert missing.status_code == 401, missing.text
+
+    token = create_access_token(
+        {"sub": "admin@datatrust.os", "user_id": "usr_admin_01", "role": "Admin"}
+    )
+    admin = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    off = admin.post("/api/v1/hitl/execute", json={"rule_id": "any"})
+    assert off.status_code == 403, off.text
+    detail = str(off.json().get("detail") or "").lower()
+    assert "execute off" in detail or "not execute" in detail
+    assert "csrf" not in detail
+    assert "token" not in detail
+    assert "viewer" not in detail
+
+    viewer = TestClient(app, headers={"X-User-Role": "Viewer"})
+    blocked = viewer.post("/api/v1/hitl/sandbox", json={"dataset_key": "ev_telemetry", "rule_ids": ["x"]})
+    assert blocked.status_code == 403, blocked.text
+    vdetail = str(blocked.json().get("detail") or "").lower()
+    assert "viewer" in vdetail or "read-only" in vdetail
+
+
+def test_admin_authorize_accepts_edited_then_sandbox_preview():
+    """Admin HITL path is authorize + sandbox + GET quarantine preview, never execute."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.db.connection import get_db
+    from src.middleware.auth import create_access_token
+
+    rid = "qa_edited_auth__R1"
+    db = get_db()
+    try:
+        db.execute("DELETE FROM quality_rules WHERE id = ?", [rid])
+    except Exception:
+        pass
+    db.execute(
+        "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [rid, "soc", "range", "battery_soc >= 0", 0.9, "edited"],
+    )
+    token = create_access_token(
+        {"sub": "admin@datatrust.os", "user_id": "usr_admin_01", "role": "Admin"}
+    )
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    auth = client.post(
+        "/api/v1/approvals/authorize",
+        json={"dataset_key": "qa_edited_auth", "rule_ids": [rid]},
+    )
+    assert auth.status_code == 200, auth.text
+    assert auth.json().get("payload_hash")
+    exe = client.post(f"/api/v1/hitl/execute/{rid}")
+    assert exe.status_code == 403
+    assert "not execute" in str(exe.json().get("detail") or "").lower() or "execute off" in str(exe.json().get("detail") or "").lower()
+
+
 def test_sandbox_endpoint_exists_and_requires_approved_rule():
     from fastapi.testclient import TestClient
     from src.main import app
     client = TestClient(app, headers={"X-User-Role": "Admin"})
-    res = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "vingroup_pilot", "rule_ids": []})
+    res = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "no_such_dataset_xyz", "rule_ids": []})
     assert res.status_code in (403, 400, 422)
     missing = client.post("/api/v1/hitl/sandbox", json={"dataset_key": "", "rule_ids": ["x"]})
     assert missing.status_code in (400, 422)
@@ -121,15 +203,15 @@ def test_sandbox_handler_is_bounded_not_full_50k_blocking_scan():
     """POST /hitl/sandbox must sample, not scan 50k as the only path (504 >90s)."""
     import re
     hitl = _hitl()
-    fn = hitl.split("async def sandbox_clean", 1)[1].split("async def get_history", 1)[0]
+    fn = hitl.split("async def sandbox_clean", 1)[1].split("async def get_sandbox_run", 1)[0]
     assert "SANDBOX_SAMPLE_CAP" in hitl
     cap = int(re.search(r"SANDBOX_SAMPLE_CAP\s*=\s*(\d+)", hitl).group(1))
     assert cap <= 8000
-    assert "sample_size=cap" in fn or "sample_size=cap" in fn.replace(" ", "")
-    assert "load_dataset(dataset_key=dataset_key, sample_size=" in fn
-    assert "load_dataset(dataset_key=dataset_key)" not in fn
+    assert "load_sandbox_rows" in fn
+    assert "sample_size=cap" not in fn or "load_sandbox_rows" in fn
     assert "snapshot_id" in fn
     assert "persist_sandbox_split" in fn
+    assert "asyncio.to_thread" in fn
 
 
 def test_sandbox_504_does_not_keep_leftover_split_as_success():
@@ -217,4 +299,146 @@ def test_quarantine_count_this_run_matches_persist():
     mine = [r for r in listed_body.get("quarantine") or [] if r.get("source_table") == "qa_dash"]
     assert mine
     assert all(r.get("this_run") or str(r.get("snapshot_id") or "").startswith("sandbox:") for r in mine)
+
+
+def test_between_rule_quarantines_negative_soc():
+    from src.services.dataset_engine import execute_compiled_rules, safe_eval_rule
+
+    assert safe_eval_rule("battery_soc BETWEEN 0 AND 100", {"battery_soc": -12.5}) is False
+    assert safe_eval_rule("battery_soc BETWEEN 0.0 AND 100.0", {"battery_soc": 64}) is True
+    rows = [
+        {"vin": "FAULT", "battery_soc": -12.5},
+        {"vin": "CLEAN", "battery_soc": 64},
+    ]
+    rules = [{
+        "rule_id": "qa_between__R1",
+        "decision": "approved",
+        "expression": "battery_soc BETWEEN 0 AND 100",
+        "name": "soc",
+    }]
+    res = execute_compiled_rules(rows, rules)
+    assert res["quarantine_count"] == 1
+    assert res["clean_count"] == 1
+
+
+def test_load_sandbox_rows_includes_tail_soc_faults():
+    """Head LIMIT 3000 misses tail faults; sandbox must pull violators from main.*."""
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import load_sandbox_rows
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR)")
+    conn.execute("INSERT INTO ev_telemetry SELECT 64.0, 'c' || i FROM range(4000) t(i)")
+    for i in range(12):
+        conn.execute("INSERT INTO ev_telemetry VALUES (?, ?)", [-12.5, f"FAULT{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "soc",
+        "id": "soc",
+        "decision": "approved",
+        "expression": "battery_soc BETWEEN 0 AND 100",
+        "rule_expression": "battery_soc BETWEEN 0 AND 100",
+    }]
+    rows = load_sandbox_rows("ev_telemetry", rules, 3000, db=_DB(conn))
+    bad = [r for r in rows if float(r.get("battery_soc") or 0) < 0]
+    assert len(bad) == 12, f"expected 12 SOC<0 rows, got {len(bad)} of {len(rows)}"
+    assert len(rows) <= 3000
+
+
+def test_load_sandbox_rows_keeps_soc_faults_when_other_violators_fill_cap():
+    """WHERE NOT LIMIT 3000 of SOC>100 must not drop the 12 tail SOC<0 faults."""
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import load_sandbox_rows
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, record_id VARCHAR)")
+    conn.execute(
+        "INSERT INTO ev_telemetry SELECT 200.0, 'h' || i, 'H' || i FROM range(4000) t(i)"
+    )
+    for i in range(12):
+        conn.execute("INSERT INTO ev_telemetry VALUES (?, ?, ?)", [-12.5, f"FAULT{i}", f"F{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "soc",
+        "id": "soc",
+        "decision": "approved",
+        "expression": "battery_soc >= 0 AND battery_soc <= 100",
+        "rule_expression": "battery_soc >= 0 AND battery_soc <= 100",
+    }]
+    rows = load_sandbox_rows("ev_telemetry", rules, 3000, db=_DB(conn))
+    bad = [r for r in rows if float(r.get("battery_soc") or 0) < 0]
+    assert len(bad) == 12, f"expected 12 SOC<0 rows, got {len(bad)} of {len(rows)}"
+
+
+def test_and_range_rule_quarantines_negative_soc():
+    from src.services.dataset_engine import execute_compiled_rules, safe_eval_rule
+
+    expr = "battery_soc >= 0 AND battery_soc <= 100"
+    assert safe_eval_rule(expr, {"battery_soc": -12.5}) is False
+    assert safe_eval_rule(expr, {"battery_soc": 64}) is True
+    res = execute_compiled_rules(
+        [{"vin": "FAULT", "battery_soc": -12.5}, {"vin": "CLEAN", "battery_soc": 64}],
+        [{"rule_id": "qa_and__R1", "decision": "approved", "expression": expr, "name": "soc"}],
+    )
+    assert res["quarantine_count"] == 1
+
+
+def test_profile_and_health_offload_event_loop():
+    datasets = (ROOT / "src/api/routes/datasets.py").read_text()
+    fn = datasets.split("async def profile_dataset", 1)[1].split("async def sample_dataset", 1)[0]
+    assert "asyncio.to_thread" in fn
+    assert "sample_size = 3000" in fn
+    main = (ROOT / "src/main.py").read_text()
+    assert "async def health():" not in main
+    assert "\ndef health():" in main
+    assert "health_fastpath" in main
+    conn = (ROOT / "src/db/connection.py").read_text()
+    assert "def fetch_df" in conn
+    routes = (ROOT / "src/api/routes/__init__.py").read_text()
+    pipe = routes.split("is_full_pipeline_req", 1)[1].split("Standard Dynamic ReAct", 1)[0]
+    assert "asyncio.to_thread(prof_tool.execute" in pipe
 

@@ -17,27 +17,37 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const sessionId = useChatStore((s) => s.sessionId);
   const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
 
   const executePrompt = async (promptText: string) => {
     if (isSending || !promptText.trim()) return;
     setIsSending(true);
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
 
     try {
       if (onPipelineStarted) onPipelineStarted();
       agentSocket.connect(sessionId);
-      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language, undefined, selectedDayIdx);
+      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language, undefined, selectedDayIdx, ac.signal);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);
       }
     } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return;
       console.error('Failed to send message:', e instanceof Error ? e.message : 'Unable to reach the assistant.');
     } finally {
       setIsSending(false);
       inputRef.current?.focus();
     }
+  };
+
+  const handleAbort = () => {
+    abortRef.current?.abort();
+    setIsSending(false);
   };
 
   const handleSend = async () => {
@@ -160,14 +170,20 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           placeholder={t('placeholder') || (i18n.language === 'vi' ? 'Nhập lệnh... (ví dụ: "Khảo sát bộ dữ liệu", "Chạy toàn bộ pipeline")' : 'Type a command or message...')}
           disabled={isSending}
         />
-        <button
-          type="submit"
-          className="send-btn"
-          disabled={!input.trim() || isSending}
-        >
-          <span>EXECUTE</span>
-          <Send className="w-4 h-4 ml-2 inline-block" />
-        </button>
+        {isSending ? (
+          <button type="button" className="send-btn" onClick={handleAbort}>
+            <span>{i18n.language === 'vi' ? 'DỪNG' : 'ABORT'}</span>
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="send-btn"
+            disabled={!input.trim()}
+          >
+            <span>EXECUTE</span>
+            <Send className="w-4 h-4 ml-2 inline-block" />
+          </button>
+        )}
       </form>
     </div>
   );

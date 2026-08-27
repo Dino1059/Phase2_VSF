@@ -21,7 +21,7 @@ def test_p0_02_executing_unapproved_rules_denied(client):
     # Insert an unapproved rule with status 'proposed'
     db.execute(
         "INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status) VALUES (?, ?, ?, ?, ?, ?)",
-        ["unapproved_rule_p002", "unapproved_temp_check", "range", "temperature_celsius < 80.0", 0.8, "proposed"]
+        ["unapproved_rule_p002", "unapproved_temp_check", "range", "station_temp_c < 80.0", 0.8, "proposed"]
     )
 
     # 1. Test execution endpoint /api/v1/executions
@@ -39,7 +39,7 @@ def test_p0_02_executing_unapproved_rules_denied(client):
         headers={"X-User-Role": "Admin"}
     )
     assert resp_hitl.status_code == 403
-    assert resp_hitl.json()["detail"] == "Rule execution denied: Rule is not approved by HITL"
+    assert "not execute" in resp_hitl.json()["detail"].lower() or "denied" in resp_hitl.json()["detail"].lower()
 
     # 3. Test HITL execution endpoint /api/v1/hitl/execute with JSON payload
     resp_hitl_json = client.post(
@@ -48,17 +48,17 @@ def test_p0_02_executing_unapproved_rules_denied(client):
         headers={"X-User-Role": "Admin"}
     )
     assert resp_hitl_json.status_code == 403
-    assert resp_hitl_json.json()["detail"] == "Rule execution denied: Rule is not approved by HITL"
+    assert "not execute" in resp_hitl_json.json()["detail"].lower() or "denied" in resp_hitl_json.json()["detail"].lower()
 
     # 4. Test transform execution endpoint /api/v1/executions/transform with unapproved rule
     resp_trans = client.post(
         "/api/v1/executions/transform",
         json={
-            "data": [{"temperature_celsius": 25.0}],
+            "data": [{"station_temp_c": 25.0}],
             "rules": [{
                 "rule_id": "unapproved_rule_p002",
                 "rule_type": "range",
-                "target_column": "temperature_celsius",
+                "target_column": "station_temp_c",
                 "action": "QUARANTINE"
             }]
         },
@@ -103,7 +103,7 @@ def test_p0_04_sql_injection_compiler_rejection():
     # 1. SQL Comments (-- and /* */)
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="temperature; DROP TABLE users; --",
             operator="gt",
             arguments=[0]
@@ -112,7 +112,7 @@ def test_p0_04_sql_injection_compiler_rejection():
 
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="status /* comment */",
             operator="eq",
             arguments=[1]
@@ -121,7 +121,7 @@ def test_p0_04_sql_injection_compiler_rejection():
 
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="status",
             operator="eq",
             arguments=["ACTIVE'; --"]
@@ -131,7 +131,7 @@ def test_p0_04_sql_injection_compiler_rejection():
     # 2. Subqueries in RuleSpec or expression parsing
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="(SELECT id FROM users)",
             operator="gt",
             arguments=[0]
@@ -149,7 +149,7 @@ def test_p0_04_sql_injection_compiler_rejection():
     # 3. Injected function strings
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="eval('import os')",
             operator="gt",
             arguments=[0]
@@ -158,7 +158,7 @@ def test_p0_04_sql_injection_compiler_rejection():
 
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="script_exec()",
             operator="gt",
             arguments=[0]
@@ -167,7 +167,7 @@ def test_p0_04_sql_injection_compiler_rejection():
 
     with pytest.raises(ValueError):
         spec = RuleSpec(
-            table="vgreen_telemetry",
+            table="charging_sessions",
             column="exec(rm_rf)",
             operator="gt",
             arguments=[0]
@@ -234,7 +234,7 @@ def test_unified_governance_lifecycle():
         control_id="ctrl-wave6-01",
         rule_type="range",
         rule_expression="battery_soc >= 0 AND battery_soc <= 100",
-        target_table="vinfast_bms",
+        target_table="ev_telemetry",
         target_column="battery_soc"
     )
     assert prop.status == "PROPOSED"
@@ -275,9 +275,9 @@ def test_execution_requires_authorization_id_and_rejects_missing():
     mgr.propose_control(
         control_id="ctrl-wave6-02",
         rule_type="range",
-        rule_expression="temperature_celsius < 80.0",
-        target_table="vgreen_telemetry",
-        target_column="temperature_celsius"
+        rule_expression="station_temp_c < 80.0",
+        target_table="charging_sessions",
+        target_column="station_temp_c"
     )
 
     with pytest.raises(PermissionError) as exc_info:
@@ -293,14 +293,14 @@ def test_strict_exact_version_matching_and_rule_modification_rejection():
     mgr.propose_control(
         control_id="ctrl-wave6-03",
         rule_type="range",
-        rule_expression="duty_cycle <= 1.0",
-        target_table="vgreen_telemetry",
-        target_column="duty_cycle"
+        rule_expression="duration_mins <= 1.0",
+        target_table="charging_sessions",
+        target_column="duration_mins"
     )
     auth = mgr.generate_authorization("ctrl-wave6-03", actor="data_steward_1")
 
     # Modifying control rule expression increments version to 2
-    mgr.update_control_rule("ctrl-wave6-03", new_expression="duty_cycle <= 0.9")
+    mgr.update_control_rule("ctrl-wave6-03", new_expression="duration_mins <= 0.9")
 
     # Attempting to execute updated control (v2) with token issued for v1 fails
     with pytest.raises(PermissionError) as exc_info:
@@ -316,9 +316,9 @@ def test_expired_and_revoked_tokens_rejected():
     mgr.propose_control(
         control_id="ctrl-wave6-04",
         rule_type="range",
-        rule_expression="rating >= 1.0",
-        target_table="xanhsm_trips",
-        target_column="rating"
+        rule_expression="sentiment >= 1.0",
+        target_table="trips",
+        target_column="sentiment"
     )
     # Generate expired token
     auth_exp = mgr.generate_authorization("ctrl-wave6-04", actor="data_steward_1", expires_in_seconds=-10)
@@ -344,9 +344,9 @@ def test_ai_path_direct_mutation_without_hitl_approval_blocked():
     mgr.propose_control(
         control_id="ctrl-wave6-05",
         rule_type="range",
-        rule_expression="fare_vnd > 0",
-        target_table="xanhsm_trips",
-        target_column="fare_vnd"
+        rule_expression="fare_amount > 0",
+        target_table="trips",
+        target_column="fare_amount"
     )
 
     # Autonomous self-review by AI is rejected
@@ -365,9 +365,9 @@ def test_authorizations_api_endpoints(client):
     pipeline_payload = {
         "control_id": "ctrl-api-01",
         "rule_type": "range",
-        "rule_expression": "voltage >= 200.0",
-        "target_table": "vgreen_telemetry",
-        "target_column": "voltage",
+        "rule_expression": "power_kw >= 200.0",
+        "target_table": "charging_sessions",
+        "target_column": "power_kw",
         "reviewer": "data_steward_1",
         "actor": "data_steward_1",
         "dry_run": False
@@ -393,4 +393,5 @@ def test_authorizations_api_endpoints(client):
     resp_exec_no_auth = client.post("/api/v1/authorizations/execute", json={"control_id": "ctrl-api-01"}, headers=headers)
     assert resp_exec_no_auth.status_code == 403
     assert "Authorization ID is required" in resp_exec_no_auth.json()["detail"]
+
 

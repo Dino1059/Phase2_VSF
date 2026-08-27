@@ -87,7 +87,7 @@ class ResetAllResponse(BaseModel):
 @router.post("/reset-all", response_model=ResetAllResponse)
 async def reset_all_db(
     authorization: Optional[str] = Header(None),
-    reload_warehouse: bool = Query(True, description="Reload raw.* tables from data_new CSVs"),
+    reload_warehouse: bool = Query(True, description="Reload canonical main.* tables from data_new CSVs"),
 ):
     """Admin-only full system reset: purges runtime state, reloads data_new warehouse, reseeds Algolia."""
     # 1. Role Guard
@@ -256,14 +256,12 @@ def _measure_warehouse(db) -> dict:
         except Exception:
             return default
 
-    charging = _count("SELECT count(DISTINCT session_id) FROM raw.charging_sessions")
-    if charging == 0:
-        charging = _count("SELECT count(DISTINCT session_id) FROM vgreen_charging_sessions")
+    charging = _count("SELECT count(DISTINCT session_id) FROM main.charging_sessions")
     return {
-        "telemetry": _count("SELECT count(*) FROM raw.ev_telemetry"),
+        "telemetry": _count("SELECT count(*) FROM main.ev_telemetry"),
         "charging_sessions": charging,
-        "trips": _count("SELECT count(*) FROM raw.trips"),
-        "soc_below_zero": _count("SELECT count(*) FROM raw.ev_telemetry WHERE battery_soc < 0"),
+        "trips": _count("SELECT count(*) FROM main.trips"),
+        "soc_below_zero": _count("SELECT count(*) FROM main.ev_telemetry WHERE battery_soc < 0"),
         "open_incidents": _count("SELECT count(*) FROM incidents WHERE status = 'OPEN'"),
     }
 
@@ -297,6 +295,9 @@ def _restore_unhappy_incidents(db, project_root: str) -> None:
                 row.get("time_window"),
                 row.get("confirmed_facts"),
                 row.get("evidence_refs"),
+
+
+
                 row.get("owner"),
             ],
         )
@@ -357,14 +358,7 @@ def get_llm_status():
     try:
         from src.services.llm import LLMService
         llm = LLMService()
-        has_key = bool(llm.api_key and not llm.api_key.startswith("sk-your-") and not llm.api_key.startswith("test-"))
-        return {
-            "status": "online" if has_key else "fallback_ready",
-            "model": llm.model if has_key else "Deterministic Rule Engine (LLM Off)",
-            "provider": llm.preferred_provider if has_key else "heuristic",
-            "has_api_key": has_key,
-            "description": f"Active LLM: {llm.model}" if has_key else "LLM Off / Fallback to Deterministic Engine",
-        }
+        return llm.get_status()
     except Exception as e:
         return {
             "status": "offline",
@@ -373,7 +367,3 @@ def get_llm_status():
             "has_api_key": False,
             "description": f"Offline Engine: {e}",
         }
-
-
-
-

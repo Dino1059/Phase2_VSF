@@ -17,6 +17,9 @@ class Incident(BaseModel):
     time_window: Dict[str, datetime] = Field(default_factory=dict)
     confirmed_facts: List[str] = Field(default_factory=list)
     evidence_refs: List[str] = Field(default_factory=list)
+    correlation_key: Optional[str] = None
+    occurrence_count: int = 1
+    representative_signal_ids: List[str] = Field(default_factory=list)
     owner: Optional[str] = None
     feedback_type: Optional[str] = None
     feedback_reason: Optional[str] = None

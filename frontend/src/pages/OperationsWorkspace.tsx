@@ -22,6 +22,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { QuarantineZoneTab } from '../components/workspace/QuarantineZoneTab';
+import { EvalVsGtPanel } from '../components/workspace/EvalVsGtPanel';
 import {
   approvalsApi,
   auditApi,
@@ -61,15 +62,15 @@ function thisRunAuditCount(entries: Array<{ action?: string; target_table?: stri
 }
 
 type DashboardGroup = 'alerts' | 'governance';
-type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'rules' | 'quarantine' | 'governance' | 'executions' | 'snapshots';
+type SubTabKey = 'alerts' | 'incidents' | 'signals' | 'traces' | 'rules' | 'quarantine' | 'governance' | 'executions' | 'snapshots' | 'eval';
 type Row = Record<string, any>;
 
 const MULTI_DATASET_OPTIONS = [
   { key: 'all', label: { en: 'All Sources', vi: 'Tất Cả Nguồn Dữ Liệu' }, icon: Database, color: 'var(--neon-cyan)' },
   { key: 'vinfast_ev_telemetry', label: { en: 'VinFast EV Telemetry', vi: 'VinFast EV Telemetry' }, icon: Car, color: '#0284c7' },
-  { key: 'vgreen_charging_stations', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
-  { key: 'xanh_sm_trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
-  { key: 'xanh_sm_customer_feedback', label: { en: 'Xanh SM Customer Feedback', vi: 'Phản Hồi Xanh SM' }, icon: MessageSquare, color: '#8b5cf6' },
+  { key: 'charging_sessions', label: { en: 'VGreen Charging Stations', vi: 'Trạm Sạc VGreen' }, icon: BatteryCharging, color: '#10b981' },
+  { key: 'trips', label: { en: 'Xanh SM Trips', vi: 'Chuyến Đi Xanh SM' }, icon: CarTaxiFront, color: '#06b6d4' },
+  { key: 'nlp_feedback', label: { en: 'Xanh SM Customer Feedback', vi: 'Phản Hồi Xanh SM' }, icon: MessageSquare, color: '#8b5cf6' },
   { key: 'vietnam_trips', label: { en: 'Vietnam Trips Benchmark', vi: 'Tập Chuẩn Vietnam Trips' }, icon: Database, color: '#f59e0b' },
 ];
 
@@ -130,13 +131,13 @@ export const OperationsWorkspace: React.FC = () => {
   const isVi = i18n.language === 'vi';
 
   // Determine main dashboard group and active subtab
-  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || !!ruleParam;
+  const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || view === 'eval' || !!ruleParam;
   const mainGroup: DashboardGroup = isGovernanceView ? 'governance' : 'alerts';
 
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>(() => {
     if (ruleParam) return 'quarantine';
     if (view && (view === 'incidents' || view === 'signals' || view === 'traces')) return view;
-    if (view && (view === 'rules' || view === 'quarantine' || view === 'executions' || view === 'snapshots')) return view;
+    if (view && (view === 'rules' || view === 'quarantine' || view === 'executions' || view === 'snapshots' || view === 'eval')) return view;
     return isGovernanceView ? 'rules' : 'alerts';
   });
 
@@ -203,7 +204,7 @@ export const OperationsWorkspace: React.FC = () => {
 
   // Sync URL view param with active subtab
   useEffect(() => {
-    if (view && ['alerts', 'incidents', 'signals', 'traces', 'rules', 'quarantine', 'governance', 'executions', 'snapshots'].includes(view)) {
+    if (view && ['alerts', 'incidents', 'signals', 'traces', 'rules', 'quarantine', 'governance', 'executions', 'snapshots', 'eval'].includes(view)) {
       setActiveSubTab(view as SubTabKey);
     }
   }, [view]);
@@ -260,6 +261,8 @@ export const OperationsWorkspace: React.FC = () => {
       } else if (activeSubTab === 'executions') {
         const execRes = await executionsApi.list().catch(() => []);
         setData(execRes || []);
+      } else if (activeSubTab === 'eval') {
+        setData([]);
       } else if (activeSubTab === 'snapshots') {
         const snapRes = await snapshotsApi.list().catch(() => ({ snapshots: [] }));
         setData(snapRes.snapshots || []);
@@ -407,6 +410,7 @@ export const OperationsWorkspace: React.FC = () => {
       governance: ['record_type', 'id', 'status', 'actor', 'action', 'timestamp'],
       executions: ['event_type', 'actor', 'timestamp', 'details'],
       snapshots: ['id', 'source_file', 'row_count', 'column_count', 'sha256_hash', 'ingested_at'],
+      eval: ['metric', 'batch', 'realtime'],
     };
     return map[activeSubTab] || ['id', 'status', 'timestamp'];
   }, [activeSubTab]);
@@ -887,7 +891,9 @@ export const OperationsWorkspace: React.FC = () => {
           maxHeight: 'none',
         }}
       >
-        {activeSubTab === 'quarantine' ? (
+        {activeSubTab === 'eval' ? (
+          <EvalVsGtPanel />
+        ) : activeSubTab === 'quarantine' ? (
           <div style={{ padding: '16px' }}>
             <QuarantineZoneTab initialDatasetKey={datasetFilter} initialRuleId={ruleParam || undefined} />
           </div>
@@ -2169,3 +2175,4 @@ export const OperationsWorkspace: React.FC = () => {
     </section>
   );
 };
+

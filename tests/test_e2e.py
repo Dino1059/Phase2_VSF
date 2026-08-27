@@ -30,10 +30,10 @@ def e2e_db(monkeypatch):
     monkeypatch.setattr("src.services.audit.get_db", lambda: db)
     monkeypatch.setattr("src.db.connection.get_db", lambda: db)
     # Seed data
-    db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")
-    db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
-    db.execute("INSERT INTO xanhsm_feedback (id, review_text, rating, source) VALUES (1, 'Dịch vụ tốt lắm', 5.0, 'csv')")
-    db.execute("INSERT INTO xanhsm_feedback (id, review_text, rating, source) VALUES (2, 'App lag quá, xe bẩn', 1.0, 'csv')")
+    db.execute("INSERT INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")
+    db.execute("INSERT INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
+    db.execute("INSERT INTO nlp_feedback (id, review_text, rating, source) VALUES (1, 'Dịch vụ tốt lắm', 5.0, 'csv')")
+    db.execute("INSERT INTO nlp_feedback (id, review_text, rating, source) VALUES (2, 'App lag quá, xe bẩn', 1.0, 'csv')")
     yield db
     db.close()
     os.unlink(db_path)
@@ -61,7 +61,7 @@ def test_e2e_pipeline(e2e_db):
         finish_reason="stop"
     )
     engine = ReActEngine(mock_llm, tools, max_steps=3)
-    react_result = engine.run("Analyze vgreen_telemetry for anomalies")
+    react_result = engine.run("Analyze ev_telemetry for anomalies")
     assert react_result.status == "completed"
     assert len(react_result.steps) >= 1
 
@@ -77,12 +77,12 @@ def test_e2e_pipeline(e2e_db):
     assert approved[0][0] == "approved"
 
     # Step 6: Execute and verify quarantine
-    e2e_db.execute("INSERT OR REPLACE INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
-    violations = e2e_db.execute("SELECT id FROM vgreen_telemetry WHERE NOT (temperature_celsius BETWEEN -10 AND 85)")
+    e2e_db.execute("INSERT OR REPLACE INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
+    violations = e2e_db.execute("SELECT id FROM ev_telemetry WHERE NOT (temperature_celsius BETWEEN -10 AND 85)")
     assert len(violations) >= 1  # id=2 has temp=999
 
     # Step 7: Verify audit logging
-    audit_id = AuditService.log("E2E_TEST", "tester", "vgreen_telemetry", "e2e-r1", {"violations": len(violations)})
+    audit_id = AuditService.log("E2E_TEST", "tester", "ev_telemetry", "e2e-r1", {"violations": len(violations)})
     assert audit_id
     audit = e2e_db.execute("SELECT action FROM audit_log WHERE id = ?", [audit_id])
     assert audit[0][0] == "E2E_TEST"

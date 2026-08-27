@@ -152,11 +152,16 @@ export const datasetsApi = {
     request<{ datasets: Array<{ key: string; path: string; exists: boolean; size_mb: number }> }>('/datasets'),
   get: (key: string) =>
     request<{ key: string; path: string; exists: boolean; size_mb: number }>(`/datasets/${encodeURIComponent(normalizeDatasetKey(key))}`),
-  profile: (key: string, sampleSize?: number) =>
-    request<{ dataset: string; sample_size: number; profile: any }>(
-      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile${sampleSize !== undefined ? `?sample_size=${sampleSize}` : ''}`,
+  profile: (key: string, sampleSize?: number, dayIdx?: number | null) => {
+    const params = new URLSearchParams();
+    if (sampleSize !== undefined && sampleSize !== null) params.append('sample_size', String(sampleSize));
+    if (dayIdx !== undefined && dayIdx !== null) params.append('day_idx', String(dayIdx));
+    const qs = params.toString();
+    return request<{ dataset: string; sample_size: number; profile: any }>(
+      `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/profile${qs ? `?${qs}` : ''}`,
       { method: 'POST' }
-    ),
+    );
+  },
   proposeRules: (key: string, variant: string = 'A1', sampleSize?: number) =>
     request<{ dataset: string; variant: string; rules_count: number; rules: any[]; generation_time_seconds: number }>(
       `/datasets/${encodeURIComponent(normalizeDatasetKey(key))}/propose?variant=${variant}${sampleSize !== undefined ? `&sample_size=${sampleSize}` : ''}`,
@@ -639,6 +644,10 @@ export const tracesApi = {
     request<{ session_id: string; steps: Array<Record<string, any>> }>(
       `/traces/${encodeURIComponent(sessionId)}${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
+  timeline: (sessionId: string, since?: string) =>
+    request<{ session_id: string; events: Array<Record<string, any>>; cot: boolean; execute: string }>(
+      `/traces/${encodeURIComponent(sessionId)}/timeline${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
 };
 
 export const executionsApi = {
@@ -707,14 +716,16 @@ export const searchApi = {
 
 export const evaluationApi = {
   get: () => request<EvaluationMetricsInfo>('/evaluation'),
+  getGt: () => request<Record<string, any>>('/evaluation/gt'),
 };
 
 // Legacy exported standalone helpers
-export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null) {
+export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null, signal?: AbortSignal) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
   return request('/chat/send', {
     method: 'POST',
+    signal,
     body: JSON.stringify({
       message,
       session_id: sessionId,
@@ -795,8 +806,8 @@ export interface HITLProposal {
 }
 
 export const hitlApi = {
-  queue: () =>
-    request<{ proposals: HITLProposal[] }>('/hitl/queue'),
+  queue: (datasetKey?: string) =>
+    request<{ proposals: HITLProposal[] }>(`/hitl/queue${datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : ''}`),
   synthesizeLlm: (datasetKey?: string, tableName?: string, useLlm?: boolean) =>
     request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean; model_used?: string }>('/hitl/synthesize-llm', {
       method: 'POST',
@@ -835,21 +846,35 @@ export const hitlApi = {
       snapshot_id?: string;
       this_run?: boolean;
       sampled_rows?: number;
+      cell_diffs?: any[];
+      execute?: string;
+      run_id?: string;
+      per_rule_counts?: Record<string, number>;
+      tables?: string[];
     }>('/hitl/sandbox', {
       method: 'POST',
       body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
     }),
+  getSandbox: (runId: string) =>
+    request<{
+      run_id: string;
+      dataset_key?: string;
+      quarantine_rows?: number;
+      quarantine?: any[];
+      cell_diffs?: any[];
+      execute?: string;
+    }>(`/hitl/sandbox/${encodeURIComponent(runId)}`),
   history: () =>
     request<{ history: Array<{ event_hash?: string; previous_event_hash?: string; action?: string; timestamp?: string }> }>('/hitl/history'),
 };
 
 export const pipelineApi = {
-  trigger: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+  trigger: (tableName: string = 'charging_sessions', ruleId?: string) =>
     request<{ run_id: string; status: string; table: string }>(
       `/pipeline/trigger?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
       { method: 'POST' }
     ),
-  execute: (tableName: string = 'vgreen_telemetry', ruleId?: string) =>
+  execute: (tableName: string = 'charging_sessions', ruleId?: string) =>
     request<{ run_id: string; status: string; table: string }>(
       `/pipeline/execute?table_name=${encodeURIComponent(tableName)}${ruleId ? `&rule_id=${encodeURIComponent(ruleId)}` : ''}`,
       { method: 'POST' }

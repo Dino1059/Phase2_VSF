@@ -1,6 +1,7 @@
 import numpy as np
 from src.tools.base import BaseTool
 from src.db.connection import get_db
+from src.utils.table_utils import CANONICAL_DATA_TABLES, normalize_table_name
 
 
 from src.api.state_machine import WorkflowState
@@ -14,10 +15,7 @@ def _resolve_allowed_tables() -> set:
       - the canonical VinGroup pilot tables (always allowed)
       - any uploaded_* dataset's user tables (discovered via dataset registry)
     """
-    canonical = {
-        "vgreen_telemetry", "vinfast_bms", "xanhsm_trips", "xanhsm_feedback",
-        "raw.ev_telemetry", "raw.charging_sessions", "raw.trips", "raw.fault_manifest",
-    }
+    canonical = set(CANONICAL_DATA_TABLES)
     try:
         from src.config import get_settings
         from src.tools.datasource import StructuredSource
@@ -51,7 +49,10 @@ class AnomalyDetectorTool(BaseTool):
     }
 
     def execute(self, input_data: dict) -> dict:
-        table = input_data["table_name"]
+        try:
+            table = normalize_table_name(input_data["table_name"])
+        except ValueError as exc:
+            return {"error": str(exc), "anomalies_found": 0, "anomaly_indices": [], "statistics": {}}
         column = input_data["column_name"]
         method = input_data.get("method", "z_score")
         threshold = input_data.get("threshold", 3.0)
@@ -63,7 +64,7 @@ class AnomalyDetectorTool(BaseTool):
         db = get_db()
         # Validate column exists
         try:
-            rows = db.execute(f"SELECT id, \"{column}\" FROM {table} WHERE \"{column}\" IS NOT NULL")
+            rows = db.execute(f"SELECT row_number() OVER () AS row_id, \"{column}\" FROM main.{table} WHERE \"{column}\" IS NOT NULL")
         except Exception as e:
             return {"error": str(e), "anomalies_found": 0, "anomaly_indices": [], "statistics": {}}
 

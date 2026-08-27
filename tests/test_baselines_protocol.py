@@ -15,13 +15,13 @@ from src.agents.baselines import (
 def test_benchmark_case_instantiation():
     case = BenchmarkCase(
         case_id="case_001",
-        dataset_key="vgreen_telemetry",
+        dataset_key="charging_sessions",
         ground_truth_faults=[{"fault_id": "f1", "fault_family": "range_error"}],
         permitted_evidence=["telemetry_logs"],
         seed=123,
     )
     assert case.case_id == "case_001"
-    assert case.dataset_key == "vgreen_telemetry"
+    assert case.dataset_key == "charging_sessions"
     assert len(case.ground_truth_faults) == 1
     assert case.permitted_evidence == ["telemetry_logs"]
     assert case.seed == 123
@@ -65,7 +65,7 @@ async def test_baseline_r0_run():
     b_r0 = BaselineR0()
     case = BenchmarkCase(
         case_id="case_r0",
-        dataset_key="vgreen_telemetry",
+        dataset_key="charging_sessions",
         ground_truth_faults=[{"fault_id": "f_type_1", "fault_family": "type_error"}],
     )
     result = await b_r0.run(case)
@@ -91,7 +91,7 @@ async def test_baseline_c1_run():
     b_c1 = BaselineC1(llm=mock_llm)
     case = BenchmarkCase(
         case_id="case_c1",
-        dataset_key="xanhsm_feedback",
+        dataset_key="nlp_feedback",
         ground_truth_faults=[{"fault_id": "f_c1_1", "fault_family": "referential_error"}],
     )
     result = await b_c1.run(case)
@@ -109,14 +109,14 @@ async def test_baseline_c1_run():
 @pytest.mark.asyncio
 async def test_baseline_a1_run():
     mock_engine = MagicMock()
-    mock_step = MagicMock(step_index=1, action="data_profiler", action_input={"table": "vinfast_bms"}, observation="ok")
+    mock_step = MagicMock(step_index=1, action="data_profiler", action_input={"table": "ev_telemetry"}, observation="ok")
     mock_engine.run.return_value = MagicMock(
         status="completed", total_tokens=450, steps=[mock_step]
     )
     b_a1 = BaselineA1(engine=mock_engine)
     case = BenchmarkCase(
         case_id="case_a1",
-        dataset_key="vinfast_bms",
+        dataset_key="ev_telemetry",
         ground_truth_faults=[{"fault_id": "f_a1_1", "fault_family": "cross_system"}],
     )
     result = await b_a1.run(case)
@@ -134,7 +134,7 @@ async def test_baseline_a1_run():
 @pytest.mark.asyncio
 async def test_baseline_a2_run():
     b_a2 = BaselineA2()
-    case = BenchmarkCase(case_id="case_a2", dataset_key="vgreen_telemetry")
+    case = BenchmarkCase(case_id="case_a2", dataset_key="charging_sessions")
     result = await b_a2.run(case)
 
     assert isinstance(result, BaselineResult)
@@ -164,3 +164,4 @@ async def test_all_baselines_return_identical_result_attributes():
         assert isinstance(res, BaselineResult)
         for attr in expected_attrs:
             assert hasattr(res, attr), f"BaselineResult from {b.tier} missing attribute {attr}"
+

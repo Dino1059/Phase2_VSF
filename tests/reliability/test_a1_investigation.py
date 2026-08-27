@@ -28,7 +28,7 @@ def test_a1_dynamic_bounded_investigation():
 
     hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
 
-    assert hyp.classification == "OPERATIONAL"
+    assert hyp.classification == "HARDWARE_SENSOR_FAULT"
     assert "Dynamic A1" in hyp.claim
     assert meta["tool_calls_made"] <= 5
     assert meta["tokens_spent"] <= 1000
@@ -36,7 +36,7 @@ def test_a1_dynamic_bounded_investigation():
 
 
 def test_a1_observation_dependent_tool_paths():
-    """Verify tool execution sequence dynamically depends on observation focus (DATA vs OPERATIONAL)."""
+    """Verify tool execution sequence dynamically depends on observation focus (SYSTEM_DATA_LOGIC vs HARDWARE_SENSOR_FAULT)."""
     investigator = A1BoundedInvestigator(max_tool_calls=3, max_tokens_budget=2000)
 
     # Path A: Data contract anomaly observation
@@ -55,7 +55,7 @@ def test_a1_observation_dependent_tool_paths():
         summary="Trip fare null schema contract defect"
     )
     hyp_d, rec_d, meta_d = investigator.investigate_incident_dynamically(inc_data, [ev_data])
-    assert hyp_d.classification == "DATA"
+    assert hyp_d.classification == "SYSTEM_DATA_LOGIC"
     assert len(meta_d["tool_execution_trace"]) > 0
     assert meta_d["tool_execution_trace"][0]["tool_name"] == "inspect_upstream_contracts"
 
@@ -75,7 +75,7 @@ def test_a1_observation_dependent_tool_paths():
         summary="Battery temperature sensor thermal spike"
     )
     hyp_o, rec_o, meta_o = investigator.investigate_incident_dynamically(inc_op, [ev_op])
-    assert hyp_o.classification == "OPERATIONAL"
+    assert hyp_o.classification == "HARDWARE_SENSOR_FAULT"
     assert len(meta_o["tool_execution_trace"]) > 0
     assert meta_o["tool_execution_trace"][0]["tool_name"] == "fetch_entity_telemetry"
 
@@ -103,7 +103,7 @@ def test_a1_explicit_abstention_missing_evidence():
     hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev_missing])
 
     assert hyp.classification == "UNKNOWN"
-    assert rec.recommendation_type == "ABSTENTION"
+    assert rec.assigned_team == "Tier2_Support_Team"
     assert rec.cause_type == "UNKNOWN"
     assert "abstained" in hyp.claim.lower()
     assert len(hyp.missing_evidence) > 0
@@ -132,7 +132,7 @@ def test_a1_explicit_abstention_contradictory_evidence():
     hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev])
 
     assert hyp.classification == "UNKNOWN"
-    assert rec.recommendation_type == "ABSTENTION"
+    assert rec.assigned_team == "Tier2_Support_Team"
     assert len(hyp.contradicting_evidence) > 0
 
 
@@ -159,7 +159,7 @@ def test_a1_competing_hypothesis_tracking():
 
     hyp, rec, meta = investigator.investigate_incident_dynamically(inc, [ev1])
 
-    assert hyp.classification == "OPERATIONAL"
+    assert hyp.classification == "HARDWARE_SENSOR_FAULT"
     assert "ev-op-support" in hyp.supporting_evidence
     assert isinstance(hyp.contradicting_evidence, list)
     assert meta["hypothesis_revisions"] > 0

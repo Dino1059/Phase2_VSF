@@ -219,10 +219,10 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
       let res;
       const targetKey = datasetKey || 'ev_telemetry';
       try {
-        res = await datasetsApi.profile(targetKey);
+        res = await datasetsApi.profile(targetKey, undefined, dayIdx ?? undefined);
       } catch {
         const fallbackKey = targetKey.startsWith('uploaded_') ? targetKey.replace('uploaded_', '') : 'ev_telemetry';
-        res = await datasetsApi.profile(fallbackKey);
+        res = await datasetsApi.profile(fallbackKey, undefined, dayIdx ?? undefined);
       }
       const parsed = parseProfilePayload(res);
 

@@ -14,7 +14,7 @@ def _resolve_table_target(dataset_key: str) -> Tuple[str, Optional[str], Optiona
     Decompose `dataset_key` into (file_path, table_name_or_None, base_dataset_key).
 
     Supports both legacy single-table datasets and the multi-table notation
-    `uploaded_demo::vgreen_telemetry`. The base key is what is registered in the
+    `uploaded_demo::charging_sessions`. The base key is what is registered in the
     dataset registry; the optional table name selects a specific user table inside
     a DuckDB file.
 
@@ -67,6 +67,12 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
         name = p.get("rule_name") or f"{p.get('column', 'column')} {p.get('type') or p.get('rule_type') or 'rule'}"
         rtype = p.get("type") or p.get("rule_type") or "range_check"
         expr = p.get("expression") or p.get("rule_expression") or "val != null"
+        remed_act = p.get("remediation_action") or "NO_OP"
+        remed_sql = p.get("remediation_sql_expr") or ""
+        target_tbl = p.get("target_table") or key
+        prob_disc = p.get("problem_discovered") or ""
+        why_prop = p.get("why_proposed") or ""
+        qual_imp = p.get("quality_impact") or ""
         try:
             conf = float(p.get("confidence", 0.95) or 0.95)
         except (TypeError, ValueError):
@@ -80,35 +86,37 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
         if existing:
             try:
                 db.execute(
-                    "UPDATE quality_rules SET dataset_key = ?, rule_name = ?, rule_type = ?, "
-                    "rule_expression = ?, confidence = ?, status = CASE "
+                    "UPDATE quality_rules SET dataset_key = ?, target_table = ?, rule_name = ?, rule_type = ?, "
+                    "rule_expression = ?, remediation_action = ?, remediation_sql_expr = ?, confidence = ?, "
+                    "problem_discovered = ?, why_proposed = ?, quality_impact = ?, "
+                    "status = CASE "
                     "WHEN lower(trim(cast(status AS VARCHAR))) IN ('approved', 'edited', 'rejected') "
                     "THEN status ELSE 'proposed' END, "
                     "proposed_by = COALESCE(proposed_by, 'dq_proposer') WHERE id = ?",
-                    [key or None, name, rtype, expr, conf, rid],
+                    [key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp, rid],
                 )
             except Exception:
                 try:
                     db.execute(
                         "UPDATE quality_rules SET rule_name = ?, rule_type = ?, rule_expression = ?, "
-                        "confidence = ?, status = 'proposed' WHERE id = ?",
-                        [name, rtype, expr, conf, rid],
+                        "remediation_action = ?, remediation_sql_expr = ?, confidence = ?, status = 'proposed' WHERE id = ?",
+                        [name, rtype, expr, remed_act, remed_sql, conf, rid],
                     )
                 except Exception:
                     pass
         else:
             try:
                 db.execute(
-                    """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                    [rid, key or None, name, rtype, expr, conf],
+                    """INSERT INTO quality_rules (id, dataset_key, target_table, rule_name, rule_type, rule_expression, remediation_action, remediation_sql_expr, confidence, problem_discovered, why_proposed, quality_impact, status, proposed_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                    [rid, key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp],
                 )
             except Exception:
                 try:
                     db.execute(
-                        """INSERT INTO quality_rules (id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
-                           VALUES (?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                        [rid, name, rtype, expr, conf],
+                        """INSERT INTO quality_rules (id, dataset_key, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                        [rid, key or None, name, rtype, expr, conf],
                     )
                 except Exception:
                     pass
@@ -217,14 +225,16 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         })
 
     import json as _json
+    from src.api.quarantine_api import _ensure_main_quarantine_table
+    _ensure_main_quarantine_table(db)
     try:
         db.execute(
-            "DELETE FROM quarantine WHERE source_table = ? AND (rule_version_id = 'sandbox' OR snapshot_id LIKE ?)",
+            "DELETE FROM main.quarantine WHERE source_table = ? AND (rule_version_id = 'sandbox' OR CAST(snapshot_id AS VARCHAR) LIKE ?)",
             [key, f"sandbox:{key}:%"],
         )
     except Exception:
         try:
-            db.execute("DELETE FROM quarantine WHERE source_table = ?", [key])
+            db.execute("DELETE FROM main.quarantine WHERE source_table = ?", [key])
         except Exception:
             pass
     for i, item in enumerate(q_items):
@@ -233,9 +243,9 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         orig = {k: item[k] for k in item if k not in ("id", "source_table", "source_row_id", "rule_id", "reason", "lineage_hash")}
         try:
             db.execute(
-                "INSERT INTO quarantine (id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, "
+                "INSERT INTO main.quarantine (id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, "
                 "reason, original_data, lineage_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT (snapshot_id, rule_version_id, source_row_id) DO NOTHING",
+                "ON CONFLICT (id) DO NOTHING",
                 [
                     qid,
                     snap,
@@ -251,18 +261,39 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         except Exception:
             try:
                 db.execute(
-                    "INSERT INTO quarantine (id, source_table, source_row_id, rule_id, reason, lineage_hash) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    [qid, key, row_n, item["rule_id"], item["reason"], item.get("lineage_hash")],
+                    "INSERT INTO main.quarantine (id, snapshot_id, source_table, source_row_id, rule_id, rule_version_id, "
+                    "reason, original_data, lineage_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        qid, snap, key, row_n, item["rule_id"], "sandbox",
+                        item["reason"], _json.dumps(orig, default=str), item.get("lineage_hash"),
+                    ],
                 )
             except Exception:
                 pass
 
     clean_rows = exec_res.get("clean_db") or []
+    per_rule = exec_res.get("quarantine_breakdown_by_rule") or {}
+    cell_diffs = []
+    for item in q_items[:10]:
+        orig = {k: item[k] for k in item if k not in ("id", "source_table", "source_row_id", "rule_id", "reason", "lineage_hash")}
+        reason = str(item.get("reason") or "")
+        field = next((k for k in orig if k and k in reason), None) or (next(iter(orig), None) if orig else None)
+        if not field:
+            continue
+        cell_diffs.append({
+            "row_id": str(item.get("source_row_id")),
+            "field": str(field),
+            "source_table": item.get("source_table"),
+            "rule_id": item.get("rule_id"),
+            "before_value": orig.get(field),
+            "after_value": None,
+            "reason": reason,
+        })
     return {
         "dataset_key": key,
         "sandbox": True,
         "snapshot_id": snap,
+        "run_id": snap,
         "this_run": True,
         "clean": clean_rows[:50],
         "quarantine": q_items[:100],
@@ -270,6 +301,11 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         "quarantine_rows": int(exec_res.get("quarantine_count") or len(q_items) or 0),
         "manifest_hash": exec_res.get("manifest_hash") or "",
         "sampled_rows": len(rows),
+        "cell_diffs": cell_diffs,
+        "per_rule_counts": {str(k): int(v) for k, v in per_rule.items()},
+        "tables": [key],
+        "execute": "off",
+        "promoted": False,
     }
 
 
@@ -311,10 +347,12 @@ class ProfileDatasetTool(BaseTool):
             total_rows = 0
 
             if user_tables and not table_name:
+                from src.services.dataset_engine import PROFILE_SAMPLE_CAP
+                sample = min(int(input_data.get("sample_size") or PROFILE_SAMPLE_CAP), PROFILE_SAMPLE_CAP)
                 for tbl in user_tables:
                     try:
-                        df = load_dataset(dataset_key=f"{base_key}::{tbl}")
-                        prof = profile_rows(df.to_dict("records"))
+                        df = load_dataset(dataset_key=f"{base_key}::{tbl}", sample_size=sample)
+                        prof = profile_rows(df)
                         tables_profile[tbl] = {
                             "total_rows": len(df),
                             "columns_count": len(df.columns),
@@ -325,8 +363,10 @@ class ProfileDatasetTool(BaseTool):
                     except Exception as inner:
                         tables_profile[tbl] = {"error": str(inner)}
             else:
-                df = load_dataset(dataset_key=dataset_key)
-                prof = profile_rows(df.to_dict("records"))
+                from src.services.dataset_engine import PROFILE_SAMPLE_CAP
+                sample = min(int(input_data.get("sample_size") or PROFILE_SAMPLE_CAP), PROFILE_SAMPLE_CAP)
+                df = load_dataset(dataset_key=dataset_key, sample_size=sample)
+                prof = profile_rows(df)
                 key_name = table_name or base_key
                 tables_profile[key_name] = {
                     "total_rows": len(df),
@@ -905,3 +945,4 @@ class RunFullPipelineTool(BaseTool):
                 "stage_4_clean": clean_data,
             }
         )
+

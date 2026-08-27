@@ -29,6 +29,12 @@ export interface ChatMessage {
   timestamp: string;
   agentId?: AgentId;
   metadata?: Record<string, unknown>;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  retrievedTables?: string[];
+  retrievedRules?: string[];
 }
 
 export interface RuleProposal {
@@ -107,7 +113,7 @@ export interface PipelineStepDef {
   desc: string;
 }
 
-export type DomainId = 'ev_telemetry' | 'vgreen_charging' | 'xanhsm_trips' | 'customer_nlp' | 'vingroup_pilot' | string;
+export type DomainId = 'ev_telemetry' | 'charging_sessions' | 'trips' | 'nlp_feedback' | 'vingroup_pilot' | string;
 
 export interface DomainInfo {
   id: DomainId;

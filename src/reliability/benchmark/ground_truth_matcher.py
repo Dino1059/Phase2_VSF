@@ -20,6 +20,12 @@ DATASET_TO_TABLE = {
     "acn_charging_mapped": ["vgreen_charging_sessions"],
     "ride_hailing_xanh_sm_trips": ["xanhsm_trips"],
     "nlp_benchmark_uit_vsfc": ["xanhsm_feedback"],
+    # Ngan landing / canonical warehouse
+    "ev_telemetry": ["ev_telemetry"],
+    "acn_charging": ["acn_charging", "charging_sessions"],
+    "ride_trips": ["ride_trips", "trips"],
+    "charging_sessions": ["charging_sessions", "acn_charging"],
+    "trips": ["trips", "ride_trips"],
 }
 
 TABLE_TO_DATASET = {
@@ -28,6 +34,11 @@ TABLE_TO_DATASET = {
     "vgreen_charging_sessions": "acn_charging_mapped",
     "xanhsm_trips": "ride_hailing_xanh_sm_trips",
     "xanhsm_feedback": "nlp_benchmark_uit_vsfc",
+    "ev_telemetry": "ev_telemetry",
+    "acn_charging": "acn_charging",
+    "charging_sessions": "acn_charging",
+    "ride_trips": "ride_trips",
+    "trips": "ride_trips",
 }
 
 
@@ -39,13 +50,26 @@ class GroundTruthMatcher:
     def __init__(self, manifest_path: str | Path):
         self.manifest_path = Path(manifest_path).resolve()
         self.manifest_data = self._load_manifest()
-        self.faults = self.manifest_data.get("faults", [])
+        self.faults = self._normalize_faults(self.manifest_data)
 
     def _load_manifest(self) -> Dict[str, Any]:
         if not self.manifest_path.exists():
             raise FileNotFoundError(f"Fault manifest not found at: {self.manifest_path}")
         with open(self.manifest_path, "r", encoding="utf-8") as f:
             return json.load(f)
+
+    @staticmethod
+    def _normalize_faults(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Accept legacy `faults[]` or Ngan `incidents[]` (table + row_index + day_idx)."""
+        raw = data.get("faults") or data.get("incidents") or []
+        out: List[Dict[str, Any]] = []
+        for f in raw:
+            item = dict(f)
+            item["original_index"] = item.get("original_index", item.get("row_index"))
+            item["dataset"] = item.get("dataset") or item.get("dataset_table")
+            item["affected_vin"] = item.get("affected_vin") or item.get("entity_id")
+            out.append(item)
+        return out
 
     def evaluate_signals(
         self,
@@ -158,10 +182,14 @@ class GroundTruthMatcher:
     ) -> List[Signal]:
         """Filters signals strictly relevant to a specific fault family."""
         matched: List[Signal] = []
+        fam_l = family.lower()
         for s in signals:
             detector_name = (s.detector or "").lower()
             desc = (s.metric_or_relationship or "").lower()
             sig_type = (s.signal_type or "").lower()
+            if fam_l in detector_name or fam_l in desc or fam_l in sig_type:
+                matched.append(s)
+                continue
 
             if family == "F1_Negative_SOC":
                 if "soc" in desc or "soc" in detector_name:
@@ -202,6 +230,9 @@ class GroundTruthMatcher:
             elif family == "F16_FareDistribution_Regime":
                 if s.layer == "L4" and ("distance" in desc or "driver" in detector_name):
                     matched.append(s)
+            elif family == "F17_ForeignKey_Orphan":
+                if "orphan" in desc or "orphan" in detector_name or "foreign" in desc:
+                    matched.append(s)
 
         return matched
 
@@ -231,7 +262,17 @@ class GroundTruthMatcher:
                     ent_col = "vehicle_vin" if "vehicle_vin" in df.columns else ("driver_id" if "driver_id" in df.columns else None)
                     if ent_col and ent_col in row:
                         if str(row[ent_col]) in sig.entity_ids:
-                            return True
+                            if fault.get("day_idx") is None:
+                                return True
+                            day_col = "day_idx" if "day_idx" in df.columns else (
+                                "assigned_day_index" if "assigned_day_index" in df.columns else None
+                            )
+                            if day_col is None:
+                                return True
+                            try:
+                                return int(row[day_col]) == int(fault["day_idx"])
+                            except (TypeError, ValueError):
+                                return True
 
         # For window/entity anomalies (L2, L3, L4)
         if "affected_vin" in fault:

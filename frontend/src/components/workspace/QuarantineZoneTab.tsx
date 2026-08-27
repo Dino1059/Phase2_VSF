@@ -158,12 +158,10 @@ export const QuarantineZoneTab: React.FC<Props> = ({ initialDatasetKey = 'all', 
             }}
           >
             <option value="all">All Tables</option>
-            <option value="vinfast_ev_telemetry">VinFast EV Telemetry</option>
-            <option value="vinfast_bms">VinFast BMS Telemetry</option>
-            <option value="vgreen_charging_stations">VGreen Charging Stations</option>
-            <option value="vgreen_telemetry">VGreen Telemetry</option>
-            <option value="xanh_sm_trips">Xanh SM Trips</option>
-            <option value="raw_taxi_trips">Raw Taxi Telemetry</option>
+            <option value="ev_telemetry">VinFast EV Telemetry</option>
+            <option value="charging_sessions">V-GREEN Charging</option>
+            <option value="trips">Xanh SM Trips</option>
+            <option value="nlp_feedback">Customer Feedback NLP</option>
           </select>
           <button
             type="button"

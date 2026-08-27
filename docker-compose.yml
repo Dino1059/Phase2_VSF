@@ -10,6 +10,8 @@ services:
     volumes:
       - ./data_new:/app/data_new
       - ./data:/app/data
+      - ./landing_data:/app/landing_data:ro
+      - ./eval:/app/eval:ro
     env_file:
       - .env
     environment:

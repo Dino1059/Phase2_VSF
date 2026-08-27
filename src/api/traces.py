@@ -9,9 +9,9 @@ from src.db.connection import get_db
 traces_router = APIRouter(prefix="/traces", tags=["Traces"])
 
 _ACTOR_BY_ACTION = (
-    ("profile", "C1_AI"),
-    ("propose", "C1_AI"),
-    ("rule", "C1_AI"),
+    ("profile", "PROFILER"),
+    ("propose", "PROPOSER"),
+    ("rule", "PROPOSER"),
     ("detect", "L1_DETECTOR"),
     ("anomaly", "L1_DETECTOR"),
     ("clean", "EXECUTOR"),
@@ -454,3 +454,31 @@ async def get_trace(
         normalized = unfiltered
     normalized = attach_msg_ids(db, resolved, normalized)
     return {"session_id": resolved, "steps": normalized}
+
+
+@traces_router.get("/{session_id}/timeline")
+async def session_timeline(
+    session_id: str,
+    since: str | None = Query(default=None),
+):
+    """Scoped session events. Never invent CoT. Execute off."""
+    body = await get_trace(session_id, since=since, include_thought=False)
+    events = []
+    for card in body.get("steps") or []:
+        events.append(
+            {
+                "session_id": body.get("session_id"),
+                "action": card.get("action") or card.get("tool_name"),
+                "actor_kind": card.get("actor_kind"),
+                "summary": card.get("summary_done") or card.get("summary") or card.get("observation"),
+                "status": card.get("status"),
+                "timestamp": card.get("timestamp"),
+                "thought": _pass_through_thought(card.get("thought")),
+            }
+        )
+    return {
+        "session_id": body.get("session_id"),
+        "events": events,
+        "cot": False,
+        "execute": "off",
+    }

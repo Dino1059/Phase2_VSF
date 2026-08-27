@@ -29,13 +29,13 @@ def test_quarantine_idempotency_rule_executor(tmp_db):
     # Seed quality rule
     tmp_db.execute(
         "INSERT INTO quality_rules (id, snapshot_id, rule_name, rule_type, rule_expression, status) VALUES (?, ?, ?, ?, ?, ?)",
-        ["rule_temp_01", "snap_001", "temp_overheat", "range", "temperature_celsius < 80.0", "approved"]
+        ["rule_temp_01", "snap_001", "temp_overheat", "range", "station_temp_c < 80.0", "approved"]
     )
     # Seed telemetry rows (3 normal, 2 violating)
     for i in range(1, 6):
         temp = 90.0 if i in (2, 4) else 70.0
         tmp_db.execute(
-            "INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, status) VALUES (?, ?, ?, ?)",
+            "INSERT INTO charging_sessions (session_id, station_id, station_temp_c, status) VALUES (?, ?, ?, ?)",
             [i, f"STATION-{i}", temp, "OK"]
         )
 
@@ -68,8 +68,8 @@ def test_quarantine_idempotency_rule_executor(tmp_db):
     assert len(rows) == 2
     assert rows[0][0] == "snap_001"
     assert rows[0][1] == "v1.0"
-    assert rows[0][2] == 2
-    assert rows[1][2] == 4
+    assert rows[0][2] == 1
+    assert rows[1][2] == 2
 
 
 def test_quarantine_idempotency_dataset_engine(tmp_db):
@@ -90,7 +90,7 @@ def test_quarantine_idempotency_dataset_engine(tmp_db):
         rules=rules,
         snapshot_id="snap_ds_1",
         rule_version_id="v1.0",
-        source_table="raw_taxi_trips",
+        source_table="trips",
         db=tmp_db
     )
 
@@ -103,7 +103,7 @@ def test_quarantine_idempotency_dataset_engine(tmp_db):
         rules=rules,
         snapshot_id="snap_ds_1",
         rule_version_id="v1.0",
-        source_table="raw_taxi_trips",
+        source_table="trips",
         db=tmp_db
     )
 
@@ -115,10 +115,10 @@ def test_quarantine_atomic_transaction(tmp_db):
     """Rule execution, quarantine insertion, and audit log write atomically inside a single transaction."""
     tmp_db.execute(
         "INSERT INTO quality_rules (id, snapshot_id, rule_name, rule_type, rule_expression, status) VALUES (?, ?, ?, ?, ?, ?)",
-        ["rule_atomic", "snap_atomic", "voltage_check", "range", "voltage > 200.0", "approved"]
+        ["rule_atomic", "snap_atomic", "power_kw_check", "range", "power_kw > 200.0", "approved"]
     )
     tmp_db.execute(
-        "INSERT INTO vgreen_telemetry (id, station_id, voltage, status) VALUES (?, ?, ?, ?)",
+        "INSERT INTO charging_sessions (session_id, station_id, power_kw, status) VALUES (?, ?, ?, ?)",
         [101, "STATION-101", 150.0, "FAULT"]
     )
 
@@ -151,7 +151,7 @@ def test_quarantine_chunked_batch_insertion(tmp_db):
         rules=rules,
         snapshot_id="snap_chunk_1",
         rule_version_id="v1.0",
-        source_table="raw_taxi_trips",
+        source_table="trips",
         db=tmp_db
     )
 
@@ -165,8 +165,11 @@ def test_quarantine_chunked_batch_insertion(tmp_db):
         rules=rules,
         snapshot_id="snap_chunk_1",
         rule_version_id="v1.0",
-        source_table="raw_taxi_trips",
+        source_table="trips",
         db=tmp_db
     )
     q_db_count_2 = tmp_db.execute("SELECT COUNT(*) FROM quarantine WHERE snapshot_id = 'snap_chunk_1'")[0][0]
     assert q_db_count_2 == 1200
+
+
+

@@ -181,9 +181,9 @@ class RuleExecutorTool(BaseTool):
                 cols = [desc[0] for desc in conn.description] if conn.description else []
 
                 quarantine_records = []
-                for row in violation_rows:
+                for idx, row in enumerate(violation_rows, start=1):
                     row_dict = dict(zip(cols, row)) if cols else {}
-                    source_row_id = row_dict.get("id") or row_dict.get("row_id") or row[0]
+                    source_row_id = row_dict.get("id") or row_dict.get("row_id") or row_dict.get("event_sequence_index") or idx
                     q_id = str(uuid.uuid4())[:8]
                     orig_data_json = json.dumps(row_dict, default=str)
                     lineage_str = f"{effective_snapshot_id}:{effective_rule_version_id}:{source_row_id}"
@@ -290,33 +290,14 @@ class RuleExecutorTool(BaseTool):
         raise ValueError(f"Unparseable or unsafe rule expression: '{expression}'")
 
     def _infer_table(self, expression: str) -> str:
-        """Infer target table from rule expression column names, preferring existing DB tables."""
+        """Infer canonical target table from rule expression column names."""
         expr_lower = expression.lower()
-        try:
-            db = get_db()
-            if any(k in expr_lower for k in ["battery_soc", "cell_temp", "bms_fault"]):
-                res = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ev_telemetry'")
-                if res and res[0][0] > 0:
-                    return "ev_telemetry"
-                res_bms = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'vinfast_bms'")
-                if res_bms and res_bms[0][0] > 0:
-                    return "vinfast_bms"
-            elif any(k in expr_lower for k in ["temperature_celsius", "duty_cycle", "station_id", "current_amps"]):
-                res = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'charging_sessions'")
-                if res and res[0][0] > 0:
-                    return "charging_sessions"
-                res_vg = db.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'vgreen_telemetry'")
-                if res_vg and res_vg[0][0] > 0:
-                    return "vgreen_telemetry"
-        except Exception:
-            pass
-
-        if any(k in expr_lower for k in ["battery_soc", "cell_temp", "bms_fault", "vehicle_id", "temp_c", "voltage_v"]):
+        if any(k in expr_lower for k in ["battery_soc", "battery_temp_c", "battery_voltage", "battery_current", "vehicle_vin"]):
             return "ev_telemetry"
-        elif any(k in expr_lower for k in ["temperature", "voltage", "duty_cycle", "station_id", "current_amps", "charging"]):
+        elif any(k in expr_lower for k in ["station_temp_c", "station_id", "charger_id", "kwh_consumed", "power_kw", "charging"]):
             return "charging_sessions"
-        elif any(k in expr_lower for k in ["review_text", "rating", "source", "aspects"]):
+        elif any(k in expr_lower for k in ["sentence", "sentiment", "topic", "raw_comment_text", "feedback"]):
             return "nlp_feedback"
-        elif any(k in expr_lower for k in ["distance_km", "fare_vnd", "duration_minutes", "trip_id", "driver_pay", "fare"]):
+        elif any(k in expr_lower for k in ["trip_distance_km", "fare_amount", "total_fare", "trip_id", "driver_id", "fare"]):
             return "trips"
         return normalize_table_name(expression)

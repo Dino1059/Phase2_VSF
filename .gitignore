@@ -73,3 +73,6 @@ package-lock.json
 .plan
 demo/
 .ngan_tmp_local
+implementation-notes.md
+implementation_notes.md
+scratch/

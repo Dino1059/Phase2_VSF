@@ -114,6 +114,18 @@ class ContextBuilder:
                 col_str += f" | Aggregates: {json.dumps(stats)}"
             lines.append(col_str)
 
+        duplicate_count = sanitized.get("duplicate_count")
+        candidate_keys = sanitized.get("candidate_keys")
+        cross_field_correlations = sanitized.get("cross_field_correlations")
+        if duplicate_count or candidate_keys or cross_field_correlations:
+            lines.append("\n--- DATA QUALITY SIGNALS ---")
+            if duplicate_count:
+                lines.append(f"Duplicate Rows: {duplicate_count}")
+            if candidate_keys:
+                lines.append(f"Candidate Primary Keys: {', '.join(candidate_keys)}")
+            if cross_field_correlations:
+                lines.append(f"Cross-Field Correlations: {json.dumps(cross_field_correlations)}")
+
         if target_schema:
             lines.append("\n=== TARGET SCHEMA & CONSTRAINTS ===")
             if isinstance(target_schema, dict):

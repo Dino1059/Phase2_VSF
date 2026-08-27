@@ -348,6 +348,15 @@ class ReActEngine:
         if context:
             messages.append({"role": "user", "content": f"Context: {json.dumps(context, default=str)}"})
 
+        # Pre-flight 10k cap. Word-count (memory narrative is inside context). Not len/4.
+        prompt_words = sum(len(str(m.get("content") or "").split()) for m in messages)
+        if prompt_words >= self.token_budget:
+            result.total_tokens = prompt_words
+            result.status = "token_budget_exceeded"
+            result.final_answer = "Stopped: 10k token cap (memory block counted)."
+            return result
+        result.total_tokens = 0
+
         # Seed a running Profile beat before the LLM call so GET /traces is not empty
         # for ~30s. Later profile_dataset at step 0 upserts this same row. Do not invent Done.
         self._seed_running_profile(result, task, context)

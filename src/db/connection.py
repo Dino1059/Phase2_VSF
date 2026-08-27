@@ -1,4 +1,4 @@
-import duckdb, os, threading, logging
+import duckdb, os, threading, logging, time
 
 logger = logging.getLogger(__name__)
 
@@ -49,32 +49,63 @@ class DuckDBManager:
                 dir_name = os.path.dirname(self.db_path)
                 if dir_name:
                     os.makedirs(dir_name, exist_ok=True)
-                import time
                 for attempt in range(5):
                     try:
                         self._master_conn = duckdb.connect(self.db_path)
                         break
-                    except Exception as e:
+                    except duckdb.Error as e:
                         err_str = str(e).lower()
-                        if "wal file" in err_str or "getdefaultdatabase" in err_str:
+                        is_lock_conflict = any(
+                            k in err_str for k in
+                            ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]
+                        )
+                        if is_lock_conflict:
+                            # Never touch any file here — another process may
+                            # be actively using this database. Checked before
+                            # the WAL-corruption branch on purpose: a message
+                            # that mentions both must be treated as a lock
+                            # conflict, not WAL corruption.
+                            if attempt < 4:
+                                logger.warning(
+                                    "DuckDB lock conflict on %s (attempt %d/5): %s",
+                                    self.db_path, attempt + 1, e,
+                                )
+                                time.sleep(0.3)
+                                continue
+                            logger.warning(
+                                "DuckDB still locked after 5 attempts on %s, falling back to read-only: %s",
+                                self.db_path, e,
+                            )
+                            try:
+                                self._master_conn = duckdb.connect(self.db_path, read_only=True)
+                                break
+                            except Exception:
+                                raise e
+                        elif "wal file" in err_str or "getdefaultdatabase" in err_str:
+                            # Corrupted WAL: remove only .wal. NEVER delete
+                            # db_path — that is the actual database.
                             wal_path = self.db_path + ".wal"
                             if os.path.exists(wal_path):
+                                logger.warning(
+                                    "Corrupted DuckDB WAL for %s, removing %s (main DB file is kept): %s",
+                                    self.db_path, wal_path, e,
+                                )
                                 try:
                                     os.remove(wal_path)
-                                except Exception:
-                                    pass
-                            if os.path.exists(self.db_path):
-                                try:
-                                    os.remove(self.db_path)
-                                except Exception:
-                                    pass
+                                except OSError as remove_err:
+                                    logger.error("Failed to remove corrupted WAL %s: %s", wal_path, remove_err)
                             if attempt < 4:
                                 continue
-                        if any(k in err_str for k in ["could not set lock", "used by another process", "already open", "lock", "conflicting lock"]):
-                            time.sleep(0.2)
+                            raise
                         else:
-                            time.sleep(0.2)
-
+                            if attempt < 4:
+                                logger.warning(
+                                    "Unexpected DuckDB error opening %s (attempt %d/5), retrying: %s",
+                                    self.db_path, attempt + 1, e,
+                                )
+                                time.sleep(0.2)
+                                continue
+                            raise
 
                 if self._master_conn is None:
                     raise RuntimeError(f"Could not open DuckDB database at '{self.db_path}'. Database may be locked by another process.")
@@ -406,6 +437,17 @@ class DuckDBManager:
                 """)
             except Exception as e:
                 logger.error(f"Error executing migration 0002: {e}")
+
+    def fetch_df(self, query: str, params: list = None):
+        """Run a SELECT and return a DataFrame. Caller must not hold this across pandas work."""
+        import pandas as pd
+        conn = self._get_master_conn()
+        with self._conn_lock:
+            res = conn.execute(query, params) if params is not None else conn.execute(query)
+            try:
+                return res.fetchdf()
+            except Exception:
+                return pd.DataFrame()
 
     def execute(self, query: str, params: list = None) -> list:
         conn = self._get_master_conn()

@@ -139,8 +139,8 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
     set({ error: null, activeDayIdx: dayIdx, executionStage: 'ingesting' });
     try {
       await ingestionApi.activateDay(dayIdx, forceReplay);
-      set({ executionStage: 'completed' });
       await get().refetchAll();
+      set({ executionStage: 'completed' });
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx } }));
     } catch (e) {
       set({ executionStage: 'failed', error: e instanceof Error ? e.message : String(e) });
@@ -155,8 +155,8 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
     set({ error: null, activeDayIdx: 9, executionStage: 'ingesting' });
     try {
       await ingestionApi.activateWarmup();
-      set({ executionStage: 'completed' });
       await get().refetchAll();
+      set({ executionStage: 'completed' });
       window.dispatchEvent(new CustomEvent('datatrust:day-activated', { detail: { dayIdx: 9 } }));
     } catch (e) {
       set({ executionStage: 'failed', error: e instanceof Error ? e.message : String(e) });
@@ -265,10 +265,18 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       }
     };
 
+    const handlePipelineCompleted = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      void get().refetchAll();
+      set({ executionStage: 'completed' });
+      window.dispatchEvent(new CustomEvent('datatrust:pipeline-completed-toast', { detail }));
+    };
+
     window.addEventListener(WS_TICK, handleTick);
     window.addEventListener(WS_DAY_ADVANCE, handleDayAdvance);
     window.addEventListener(WS_ERROR, handleError);
     window.addEventListener('datatrust:agent-trace', handleAgentTrace);
+    window.addEventListener('datatrust:pipeline-completed', handlePipelineCompleted);
 
     const pollTimer = setInterval(() => {
       const { fetchTimeline, fetchRuns, fetchRealtimeStatus, fetchDemoState } = get();
@@ -280,6 +288,7 @@ export const useIngestionStore = create<IngestionStateStore>((set, get) => ({
       window.removeEventListener(WS_DAY_ADVANCE, handleDayAdvance);
       window.removeEventListener(WS_ERROR, handleError);
       window.removeEventListener('datatrust:agent-trace', handleAgentTrace);
+      window.removeEventListener('datatrust:pipeline-completed', handlePipelineCompleted);
       clearInterval(pollTimer);
       isWsInitialized = false;
     };

@@ -22,4 +22,6 @@ class Signal(BaseModel):
     detector_version: str = "1.0.0"
     evidence_refs: List[str] = Field(default_factory=list)
     provenance: ProvenanceType = "SEMI_SYNTHETIC"
+    source_table: Optional[str] = None
+    violation_direction: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

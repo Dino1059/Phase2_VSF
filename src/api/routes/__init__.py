@@ -601,9 +601,12 @@ def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str
 
 
 @router.post("/chat/send")
-async def send_chat_message(request: ChatRequest):
+async def send_chat_message(request: ChatRequest, http: Request):
     session_id = request.session_id or "default"
-    effective_use_llm = request.use_llm if request.use_llm is not None else (request.mode != "deterministic")
+    prior = conversation_store.get_messages(session_id)
+    is_session_start = not prior
+    user_id = getattr(http.state, "user_id", None) or "usr_steward_01"
+    effective_use_llm = request.use_llm if request.use_llm is not None else True
     msg_metadata = {}
     if request.dataset_key:
         msg_metadata["dataset_key"] = request.dataset_key
@@ -662,7 +665,7 @@ async def send_chat_message(request: ChatRequest):
             }
         }, session_id=session_id)
         prof_tool = ProfileDatasetTool()
-        prof_res = prof_tool.execute({"dataset_key": target_dataset})
+        prof_res = await asyncio.to_thread(prof_tool.execute, {"dataset_key": target_dataset})
         prof_data = prof_res.output_data if prof_res.status == "success" else {}
         prof_obs = format_friendly_observation("profile_dataset", prof_data, lang=lang_pref)
         m1 = conversation_store.save_message({"type": "agent", "agentId": "profile_dataset", "content": prof_obs, "metadata": {"raw_data": prof_data, "profile": prof_data}}, session_id=session_id)
@@ -679,7 +682,7 @@ async def send_chat_message(request: ChatRequest):
             }
         }, session_id=session_id)
         anom_tool = DetectAnomaliesTool()
-        anom_res = anom_tool.execute({"dataset_key": target_dataset})
+        anom_res = await asyncio.to_thread(anom_tool.execute, {"dataset_key": target_dataset})
         anom_data = anom_res.output_data if anom_res.status == "success" else {}
         anom_obs = format_friendly_observation("detect_anomalies", anom_data, lang=lang_pref)
         m2 = conversation_store.save_message({"type": "agent", "agentId": "detect_anomalies", "content": anom_obs}, session_id=session_id)
@@ -696,7 +699,7 @@ async def send_chat_message(request: ChatRequest):
             }
         }, session_id=session_id)
         rules_tool = ProposeQualityRulesTool()
-        rules_res = rules_tool.execute({"dataset_key": target_dataset, "anomaly_findings": anom_data})
+        rules_res = await asyncio.to_thread(rules_tool.execute, {"dataset_key": target_dataset, "anomaly_findings": anom_data})
         rules_obs = format_friendly_observation("propose_quality_rules", rules_res.output_data if rules_res.status == "success" else {}, lang=lang_pref)
         m3 = conversation_store.save_message({"type": "agent", "agentId": "propose_quality_rules", "content": rules_obs}, session_id=session_id)
         await ws_manager.broadcast({"type": "chat.message", "data": m3}, session_id=session_id)
@@ -712,17 +715,15 @@ async def send_chat_message(request: ChatRequest):
             }
         }, session_id=session_id)
         clean_tool = CleanDatabaseTool()
-        clean_res = clean_tool.execute({"dataset_key": target_dataset})
+        clean_res = await asyncio.to_thread(clean_tool.execute, {"dataset_key": target_dataset})
         clean_obs = format_friendly_observation("clean_database", clean_res.output_data if clean_res.status == "success" else {}, lang=lang_pref)
         m4 = conversation_store.save_message({"type": "agent", "agentId": "clean_database", "content": clean_obs}, session_id=session_id)
         await ws_manager.broadcast({"type": "chat.message", "data": m4}, session_id=session_id)
         steps_executed.append("clean_database")
 
-        # Background sync with DataTrustOrchestrator for right-panel tabs
+        # Background sync with DataTrustOrchestrator for right-panel tabs (using preceding tool results)
         try:
             import uuid
-            from src.orchestrator.orchestrator import DataTrustOrchestrator
-            from src.services.llm import GemmaLLMAdapter
             from src.api.pipeline import _build_pipeline_result, _update_pipeline_run
             from src.db.connection import get_db
 
@@ -732,9 +733,91 @@ async def send_chat_message(request: ChatRequest):
                 "INSERT INTO pipeline_runs (run_id, project_id, dataset_key, status) VALUES (?, ?, ?, ?)",
                 [run_id, "proj-vingroup-pilot", target_dataset, "running"],
             )
-            orch = DataTrustOrchestrator(llm=GemmaLLMAdapter(use_llm=effective_use_llm), project_id="proj-vingroup-pilot")
-            orch_res = orch.run_analysis(target_dataset)
-            payload = _build_pipeline_result(run_id, target_dataset, orch_res)
+
+            # Map the incidents to the structure expected by _build_pipeline_result
+            raw_incidents = anom_data.get("incidents", []) if isinstance(anom_data, dict) else []
+            incidents_payload = []
+            for inv in raw_incidents:
+                incidents_payload.append({
+                    "id": inv.get("incident_id"),
+                    "incident_id": inv.get("incident_id"),
+                    "severity": inv.get("severity"),
+                    "status": inv.get("status", "OPEN"),
+                    "supporting_layers": inv.get("supporting_layers"),
+                    "admission_reason": inv.get("admission_reason"),
+                    "entity_ids": inv.get("entity_ids"),
+                    "target_entity": inv.get("entity_ids")[0] if inv.get("entity_ids") else "VIN-001",
+                    "signal_ids": inv.get("signal_ids", []),
+                    "llm_claim": inv.get("hypothesis_claim", ""),
+                    "llm_classification": inv.get("classification", "DATA"),
+                    "confidence": inv.get("confidence", 0.88),
+                    "hypothesis": {
+                        "id": inv.get("hypothesis_id"),
+                        "claim": inv.get("hypothesis_claim", ""),
+                        "classification": inv.get("classification", "DATA"),
+                        "confidence": inv.get("confidence", 0.88),
+                        "supporting_evidence": inv.get("supporting_evidence", []),
+                        "contradicting_evidence": inv.get("contradicting_evidence", []),
+                        "missing_evidence": inv.get("missing_evidence", []),
+                    },
+                    "recommendation": {
+                        "id": inv.get("recommendation_id"),
+                        "type": inv.get("recommendation_type", "DATA"),
+                        "action_type": inv.get("action_type", "QUARANTINE_DATA"),
+                        "summary": inv.get("recommendation_summary", ""),
+                    },
+                    "meta": inv.get("meta", {}),
+                    "tool_trace": inv.get("tool_trace", []),
+                    "tokens_spent": inv.get("tokens_spent", 0),
+                    "source_table": inv.get("source_table"),
+                    "dataset_key": inv.get("dataset_key"),
+                    "cross_table": inv.get("cross_table", False),
+                })
+
+            stage1 = {
+                "stage": "profiling",
+                "agent": "profiler",
+                "status": "completed" if prof_res.status == "success" else "failed",
+                "steps": 1,
+                "summary": prof_obs[:500] if isinstance(prof_obs, str) else "Profile completed.",
+                "tables_profiled": [target_dataset],
+            }
+
+            stage2 = {
+                "stage": "anomaly_detection",
+                "agent": "reliability_orchestrator",
+                "status": "completed" if anom_res.status == "success" else "failed",
+                "incident_count": len(incidents_payload),
+                "incidents": incidents_payload,
+                "anomaly_findings": {
+                    "incidents": incidents_payload,
+                    "total_incidents": len(incidents_payload),
+                    "per_table": anom_data.get("per_table", []) if isinstance(anom_data, dict) else [],
+                    "cross_table_count": sum(1 for inv in incidents_payload if inv.get("cross_table")),
+                },
+                "summary": anom_data.get("summary", "") if isinstance(anom_data, dict) else "",
+                "tables_processed": anom_data.get("tables_checked", [target_dataset]) if isinstance(anom_data, dict) else [target_dataset],
+            }
+
+            stage4 = {
+                "stage": "rule_proposal",
+                "agent": "rule_proposer",
+                "status": "completed" if rules_res.status == "success" else "failed",
+                "steps": 1,
+                "summary": rules_obs[:500] if isinstance(rules_obs, str) else "Rule proposal completed."
+            }
+
+            class MockOrchestratorResult:
+                def __init__(self, stages, status="completed"):
+                    self.stages = stages
+                    self.status = status
+
+            mock_orch_res = MockOrchestratorResult(
+                stages=[stage1, stage2, stage4],
+                status="completed"
+            )
+
+            payload = _build_pipeline_result(run_id, target_dataset, mock_orch_res)
             _update_pipeline_run(run_id, payload["status"], payload)
         except Exception as oe:
             print(f"[WARN] Failed background orchestrator sync: {oe}")
@@ -806,6 +889,17 @@ async def send_chat_message(request: ChatRequest):
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
 
+    if is_session_start:
+        try:
+            from src.memory.state_tracker import session_state_tracker
+            from src.memory.context_provider import memory_context_provider
+            session_state_tracker.start_session(session_id, str(user_id), request.dataset_key)
+            mem_block = memory_context_provider.build_user_memory_context(str(user_id))
+            if mem_block:
+                context["user_memory"] = mem_block
+        except Exception as mem_exc:
+            print(f"[memory] session-start inject skipped: {mem_exc}")
+
     day_ctx_str = ""
     if request.active_day is not None:
         context["active_day"] = request.active_day
@@ -858,7 +952,7 @@ async def send_chat_message(request: ChatRequest):
             )
             react_engine._log_trace(session_id, step, status="running")
             try:
-                tool_result = registry.execute(tool_name, step.action_input)
+                tool_result = await asyncio.to_thread(registry.execute, tool_name, step.action_input)
                 output_data = getattr(tool_result, "output_data", {}) or {}
                 step.observation = json.dumps(output_data, default=str)
                 step.duration_ms = int(getattr(tool_result, "duration_ms", 0) or 0)
@@ -931,6 +1025,11 @@ async def send_chat_message(request: ChatRequest):
             "type": "agent",
             "agentId": "orchestrator",
             "content": final_content,
+            "metadata": {
+                "total_tokens": getattr(result, "total_tokens", 0),
+                "tokens": {"total_tokens": getattr(result, "total_tokens", 0), "tokens_used": getattr(result, "total_tokens", 0)},
+                "status": getattr(result, "status", ""),
+            },
         },
         session_id=session_id,
     )
