@@ -325,13 +325,12 @@ flowchart TB
         <li>RBAC Admin / Analyst / Steward / Viewer trên d086.</li>
         <li>LLM ON PONG / OFF inventory; chat abort.</li>
         <li>WAL: xóa <code>.wal</code> thôi, không xóa <code>.db</code>.</li>
-        <li>Run All Propose: đã vá trên checkout — chỉ bảng <code>main</code> canonical, không lồng detect, timeout LLM → heuristic. Commit <code>c4c9bd3</code> / <code>4a38993</code> trên nhánh <code>fix/v5-runall-propose-hang</code>.</li>
+        <li>Run All trên canonical <code>ev_telemetry</code> → Propose xong, HITL nhận luật (battery/SOC), không <code>clean.trips</code>. d086 ~66s, <strong>22 HITL rules</strong>. Playwright 20/0. PR #31 merged (<code>96245bb</code>).</li>
       </ul>
     </div>
     <div class="card out">
       <h3>Còn thiếu / cần xác nhận</h3>
       <ul class="tight">
-        <li><strong>Run All Propose treo</strong> (nếu còn trên d086 live): workspace liệt kê <code>clean.*</code>/<code>quarantine.*</code>, L1 “No signal config”, Propose không ra HITL. Vá đã có trong repo — cần docker-cp/bind-mount <code>src</code> lên d086, không rebuild image backend.</li>
         <li>GT không có cause xếp hạng 2/3 — top-3 hiện là family rank vs một <code>ground_truth_cause</code>.</li>
         <li>Phòng ban thật: chưa có cột org trên JWT / row-scope VinFast vs Xanh SM.</li>
         <li>Hai <code>BenchmarkHarness</code> trùng tên (eval vs reliability) — panel GT dùng adapter Ngan, không C0/C1/A1 trip dirty.</li>
