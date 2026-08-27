@@ -1,6 +1,6 @@
 # V5 overnight (2026-08-27)
 
-Branch: `v5-integration` @ **`3a83bc1`**. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
+Branch: `v5-integration` @ **`cdc09d6`**. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
 
 **MERGE VERDICT: NO.** N6=A still fails. HITL sandbox preview on d086 was not completed with an approved-rule run (queue empty). Frontend HTML still stamped `7070309` (one behind HEAD). Do not merge.
 
@@ -62,6 +62,7 @@ LLM-judge **off**. 14 incidents. No “adapter TBD”.
 
 - `7070309` fix(hitl): Admin authorize accepts edited; execute-off is design
 - `3a83bc1` fix(ingestion): empty timeline if `demo_ops.batch_run_log` missing
+- `cdc09d6` docs(loop): d086-api 502 was WAL crash; merge still no
 
 ## Still open (blocks merge)
 
