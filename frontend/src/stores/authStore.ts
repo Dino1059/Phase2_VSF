@@ -9,13 +9,29 @@ export interface UserProfile {
   role: UserRole;
 }
 
-const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
+export const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
   Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'clear_alerts', 'reset']),
   Analyst: new Set(['read', 'profile', 'propose_rules', 'execute_transform']),
   Auditor: new Set(['read', 'review_rules']),
   Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'create_alert']),
   Viewer: new Set(['read']),
 };
+
+export function normalizeUserRole(raw?: string | null): UserRole | null {
+  const s = String(raw || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  if (!s) return null;
+  if (s === 'admin' || s === 'administrator') return 'Admin';
+  if (s === 'steward' || s === 'data steward') return 'Steward';
+  if (s === 'analyst') return 'Analyst';
+  if (s === 'auditor') return 'Auditor';
+  if (s === 'viewer' || s === 'read only viewer' || s === 'read-only viewer') return 'Viewer';
+  return null;
+}
+
+export function roleCan(raw: string | null | undefined, action: string): boolean {
+  const role = normalizeUserRole(raw);
+  return !!role && ROLE_PERMISSIONS[role].has(action);
+}
 
 interface AuthState {
   token: string | null;
@@ -41,14 +57,14 @@ function profileFromAuth(res: { user?: unknown; user_profile?: UserProfile; role
     ? res.user_profile
     : (res.user && typeof res.user === 'object' ? res.user as UserProfile : null);
   const roleRaw = String(raw?.role || res.role || fallbackRole || 'steward');
-  const role = (roleRaw.charAt(0).toUpperCase() + roleRaw.slice(1).toLowerCase()) as UserRole;
+  const roleNorm = normalizeUserRole(roleRaw) || 'Steward';
   const username = typeof res.user === 'string'
     ? res.user
-    : (raw?.username || `${role.toLowerCase()}@datatrust.os`);
+    : (raw?.username || `${roleNorm.toLowerCase()}@datatrust.os`);
   return {
-    user_id: raw?.user_id || `usr_${role.toLowerCase()}_01`,
+    user_id: raw?.user_id || `usr_${roleNorm.toLowerCase()}_01`,
     username,
-    role,
+    role: roleNorm,
   };
 }
 
@@ -61,7 +77,10 @@ const initialUser: UserProfile = (() => {
   try {
     const raw = localStorage.getItem(USER_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed === 'object' && parsed.role) return parsed as UserProfile;
+    if (parsed && typeof parsed === 'object' && parsed.role) {
+      const role = normalizeUserRole(parsed.role) || 'Steward';
+      return { ...(parsed as UserProfile), role };
+    }
     const storedRole = String(localStorage.getItem('datatrust-role') || '').toLowerCase();
     if (storedRole === 'admin' || storedRole === 'administrator') {
       return { user_id: 'usr_admin_01', username: 'admin', role: 'Admin' };
@@ -117,10 +136,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (err) {
       console.error('Quick switch failed:', err);
       // Fallback local role update
+      const fallbackRole = normalizeUserRole(role) || 'Steward';
       const fallbackUser: UserProfile = {
-        user_id: `usr_${role.toLowerCase()}_01`,
-        username: `${role.toLowerCase()}@datatrust.os`,
-        role: (role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()) as UserRole,
+        user_id: `usr_${fallbackRole.toLowerCase()}_01`,
+        username: `${fallbackRole.toLowerCase()}@datatrust.os`,
+        role: fallbackRole,
       };
       set({ user: fallbackUser, isAuthModalOpen: false });
     }
@@ -157,11 +177,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return role === 'Admin' || role === 'Steward' || role === ('admin' as any) || role === ('steward' as any);
   },
 
-  hasPermission: (action) => {
-    const role = get().user?.role;
-    if (!role) return false;
-    return ROLE_PERMISSIONS[role]?.has(action) ?? false;
-  },
+  hasPermission: (action) => roleCan(get().user?.role, action),
 
   canReviewRules: () => get().hasPermission('review_rules'),
   canPropose: () => get().hasPermission('propose_rules'),

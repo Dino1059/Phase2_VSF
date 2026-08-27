@@ -18,7 +18,7 @@ import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm, rulesApi } from '
 import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
-import { useAuthStore } from '../../stores/authStore';
+import { useAuthStore, roleCan, normalizeUserRole } from '../../stores/authStore';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -233,8 +233,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const dropKeptAfterResetRef = useRef(false);
   const fetchGenRef = useRef(0);
   const [proposeSeen, setProposeSeen] = useState(false);
-  const canReviewRules = useAuthStore((s) => s.canReviewRules());
-  const canExecute = useAuthStore((s) => s.canExecute());
+  const canReviewRules = useAuthStore((s) => roleCan(s.user?.role, 'review_rules'));
+  const canExecute = useAuthStore((s) => roleCan(s.user?.role, 'execute_transform'));
+  const reviewRole = useAuthStore((s) => normalizeUserRole(s.user?.role) || s.user?.role || 'unknown');
+  const setAuthModalOpen = useAuthStore((s) => s.setAuthModalOpen);
 
   const [, setLlmTick] = useState(0);
 
@@ -632,6 +634,31 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           >
             {rejectedCount} {isVi ? 'Đã Từ Chối' : 'Rejected'}
           </button>
+          {canReviewRules && proposedCount > 0 && (
+            <button
+              type="button"
+              className="btn-batch-approve"
+              data-testid="hitl-approve-all"
+              onClick={handleBatchApprove}
+              disabled={actionLoading === 'batch'}
+              title={isVi ? 'Phê duyệt toàn bộ ràng buộc chất lượng được đề xuất' : 'Approve all proposed quality constraints'}
+              style={{
+                background: 'rgba(5, 150, 105, 0.18)',
+                border: '1px solid rgba(5, 150, 105, 0.45)',
+                color: '#059669',
+                padding: '3px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <CheckCheck size={13} /> {isVi ? `Duyệt Tất Cả (${proposedCount})` : `Approve All (${proposedCount})`}
+            </button>
+          )}
         </div>
 
         {sandboxAuthorized && payloadHash ? (
@@ -729,32 +756,6 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           >
             {getGlobalUseLlm() ? '🧠 Engine: LLM ON (Gemini 3.5 Flash Lite)' : '⚡ Engine: LLM OFF (Deterministic Rule Engine)'}
           </div>
-
-
-
-          {canReviewRules && proposedCount > 0 && (
-            <button
-              className="btn-batch-approve"
-              onClick={handleBatchApprove}
-              disabled={actionLoading === 'batch'}
-              title={isVi ? 'Phê duyệt toàn bộ ràng buộc chất lượng được đề xuất' : 'Approve all proposed quality constraints'}
-              style={{
-                background: 'rgba(5, 150, 105, 0.15)',
-                border: '1px solid rgba(5, 150, 105, 0.3)',
-                color: '#059669',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <CheckCheck size={13} /> {isVi ? `Duyệt Tất Cả (${proposedCount})` : `Approve All (${proposedCount})`}
-            </button>
-          )}
           <button
             className="traces-refresh-btn"
             onClick={() => void fetchRules()}
@@ -774,6 +775,51 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         </div>
 
       </div>
+
+      {!canReviewRules && proposedCount > 0 && (
+        <div
+          data-testid="hitl-role-gate"
+          role="status"
+          style={{
+            margin: '0 0 12px',
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'rgba(217, 119, 6, 0.12)',
+            border: '1px solid rgba(217, 119, 6, 0.4)',
+            color: '#b45309',
+            fontSize: 12,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>
+            {isVi
+              ? `Persona ${reviewRole}: Propose được, duyệt thì không. Approve / Sửa / Từ chối cần Steward hoặc Admin.`
+              : `Persona ${reviewRole}: you can propose, not approve. Approve / Edit / Reject need Steward or Admin.`}
+          </span>
+          <button
+            type="button"
+            data-testid="hitl-switch-persona"
+            onClick={() => setAuthModalOpen(true)}
+            style={{
+              background: 'rgba(217, 119, 6, 0.18)',
+              border: '1px solid rgba(217, 119, 6, 0.45)',
+              color: '#b45309',
+              padding: '4px 10px',
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            {isVi ? 'Đổi persona' : 'Switch persona'}
+          </button>
+        </div>
+      )}
 
       {sandboxDiff && (
         <SandboxDiff diffData={sandboxDiff} />
@@ -975,6 +1021,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     {canReviewRules && !isApproved && (
                       <button
                         className="btn-rule-accept"
+                        data-testid="btn-rule-approve"
                         onClick={() => handleApprove(rule.rule_id)}
                         disabled={actionLoading === rule.rule_id}
                         title={isVi ? 'Phê duyệt bộ luật để đưa vào biên dịch cách ly' : 'Approve rule for quarantine compilation'}
@@ -1024,6 +1071,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     {canReviewRules && !isRejected && (
                       <button
                         className="btn-rule-reject"
+                        data-testid="btn-rule-reject"
                         onClick={() => {
                           setRejectingRule(rule);
                           setRejectReason('');
@@ -1045,6 +1093,11 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                       >
                         <XCircle size={12} /> {isVi ? 'Từ Chối' : 'Reject'}
                       </button>
+                    )}
+                    {!canReviewRules && (
+                      <span data-testid="hitl-card-locked" style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
+                        {isVi ? 'Steward/Admin duyệt' : 'Steward/Admin to approve'}
+                      </span>
                     )}
                   </div>
                 </div>
