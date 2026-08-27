@@ -6,7 +6,7 @@ import {
   IdCard, LogOut, X, Database,
   AlertTriangle, GitBranch, ShieldCheck,
   History, Camera, LayoutDashboard, MessageSquare, ArrowRight,
-  RotateCcw, Globe, Sparkles, Shield, Zap,
+  RotateCcw, Globe, Sparkles, Shield, Zap, Menu,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
@@ -38,7 +38,7 @@ const STATIC_OPERATIONS: StaticSearchResult[] = [
   { id: 'op-snapshots', title: { en: 'Data Snapshots', vi: 'Ảnh Chụp Dữ Liệu' }, category: 'operation', description: { en: 'Cryptographic schema state and row count manifests', vi: 'Trạng thái schema mã hóa và bản kê số hàng' }, path: '/operations/snapshots', icon: Camera },
 ];
 
-export function Header() {
+export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; onToggleNav?: () => void } = {}) {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -316,6 +316,15 @@ export function Header() {
   return (
     <>
       <header className="top-hud">
+        <button
+          type="button"
+          className="nav-hamburger"
+          aria-label={navOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={navOpen}
+          onClick={() => onToggleNav?.()}
+        >
+          {navOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
         <div className="brand-section">
           <div className="logo-badge" onClick={() => navigate('/dashboard')} style={{ cursor: 'pointer' }}>
             <div className="logo-icon-box"><Atom size={18} /></div>
@@ -443,11 +452,11 @@ export function Header() {
           </button>
 
 
-          {/* Admin-Only DB & Baseline Reset Button */}
+          {/* Admin-Only DB & Baseline Reset Button — separated from LLM toggle */}
           {isAuthenticated && isAdmin() && (
             <button
               type="button"
-              className="hud-action-pill danger"
+              className="hud-action-pill danger hud-reset-db"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -461,6 +470,7 @@ export function Header() {
                 gap: '6px',
                 padding: '0 12px',
                 height: '32px',
+                marginLeft: 10,
                 borderRadius: '9999px',
                 backgroundColor: resetSuccess ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.12)',
                 border: `1px solid ${resetSuccess ? 'var(--electric-green)' : 'rgba(239, 68, 68, 0.35)'}`,

@@ -9,6 +9,14 @@ export interface UserProfile {
   role: UserRole;
 }
 
+const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
+  Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'clear_alerts', 'reset']),
+  Analyst: new Set(['read', 'profile', 'propose_rules', 'execute_transform']),
+  Auditor: new Set(['read', 'review_rules']),
+  Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'create_alert']),
+  Viewer: new Set(['read']),
+};
+
 interface AuthState {
   token: string | null;
   user: UserProfile | null;
@@ -21,6 +29,10 @@ interface AuthState {
   logout: () => void;
   isAdmin: () => boolean;
   isStewardOrAdmin: () => boolean;
+  hasPermission: (action: string) => boolean;
+  canReviewRules: () => boolean;
+  canPropose: () => boolean;
+  canExecute: () => boolean;
 }
 
 
@@ -144,4 +156,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const role = get().user?.role;
     return role === 'Admin' || role === 'Steward' || role === ('admin' as any) || role === ('steward' as any);
   },
+
+  hasPermission: (action) => {
+    const role = get().user?.role;
+    if (!role) return false;
+    return ROLE_PERMISSIONS[role]?.has(action) ?? false;
+  },
+
+  canReviewRules: () => get().hasPermission('review_rules'),
+  canPropose: () => get().hasPermission('propose_rules'),
+  canExecute: () => get().hasPermission('execute_transform'),
 }));

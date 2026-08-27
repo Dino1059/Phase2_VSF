@@ -143,7 +143,7 @@ async def health_fastpath(request: Request, call_next):
     if request.url.path in ("/health", "/health/"):
         s = get_settings()
         return JSONResponse(
-            {"status": "ok", "app": s.app_name, "env": s.app_env, "version": s.app_version}
+            {"status": "ok", "app": s.app_name, "env": s.app_env, "version": s.public_version}
         )
     return await call_next(request)
 
@@ -208,7 +208,7 @@ app.include_router(memory_router, prefix="/api/v1")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "env": settings.app_env, "version": settings.app_version}
+    return {"status": "ok", "app": settings.app_name, "env": settings.app_env, "version": settings.public_version}
 
 
 # Static asset handlers for /vite.svg and /favicon.ico

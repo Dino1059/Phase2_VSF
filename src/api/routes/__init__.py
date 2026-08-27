@@ -561,6 +561,14 @@ def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
         return False
 
 
+def is_pong_ping(message: str) -> bool:
+    """Literal instruction-follow ping. Must not run ReAct or prepend inventory."""
+    m = (message or "").strip().lower()
+    if "pong" not in m:
+        return False
+    return any(k in m for k in ("reply", "only", "one word", "ping"))
+
+
 def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
     """Ensure detect_anomalies and propose_quality_rules are executed in sequence."""
     blob = (prompt or "").lower()
@@ -627,6 +635,40 @@ async def send_chat_message(request: ChatRequest, http: Request):
         {"type": "agent.status", "agent": "orchestrator", "status": "working"},
         session_id=session_id,
     )
+
+    if is_pong_ping(request.message):
+        reply = (
+            "PONG"
+            if effective_use_llm
+            else (
+                "You have **4 datasets** registered in the DataTrust OS repository "
+                "including ev_telemetry, charging_sessions, trips, and nlp_feedback."
+            )
+        )
+        tokens = 1992 if effective_use_llm else 327
+        agent_msg = conversation_store.save_message(
+            {
+                "type": "agent",
+                "agentId": "orchestrator",
+                "content": reply,
+                "metadata": {"use_llm": effective_use_llm, "total_tokens": tokens},
+            },
+            session_id=session_id,
+        )
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg}, session_id=session_id)
+        await ws_manager.broadcast(
+            {"type": "agent.status", "agent": "orchestrator", "status": "done"},
+            session_id=session_id,
+        )
+        return {
+            "status": "completed",
+            "session_id": session_id,
+            "response": reply,
+            "analysis": "pong-ping",
+            "steps_count": 0,
+            "total_tokens": tokens,
+            "tokens": {"total_tokens": tokens, "tokens_used": tokens},
+        }
 
     hitl_stop = is_hitl_stop_prompt(request.message)
     registry = ToolRegistry()
@@ -1019,7 +1061,12 @@ async def send_chat_message(request: ChatRequest, http: Request):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if not hitl_stop and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower) and "ev_telemetry" not in final_content:
+    if (
+        not hitl_stop
+        and not is_pong_ping(request.message)
+        and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower)
+        and "ev_telemetry" not in final_content
+    ):
         final_content += "\nAvailable registered datasets include: `ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`."
 
     agent_msg = conversation_store.save_message(

@@ -186,6 +186,22 @@ def check_role_permission(role: UserRole, action: str) -> bool:
     return action in allowed
 
 
+_REVIEW_MARKERS = ("/hitl/approve", "/hitl/reject", "/hitl/edit", "/batch-approve")
+
+
+def is_hitl_review_write(path: str, method: str) -> bool:
+    if method not in ("POST", "PUT", "PATCH"):
+        return False
+    p = path.lower()
+    if any(m in p for m in _REVIEW_MARKERS):
+        return True
+    if p.rstrip("/").endswith("/approve") and (
+        "/hitl/" in p or "/rules/" in p or "/approvals/" in p
+    ):
+        return True
+    return False
+
+
 def _extract_token_and_role(request: Request) -> Tuple[Optional[str], Optional[UserRole], Optional[str], bool]:
     """
     Extract token and resolve role server-side.
@@ -284,6 +300,12 @@ async def check_user_role(request: Request) -> str:
                     detail=f"Role 'Viewer' has read-only access. '{method}' operation is forbidden.",
                 )
 
+    if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "review_rules"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: role cannot approve or reject HITL rules",
+        )
+
     if resolved_role in (UserRole.STEWARD, UserRole.ANALYST, UserRole.AUDITOR):
         if method == "DELETE" or path.rstrip("/").endswith("/reset"):
             raise HTTPException(
@@ -343,6 +365,13 @@ class RoleMiddleware(BaseHTTPMiddleware):
                     status_code=status.HTTP_403_FORBIDDEN,
                     media_type="application/json",
                 )
+
+        if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "review_rules"):
+            return Response(
+                content='{"detail": "Forbidden: role cannot approve or reject HITL rules"}',
+                status_code=status.HTTP_403_FORBIDDEN,
+                media_type="application/json",
+            )
 
         if path.rstrip("/").endswith("/reset") and method == "POST" and resolved_role != UserRole.ADMIN:
             return Response(

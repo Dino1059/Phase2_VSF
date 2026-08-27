@@ -28,6 +28,7 @@ import { usePipelineStore } from '../stores/pipelineStore';
 import { hitlApi, summaryApi } from '../services/api';
 import type { HITLProposal } from '../services/api';
 import { PILOT_FAULTY, PILOT_BATCH } from '../demo/pilotFacts';
+import { useAuthStore } from '../stores/authStore';
 
 const SEVERITY_BADGE: Record<string, string> = {
   HIGH: 'danger',
@@ -40,6 +41,7 @@ export const ExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const canReviewRules = useAuthStore((s) => s.canReviewRules());
   const metrics = useDashboardStore((s) => s.metrics);
   const insights = useDashboardStore((s) => s.insights);
   const activityFeed = useDashboardStore((s) => s.activityFeed);
@@ -308,9 +310,13 @@ export const ExecutiveDashboard: React.FC = () => {
                     {rule.proposed_by || 'AI Steward'} · {t('confidence')} {(((rule.confidence ?? 0) <= 1.0 ? (rule.confidence ?? 0) * 100 : (rule.confidence ?? 0))).toFixed(1)}% · {rule.proposed_at ? new Date(rule.proposed_at).toLocaleString() : t('justNow')}
                   </div>
                   <div className="rule-actions">
+                    {canReviewRules && (
+                      <>
                     <button className="btn-rule approve" onClick={() => handleRuleAction(rule, 'approve')}><Check size={13} /> {t('approveRule')}</button>
                     <button className="btn-rule edit" onClick={() => handleRuleAction(rule, 'edit')}><Pencil size={13} /> {t('editRule')}</button>
                     <button className="btn-rule reject" onClick={() => handleRuleAction(rule, 'reject')}><X size={13} /> {t('rejectRule')}</button>
+                      </>
+                    )}
                   </div>
                 </div>
               );

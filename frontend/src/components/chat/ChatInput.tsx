@@ -6,6 +6,7 @@ import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
 
 import { usePipelineStore } from '../../stores/pipelineStore';
+import { useAuthStore } from '../../stores/authStore';
 
 interface ChatInputProps {
   datasetKey?: string;
@@ -20,6 +21,8 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
   const abortRef = useRef<AbortController | null>(null);
   const sessionId = useChatStore((s) => s.sessionId);
   const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
+  const canPropose = useAuthStore((s) => s.canPropose());
+  const canExecute = useAuthStore((s) => s.canExecute());
 
   const executePrompt = async (promptText: string) => {
     if (isSending || !promptText.trim()) return;
@@ -60,6 +63,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
   return (
     <div className="chat-input-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
       {/* QUICK PIPELINE SHORTCUT PILLS */}
+      {(canPropose || canExecute) && (
       <div
         className="quick-actions-bar"
         style={{
@@ -70,6 +74,8 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           padding: '0 2px',
         }}
       >
+        {canPropose && (
+        <>
         <button
           type="button"
           disabled={isSending}
@@ -135,7 +141,10 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           <ShieldCheck size={11} style={{ color: '#d97706' }} />
           <span>{i18n.language === 'vi' ? 'Đề xuất luật chất lượng' : 'Propose Quality Rules'}</span>
         </button>
+        </>
+        )}
 
+        {canExecute && (
         <button
           type="button"
           disabled={isSending}
@@ -157,7 +166,9 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
           <Sparkles size={11} style={{ color: '#059669' }} />
           <span>{i18n.language === 'vi' ? 'Làm sạch & Cách ly' : 'Clean & Quarantine'}</span>
         </button>
+        )}
       </div>
+      )}
 
       {/* INPUT FORM */}
       <form className="chat-input-bar" onSubmit={(e) => { e.preventDefault(); void handleSend(); }}>
@@ -180,7 +191,7 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
             className="send-btn"
             disabled={!input.trim()}
           >
-            <span>EXECUTE</span>
+            <span>{i18n.language === 'vi' ? 'Gửi' : 'Send'}</span>
             <Send className="w-4 h-4 ml-2 inline-block" />
           </button>
         )}

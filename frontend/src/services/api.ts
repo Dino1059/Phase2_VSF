@@ -716,14 +716,20 @@ export const searchApi = {
 
 export const evaluationApi = {
   get: () => request<EvaluationMetricsInfo>('/evaluation'),
-  getGt: () => request<Record<string, any>>('/evaluation/gt'),
+  getGt: (signal?: AbortSignal) => request<Record<string, any>>('/evaluation/gt', { signal }),
 };
 
 // Legacy exported standalone helpers
+export function isPongPing(message: string): boolean {
+  const m = (message || '').trim().toLowerCase();
+  return m.includes('pong') && (m.includes('reply') || m.includes('only') || m.includes('one word') || m.includes('ping'));
+}
+
 export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null, signal?: AbortSignal) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
-  return request('/chat/send', {
+  const ping = isPongPing(message);
+  const result = await request('/chat/send', {
     method: 'POST',
     signal,
     body: JSON.stringify({
@@ -731,10 +737,20 @@ export async function sendChatMessage(message: string, sessionId: string = 'defa
       session_id: sessionId,
       lang: currentLang,
       use_llm: effectiveUseLlm,
-      ...(datasetKey ? { dataset_key: datasetKey } : {}),
+      ...(!ping && datasetKey ? { dataset_key: datasetKey } : {}),
       ...(activeDay !== undefined && activeDay !== null ? { active_day: activeDay } : {}),
     }),
   });
+  try {
+    window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+    const proposals = result?.proposals || result?.output_data?.proposals || result?.data?.proposals;
+    if (Array.isArray(proposals) && proposals.length) {
+      window.dispatchEvent(new CustomEvent('datatrust:hitl-proposed', {
+        detail: { proposals, dataset_key: datasetKey || result?.dataset_key, count: proposals.length },
+      }));
+    }
+  } catch { /* ignore */ }
+  return result;
 }
 
 

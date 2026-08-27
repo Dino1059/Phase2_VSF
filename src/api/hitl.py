@@ -53,21 +53,42 @@ def _parse_json_blob(value):
     return None
 
 
+def _dataset_aliases(dataset_key: Optional[str]) -> list:
+    raw = (dataset_key or "").strip()
+    if not raw:
+        return []
+    groups = (
+        {"ev_telemetry", "vinfast_ev_telemetry", "vinfast_ev_telemetry_dirty", "vingroup_pilot", "ev", "pilot"},
+        {"charging_sessions", "acn_charging", "vgreen", "vgreen_charging_stations_dirty"},
+        {"trips", "ride_trips", "xanhsm", "xanh_sm_trips_dirty"},
+        {"nlp_feedback", "nlp"},
+    )
+    aliases = {raw, raw.lower()}
+    try:
+        aliases.add(normalize_table_name(raw))
+    except ValueError:
+        pass
+    low = raw.lower()
+    for g in groups:
+        if low in g:
+            aliases |= g
+    return [a for a in aliases if a]
+
+
 def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
     """Recover HITL rows from the Propose beat the run already wrote. Never re-run Propose."""
     if not dataset_key:
         return
     try:
         rows = db.execute(
-            "SELECT tool_output, observation FROM agent_traces "
+            "SELECT tool_output, observation, tool_input FROM agent_traces "
             "WHERE (tool_name IN ('propose_quality_rules', 'quality_rule_proposer') "
             "   OR action IN ('propose_quality_rules', 'quality_rule_proposer')) "
-            "AND (session_id = ? OR session_id = ? OR CAST(tool_input AS VARCHAR) LIKE ?) "
-            "ORDER BY timestamp DESC LIMIT 8",
-            [f"dataset:{dataset_key}", dataset_key, f"%{dataset_key}%"],
+            "ORDER BY timestamp DESC LIMIT 16",
         )
     except Exception:
         return
+    aliases = {a.lower() for a in _dataset_aliases(dataset_key)}
     from src.tools.chat_tools import persist_hitl_proposals
     for row in rows or []:
         for blob in row:
@@ -75,9 +96,14 @@ def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
             if not isinstance(data, dict):
                 continue
             proposals = data.get("proposals")
-            if isinstance(proposals, list) and proposals:
-                persist_hitl_proposals(dataset_key, proposals, db=db)
-                return
+            if not (isinstance(proposals, list) and proposals):
+                continue
+            blob_key = str(data.get("dataset_key") or "").lower()
+            blob_txt = json.dumps(data, default=str).lower()
+            if aliases and blob_key and blob_key not in aliases and not any(a in blob_txt for a in aliases):
+                continue
+            persist_hitl_proposals(dataset_key, proposals, db=db)
+            return
 
 
 def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
@@ -89,11 +115,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     if not dataset_key:
         return db.execute(select_sql + "ORDER BY created_at DESC")
 
-    try:
-        dataset_key = normalize_table_name(dataset_key)
-    except ValueError:
-        return []
-    aliases = [dataset_key]
+    aliases = _dataset_aliases(dataset_key) or [dataset_key]
 
     conditions = []
     params = []
@@ -102,7 +124,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
         params.append(alias)
         conditions.append("id LIKE ?")
         params.append(f"{alias}__%")
-        conditions.append("LOWER(rule_name) LIKE ?")
+        conditions.append("LOWER(CAST(rule_name AS VARCHAR)) LIKE ?")
         params.append(f"%{alias.lower()}%")
 
     where_clause = " OR ".join(conditions)
@@ -114,7 +136,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     except Exception:
         like = f"%{dataset_key}%"
         return db.execute(
-            select_sql + "AND (dataset_key LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
+            select_sql + "AND (CAST(dataset_key AS VARCHAR) LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
             [like, like],
         )
 
@@ -236,11 +258,12 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     # Fallback to rich domain synthesis if LLM returned empty or use_llm is False
     if not proposals:
+        rid_pfx = "RULE_DET" if not use_llm else "RULE_LLM"
 
         if "vgreen" in dataset_key or "charging" in dataset_key:
             proposals = [
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Trần Điện Áp Cấp Nguồn Trụ Sạc DC",
                     "rule_type": "range",
                     "rule_expression": "voltage BETWEEN 180.0 AND 1000.0",
@@ -251,7 +274,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.97
                 },
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tốc Độ Biến Thiên Nhiệt Trạm Sạc",
                     "rule_type": "contextual_drift_limit",
                     "rule_expression": "ABS(temperature_celsius - 25.0) < 60.0",
@@ -262,7 +285,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.94
                 },
                 {
-                    "rule_id": f"RULE_LLM_VG_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_VG_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tính Bất Biến Năng Lượng Phiên Sạc",
                     "rule_type": "relational_invariant",
                     "rule_expression": "kwh_delivered > 0.0 OR duration_minutes < 5",
@@ -276,7 +299,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
         else:
             proposals = [
                 {
-                    "rule_id": f"RULE_LLM_BMS_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_BMS_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Pin SOC Trong Ngưỡng Hóa Học",
                     "rule_type": "range",
                     "rule_expression": "battery_soc BETWEEN 0.0 AND 100.0",
@@ -287,7 +310,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
                     "confidence": 0.98
                 },
                 {
-                    "rule_id": f"RULE_LLM_BMS_{uuid.uuid4().hex[:6]}",
+                    "rule_id": f"{rid_pfx}_BMS_{uuid.uuid4().hex[:6]}",
                     "rule_name": "Tốc Độ Biến Thiên Điện Áp Telemetry",
                     "rule_type": "contextual_drift_limit",
                     "rule_expression": "ABS(rate_of_change) < 3.5",
@@ -301,7 +324,7 @@ async def synthesize_rules_llm(payload: Optional[dict] = None):
 
     # Persist proposals into DuckDB
     for p in proposals:
-        r_id = p.get("rule_id") or f"RULE_LLM_{uuid.uuid4().hex[:8]}"
+        r_id = p.get("rule_id") or f"{'RULE_DET' if not use_llm else 'RULE_LLM'}_{uuid.uuid4().hex[:8]}"
         r_name = p.get("rule_name") or f"{p.get('rule_type')} rule"
         r_type = p.get("rule_type") or "range"
         r_expr = p.get("rule_expression") or "1=1"
