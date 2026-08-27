@@ -102,6 +102,25 @@ def test_detect_l1_uses_trips_config_for_clean_prefix(monkeypatch):
     assert set(sigs) == {"L1", "L2", "L3", "L4"}
 
 
+def test_drop_notify_skip_rows_keeps_real_beats():
+    from src.api.traces import _drop_notify_skip_rows
+
+    skip = (
+        0, None, "anomaly_detect", "anomaly_detect", None, None,
+        "Table 'clean.trips': No signal config. Skipping L1-L4.", None, None, None, None,
+    )
+    real = (
+        1, None, "detect_anomalies", "detect_anomalies", None, None,
+        "Detect anomalies finished", None, None, None, None,
+    )
+    propose = (
+        2, None, "propose_quality_rules", "propose_quality_rules", None, None,
+        "11 rules", None, None, None, None,
+    )
+    kept = _drop_notify_skip_rows([skip, real, propose])
+    assert kept == [real, propose]
+
+
 def test_propose_does_not_rerun_detect(monkeypatch):
     def boom(*_a, **_k):
         raise AssertionError("detect must not re-run inside propose")

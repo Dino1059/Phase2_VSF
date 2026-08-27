@@ -3,7 +3,7 @@
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
 > **Last Updated:** 2026-08-27
 
-**2026-08-27 Run All hang:** Workspace `ev_telemetry` listed `clean.*` / `quarantine.*`. L1 skipped (“No signal config”), Propose re-ran detect + unsampled profile and never finished (0 HITL rules). Fix: `pipeline_target_tables` (canonical `main` only), no nested detect, LLM propose timeout → Ngan/heuristic rules, skip-trace inserts removed.  
+**2026-08-27 Run All hang:** Workspace `ev_telemetry` listed `clean.*` / `quarantine.*`. L1 skipped (“No signal config”), Propose re-ran detect + unsampled profile and never finished (0 HITL rules). Fix: `pipeline_target_tables` (canonical `main` only), no nested detect, LLM propose timeout → Ngan/heuristic rules, skip-trace inserts removed. `resolve_trace_rows` now drops stale `anomaly_detect` skip beats when real detect/propose rows exist. Live d086: Run All 66s → HITL 22 (`soc_range`, battery rules); traces hide `clean.trips`. Playwright **20 PASS / 0 FAIL**. t086 untouched.  
 > **Pytest Gate:** 125 / 125 Tests Passing (`54.34s`)  
 > **Git Rule Constraint:** Commit locally; DO NOT execute `git push` unless explicitly ordered by user.
 

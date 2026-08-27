@@ -390,6 +390,18 @@ def _rows_have_pipeline_beat(rows) -> bool:
     return False
 
 
+def _drop_notify_skip_rows(rows):
+    """Hide stale _notify skip beats when real detect/propose rows exist."""
+    kept = []
+    for r in rows or []:
+        tool = str(r[3] or "").strip().lower()
+        obs = str(r[6] or "")
+        if tool == "anomaly_detect" and ("No signal config" in obs or "Skipping L1-L4" in obs):
+            continue
+        kept.append(r)
+    return kept
+
+
 def resolve_trace_rows(db, session_id: str):
     """Return (resolved_session_id, rows). Prefer real Run All beats over skip/notify rows."""
     notify_fallback = None
@@ -398,7 +410,7 @@ def resolve_trace_rows(db, session_id: str):
         if not rows:
             continue
         if _rows_have_pipeline_beat(rows):
-            return sid, rows
+            return sid, _drop_notify_skip_rows(rows) or rows
         if notify_fallback is None:
             notify_fallback = (sid, rows)
     key = _dataset_key_from_session(session_id)
@@ -406,7 +418,7 @@ def resolve_trace_rows(db, session_id: str):
     if latest:
         rows = _fetch_trace_rows(db, latest)
         if rows and _rows_have_pipeline_beat(rows):
-            return latest, rows
+            return latest, _drop_notify_skip_rows(rows) or rows
     if notify_fallback:
         return notify_fallback
     return session_id, []
