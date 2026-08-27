@@ -18,3 +18,15 @@ def test_preflight_word_cap_stops_engine():
     assert result.status == "token_budget_exceeded"
     assert result.total_tokens >= 100
     assert "10k token cap" in result.final_answer
+
+
+def test_short_task_reports_prompt_word_tokens():
+    class _LLM:
+        def chat(self, *args, **kwargs):
+            from src.services.llm import LLMResponse
+            return LLMResponse(content="pong", tokens_used=0, finish_reason="stop")
+
+    engine = ReActEngine(llm=_LLM(), tools=_NoTools(), token_budget=10000, max_steps=1)
+    result = engine.run("pong")
+    assert result.total_tokens > 0
+    assert result.status != "token_budget_exceeded"
