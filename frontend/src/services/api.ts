@@ -716,14 +716,14 @@ export const searchApi = {
 
 export const evaluationApi = {
   get: () => request<EvaluationMetricsInfo>('/evaluation'),
-  getGt: () => request<Record<string, any>>('/evaluation/gt'),
+  getGt: (signal?: AbortSignal) => request<Record<string, any>>('/evaluation/gt', { signal }),
 };
 
 // Legacy exported standalone helpers
 export async function sendChatMessage(message: string, sessionId: string = 'default', datasetKey?: string, lang?: string, useLlm?: boolean, activeDay?: number | null, signal?: AbortSignal) {
   const currentLang = lang || localStorage.getItem('datatrust-lang') || 'vi';
   const effectiveUseLlm = useLlm !== undefined ? useLlm : getGlobalUseLlm();
-  return request('/chat/send', {
+  const result = await request('/chat/send', {
     method: 'POST',
     signal,
     body: JSON.stringify({
@@ -735,6 +735,16 @@ export async function sendChatMessage(message: string, sessionId: string = 'defa
       ...(activeDay !== undefined && activeDay !== null ? { active_day: activeDay } : {}),
     }),
   });
+  try {
+    window.dispatchEvent(new CustomEvent('datatrust:agent-trace'));
+    const proposals = result?.proposals || result?.output_data?.proposals || result?.data?.proposals;
+    if (Array.isArray(proposals) && proposals.length) {
+      window.dispatchEvent(new CustomEvent('datatrust:hitl-proposed', {
+        detail: { proposals, dataset_key: datasetKey || result?.dataset_key, count: proposals.length },
+      }));
+    }
+  } catch { /* ignore */ }
+  return result;
 }
 
 

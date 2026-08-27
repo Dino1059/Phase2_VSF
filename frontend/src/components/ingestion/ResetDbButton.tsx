@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RotateCcw, AlertTriangle, Loader } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../stores/authStore';
 
 interface ResetDbButtonProps {
   onReset: () => Promise<void>;
@@ -11,6 +12,9 @@ export const ResetDbButton: React.FC<ResetDbButtonProps> = ({ onReset }) => {
   const isVi = i18n.language === 'vi';
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+
+  if (!isAdmin) return null;
 
   const handleReset = async () => {
     setLoading(true);

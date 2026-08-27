@@ -579,6 +579,24 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   flex-shrink: 0;
 }
 
+.nav-hamburger {
+  display: none;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--pill-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.nav-backdrop {
+  display: none;
+}
+
 .hud-btn {
   display: flex;
   align-items: center;
@@ -1829,7 +1847,9 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   position: sticky;
   top: 0;
   z-index: 2;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .data-table td {
@@ -2055,6 +2075,58 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
 @media (max-width: 900px) {
   .agent-chat-workspace {
     --right-panel-width: min(82vw, 360px);
+  }
+
+  .top-hud {
+    height: 56px;
+    padding: 0 10px;
+    gap: 8px;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .nav-hamburger {
+    display: inline-flex;
+  }
+
+  .brand-section .logo-badge > span {
+    display: none;
+  }
+
+  .nav-search-bar {
+    display: none;
+  }
+
+  .hud-actions {
+    gap: 6px;
+    margin-left: auto;
+    min-width: 0;
+  }
+
+  .hud-action-pill span {
+    display: none;
+  }
+
+  .hud-action-pill {
+    padding: 0 8px !important;
+    min-width: 32px;
+    justify-content: center;
+  }
+
+  .user-info-text,
+  .dropdown-arrow {
+    display: none;
+  }
+
+  .user-profile-btn {
+    padding: 0;
+    gap: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .chat-input-wrapper {
+    padding: 10px 12px;
   }
 }
 

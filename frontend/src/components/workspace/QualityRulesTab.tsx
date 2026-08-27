@@ -18,6 +18,7 @@ import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm } from '../../serv
 import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
+import { useAuthStore } from '../../stores/authStore';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -195,6 +196,23 @@ function ruleCardStatus(rule: { status?: string | null }): 'approved' | 'rejecte
   return 'proposed';
 }
 
+function asHitlProposal(p: any): HITLProposal {
+  return {
+    rule_id: String(p.rule_id || p.id || ''),
+    rule_name: p.rule_name || p.name || p.column || p.rule_id,
+    rule_type: p.rule_type || p.type || 'range',
+    rule_expression: p.rule_expression || p.expression || '',
+    confidence: p.confidence,
+    status: (p.status || 'proposed').toLowerCase(),
+    proposed_by: p.proposed_by,
+    proposed_at: p.proposed_at || p.created_at,
+    layer: p.layer,
+    problem_discovered: p.problem_discovered,
+    why_proposed: p.why_proposed,
+    quality_impact: p.quality_impact,
+  };
+}
+
 export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean, dayIdx = null, runId: _runId = null }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -214,6 +232,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const emptyBootRef = useRef(true);
   const dropKeptAfterResetRef = useRef(false);
   const fetchGenRef = useRef(0);
+  const [proposeSeen, setProposeSeen] = useState(false);
+  const canReviewRules = useAuthStore((s) => s.canReviewRules());
+  const canExecute = useAuthStore((s) => s.canExecute());
 
   const [, setLlmTick] = useState(0);
 
@@ -232,11 +253,16 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     const myGen = fetchGenRef.current;
     if (!silent) setLoading(true);
     try {
-      const targetKey = datasetKey || 'ev_telemetry';
-      const res = await hitlApi.queue(targetKey);
+      const targetKey = datasetKey;
+      let res = await hitlApi.queue(targetKey);
+      if (myGen !== fetchGenRef.current) return;
+      if ((!res?.proposals || res.proposals.length === 0) && targetKey) {
+        res = await hitlApi.queue();
+      }
       if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
         const fromDb = res.proposals;
+        if (fromDb.length > 0) setProposeSeen(true);
         setProposals((prev) => {
           // Admin reset: drop keptApproved. Empty queue is honest 0/0.
           if (dropKeptAfterResetRef.current) {
@@ -278,8 +304,22 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
   useEffect(() => {
     const onTrace = () => { void fetchRules({ silent: true }); };
+    const onProposed = (e: Event) => {
+      const d = (e as CustomEvent<{ proposals?: any[] }>).detail || {};
+      const incoming = Array.isArray(d.proposals) ? d.proposals.map(asHitlProposal).filter((p) => p.rule_id) : [];
+      if (incoming.length) {
+        setProposeSeen(true);
+        emptyBootRef.current = false;
+        setProposals((prev) => (prev.length >= incoming.length ? prev : incoming));
+      }
+      void fetchRules({ silent: true });
+    };
     window.addEventListener('datatrust:agent-trace', onTrace);
-    return () => window.removeEventListener('datatrust:agent-trace', onTrace);
+    window.addEventListener('datatrust:hitl-proposed', onProposed);
+    return () => {
+      window.removeEventListener('datatrust:agent-trace', onTrace);
+      window.removeEventListener('datatrust:hitl-proposed', onProposed);
+    };
   }, [fetchRules]);
 
   useEffect(() => {
@@ -602,7 +642,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             {isVi ? 'Sandbox đã chạy · authorized' : 'Sandbox run · authorized'}{' '}
             <code>{payloadHash.length > 16 ? `${payloadHash.slice(0, 12)}…` : payloadHash}</code>
           </span>
-        ) : approvedCount >= 1 ? (
+        ) : approvedCount >= 1 && canExecute ? (
           <button
             type="button"
             onClick={() => void handleSandboxExecute()}
@@ -621,7 +661,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           >
             {isVi ? 'Chạy sandbox' : 'Run sandbox'}
           </button>
-        ) : (
+        ) : canExecute ? (
           <button
             type="button"
             disabled
@@ -639,7 +679,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           >
             {isVi ? 'Execute tắt · sandbox chưa chạy · quarantine=0' : 'Execute disabled · sandbox not run · quarantine=0'}
           </button>
-        )}
+        ) : null}
         {actionLoading === 'sandbox' && (
           <span style={{ color: '#0284c7', fontSize: 11, fontWeight: 600 }}>
             {isVi ? 'Sandbox đang chạy…' : 'Sandbox running…'}
@@ -684,7 +724,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
 
 
-          {proposedCount > 0 && (
+          {canReviewRules && proposedCount > 0 && (
             <button
               className="btn-batch-approve"
               onClick={handleBatchApprove}
@@ -745,7 +785,11 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                   : (isVi ? 'Không Có Bộ Luật Chất Lượng Nào' : 'No Quality Rules')}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-            {isVi ? 'Yêu cầu agent "đề xuất bộ luật chất lượng" hoặc chạy pipeline để tổng hợp ràng buộc.' : 'Ask the agent to "propose quality rules" or run the pipeline to synthesize constraints.'}
+            {proposeSeen && totalCount === 0
+              ? (isVi
+                ? 'Agent đã đề xuất luật nhưng hàng đợi HITL chưa đồng bộ. Bấm làm mới hoặc đổi dataset.'
+                : 'Propose returned rules that are not synced to this HITL queue. Refresh or switch dataset.')
+              : (isVi ? 'Yêu cầu agent "đề xuất bộ luật chất lượng" hoặc chạy pipeline để tổng hợp ràng buộc.' : 'Ask the agent to "propose quality rules" or run the pipeline to synthesize constraints.')}
           </div>
         </div>
       ) : (
@@ -920,7 +964,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                   </div>
 
                   <div className="rule-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {!isApproved && (
+                    {canReviewRules && !isApproved && (
                       <button
                         className="btn-rule-accept"
                         onClick={() => handleApprove(rule.rule_id)}
@@ -944,6 +988,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                       </button>
                     )}
 
+                    {canReviewRules && (
                     <button
                       className="btn-rule-edit"
                       onClick={() => {
@@ -966,8 +1011,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     >
                       <Pencil size={11} /> {isVi ? 'Sửa' : 'Edit'}
                     </button>
+                    )}
 
-                    {!isRejected && (
+                    {canReviewRules && !isRejected && (
                       <button
                         className="btn-rule-reject"
                         onClick={() => {

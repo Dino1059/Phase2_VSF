@@ -45,7 +45,7 @@ export interface TableSummary {
   name: string;
   totalRows: number;
   columnsCount: number;
-  healthScore: number;
+  healthScore: number | null;
   columns: ColumnProfile[];
   qualityFlags?: any[];
   summary?: string;
@@ -92,7 +92,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   const [selectedTable, setSelectedTable] = useState<string>('__all__');
   const [totalRowsAll, setTotalRowsAll] = useState<number>(0);
   const [totalColsAll, setTotalColsAll] = useState<number>(0);
-  const [aggregateHealth, setAggregateHealth] = useState<number>(100);
+  const [aggregateHealth, setAggregateHealth] = useState<number | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -156,25 +156,28 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
         const dataObj: any = tblData;
         const rawCols = dataObj.columns || dataObj.profile?.columns || [];
         const normCols = normalizeColumns(rawCols, tblName);
+        const health = dataObj.health_score ?? dataObj.data_health_score ?? dataObj.profile?.data_health_score;
         const rows = dataObj.total_rows ?? dataObj.row_count ?? dataObj.profile?.total_rows ?? 0;
         const colsCount = dataObj.columns_count ?? normCols.length;
-        const health = dataObj.health_score ?? dataObj.data_health_score ?? dataObj.profile?.data_health_score ?? 100;
+        const measuredHealth = (typeof health === 'number' && (rows > 0 || colsCount > 0)) ? health : null;
 
         newTablesMap[tblName] = {
           name: tblName,
           totalRows: rows,
           columnsCount: colsCount,
-          healthScore: health,
+          healthScore: measuredHealth,
           columns: normCols,
           summary: dataObj.summary || dataObj.profile?.summary,
         };
 
         sumRows += rows;
         sumCols += colsCount;
-        healths.push(health);
+        if (measuredHealth != null) healths.push(measuredHealth);
       }
 
-      const aggHealth = payload.health_score ?? (healths.length > 0 ? Math.min(...healths) : 100);
+      const aggHealth = typeof payload.health_score === 'number'
+        ? payload.health_score
+        : (healths.length > 0 ? Math.min(...healths) : null);
       return {
         tablesMap: newTablesMap,
         totalRows: payload.total_rows ?? payload.sample_size ?? sumRows,
@@ -190,7 +193,8 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
       const normCols = normalizeColumns(rawCols, defaultName);
       const rows = rawProf.total_rows ?? rawProf.row_count ?? payload.sample_size ?? payload.total_rows ?? 0;
       const colsCount = rawProf.columns_count ?? normCols.length;
-      const health = rawProf.data_health_score ?? rawProf.health_score ?? payload.health_score ?? 99.0;
+      const healthRaw = rawProf.data_health_score ?? rawProf.health_score ?? payload.health_score;
+      const health = (typeof healthRaw === 'number' && (rows > 0 || colsCount > 0)) ? healthRaw : null;
 
       newTablesMap[defaultName] = {
         name: defaultName,
@@ -227,7 +231,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
       const parsed = parseProfilePayload(res);
 
       let dayRows = parsed?.totalRows ?? 0;
-      let dayHealth = parsed?.healthScore ?? 100;
+      let dayHealth: number | null = parsed?.healthScore ?? null;
 
       if (dayIdx !== null && dayIdx !== undefined && dayIdx >= 0) {
         try {
@@ -294,7 +298,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
           setTablesMap(parsed.tablesMap);
           setTotalRowsAll(parsed.totalRows);
           setTotalColsAll(parsed.totalCols);
-          setAggregateHealth(parsed.healthScore);
+          setAggregateHealth(parsed.healthScore ?? null);
           const tblKeys = Object.keys(parsed.tablesMap);
           if (tblKeys.length === 1) setSelectedTable(tblKeys[0]);
           break;
@@ -332,7 +336,7 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
               setTablesMap(parsed.tablesMap);
               setTotalRowsAll(parsed.totalRows);
               setTotalColsAll(parsed.totalCols);
-              setAggregateHealth(parsed.healthScore);
+              setAggregateHealth(parsed.healthScore ?? null);
               const tblKeys = Object.keys(parsed.tablesMap);
               if (tblKeys.length === 1) setSelectedTable(tblKeys[0]);
               break;
@@ -451,12 +455,16 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
   const holdHealth = (holdPendingHealth || holdUnhappyHealth) && !warehouseFaults;
   const healthGrade = useMemo(() => {
     if (warehouseFaults) return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
+    if (activeTotalRows === 0 && activeColumnsCount === 0)
+      return { text: isVi ? 'Chưa đo' : 'Unknown', color: 'var(--text-muted)', bg: 'transparent' };
+    if (activeHealthScore == null)
+      return { text: '—', color: 'var(--text-muted)', bg: 'transparent' };
     if (activeHealthScore >= 95)
       return { text: isVi ? 'Xuất Sắc' : 'Excellent', color: 'var(--electric-green)', bg: 'rgba(52, 211, 153, 0.1)' };
     if (activeHealthScore >= 80)
       return { text: isVi ? 'Tốt' : 'Good', color: 'var(--warning-amber)', bg: 'rgba(251, 191, 36, 0.1)' };
     return { text: isVi ? 'Nghiêm Trọng' : 'Critical', color: 'var(--alert-magenta)', bg: 'rgba(248, 113, 113, 0.1)' };
-  }, [activeHealthScore, isVi, warehouseFaults]);
+  }, [activeHealthScore, isVi, warehouseFaults, activeTotalRows, activeColumnsCount]);
 
   return (
     <div className="data-profiler-tab">
@@ -475,7 +483,9 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
             const tbl = tablesMap[tblName];
             const isActive = selectedTable === tblName;
             const dotColor =
-              tbl.healthScore >= 95
+              tbl.healthScore == null
+                ? 'var(--text-muted)'
+                : tbl.healthScore >= 95
                 ? 'var(--electric-green)'
                 : tbl.healthScore >= 80
                 ? 'var(--warning-amber)'
@@ -531,7 +541,9 @@ export const DataProfilerTab: React.FC<DataProfilerTabProps> = ({ datasetKey, st
             <span>{isVi ? 'Điểm Sức Khỏe' : 'Health Score'}</span>
           </div>
           <div className="kpi-card-value" style={{ color: healthGrade.color }}>
-            {warehouseFaults ? '—' : `${activeHealthScore}%`}
+            {warehouseFaults || activeHealthScore == null || (activeTotalRows === 0 && activeColumnsCount === 0)
+              ? '—'
+              : `${activeHealthScore}%`}
           </div>
           <div className="kpi-card-sub" style={{ color: healthGrade.color }}>
             ● {healthGrade.text}

@@ -19,6 +19,9 @@ services:
       - APP_PORT=8000
       - DUCKDB_PATH=data_new/db/vingroup_pilot.db
       - CORS_ORIGINS=*
+      # t086 / datatrust-os: production disables mock-token. d086 override must set APP_ENV=development.
+      - APP_ENV=production
+      - GIT_SHA=${GIT_SHA:-}
     restart: always
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

@@ -17,22 +17,52 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-const pct = (n: number | undefined) => (n == null ? '—' : `${(Number(n) * 100).toFixed(1)}%`);
+const pct = (n: number | undefined) => (n == null || Number.isNaN(Number(n)) ? '—' : `${(Number(n) * 100).toFixed(1)}%`);
+
+/** Bind `/evaluation/gt` whether scores live under `batch` or at the top level. */
+export function normalizeGtResponse(raw: any): Record<string, any> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const batch = raw.batch && typeof raw.batch === 'object'
+    ? raw.batch
+    : (raw.detection ? raw : null);
+  return {
+    ...raw,
+    pack: raw.pack,
+    batch,
+    realtime: raw.realtime,
+    unanswerable: raw.unanswerable,
+    rca_frozen_cases: raw.rca_frozen_cases,
+    blockers: raw.blockers,
+  };
+}
+
+let lastGt: Record<string, any> | null = null;
 
 export const EvalVsGtPanel: React.FC = () => {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<any>(lastGt);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!lastGt);
 
   const load = async () => {
     setLoading(true);
     setErr(null);
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => ac.abort(), 45000);
     try {
-      setData(await evaluationApi.getGt());
+      const raw = await evaluationApi.getGt(ac.signal);
+      const normalized = normalizeGtResponse(raw);
+      if (!normalized) throw new Error('Empty GT response');
+      lastGt = normalized;
+      setData(normalized);
     } catch (e: any) {
-      setErr(String(e?.message || e));
-      setData(null);
+      if (e?.name === 'AbortError') {
+        setErr('GT scoring timed out. Retry Refresh.');
+      } else {
+        setErr(String(e?.message || e));
+      }
+      if (!lastGt) setData(null);
     } finally {
+      window.clearTimeout(timer);
       setLoading(false);
     }
   };
@@ -43,15 +73,17 @@ export const EvalVsGtPanel: React.FC = () => {
   const rt = data?.realtime;
   const unans = data?.unanswerable;
   const frozen = data?.rca_frozen_cases;
+  const incidents = data?.pack?.incidents ?? batch?.detection?.tp ?? '—';
+  const hasScores = !!(batch?.detection || batch?.location);
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16 }} data-testid="eval-vs-gt">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <FlaskConical size={16} color="#0284c7" />
           <strong>Eval vs GT</strong>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Ngan pack · LLM-judge off · {data?.pack?.incidents ?? '—'} incidents
+            Ngan pack · LLM-judge off · {incidents} incidents
           </span>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading} style={{
@@ -62,11 +94,16 @@ export const EvalVsGtPanel: React.FC = () => {
         </button>
       </div>
       {err && <div role="alert" style={{ color: '#dc2626', fontSize: 12, marginBottom: 8 }}>{err}</div>}
-      {loading && !data && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Scoring GT pack…</div>}
-      {batch && (
+      {loading && !hasScores && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Scoring GT pack…</div>}
+      {!loading && data && !hasScores && (
+        <div role="status" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          GT response had no detection scores.
+        </div>
+      )}
+      {hasScores && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', margin: '8px 0 6px' }}>BATCH</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }} data-testid="eval-gt-metrics">
             <Metric label="DETECTION P" value={pct(batch.detection?.precision)} />
             <Metric label="DETECTION R" value={pct(batch.detection?.recall)} />
             <Metric label="DETECTION F1" value={pct(batch.detection?.f1)} />

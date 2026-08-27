@@ -53,21 +53,42 @@ def _parse_json_blob(value):
     return None
 
 
+def _dataset_aliases(dataset_key: Optional[str]) -> list:
+    raw = (dataset_key or "").strip()
+    if not raw:
+        return []
+    groups = (
+        {"ev_telemetry", "vinfast_ev_telemetry", "vinfast_ev_telemetry_dirty", "vingroup_pilot", "ev", "pilot"},
+        {"charging_sessions", "acn_charging", "vgreen", "vgreen_charging_stations_dirty"},
+        {"trips", "ride_trips", "xanhsm", "xanh_sm_trips_dirty"},
+        {"nlp_feedback", "nlp"},
+    )
+    aliases = {raw, raw.lower()}
+    try:
+        aliases.add(normalize_table_name(raw))
+    except ValueError:
+        pass
+    low = raw.lower()
+    for g in groups:
+        if low in g:
+            aliases |= g
+    return [a for a in aliases if a]
+
+
 def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
     """Recover HITL rows from the Propose beat the run already wrote. Never re-run Propose."""
     if not dataset_key:
         return
     try:
         rows = db.execute(
-            "SELECT tool_output, observation FROM agent_traces "
+            "SELECT tool_output, observation, tool_input FROM agent_traces "
             "WHERE (tool_name IN ('propose_quality_rules', 'quality_rule_proposer') "
             "   OR action IN ('propose_quality_rules', 'quality_rule_proposer')) "
-            "AND (session_id = ? OR session_id = ? OR CAST(tool_input AS VARCHAR) LIKE ?) "
-            "ORDER BY timestamp DESC LIMIT 8",
-            [f"dataset:{dataset_key}", dataset_key, f"%{dataset_key}%"],
+            "ORDER BY timestamp DESC LIMIT 16",
         )
     except Exception:
         return
+    aliases = {a.lower() for a in _dataset_aliases(dataset_key)}
     from src.tools.chat_tools import persist_hitl_proposals
     for row in rows or []:
         for blob in row:
@@ -75,9 +96,14 @@ def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
             if not isinstance(data, dict):
                 continue
             proposals = data.get("proposals")
-            if isinstance(proposals, list) and proposals:
-                persist_hitl_proposals(dataset_key, proposals, db=db)
-                return
+            if not (isinstance(proposals, list) and proposals):
+                continue
+            blob_key = str(data.get("dataset_key") or "").lower()
+            blob_txt = json.dumps(data, default=str).lower()
+            if aliases and blob_key and blob_key not in aliases and not any(a in blob_txt for a in aliases):
+                continue
+            persist_hitl_proposals(dataset_key, proposals, db=db)
+            return
 
 
 def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
@@ -89,11 +115,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     if not dataset_key:
         return db.execute(select_sql + "ORDER BY created_at DESC")
 
-    try:
-        dataset_key = normalize_table_name(dataset_key)
-    except ValueError:
-        return []
-    aliases = [dataset_key]
+    aliases = _dataset_aliases(dataset_key) or [dataset_key]
 
     conditions = []
     params = []
@@ -102,7 +124,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
         params.append(alias)
         conditions.append("id LIKE ?")
         params.append(f"{alias}__%")
-        conditions.append("LOWER(rule_name) LIKE ?")
+        conditions.append("LOWER(CAST(rule_name AS VARCHAR)) LIKE ?")
         params.append(f"%{alias.lower()}%")
 
     where_clause = " OR ".join(conditions)
@@ -114,7 +136,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     except Exception:
         like = f"%{dataset_key}%"
         return db.execute(
-            select_sql + "AND (dataset_key LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
+            select_sql + "AND (CAST(dataset_key AS VARCHAR) LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
             [like, like],
         )
 

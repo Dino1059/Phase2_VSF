@@ -1,0 +1,23 @@
+# Example override for d086 (datatrust-dev). Copy onto the host as
+# docker-compose.override.yml — do not use on t086 / datatrust-os.
+# Keeps mock-token + ports 8001/3001. cloudflared stays off.
+
+services:
+  backend:
+    ports: !override
+      - "8001:8000"
+    environment:
+      - APP_ENV=development
+    volumes:
+      - ./fixtures:/app/fixtures:ro
+      - ./src:/app/src
+      - ./landing_data:/app/landing_data:ro
+      - ./eval:/app/eval:ro
+      - ./schemas:/app/schemas:ro
+      - ./scripts:/app/scripts:ro
+  frontend:
+    ports: !override
+      - "3001:80"
+  cloudflared:
+    profiles:
+      - do-not-start

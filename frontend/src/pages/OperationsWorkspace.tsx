@@ -38,6 +38,7 @@ import {
   tracesApi,
 } from '../services/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useAuthStore } from '../stores/authStore';
 
 /** This-run Split totals (sandbox DuckDB), never leftover warehouse 50k. */
 function thisRunSplitTotals(): { thisRun: boolean; quarantine: number } {
@@ -129,6 +130,7 @@ export const OperationsWorkspace: React.FC = () => {
   const ruleParam = searchParams.get('rule_id') || searchParams.get('rule');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const canReviewRules = useAuthStore((s) => s.canReviewRules());
 
   // Determine main dashboard group and active subtab
   const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || view === 'eval' || !!ruleParam;
@@ -607,6 +609,7 @@ export const OperationsWorkspace: React.FC = () => {
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
               {operationalStats.proposedRulesCount > 0 ? (
+                canReviewRules ? (
                 <button
                   type="button"
                   onClick={handleBatchApproveRules}
@@ -624,6 +627,9 @@ export const OperationsWorkspace: React.FC = () => {
                 >
                   {isVi ? '⚡ Phê duyệt tất cả ngay' : '⚡ Batch approve all now'}
                 </button>
+                ) : (
+                <span>{isVi ? 'Chờ steward phê duyệt' : 'Awaiting steward approval'}</span>
+                )
               ) : (
                 <span>{isVi ? 'Tất cả luật đã được phê duyệt' : 'All proposed rules approved'}</span>
               )}
@@ -1197,7 +1203,7 @@ export const OperationsWorkspace: React.FC = () => {
                       {/* Action Buttons (16% Width Fit) */}
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', justifyContent: 'flex-end' }}>
-                          {isProposed && (
+                          {canReviewRules && isProposed && (
                             <button
                               type="button"
                               onClick={() => handleApproveRule(rule.id || rule.rule_id, rule.rule_name, rule.dataset_key)}
@@ -1253,7 +1259,7 @@ export const OperationsWorkspace: React.FC = () => {
                             </button>
                           )}
 
-                          {!isRejected && (
+                          {canReviewRules && !isRejected && (
                             <button
                               type="button"
                               onClick={() => handleRejectRule(rule.id || rule.rule_id)}
@@ -1615,7 +1621,7 @@ export const OperationsWorkspace: React.FC = () => {
                 <button className="hud-btn" onClick={() => setSelectedRuleForDetail(null)}>
                   {isVi ? 'Đóng' : 'Close'}
                 </button>
-                {selectedRuleForDetail.status !== 'approved' && (
+                {canReviewRules && selectedRuleForDetail.status !== 'approved' && (
                   <button
                     type="button"
                     className="hud-btn"

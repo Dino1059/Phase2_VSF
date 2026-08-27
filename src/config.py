@@ -18,11 +18,17 @@ class Settings(BaseSettings):
     app_name: str = "DataTrust OS"
     app_version: str = "4.2.0"
     app_env: Literal["development", "production", "test"] = "development"
+    git_sha: str = Field(default="", validation_alias="GIT_SHA")
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
     cors_origins: list[str] | str = Field(
         default=["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"]
     )
+
+    @property
+    def public_version(self) -> str:
+        sha = (self.git_sha or "").strip()
+        return sha[:12] if sha else self.app_version
 
     @property
     def allowed_cors_origins(self) -> list[str]:

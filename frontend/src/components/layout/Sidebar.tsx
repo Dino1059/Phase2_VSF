@@ -29,7 +29,7 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
   nlp: MessageSquare,
 };
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [activeShortcut, setActiveShortcut] = useState<string>('ev');
   const [datasetQuery, setDatasetQuery] = useState('');
@@ -67,11 +67,13 @@ export function Sidebar() {
     const domain = DOMAIN_LIST.find((d) => d.shortcut === shortcut);
     const datasetKey = domain ? domain.id : shortcut;
     navigate(`/workspace?dataset_key=${encodeURIComponent(datasetKey)}`);
+    onNavigate?.();
   };
 
   const openNewChat = () => {
     setActiveShortcut('');
     navigate(`/workspace?new=${Date.now()}`);
+    onNavigate?.();
   };
 
   // Filtered sample datasets
@@ -102,6 +104,7 @@ export function Sidebar() {
       <div className="sidebar-section">
         <NavLink
           to="/dashboard"
+          onClick={() => onNavigate?.()}
           className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
         >
           <PieChart size={18} />
@@ -198,6 +201,7 @@ export function Sidebar() {
 
         <NavLink
           to="/dashboard/ingestion"
+          onClick={() => onNavigate?.()}
           className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
         >
           <Play size={18} color="var(--neon-cyan)" />
@@ -217,6 +221,7 @@ export function Sidebar() {
           <NavLink
             key={key}
             to={`/operations/${key}`}
+            onClick={() => onNavigate?.()}
             className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
           >
             <Icon size={18} color={color} />

@@ -145,3 +145,21 @@ Per user request, moved the Vietnamese NLP/teencode service into its own top-lev
 - **Memory HTTP:** `GET /api/v1/memory` and `GET /api/v1/memory/stats` (registered before `/{user_id}`) so the index is 200/401 instead of 404/405. Session-start inject on `POST /chat/send` was already present.
 - **10k cap:** ReAct preflight already hard-stops; mid-loop breaks now set `final_answer`. `POST /chat/send` returns `total_tokens`. Meta strip shows `k/10k` from real metadata totals.
 
+---
+
+## 11. QA t086 not-ship-ok blockers (2026-08-27)
+
+Fixes on `fix/v5-qa-t086-ship-blockers` (PR into `v5`). Not applied on t086.
+
+- **A-01 mobile 375:** off-canvas sidebar + hamburger; header pills icon-only; inspector collapsed under 900px.
+- **A-02 Eval vs GT:** normalize `batch` or top-level `detection`; paint F1; 45s abort; cache GT scores.
+- **A-03/A-04 RBAC:** UI hides Approve/Batch/Reset/Execute by `ROLE_PERMISSIONS`. Analyst `POST /hitl/approve` is 403 (`review_rules`).
+- **A-05 Profiler:** health `—` / Unknown when 0 rows; no fake Excellent.
+- **A-06 HITL:** queue aliases (`vinfast_ev_telemetry`↔`ev_telemetry`) + hydrate traces without session_id match; `datatrust:hitl-proposed`.
+- **A-07:** `docker-compose.yml` `APP_ENV=production` (os/t086). d086 example override keeps `APP_ENV=development`. `/health` version uses `GIT_SHA` when set.
+- **MEDIUM cheap:** 768 KPI 2-col wrap; rules `th` wrap.
+
+### Verification
+- `uv run pytest tests/test_qa_t086_gates.py tests/test_hitl.py tests/test_ngan_gt_eval.py tests/test_v2_features.py tests/test_reset_wipe.py -q`
+
+
