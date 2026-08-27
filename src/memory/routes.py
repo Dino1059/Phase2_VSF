@@ -35,6 +35,55 @@ memory_router = APIRouter(prefix="/memory", tags=["Memory"])
 _ADMIN_ROLES = {UserRole.ADMIN.value, "Admin"}
 
 
+def _caller_id(request: Request) -> str:
+    caller_id = getattr(request.state, "user_id", None)
+    if not caller_id:
+        raise HTTPException(status_code=401, detail="Unauthorized: no resolved user identity")
+    return str(caller_id)
+
+
+@memory_router.get("", response_model=None)
+@memory_router.get("/", response_model=None)
+async def get_memory_index(request: Request):
+    """Module index for GET /api/v1/memory — caller session + profile, not 404."""
+    caller_id = _caller_id(request)
+    summaries = memory_store.list_summaries_for_user(caller_id, limit=20)
+    return {
+        "module": "memory",
+        "user_id": caller_id,
+        "profile": memory_store.get_profile(caller_id),
+        "sessions": summaries,
+        "session_count": len(summaries),
+    }
+
+
+@memory_router.get("/stats")
+async def get_memory_stats(request: Request):
+    """Module stats. Authenticated callers see own counts; Admin sees store totals."""
+    caller_id = _caller_id(request)
+    caller_role = getattr(request.state, "user_role", None)
+    caller_role_value = getattr(caller_role, "value", caller_role)
+    own_sessions = memory_store.list_summaries_for_user(caller_id, limit=500)
+    payload = {
+        "user_id": caller_id,
+        "sessions": len(own_sessions),
+        "has_profile": memory_store.get_profile(caller_id) is not None,
+    }
+    if caller_role_value in _ADMIN_ROLES:
+        def _count(sql: str) -> int:
+            try:
+                rows = memory_store.db.execute(sql)
+                return int(rows[0][0]) if rows else 0
+            except Exception:
+                return 0
+        payload["store"] = {
+            "profiles": _count("SELECT COUNT(*) FROM memory_user_profile"),
+            "summaries": _count("SELECT COUNT(*) FROM memory_session_summaries"),
+            "active_sessions": _count("SELECT COUNT(*) FROM memory_session_state"),
+        }
+    return payload
+
+
 def _require_self_or_admin(request: Request, target_user_id: str) -> str:
     """Purpose: shared authorization guard for every endpoint in this file.
     Input: the inbound `Request` (carrying `state.user_id`/`state.user_role`

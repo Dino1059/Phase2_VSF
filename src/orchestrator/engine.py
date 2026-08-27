@@ -350,20 +350,23 @@ class ReActEngine:
 
         # Pre-flight 10k cap. Word-count (memory narrative is inside context). Not len/4.
         prompt_words = sum(len(str(m.get("content") or "").split()) for m in messages)
+        result.total_tokens = prompt_words
         if prompt_words >= self.token_budget:
-            result.total_tokens = prompt_words
             result.status = "token_budget_exceeded"
             result.final_answer = "Stopped: 10k token cap (memory block counted)."
             return result
-        result.total_tokens = 0
 
         # Seed a running Profile beat before the LLM call so GET /traces is not empty
         # for ~30s. Later profile_dataset at step 0 upserts this same row. Do not invent Done.
         self._seed_running_profile(result, task, context)
 
         for step_idx in range(self.max_steps):
+            live_words = sum(len(str(m.get("content") or "").split()) for m in messages)
+            result.total_tokens = max(int(result.total_tokens or 0), live_words)
             if result.total_tokens >= self.token_budget:
                 result.status = "token_budget_exceeded"
+                if not result.final_answer:
+                    result.final_answer = "Stopped: 10k token cap (memory block counted)."
                 break
 
             step_start = time.time()
@@ -383,10 +386,12 @@ class ReActEngine:
 
             if result.total_tokens + step.tokens_used > self.token_budget and step_idx > 0:
                 result.status = "token_budget_exceeded"
-                result.total_tokens += step.tokens_used
+                result.total_tokens = max(result.total_tokens + step.tokens_used, result.total_tokens)
+                if not result.final_answer:
+                    result.final_answer = "Stopped: 10k token cap (memory block counted)."
                 break
 
-            result.total_tokens += step.tokens_used
+            result.total_tokens = max(result.total_tokens + int(step.tokens_used or 0), result.total_tokens)
 
             # Check for tool calls from native LLM function calling
             if getattr(llm_response, "tool_calls", None):
@@ -563,6 +568,8 @@ class ReActEngine:
             if not result.status:
                 result.status = "max_steps"
 
+        if result.status == "token_budget_exceeded" and not result.final_answer:
+            result.final_answer = "Stopped: 10k token cap (memory block counted)."
         result.total_duration_ms = int((time.time() - start_time) * 1000)
         return result
 

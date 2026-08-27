@@ -1,51 +1,30 @@
-# V5 overnight (2026-08-27) — FAIL 1 + FAIL 2 live-proven on d086
+# V5 leftovers (2026-08-27) — closed after PR #27 merge
 
-Branch: `v5-integration` @ `6d933ff`. **PR (open, not merged):** https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/27 → `v5`
+Branch: `fix/v5-leftovers` @ `4179722` → `v5` (merge SHA `f427f0fe`, prior head `09f275a`).
+**t086 untouched / not deployed.** Seeded logins: `admin@datatrust.os` / `analyst@datatrust.os` / `viewer@datatrust.os`.
 
-**MERGE VERDICT: NO.** Do not merge PR #27 (explicit gate). FAIL 1 and FAIL 2 are live PASS on d086. t086 untouched.
+## Leftovers
 
-Seeded logins (username-only): `admin@datatrust.os` / `analyst@datatrust.os` / `viewer@datatrust.os`.
+| Leftover | Status | Fix | Evidence |
+|---|---|---|---|
+| INC_010 F13 manifest vs parquet | **done** | Landing parquet now 5 charging / 0 trips for `VF8VNF_0003` day 13; manifest `charging_sessions=5` `completed_trips=0`; generator always pads + strips trips; `_gt_blockers` compares those counts. | Local + live `GET /evaluation/gt` **blockers `[]`**, detection tp=14 fn=0 F1=0.8, frozen RCA 13/13. |
+| d086 SOC `-12.5` hack (12 tail rows) | **done** | Re-ingested warehouse from landing parquet SoT (1 labeled `battery_soc=-12.5`). No 12-row inject. Code still pulls `battery_soc < 0` before sample cap. | Seed: main.ev_telemetry 86400, charging 1344, trips 10376. Sandbox GET `sandbox:ev_telemetry:a5611cb63a76` **200**, `quarantine_rows=1`, `before.battery_soc=-12.5` (parquet INC_001, not tail hack). |
+| 10k chat chip | **done** | Chip already `k/10k`. ChatRequest max 80k so cap can fire. Engine keeps prompt word count (no longer zeros tokens). | Live `POST /chat/send` session `leftover-10k-b`: `total_tokens=328` in HTTP + history metadata. Cap session `leftover-10k-cap-b`: **`status=token_budget_exceeded`**, tokens=10813, body `Stopped: 10k token cap (memory block counted).` Frontend stamp `<!-- d086-v5 f92793c leftovers -->`. |
+| GET `/api/v1/memory` 404 | **done** | `GET /api/v1/memory` + `/stats` mounted before `/{user_id}`. Session-start inject already on `POST /chat/send`. | Unauth **401**. Admin **200** `{module:memory,user_id:usr_admin_01}`. `/stats` **200**. |
+| t086 | **untouched** | — | backend StartedAt `2026-08-25T08:32:58.54858376Z`, frontend `2026-08-25T08:36:50.16998388Z`. Public t086 200. |
 
-## Live d086 (2026-08-27, dest `/opt/datatrust-os-dev`, compose `-p datatrust-dev`, :3001/:8001)
+## Live d086
 
-| Item | Result | Evidence |
-|---|---|---|
-| FAIL 1 GET `/hitl/sandbox/{id}` | **LIVE PASS** | After bind-mount src + backend restart: `POST /hitl/sandbox` 200 `quarantine_rows=17` `sampled_rows=2995` `execute=off`. `GET /api/v1/hitl/sandbox/sandbox:ev_telemetry:4ade8835747f` **200**, `quarantine_rows=17`, `n_items=17`, `execute=off`, `dataset_key=ev_telemetry`. Rows from **`main.quarantine`** (`snapshot_id`). |
-| Execute-off 403 | **kept / live** | `POST /hitl/execute` 403 `Execute off: HITL approve is not execute.` |
-| FAIL 2 `/health` under Profiler | **LIVE PASS** | `POST /datasets/ev_telemetry/profile?table=ev_telemetry&sample_size=8000` 200 in 0.078s while `/health` polls all 200 (max 0.002s). Container `datatrust-dev-backend-1` **healthy**. Fastpath `/health` 0.000s in logs (no DuckDB). |
-| t086 | **untouched** | backend StartedAt `2026-08-25T08:32:58.54858376Z` (unchanged). |
+dest `/opt/datatrust-os-dev`, compose `-p datatrust-dev`, :3001/:8001. **No backend image rebuild.** Bind-mount `./src` + `./landing_data`. Frontend `docker cp` of `frontend/dist`. Public `https://d086.w9.nu/` last-modified **Thu, 27 Aug 2026 03:18:31 GMT**. d086 backend StartedAt `2026-08-27T03:25:23Z` then restart for 10k cap; healthy. Disk ~1.8G free.
 
-d086 backend StartedAt after this pass: `2026-08-27T02:49:35.82974172Z` (restart only `datatrust-dev-backend-1`). Image not rebuilt.
+Eval (live): detection P/R/F1 **0.667 / 1.0 / 0.8** (tp=14, fp=7, fn=0). Location/time 1.0. RCA 14/14. Frozen 13/13. LLM-judge off.
 
-### Warehouse note (why GET was 404 before inject)
+## Still blocked
 
-Live `main.ev_telemetry` (~9.5k) and `raw.ev_telemetry` (86400) had **`battery_soc < 0` count = 0** (min ~26.1). Sandbox cannot persist quarantine rows that are not in the warehouse. Stopped **d086 backend only**, set **12** tail `main` + `raw` rows to `battery_soc=-12.5`, started backend. DuckDB opened clean (no WAL delete). Did **not** delete `.db`.
-
-## Code (PR #27)
-
-1. **`load_sandbox_rows`** — fault-hint (`battery_soc < 0`) **first** from `main.*` then `raw.*`; `WHERE NOT (rule)` cannot fill the 3000 cap and drop the 12 SOC faults. Persist still `main.quarantine` + `snapshot_id`. GET still `FROM main.quarantine WHERE snapshot_id=?`.
-2. **`safe_eval_rule`** — SQL `BETWEEN` rewrite; `col >= a AND col <= b` (Ngan proposer form); numpy/NA coerced.
-3. **Profiler off the event loop** — `POST /datasets/.../profile` + chat pipeline in `asyncio.to_thread`; sample cap 3000 (max 8000); sync `/health` + `health_fastpath` (no DuckDB).
-
-SHA: `2acaba2` (first fix) + `6d933ff` (hint-first so over-range rows cannot crowd out SOC<0).
-
-Tests: `rtk uv run pytest tests/test_sandbox_split.py tests/test_api.py::test_health_endpoint tests/test_api.py::test_health_stays_ok_while_worker_holds_gil_briefly` → **18 passed**.
-
-## Prior live eval (unchanged this pass)
-
-| Metric | Batch / realtime |
-|---|---|
-| Detection P/R/F1 | 0.684 / 0.929 / **0.788** (tp=13, fp=6, fn=1) |
-| Location / time | 0.929 |
-| RCA top-1 / top-3 | 0.929 |
-| Hallucination FA | 0 |
-| Unanswerable | 1.0 |
-| Frozen RCA | **13/13** |
-
-**INC_010 / F13:** manifest 5 charging / 0 trips vs parquet charging=1 trips=6. Leave documented.
+None of the four leftovers. Do not deploy t086.
 
 ## Host / dest (no t086, no backend image rebuild)
 
-- Compose `datatrust-dev` 3001/8001. Bind-mount `./src:/app/src` then `docker compose -p datatrust-dev up -d --no-build --no-deps backend` (or `docker restart datatrust-dev-backend-1` after rsync).
+- Compose `datatrust-dev` 3001/8001. Bind-mount `./src:/app/src`. Seed with existing image: stop `datatrust-dev-backend-1`, `docker run --rm --volumes-from ... --entrypoint /app/.venv/bin/python datatrust-dev-backend -c 'from src.db.seed import seed_database; seed_database()'`, start backend.
 - If WAL replay abort: stop `datatrust-dev-backend-1` only, delete **`.wal` only**, never `.db`.
 - Disk tight: no image rebuild.
