@@ -752,9 +752,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
               color: getGlobalUseLlm() ? '#c084fc' : '#eab308',
               fontWeight: 600,
             }}
-            title={isVi ? 'Chế độ hoạt động hiện tại (thay đổi tại thanh Header trên cùng)' : 'Current system execution mode (change via top header bar)'}
+            title={isVi ? 'Chế độ hoạt động: Gemini ReAct Agent' : 'System execution mode: Gemini ReAct Agent'}
           >
-            {getGlobalUseLlm() ? '🧠 Engine: LLM ON (Gemini 3.5 Flash Lite)' : '⚡ Engine: LLM OFF (Deterministic Rule Engine)'}
+            🧠 Engine: LLM ON (Gemini 3.5 Flash Lite)
           </div>
           <button
             className="traces-refresh-btn"

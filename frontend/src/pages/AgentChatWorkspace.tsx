@@ -8,13 +8,6 @@ import {
   Pencil,
   Save,
   Database,
-  UserShield,
-  AlertTriangle,
-  Lightbulb,
-  ScanSearch,
-  Stethoscope,
-  FlaskConical,
-  Brain,
   Plus,
   Mic,
   ArrowUp,
@@ -24,6 +17,8 @@ import {
   Play,
   Sparkles,
   Activity,
+  Brain,
+  ScanSearch,
 } from 'lucide-react';
 import { usePipelineStore, DOMAIN_LIST } from '../stores/pipelineStore';
 import { useIngestionStore } from '../stores/ingestionStore';
@@ -32,9 +27,7 @@ import { SourceIngestionRunFilter } from '../components/chat/SourceIngestionRunF
 import { usePipelineRun, StreamMessage } from '../hooks/usePipelineRun';
 import { ChatInput } from '../components/chat/ChatInput';
 import { MarkdownContent } from '../components/chat/MarkdownContent';
-import { MessageMetaStrip } from '../components/chat/MessageMetaStrip';
 import { SessionSwitcher } from '../components/chat/SessionSwitcher';
-import { scanRenderable } from '../lib/injectionGuard';
 import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
@@ -43,7 +36,7 @@ import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, rese
 import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
-import { formatSaigonTime, inTimeRange, catalogFor } from '../demo/stewardLabels';
+import { inTimeRange, catalogFor, formatRelativeTime } from '../demo/stewardLabels';
 // import { DemoStoryBar } from '../demo/DemoStoryBar';
 import { STEWARD_SESSION_BEATS, type DemoBeat } from '../demo/stewardSession';
 
@@ -65,62 +58,6 @@ const HITL_STOP_PROMPT_EN =
   'Profile this dataset, detect anomalies L1-L4, and propose quality rules. Do not clean, quarantine, or execute. Stop for HITL review.';
 const HITL_STOP_PROMPT_VI =
   'Khảo sát dữ liệu, phát hiện bất thường L1-L4, và đề xuất luật chất lượng. Không làm sạch, không cách ly, không thực thi. Dừng lại để steward duyệt HITL.';
-
-const AGENT_AVATAR_CLASS: Record<string, string> = {
-  orchestrator: 'agent-orchestrator',
-  profiler: 'agent-profiler',
-  profile_dataset: 'agent-profiler',
-  anomaly: 'agent-anomaly',
-  detect_anomalies: 'agent-anomaly',
-  diagnosis: 'agent-diagnosis',
-  proposer: 'agent-proposer',
-  propose_quality_rules: 'agent-proposer',
-  executor: 'agent-executor',
-  clean_database: 'agent-executor',
-  human: 'agent-human',
-};
-
-const AGENT_ICONS: Record<string, React.ComponentType<{ size?: number | string }>> = {
-  orchestrator: Brain,
-  profiler: ScanSearch,
-  profile_dataset: ScanSearch,
-  anomaly: AlertTriangle,
-  detect_anomalies: AlertTriangle,
-  diagnosis: Stethoscope,
-  proposer: Lightbulb,
-  propose_quality_rules: Lightbulb,
-  executor: FlaskConical,
-  clean_database: FlaskConical,
-  human: UserShield,
-};
-
-const AGENT_TITLES: Record<string, string> = {
-  orchestrator: 'ORCHESTRATOR AGENT',
-  profiler: 'DATA PROFILER AGENT',
-  profile_dataset: 'DATA PROFILER AGENT',
-  anomaly: 'ANOMALY DETECTOR AGENT',
-  detect_anomalies: 'ANOMALY DETECTOR AGENT',
-  diagnosis: 'RCA DIAGNOSIS AGENT',
-  proposer: 'RULE PROPOSER AGENT',
-  propose_quality_rules: 'RULE PROPOSER AGENT',
-  executor: 'PIPELINE EXECUTOR AGENT',
-  clean_database: 'PIPELINE EXECUTOR AGENT',
-  human: 'HUMAN STEWARD GOVERNANCE',
-};
-
-const AGENT_COLORS: Record<string, string> = {
-  orchestrator: 'var(--text-main)',
-  profiler: 'var(--royal-purple)',
-  profile_dataset: 'var(--royal-purple)',
-  anomaly: 'var(--warning-amber)',
-  detect_anomalies: 'var(--warning-amber)',
-  diagnosis: 'var(--alert-magenta)',
-  proposer: 'var(--electric-green)',
-  propose_quality_rules: 'var(--electric-green)',
-  executor: 'var(--electric-green)',
-  clean_database: 'var(--electric-green)',
-  human: 'var(--text-main)',
-};
 
 type RightTab = 'tab-traces' | 'tab-profiler' | 'tab-rules' | 'tab-split';
 
@@ -677,34 +614,17 @@ export function AgentChatWorkspace() {
         {/* Chat Log Stream Area */}
         <div className="chat-stream" id="chatStream" ref={streamRef}>
           {datasetKey && waitingForBackendAgentEvents && (
-            <div className="agent-entry">
-              <div className="agent-avatar agent-profiler">
-                <ScanSearch size={15} />
-              </div>
+            <div className="agent-entry ai-entry">
               <div className="agent-content-box">
-                <div className="agent-header">
-                  <span className="agent-name" style={{ color: 'var(--royal-purple)' }}>C1 AI</span>
-                  <span className="agent-timestamp">—</span>
-                </div>
                 <div className="agent-body">Waiting for backend agent events...</div>
               </div>
             </div>
           )}
           {stream.map((msg, i) => {
-            const Icon = AGENT_ICONS[msg.agent] || Brain;
             const isRule = !!msg.isRule && ruleCardState === 'pending';
             return (
-              <div key={`${msg.id}-${i}`} className="agent-entry" data-msgid={msg.id} data-tool={toolFromMessage({ agent: msg.agent, content: msg.text })}>
-                <div className={`agent-avatar ${AGENT_AVATAR_CLASS[msg.agent] || 'agent-orchestrator'}`}>
-                  <Icon size={15} />
-                </div>
+              <div key={`${msg.id}-${i}`} className="agent-entry ai-entry" data-msgid={msg.id} data-tool={toolFromMessage({ agent: msg.agent, content: msg.text })}>
                 <div className="agent-content-box">
-                  <div className="agent-header">
-                    <span className="agent-name" style={{ color: AGENT_COLORS[msg.agent] || 'var(--text-main)' }}>
-                      {AGENT_TITLES[msg.agent] || 'AGENT'}
-                    </span>
-                    <span className="agent-timestamp">{formatSaigonTime()}</span>
-                  </div>
                   <div className="agent-body">
                     <MarkdownContent content={msg.text} />
                     {msg.codeSnippet && (
@@ -732,23 +652,13 @@ export function AgentChatWorkspace() {
           {messagesForStory(chatMessages.filter((msg) => inTimeRange(msg.timestamp, store.timeFilter)), story)
             .filter((msg) => !(msg.content || '').trim().startsWith('Thought:'))
             .map((msg) => {
-              const agent = msg.type === 'user' ? 'human' : (msg.agentId || 'orchestrator');
-              const Icon = AGENT_ICONS[agent] || Brain;
+              const isUser = msg.type === 'user';
               const toolName = toolFromMessage(msg);
               const chip = catalogFor(toolName);
               const isObservation = (msg.content || '').startsWith('Observation:');
               return (
-                <div key={`chat-${msg.id}`} className="agent-entry" data-msgid={msg.id} data-tool={toolName || undefined}>
-                  <div className={`agent-avatar ${AGENT_AVATAR_CLASS[agent] || 'agent-orchestrator'}`}>
-                    <Icon size={15} />
-                  </div>
+                <div key={`chat-${msg.id}`} className={`agent-entry ${isUser ? 'user-entry' : 'ai-entry'}`} data-msgid={msg.id} data-tool={toolName || undefined}>
                   <div className="agent-content-box">
-                    <div className="agent-header">
-                      <span className="agent-name" style={{ color: AGENT_COLORS[agent] || 'var(--text-main)' }}>
-                        {msg.type === 'user' ? 'YOU' : (AGENT_TITLES[agent] || agent.replace(/_/g, ' ').toUpperCase())}
-                      </span>
-                      <span className="agent-timestamp">{formatSaigonTime(msg.timestamp)}</span>
-                    </div>
                     <div className="agent-body">
                       {chip ? (
                         <button
@@ -780,20 +690,17 @@ export function AgentChatWorkspace() {
                         </button>
                       ) : null}
                       {!isObservation && msg.content ? <MarkdownContent content={msg.content} /> : null}
-                      <MessageMetaStrip message={msg} flaggedPatterns={scanRenderable(msg.content || '').flags} />
                     </div>
                   </div>
+                  {isUser && msg.timestamp && (
+                    <div className="user-time-stamp">{formatRelativeTime(msg.timestamp, isVi)}</div>
+                  )}
                 </div>
               );
             })}
           {store.runStatus === 'awaiting_hitl' && !stream.some((m) => m.isRule) && (
-            <div className="agent-entry">
-              <div className="agent-avatar agent-human"><UserShield size={15} /></div>
+            <div className="agent-entry ai-entry">
               <div className="agent-content-box" style={{ borderColor: 'var(--warning-amber)' }}>
-                <div className="agent-header">
-                  <span className="agent-name" style={{ color: 'var(--warning-amber)' }}>{t('governanceGate')}</span>
-                  <span className="agent-timestamp">{formatSaigonTime()}</span>
-                </div>
                 <div className="agent-body">
                   ⏸ {t('pipelinePaused')}
                 </div>
@@ -1034,7 +941,7 @@ function NewChatLanding() {
     return undefined;
   }, []);
 
-  const handleSubmit = async (event?: React.FormEvent) => {
+  const handleSubmit = useCallback(async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
     const trimmed = message.trim();
     if (!trimmed) return;
@@ -1059,16 +966,16 @@ function NewChatLanding() {
       console.error('Failed to send initial message:', e);
     }
     navigate(`/workspace?dataset_key=${targetKey}`);
-  };
+  }, [message, sessionId, i18n.language, navigate]);
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       void handleSubmit();
     }
-  };
+  }, [handleSubmit]);
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
@@ -1087,7 +994,7 @@ function NewChatLanding() {
     } finally {
       setUploading(false);
     }
-  };
+  }, [isVi]);
 
   return (
     <main className="dash-main new-chat-landing">

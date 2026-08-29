@@ -1,7 +1,17 @@
 # DataTrust OS v5 Operational Trust Console — Technical Implementation Notes & Developer Log
 
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
-> **Last Updated:** 2026-08-27
+> **Last Updated:** 2026-08-29
+
+**2026-08-29 Sidebar Tactile Hover Shift Effect:** Added micro-interaction feedback on Sidebar menu items (`.menu-item`) and dataset shortcut pills (`.shortcut-item`). On hover, items shift smoothly to the right (`transform: translateX(4px)`) with icon scale (`scale(1.06)`) using GPU composited easing (`160ms cubic-bezier(0.16, 1, 0.3, 1)`), providing tactile, responsive feedback.
+
+**2026-08-29 Executive Dashboard Typography & Layout Harmonization:** Unified Executive Dashboard styling with the clean standard of Data Ingestion: 1) Added structured page header (`.dash-page-header`) matching Data Ingestion header layout (`h1` title + subtitle + icon). 2) Scaled all typography up by ~15% (Page Title `26px`, Subtitle `15px`, Panel Headers `23px`, KPI values `37px`, KPI titles `14px`, badges `14px`, code `15px`, table and card bodies `15px`) for enhanced legibility and visual hierarchy.
+
+**2026-08-29 Chat Stream Minimalist Polish — Clean Bubbles & Subdued User Theme:** Removed all clutter from chat messages (header bars, timestamps, "YOU", "ORCHESTRATOR AGENT" titles, and token context strips). Styled User questions as right-aligned bubbles with balanced padding (`16px 20px` matching AI message box exactly), zero-margin paragraphs, subtle grayish tint (`var(--pill-bg)`), max 2/3 width, and auto-scaling. Added subtle relative hover timestamp (e.g. `6 days ago`, `vừa xong`) that smoothly fades in directly below the user bubble on mouse hover. AI responses display clean markdown cards.
+
+**2026-08-29 Frontend 60FPS Performance Polish (GPU Layer & Transition Tuning):** Eliminated UI stutter/jank when clicking New Agent Chat textarea and Sidebar navigation items. 1) Isolated `.dash-sidebar`, `.new-chat-composer`, and `.chat-input-bar` onto dedicated GPU compositing layers using `transform: translateZ(0)` and `contain: layout paint`. 2) Replaced layout-thrashing `transition: all` rules across menu items, shortcuts, and inputs with GPU-friendly transitions (`background-color`, `color`, `border-color`, `opacity`). 3) Stabilized New Chat route navigation with idempotent `?new=1` and memoized `NewChatLanding` event handlers.
+
+**2026-08-29 Final Demo UI Polish — Enforce LLM ON & Remove Global Toggle:** For the final MVP demo and grading, removed the manual `LLM OFF / LLM ON` toggle pill from `Header.tsx` to streamline the UI and prevent unintentional heuristic fallback. Enforced `getGlobalUseLlm()` in `frontend/src/services/api.ts` to strictly return `true`, ensuring all chat sessions, RCA investigations, and rule proposals automatically engage live Gemini ReAct capabilities.
 
 **2026-08-27 HITL buttons missing:** Analyst can Propose (chat) but not `review_rules`, so Approve / Edit / Reject / Approve All were omitted with no explanation. Fix: subscribe to `user.role` via `roleCan()`, put Approve All next to the Proposed filter, show `hitl-role-gate` + Switch persona when 10 Proposed and the chip is Analyst/Viewer. API still 403 for Analyst. t086 untouched.
 

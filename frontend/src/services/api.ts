@@ -9,13 +9,12 @@ export function getRoleHeader(): string {
 const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
 
 export function getGlobalUseLlm(): boolean {
-  const val = localStorage.getItem('datatrust-use-llm');
-  return val === 'true';
+  return true;
 }
 
-export function setGlobalUseLlm(useLlm: boolean) {
-  localStorage.setItem('datatrust-use-llm', useLlm ? 'true' : 'false');
-  window.dispatchEvent(new CustomEvent('datatrust:llm-mode-changed', { detail: { useLlm } }));
+export function setGlobalUseLlm(_useLlm: boolean) {
+  localStorage.setItem('datatrust-use-llm', 'true');
+  window.dispatchEvent(new CustomEvent('datatrust:llm-mode-changed', { detail: { useLlm: true } }));
 }
 
 

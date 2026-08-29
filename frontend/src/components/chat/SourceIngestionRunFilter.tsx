@@ -103,7 +103,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
   // Render label for trigger button
   const triggerLabel = useMemo(() => {
     if (selectedDayIdx === -10) {
-      return isVi ? 'Baseline Warmup (Day 0–9 · 2026-01-01→10)' : 'Warmup Baseline (Day 0–9 · 2026-01-01→10)';
+      return isVi ? 'Baseline Warmup (Day 0–9)' : 'Warmup Baseline (Day 0–9)';
     }
     if (activeDayObj && activeDayObj.is_activated) {
       const dateStr = formatDayDate(activeDayObj.day_idx, activeDayObj.day_date);
@@ -112,12 +112,12 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
     }
     const actCount = activatedDays.length;
     if (actCount === 0) {
-      return isVi ? 'Day History: Chưa có ngày nào đã chạy' : 'Day History: No executed days yet';
+      return isVi ? 'Lịch sử ngày: Chưa có' : 'Day History: None';
     }
     const maxActivatedDay = Math.max(...activatedDays.map((d) => d.day_idx));
     return isVi
-      ? `Day History: Các ngày đã nạp (Day 0–${maxActivatedDay})`
-      : `Day History: Executed Days (Day 0–${maxActivatedDay})`;
+      ? `Lịch sử ngày (Day 0–${maxActivatedDay})`
+      : `Day History (Day 0–${maxActivatedDay})`;
   }, [activeDayObj, selectedDayIdx, activatedDays, isVi]);
 
   const filteredDays = useMemo(() => {
@@ -145,13 +145,8 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
         onClick={() => setOpen((o) => !o)}
         title={isVi ? 'Chọn ngày đã nạp dữ liệu để kiểm tra lịch sử' : 'Select executed ingestion day to inspect history'}
       >
-        <div className="sif-trigger-icon">
-          <Calendar size={13} color="var(--neon-cyan)" />
-        </div>
-        <div className="sif-trigger-text">
-          <span className="sif-tag-small">{isVi ? 'DAY HISTORY' : 'DAY HISTORY'}</span>
-          <span className="sif-main-label">{triggerLabel}</span>
-        </div>
+        <Calendar size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
+        <span className="sif-main-label">{triggerLabel}</span>
 
         {activeDayObj?.status === 'running' ? (
           <span className="sif-live-badge running">
@@ -166,7 +161,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
         <ChevronDown
           size={13}
           color="var(--text-muted)"
-          style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }}
+          style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease', flexShrink: 0 }}
         />
       </div>
 

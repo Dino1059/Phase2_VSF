@@ -72,7 +72,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   const openNewChat = () => {
     setActiveShortcut('');
-    navigate(`/workspace?new=${Date.now()}`);
+    navigate('/workspace?new=1');
     onNavigate?.();
   };
 
