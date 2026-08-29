@@ -105,7 +105,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
   // Render label for trigger button
   const triggerLabel = useMemo(() => {
     if (selectedDayIdx === -10) {
-      return isVi ? 'Baseline Warmup (Day 0–9 · 2026-01-01→10)' : 'Warmup Baseline (Day 0–9 · 2026-01-01→10)';
+      return isVi ? 'Baseline Warmup (Day 0–9)' : 'Warmup Baseline (Day 0–9)';
     }
     const boundIdx = selectedDayIdx != null
       ? selectedDayIdx
@@ -119,12 +119,12 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
     }
     const actCount = activatedDays.length;
     if (actCount === 0) {
-      return isVi ? 'Day History: Chưa có ngày nào đã chạy' : 'Day History: No executed days yet';
+      return isVi ? 'Lịch sử ngày: Chưa có' : 'Day History: None';
     }
     const maxActivatedDay = Math.max(...activatedDays.map((d) => d.day_idx));
     return isVi
-      ? `Day History: Các ngày đã nạp (Day 0–${maxActivatedDay})`
-      : `Day History: Executed Days (Day 0–${maxActivatedDay})`;
+      ? `Lịch sử ngày (Day 0–${maxActivatedDay})`
+      : `Day History (Day 0–${maxActivatedDay})`;
   }, [activeDayObj, selectedDayIdx, activatedDays, isVi]);
 
   const filteredDays = useMemo(() => {
@@ -163,9 +163,18 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
         <div className="ds-icon">
           <Calendar size={14} />
         </div>
-        <span data-testid="run-id-chip" title="ICT calendar day is Run Id">
+        <span data-testid="run-id-chip" className="sif-main-label" title="ICT calendar day is Run Id">
           {triggerLabel}
         </span>
+        {activeDayObj?.status === 'running' ? (
+          <span className="sif-live-badge running">
+            <Activity size={10} className="spin" /> RUNNING
+          </span>
+        ) : activeDayObj?.is_activated ? (
+          <span className="sif-live-badge done">
+            <Check size={10} color="var(--electric-green)" /> ACTIVE
+          </span>
+        ) : null}
         <ChevronDown
           size={14}
           className="sub-arrow"

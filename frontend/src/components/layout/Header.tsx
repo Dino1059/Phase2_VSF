@@ -148,14 +148,11 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
   };
 
   const [useLlmMode, setUseLlmMode] = useState<boolean>(getGlobalUseLlm);
-
   const handleToggleLlmMode = () => {
     const next = !useLlmMode;
     setUseLlmMode(next);
     setGlobalUseLlm(next);
   };
-
-
 
   // ⌘K / Ctrl-K opens the centered search modal
   useEffect(() => {
@@ -436,7 +433,6 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
             <span>{isVi ? 'VI' : 'EN'}</span>
           </button>
 
-          {/* Global System-Wide LLM Toggle Button */}
           <button
             type="button"
             className="hud-action-pill"
@@ -474,7 +470,6 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
               </>
             )}
           </button>
-
 
           {/* Admin-Only DB & Baseline Reset Button — separated from LLM toggle */}
           {isAuthenticated && isAdmin() && (

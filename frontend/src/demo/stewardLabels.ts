@@ -297,3 +297,32 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     msgId: raw.msgId || raw.msg_id || raw.message_id || undefined,
   };
 }
+
+export function formatRelativeTime(timestamp?: string | number | null, isVi: boolean = false): string {
+  if (!timestamp) return '';
+  let timeMs = typeof timestamp === 'number' ? timestamp : Date.parse(String(timestamp));
+  if (isNaN(timeMs)) {
+    if (typeof timestamp === 'string' && /^\d{2}:\d{2}(:\d{2})?$/.test(timestamp.trim())) {
+      const today = new Date();
+      const parts = timestamp.trim().split(':').map(Number);
+      today.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
+      timeMs = today.getTime();
+    } else {
+      return String(timestamp);
+    }
+  }
+  const diffSec = Math.max(0, Math.floor((Date.now() - timeMs) / 1000));
+  if (diffSec < 45) {
+    return isVi ? 'vừa xong' : 'just now';
+  }
+  if (diffSec < 3600) {
+    const m = Math.floor(diffSec / 60);
+    return isVi ? `${m} phút trước` : `${m} min ago`;
+  }
+  if (diffSec < 86400) {
+    const h = Math.floor(diffSec / 3600);
+    return isVi ? `${h} giờ trước` : `${h}h ago`;
+  }
+  const d = Math.floor(diffSec / 86400);
+  return isVi ? `${d} ngày trước` : `${d} days ago`;
+}

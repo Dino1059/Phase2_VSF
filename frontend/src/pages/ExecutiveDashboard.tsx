@@ -210,6 +210,19 @@ export const ExecutiveDashboard: React.FC = () => {
   );
   return (
     <div className="dash-main">
+      {/* Page header matching Data Ingestion */}
+      <div className="ingestion-page-header dash-page-header">
+        <div className="iph-title-group">
+          <Layers size={22} color="var(--neon-cyan)" />
+          <h1 className="iph-title">{isVi ? 'Bảng Điều Khiển Điều Hành' : 'Executive Dashboard'}</h1>
+          <span className="iph-subtitle">
+            {isVi
+              ? 'Tổng quan Giám sát Chất lượng Dữ liệu Doanh nghiệp · HITL Governance & AI Orchestration'
+              : 'Enterprise Data Quality Overview · HITL Governance & AI Orchestration'}
+          </span>
+        </div>
+      </div>
+
       {/* TOP SUMMARY KPI CARDS (4 CARDS) */}
       <div className="kpi-grid">
         <div className="kpi-card">

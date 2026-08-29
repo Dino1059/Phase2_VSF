@@ -3,6 +3,8 @@
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
 > **Last Updated:** 2026-08-29
 
+**2026-08-30 TH+Huyen merge:** HITL causal flow + Remember default ON (replay warehouse Execute). Huyen dashboard/60fps/stewardLabels kept. **LLM toggle kept** (grill 9A) — do not force LLM ON.
+
 **2026-08-29 TH exclusive assignment:** Preview `per_rule_counts` and warehouse quarantine use first-failing primary rule (sum == Q). Incidents = unique `(dataset, day, entity_id, primary_rule)`. Warehouse Execute persists `warehouse_execute` so Rollback moves `clean.*` day rows back. Analyst chat Clean & Quarantine chip gated `canHitlWrite` (Steward warehouse Execute stays on Rules tab).
 
 **2026-08-29 Steward Execute 403:** `RoleMiddleware` stored `UserRole` enum; `_require_steward_execute` used `str(role)` which is `"UserRole.STEWARD"` on Python 3.10, not JWT `"Steward"`. Compare `UserRole.STEWARD.value` (token role); middleware stores `.value`. Live d086 C=0 Q=39742 is COUNT (8 approved rules), not pytest 7/3. GET `/hitl/sandbox/{id}` 404 when preview COUNT writes no `main.quarantine` rows — not same-file one-liner.
@@ -10,6 +12,14 @@
 **2026-08-29 TH chat/sandbox:** Heuristic matched `"dataset"` in Context JSON `dataset_key`, so edit-rule got the 4-dataset canned bubble; traces 10/150s were AgentTracesTab session-sum (profile/list/Algolia under DuckDB lock), not that bubble. Fix: match user task not Context JSON; edit-rule allowlist = `sandbox_preview` only; Preview (COUNT+sample, no write) before Approve; GET warehouse_clean_rows stays 0 (execute-off). e3b0c442 = SHA-256(""); VF8VNF_0001 is VIN used as row id.
 
 **2026-08-29 Thanh+Huyền Then 6–8:** Search-all jumps to workspace `?tab=` with current `(dataset_key, day)`. `POST /ingestion/promote` no-ops when `landing.*` empty; Run All + day activate call it. Chat HITL Accept/Edit/Reject hidden; Rules tab owns write. Ops routes kept.
+
+**2026-08-29 Sidebar Tactile Hover Shift Effect:** Added micro-interaction feedback on Sidebar menu items (`.menu-item`) and dataset shortcut pills (`.shortcut-item`). On hover, items shift smoothly to the right (`transform: translateX(4px)`) with icon scale (`scale(1.06)`) using GPU composited easing (`160ms cubic-bezier(0.16, 1, 0.3, 1)`), providing tactile, responsive feedback.
+
+**2026-08-29 Executive Dashboard Typography & Layout Harmonization:** Unified Executive Dashboard styling with the clean standard of Data Ingestion: 1) Added structured page header (`.dash-page-header`) matching Data Ingestion header layout (`h1` title + subtitle + icon). 2) Scaled all typography up by ~15% (Page Title `26px`, Subtitle `15px`, Panel Headers `23px`, KPI values `37px`, KPI titles `14px`, badges `14px`, code `15px`, table and card bodies `15px`) for enhanced legibility and visual hierarchy.
+
+**2026-08-29 Chat Stream Minimalist Polish — Clean Bubbles & Subdued User Theme:** Removed all clutter from chat messages (header bars, timestamps, "YOU", "ORCHESTRATOR AGENT" titles, and token context strips). Styled User questions as right-aligned bubbles with balanced padding (`16px 20px` matching AI message box exactly), zero-margin paragraphs, subtle grayish tint (`var(--pill-bg)`), max 2/3 width, and auto-scaling. Added subtle relative hover timestamp (e.g. `6 days ago`, `vừa xong`) that smoothly fades in directly below the user bubble on mouse hover. AI responses display clean markdown cards.
+
+**2026-08-29 Frontend 60FPS Performance Polish (GPU Layer & Transition Tuning):** Eliminated UI stutter/jank when clicking New Agent Chat textarea and Sidebar navigation items. 1) Isolated `.dash-sidebar`, `.new-chat-composer`, and `.chat-input-bar` onto dedicated GPU compositing layers using `transform: translateZ(0)` and `contain: layout paint`. 2) Replaced layout-thrashing `transition: all` rules across menu items, shortcuts, and inputs with GPU-friendly transitions (`background-color`, `color`, `border-color`, `opacity`). 3) Stabilized New Chat route navigation with idempotent `?new=1` and memoized `NewChatLanding` event handlers.
 
 **2026-08-27 HITL buttons missing:** Analyst can Propose (chat) but not `review_rules`, so Approve / Edit / Reject / Approve All were omitted with no explanation. Fix: subscribe to `user.role` via `roleCan()`, put Approve All next to the Proposed filter, show `hitl-role-gate` + Switch persona when 10 Proposed and the chip is Analyst/Viewer. API still 403 for Analyst. t086 untouched.
 

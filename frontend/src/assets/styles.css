@@ -1165,6 +1165,9 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   border-radius: var(--radius-container);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  contain: layout paint;
 }
 
 .new-chat-composer .new-chat-textarea {
@@ -1178,6 +1181,9 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   background: var(--bg-card);
   color: var(--text-main);
   font-size: 18px;
+  outline: none;
+  contain: content;
+  transition: background-color 130ms ease;
 }
 
 .new-chat-composer .new-chat-textarea::placeholder {
@@ -1221,6 +1227,15 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   background: var(--bg-card);
   color: var(--text-muted);
   font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 130ms cubic-bezier(0.16, 1, 0.3, 1), color 130ms cubic-bezier(0.16, 1, 0.3, 1), border-color 130ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.new-chat-shortcuts button:hover {
+  background: var(--bg-card-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-main);
+  border-color: var(--glass-border-bright);
 }
 
 /* Stream Time Filter Bar (Inside Chat) */
@@ -1334,38 +1349,108 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   gap: 20px;
 }
 
-/* Chat Message Cards */
+/* Chat Message Cards & Pop-out Animations */
+.agent-entry,
 .agent-message-item {
   display: flex;
-  gap: 16px;
-  animation: fadeIn 250ms ease forwards;
+  width: 100%;
+  animation: popOutMessage 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: center bottom;
+  box-sizing: border-box;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes popOutMessage {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-.agent-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-input);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
+/* AI Message (Left-aligned, clean full-width response) */
+.agent-entry.ai-entry {
+  align-self: flex-start;
+  width: 100%;
+}
+
+.agent-entry.ai-entry .agent-content-box {
+  width: 100%;
+  background: var(--bg-card);
   border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 16px 20px;
 }
 
-.agent-orchestrator { background: var(--pill-bg); color: var(--text-main); }
-.agent-profiler { background: rgba(192, 132, 252, 0.12); color: var(--royal-purple); }
-.agent-anomaly { background: rgba(251, 191, 36, 0.12); color: var(--warning-amber); }
-.agent-diagnosis { background: rgba(248, 113, 113, 0.12); color: var(--alert-magenta); }
-.agent-proposer { background: rgba(52, 211, 153, 0.12); color: var(--electric-green); }
-.agent-executor { background: rgba(52, 211, 153, 0.12); color: var(--electric-green); }
-.agent-human { background: var(--pill-bg); color: var(--text-main); }
+.agent-entry.ai-entry .agent-body p:first-child {
+  margin-top: 0;
+}
+
+.agent-entry.ai-entry .agent-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* User Message (Right-aligned, max 2/3 width, subtle gray background, auto-scaled) */
+.agent-entry.user-entry {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  width: 100%;
+  gap: 0;
+}
+
+.agent-entry.user-entry .agent-content-box {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 66.67%;
+  margin: 0 0 0 auto;
+  background: var(--pill-bg, rgba(0, 0, 0, 0.045));
+  border: 1px solid var(--pill-border, var(--glass-border));
+  border-radius: 14px 14px 4px 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  padding: 16px 20px;
+}
+
+.agent-entry.user-entry .agent-body {
+  font-size: 14px;
+  color: var(--text-main);
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.agent-entry.user-entry .agent-body p {
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.agent-entry.user-entry .agent-body p + p {
+  margin-top: 8px;
+}
+
+/* Hover Timestamp below User Message (tightly hugs bottom edge like Image 2) */
+.user-time-stamp {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-muted, #94a3b8);
+  margin-top: 3px;
+  padding-right: 2px;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  user-select: none;
+  pointer-events: none;
+  font-weight: 400;
+}
+
+.agent-entry.user-entry:hover .user-time-stamp {
+  opacity: 0.9;
+}
 
 .agent-content-box {
   flex: 1;
@@ -1375,9 +1460,10 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   background: var(--bg-card);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-card);
-  padding: 20px 24px;
+  padding: 18px 22px;
   position: relative;
   box-shadow: var(--shadow-card);
+  box-sizing: border-box;
 }
 
 .agent-header {
@@ -1554,6 +1640,7 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   display: flex;
   align-items: center;
   gap: 12px;
+  contain: layout paint;
 }
 
 .chat-input {
@@ -1566,7 +1653,8 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   font-family: var(--font-sans);
   font-size: 14px;
   outline: none;
-  transition: border 180ms ease;
+  contain: content;
+  transition: border-color 130ms cubic-bezier(0.16, 1, 0.3, 1), background-color 130ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .chat-input:focus {
@@ -1583,14 +1671,15 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   font-family: var(--font-sans);
   font-size: 13px;
   cursor: pointer;
-  transition: all 180ms ease;
+  user-select: none;
+  transition: opacity 130ms ease, transform 130ms ease;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .send-btn:hover {
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 /* ==========================================================================
@@ -3244,22 +3333,74 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
 /* Day History Selector V2 */
 .source-ingestion-filter {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   z-index: 50;
 }
 
 /* Same control family as sidebar .shortcut-item (flat row, no card/shadow). */
 .sif-trigger-v2 {
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--pill-bg, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--pill-border, var(--glass-border));
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   user-select: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+  box-sizing: border-box;
   box-shadow: none;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
+.sif-trigger-v2:hover {
+  background: var(--pill-hover-bg, var(--bg-card-hover, rgba(255, 255, 255, 0.08)));
+  border-color: var(--glass-border-bright, rgba(255, 255, 255, 0.2));
+}
+
 .sif-trigger-v2:hover,
 .sif-trigger-v2.active {
   box-shadow: none;
+}
+
+.sif-main-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.sif-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1.2;
+}
+
+.sif-live-badge.done {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--electric-green, #10b981);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sif-live-badge.running {
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.3);
 }
 
 .sif-trigger-v2 .sub-arrow {
