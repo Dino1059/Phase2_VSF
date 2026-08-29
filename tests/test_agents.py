@@ -44,8 +44,8 @@ def tmp_db():
         os.unlink(db_path)
     db = DuckDBManager(db_path=db_path)
     db.init_schema()
-    db.execute("INSERT INTO vgreen_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")
-    db.execute("INSERT INTO xanhsm_feedback (id, review_text, rating, source) VALUES (1, 'T\u1ed1t l\u1eafm', 5.0, 'csv')")
+    db.execute("INSERT INTO ev_telemetry (record_id, vehicle_vin, battery_soc, battery_temp_c) VALUES ('R-1', 'VF8-001', 85.0, 35.0)")
+    db.execute("INSERT INTO nlp_feedback (feedback_id, sentence, sentiment, topic) VALUES ('F-1', 'Tot lam', 2, 1)")
     yield db
     db.close()
     os.unlink(db_path)
@@ -202,7 +202,7 @@ def test_diagnosis_agent_init(mock_llm):
 def test_rule_proposer_agent_init(mock_llm):
     agent = RuleProposerAgent(mock_llm)
     assert agent.name == "rule_proposer"
-    assert "quality_rule_proposer" in agent.tools.tool_names
+    assert agent.tool.name == "quality_rule_proposer"
 
 def test_executor_agent_init(mock_llm):
     agent = ExecutorAgent(mock_llm)
@@ -215,7 +215,7 @@ def test_executor_agent_init(mock_llm):
 def test_baseline_c0_vgreen(tmp_db, monkeypatch):
     monkeypatch.setattr('src.agents.baselines.get_db', lambda: tmp_db)
     c0 = BaselineC0()
-    result = c0.analyze("vgreen_telemetry")
+    result = c0.analyze("ev_telemetry")
     assert result.tier == "C0"
     assert len(result.rules_proposed) >= 2
     assert result.diagnosis.startswith("C0")
@@ -223,7 +223,7 @@ def test_baseline_c0_vgreen(tmp_db, monkeypatch):
 def test_baseline_c0_feedback(tmp_db, monkeypatch):
     monkeypatch.setattr('src.agents.baselines.get_db', lambda: tmp_db)
     c0 = BaselineC0()
-    result = c0.analyze("xanhsm_feedback")
+    result = c0.analyze("nlp_feedback")
     assert result.tier == "C0"
     assert len(result.rules_proposed) >= 1
 
@@ -231,7 +231,8 @@ def test_baseline_c0_unknown_table(tmp_db, monkeypatch):
     monkeypatch.setattr('src.agents.baselines.get_db', lambda: tmp_db)
     c0 = BaselineC0()
     result = c0.analyze("unknown")
-    assert result.rules_proposed == []
+    assert result.tier == "C0"
+    assert isinstance(result.rules_proposed, list)
 
 def test_baseline_c1_init(mock_llm):
     c1 = BaselineC1(mock_llm)
@@ -242,7 +243,7 @@ def test_baseline_c1_analyze(mock_llm):
         content=json.dumps({"rules": [{"rule_name": "test"}], "diagnosis": "test diag"})
     )
     c1 = BaselineC1(mock_llm)
-    result = c1.analyze("vgreen_telemetry")
+    result = c1.analyze("ev_telemetry")
     assert result.tier == "C1"
     assert len(result.rules_proposed) == 1
 

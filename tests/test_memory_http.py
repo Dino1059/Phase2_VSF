@@ -10,6 +10,9 @@ def test_memory_unauth_is_401():
 
 
 def test_memory_admin_is_200():
+    from src.memory.store import memory_store
+    memory_store._schema_ready = False
+    memory_store._ensure_schema()
     client = TestClient(app, headers={"X-User-Role": "Admin"})
     r = client.get("/api/v1/memory")
     assert r.status_code == 200

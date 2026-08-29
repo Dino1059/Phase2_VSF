@@ -33,7 +33,7 @@ def apply_canonical_reset(conn, project_root: str) -> None:
 
 
 def seed_database(db_path: str = None) -> None:
-    """Rebuild canonical main tables from the landing parquet source of truth."""
+    """Load parquet into landing.*, then promote into main.* (same path as live ingest)."""
     db_manager = DuckDBManager(db_path=db_path)
     db_manager.init_schema()
 
@@ -57,6 +57,8 @@ def seed_database(db_path: str = None) -> None:
     sha256_hash = compute_sha256(pq_path)
     conn = db_manager.get_connection()
     apply_canonical_reset(conn, project_root)
+    from src.services.landing_promote import LANDING_TABLES, promote_landing_all, reset_landing_tables
+    reset_landing_tables(db_manager)
 
     table_configs = [
         {
@@ -64,7 +66,7 @@ def seed_database(db_path: str = None) -> None:
             "table_name": "ev_telemetry",
             "source_name": "ev_telemetry",
             "sql": f"""
-                INSERT INTO main.ev_telemetry (
+                INSERT INTO landing.ev_telemetry (
                     record_id, vehicle_vin, day_idx, sample_idx, timestamp, speed_kmh,
                     motor_rpm, battery_soc, battery_voltage, battery_current,
                     battery_temp_c, state_at_sample, assigned_day_index,
@@ -104,7 +106,7 @@ def seed_database(db_path: str = None) -> None:
             "table_name": "charging_sessions",
             "source_name": "charging_sessions",
             "sql": f"""
-                INSERT INTO main.charging_sessions (
+                INSERT INTO landing.charging_sessions (
                     vehicle_vin, session_id, station_id, charger_id, start_time,
                     duration_mins, kwh_consumed, power_kw, charging_pattern,
                     assigned_day_index, station_temp_c, cost_vnd, status,
@@ -138,7 +140,7 @@ def seed_database(db_path: str = None) -> None:
             "table_name": "trips",
             "source_name": "trips",
             "sql": f"""
-                INSERT INTO main.trips (
+                INSERT INTO landing.trips (
                     trip_id, vehicle_vin, driver_id, pickup_datetime,
                     dropoff_datetime, assigned_day_index, trip_distance_km,
                     fare_amount, currency_unverified, tip_amount, total_fare,
@@ -172,7 +174,7 @@ def seed_database(db_path: str = None) -> None:
             "table_name": "nlp_feedback",
             "source_name": "nlp_feedback",
             "sql": f"""
-                INSERT INTO main.nlp_feedback (
+                INSERT INTO landing.nlp_feedback (
                     feedback_id, vehicle_vin, sentence, sentiment, topic,
                     scenario_date, raw_comment_text, snapshot_id, source_ingestion_run_id
                 )
@@ -216,7 +218,12 @@ def seed_database(db_path: str = None) -> None:
 
     for config in table_configs:
         conn.execute(config["sql"])
-        row_cnt = conn.execute(f"SELECT COUNT(*) FROM {config['table_name']}").fetchone()[0]
+        count_from = (
+            f"landing.{config['table_name']}"
+            if config["table_name"] in LANDING_TABLES
+            else config["table_name"]
+        )
+        row_cnt = conn.execute(f"SELECT COUNT(*) FROM {count_from}").fetchone()[0]
         db_manager.execute(
             """
             INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count, provenance, tag)
@@ -233,7 +240,9 @@ def seed_database(db_path: str = None) -> None:
                 tag_val,
             ],
         )
-        print(f"Seeded {row_cnt} rows into '{config['table_name']}'.")
+        print(f"Seeded {row_cnt} rows into landing/ref '{config['table_name']}'.")
+
+    promote_landing_all(db_manager)
 
     rel_data_dir = os.path.relpath(pq_path, project_root) if os.path.isabs(pq_path) else pq_path
     db_manager.execute(

@@ -291,6 +291,54 @@ CREATE TABLE IF NOT EXISTS quality_rules (
     feedback_by VARCHAR,
     feedback_at TIMESTAMP,
     layer VARCHAR,
+    source_ingestion_run_id VARCHAR,
+    calendar_day VARCHAR,
+    approved_by VARCHAR,
+    approved_at VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id VARCHAR PRIMARY KEY,
+    title VARCHAR,
+    dataset_key VARCHAR,
+    calendar_day VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS hitl_decisions (
+    id VARCHAR PRIMARY KEY,
+    dataset_key VARCHAR,
+    calendar_day VARCHAR,
+    rule_id VARCHAR,
+    persona VARCHAR,
+    action VARCHAR,
+    status VARCHAR DEFAULT 'active',
+    row_ids JSON,
+    details JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rule_memory (
+    dataset_key VARCHAR,
+    rule_id VARCHAR,
+    remembered BOOLEAN DEFAULT FALSE,
+    actor VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expired_at TIMESTAMP,
+    PRIMARY KEY (dataset_key, rule_id)
+);
+
+CREATE TABLE IF NOT EXISTS rule_pending_patches (
+    id VARCHAR PRIMARY KEY,
+    dataset_key VARCHAR,
+    calendar_day VARCHAR,
+    rule_id VARCHAR,
+    before_expr VARCHAR,
+    after_expr VARCHAR,
+    status VARCHAR DEFAULT 'pending',
+    proposed_by VARCHAR,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

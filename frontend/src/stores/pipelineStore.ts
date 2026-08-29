@@ -216,9 +216,9 @@ export const usePipelineStore = create<PipelineState>((set) => ({
       return {
         currentStepIndex: 0,
         runStatus: 'idle',
-        runId: null,
-        sourceIngestionRunId: null,
-        selectedDayIdx: null,
+        runId: state.sourceIngestionRunId || state.runId,
+        sourceIngestionRunId: state.sourceIngestionRunId,
+        selectedDayIdx: state.selectedDayIdx,
         ruleStatus: 'pending',
         proposals: [],
         cleanRows: domain.cleanRows,

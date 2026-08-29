@@ -40,7 +40,7 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
   active = false,
   splitResult,
   dayIdx = null,
-  runId: _runId = null,
+  runId = null,
 }) => {
   const storeKey = datasetStoreKey(datasetKey);
   const split = useWorkspaceStore((s) => s.splitRowsByDataset[storeKey]);
@@ -51,6 +51,7 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
   const cleanRows = (split?.cleanRows as any[]) || [];
   const totalClean = split?.totalClean || 0;
   const totalQuarantine = split?.totalQuarantine || 0;
+  const warehouseCommitted = !!split?.warehouseCommitted;
   const cleanRan = !!(split?.thisRun && split?.cleanRan);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,7 +78,14 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
       }
 
       const qRes = await quarantineApi.list(100);
-      const incomingQ = (qRes && Array.isArray(qRes.quarantine)) ? qRes.quarantine : [];
+      const incomingAll = (qRes && Array.isArray(qRes.quarantine)) ? qRes.quarantine : [];
+      const incomingQ = incomingAll.filter((r: any) => {
+        if (dayIdx === null || dayIdx === undefined) return true;
+        const orig = r.original_data || r;
+        const d = orig.assigned_day_index ?? orig.day_idx ?? r.assigned_day_index;
+        if (d === undefined || d === null) return String(r.snapshot_id || '').includes(String(runId || ''));
+        return Number(d) === Number(dayIdx);
+      });
       // Empty GET must never clobber stored this-run rows.
       if (incomingQ.length === 0 && prev && (prev.quarantineRows.length > 0 || prev.cleanRan)) {
         // keep existing this-run quarantine — never clobber
@@ -115,7 +123,7 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [datasetKey, mergeSplitRows, splitResult, storeKey]);
+  }, [datasetKey, mergeSplitRows, splitResult, storeKey, dayIdx, runId]);
 
   useEffect(() => {
     fetchData();
@@ -137,6 +145,7 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
           ...EMPTY_SPLIT,
           cleanRan: true,
           thisRun: true,
+          warehouseCommitted: !!(d.warehouseCommitted || d.counts_kind === 'warehouse'),
           snapshotId: d.snapshot_id || '',
           quarantineRows: q,
           cleanRows: c,
@@ -223,7 +232,11 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
             }}
           >
             <UserShield size={13} />
-            <span>{isVi ? `Khu Vực Cách Ly (${totalQuarantine.toLocaleString()})` : `Quarantine (${totalQuarantine.toLocaleString()})`}</span>
+            <span>
+              {warehouseCommitted
+                ? (isVi ? `Khu Vực Cách Ly (${totalQuarantine.toLocaleString()})` : `Quarantine (${totalQuarantine.toLocaleString()})`)
+                : (isVi ? `Cách ly xem trước (${totalQuarantine.toLocaleString()})` : `Preview quarantine (${totalQuarantine.toLocaleString()})`)}
+            </span>
           </button>
           <button
             className={`split-tab-pill ${viewMode === 'clean' ? 'active-clean' : ''}`}
@@ -233,13 +246,26 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
             }}
           >
             <Database size={13} />
-            <span>{isVi ? `Kho Dữ Liệu Sạch (${totalClean.toLocaleString()})` : `Clean Warehouse (${totalClean.toLocaleString()})`}</span>
+            <span>
+              {warehouseCommitted
+                ? (isVi ? `Kho Dữ Liệu Sạch (${totalClean.toLocaleString()})` : `Clean Warehouse (${totalClean.toLocaleString()})`)
+                : (isVi ? `Sạch xem trước (${totalClean.toLocaleString()})` : `Preview clean (${totalClean.toLocaleString()})`)}
+            </span>
           </button>
         </div>
 
         <button className="traces-refresh-btn" onClick={fetchData} disabled={loading} title={isVi ? 'Làm mới danh sách dòng' : 'Refresh dataset rows'}>
           <RefreshCw size={13} className={loading ? 'spinning' : ''} />
         </button>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px 0' }}>
+        {warehouseCommitted
+          ? (isVi
+            ? `Kho sau Execute (bảng + ngày): Sạch ${totalClean.toLocaleString()} · Cách ly ${totalQuarantine.toLocaleString()}.`
+            : `Warehouse after Execute (table + day): Clean ${totalClean.toLocaleString()} · Quarantine ${totalQuarantine.toLocaleString()}.`)
+          : (isVi
+            ? 'Ước lượng xem trước theo bảng + ngày — chưa phải kho sau Execute. Kho đã ghi: Sạch 0 · Cách ly 0.'
+            : 'Preview estimate for this table + day — not warehouse after Execute. Committed warehouse: Clean 0 · Quarantine 0.')}
       </div>
 
       {/* SEARCH BAR */}

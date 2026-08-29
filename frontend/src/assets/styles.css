@@ -3248,82 +3248,23 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
   z-index: 50;
 }
 
+/* Same control family as sidebar .shortcut-item (flat row, no card/shadow). */
 .sif-trigger-v2 {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 14px;
-  background: var(--bg-card, rgba(15, 23, 42, 0.65));
-  border: 1px solid var(--glass-border-bright, rgba(255, 255, 255, 0.12));
-  border-radius: 10px;
-  color: var(--text-main, #f8fafc);
   cursor: pointer;
   user-select: none;
-  transition: all 180ms ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.sif-trigger-v2:hover {
-  background: var(--bg-card-hover, rgba(30, 41, 59, 0.85));
-  border-color: var(--neon-cyan, #00f3ff);
-  box-shadow: 0 4px 14px rgba(0, 243, 255, 0.15);
-}
-
-.sif-trigger-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: rgba(0, 243, 255, 0.08);
-  border: 1px solid rgba(0, 243, 255, 0.2);
-}
-
-.sif-trigger-text {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
-.sif-tag-small {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: var(--neon-cyan, #00f3ff);
-  text-transform: uppercase;
-}
-
-.sif-main-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-main, #f8fafc);
+  box-shadow: none;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.sif-live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 999px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+.sif-trigger-v2:hover,
+.sif-trigger-v2.active {
+  box-shadow: none;
 }
 
-.sif-live-badge.done {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--electric-green, #10b981);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.sif-live-badge.running {
-  background: rgba(2, 132, 199, 0.15);
-  color: #0284c7;
-  border: 1px solid rgba(2, 132, 199, 0.3);
+.sif-trigger-v2 .sub-arrow {
+  margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .sif-dropdown-v2 {

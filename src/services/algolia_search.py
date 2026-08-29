@@ -188,8 +188,12 @@ class AlgoliaSearchService:
                         "entity_type": "rule",
                         "rule_id": r[0],
                         "rule_name": r[1],
+                        "name": r[1] or r[0],
+                        "key": str(r[0]).split("__")[0] if r[0] else "ev_telemetry",
+                        "dataset_key": str(r[0]).split("__")[0] if r[0] else "ev_telemetry",
                         "type": r[2],
                         "expression": r[3],
+                        "rule_expression": r[3],
                         "status": r[4],
                     })
             except Exception:
@@ -217,6 +221,69 @@ class AlgoliaSearchService:
                         "target_table": l[3],
                         "details": l[4],
                     })
+            except Exception:
+                pass
+
+        # 4. Incidents / quarantine / VIN — jump to workspace tabs, not ops routes
+        if not entity_type or entity_type in ("incident", "alert", "quarantine", "vehicle", "station"):
+            try:
+                db = get_db()
+                if not entity_type or entity_type in ("incident", "alert"):
+                    incs = db.execute(
+                        "SELECT incident_id, COALESCE(dataset_key, ''), COALESCE(entity_id, ''), "
+                        "COALESCE(calendar_day, ''), COALESCE(primary_rule_id, '') "
+                        "FROM incidents WHERE LOWER(CAST(incident_id AS VARCHAR)) LIKE ? "
+                        "OR LOWER(CAST(admission_reason AS VARCHAR)) LIKE ? LIMIT ?",
+                        [f"%{q_lower}%", f"%{q_lower}%", limit],
+                    )
+                    for inc in incs or []:
+                        results.append({
+                            "objectID": f"incident_{inc[0]}",
+                            "entity_type": "incident",
+                            "key": inc[1] or "ev_telemetry",
+                            "dataset_key": inc[1],
+                            "entity_id": inc[2],
+                            "calendar_day": inc[3],
+                            "rule_id": inc[4],
+                            "name": inc[0],
+                            "description": f"Incident {inc[0]} · {inc[2] or 'entity'}",
+                        })
+                if not entity_type or entity_type == "quarantine":
+                    qs = db.execute(
+                        "SELECT id, source_table, rule_id FROM main.quarantine "
+                        "WHERE LOWER(CAST(rule_id AS VARCHAR)) LIKE ? OR LOWER(CAST(source_table AS VARCHAR)) LIKE ? LIMIT ?",
+                        [f"%{q_lower}%", f"%{q_lower}%", limit],
+                    )
+                    for qrow in qs or []:
+                        results.append({
+                            "objectID": f"quarantine_{qrow[0]}",
+                            "entity_type": "quarantine",
+                            "key": qrow[1],
+                            "dataset_key": qrow[1],
+                            "rule_id": qrow[2],
+                            "name": qrow[0],
+                            "description": f"Quarantine {qrow[1]} · {qrow[2]}",
+                        })
+                if not entity_type or entity_type in ("vehicle", "station"):
+                    from src.services.landing_promote import ensure_landing_tables
+                    ensure_landing_tables(db)
+                    vins = db.execute(
+                        "SELECT DISTINCT vehicle_vin FROM ("
+                        "SELECT vehicle_vin FROM main.ev_telemetry UNION "
+                        "SELECT vehicle_vin FROM landing.ev_telemetry"
+                        ") t WHERE LOWER(CAST(vehicle_vin AS VARCHAR)) LIKE ? LIMIT ?",
+                        [f"%{q_lower}%", min(limit, 5)],
+                    )
+                    for v in vins or []:
+                        results.append({
+                            "objectID": f"vehicle_{v[0]}",
+                            "entity_type": "vehicle",
+                            "key": "ev_telemetry",
+                            "dataset_key": "ev_telemetry",
+                            "entity_id": v[0],
+                            "name": v[0],
+                            "description": f"Vehicle {v[0]}",
+                        })
             except Exception:
                 pass
 

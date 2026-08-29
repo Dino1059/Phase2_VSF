@@ -153,7 +153,7 @@ def approved_rules_for_clean(db, dataset_key: Optional[str] = None, rule_ids: Op
         params.extend(list(rule_ids))
     if dataset_key:
         like = f"{dataset_key}__%"
-        sql += " AND (dataset_key = ? OR id LIKE ? OR dataset_key IS NULL)"
+        sql += " AND (dataset_key = ? OR id LIKE ?)"
         params.extend([dataset_key, like])
     try:
         rows = db.execute(sql, params) if params else db.execute(sql)
@@ -182,14 +182,23 @@ def approved_rules_for_clean(db, dataset_key: Optional[str] = None, rule_ids: Op
     return out
 
 
-def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: list, db=None, snapshot_id: str | None = None) -> dict:
-    """Persist REAL quarantine rows into DuckDB and return the Split-tab payload.
+def persist_sandbox_split(
+    dataset_key: str,
+    rows: list,
+    exec_res: dict,
+    rules: list,
+    db=None,
+    snapshot_id: str | None = None,
+    preview_counts: dict | None = None,
+    calendar_day: str | None = None,
+) -> dict:
+    """Persist example quarantine rows only. Headline counts come from preview_counts (SQL).
 
-    Does not invent rows. Counts come from execute_compiled_rules. Empty partitions stay empty.
+    Does not invent rows. Does not persist SANDBOX_SAMPLE_CAP as warehouse.
     snapshot_id tags THIS sandbox run so Split never shows leftover 50k/100 as this run.
     """
     from src.db.connection import get_db
-    from src.services.dataset_engine import safe_eval_rule
+    from src.services.dataset_engine import PREVIEW_ROW_CAP, safe_eval_rule
 
     if db is None:
         db = get_db()
@@ -253,7 +262,7 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
             db.execute("DELETE FROM main.quarantine WHERE source_table = ?", [key])
         except Exception:
             pass
-    for i, item in enumerate(q_items):
+    for i, item in enumerate(q_items[:PREVIEW_ROW_CAP]):
         row_n = i + 1
         qid = str(item.get("id") or f"q-{_uuid.uuid4().hex[:12]}")
         orig = {k: item[k] for k in item if k not in ("id", "source_table", "source_row_id", "rule_id", "reason", "lineage_hash")}
@@ -288,7 +297,26 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
                 pass
 
     clean_rows = exec_res.get("clean_db") or []
-    per_rule = exec_res.get("quarantine_breakdown_by_rule") or {}
+    counts = preview_counts or {}
+    per_rule = counts.get("per_rule_counts") or exec_res.get("quarantine_breakdown_by_rule") or {}
+    c_count = int(counts.get("clean_rows") if counts.get("clean_rows") is not None else (exec_res.get("clean_count") or len(clean_rows) or 0))
+    q_count = int(counts.get("quarantine_rows") if counts.get("quarantine_rows") is not None else (exec_res.get("quarantine_count") or len(q_items) or 0))
+    scoped = int(counts.get("scoped_rows") or (c_count + q_count) or 0)
+    try:
+        from src.services.th_hitl_flow import save_sandbox_preview_meta
+        save_sandbox_preview_meta(
+            db,
+            snapshot_id=snap,
+            dataset_key=key,
+            calendar_day=calendar_day or counts.get("calendar_day"),
+            scoped_rows=scoped,
+            clean_rows=c_count,
+            quarantine_rows=q_count,
+            per_rule_counts={str(k): int(v) for k, v in (per_rule or {}).items()},
+            sample_cap=PREVIEW_ROW_CAP,
+        )
+    except Exception:
+        pass
     cell_diffs = []
     for item in q_items[:10]:
         orig = {k: item[k] for k in item if k not in ("id", "source_table", "source_row_id", "rule_id", "reason", "lineage_hash")}
@@ -311,18 +339,184 @@ def persist_sandbox_split(dataset_key: str, rows: list, exec_res: dict, rules: l
         "snapshot_id": snap,
         "run_id": snap,
         "this_run": True,
-        "clean": clean_rows[:50],
-        "quarantine": q_items[:100],
-        "clean_rows": int(exec_res.get("clean_count") or len(clean_rows) or 0),
-        "quarantine_rows": int(exec_res.get("quarantine_count") or len(q_items) or 0),
+        "clean": clean_rows[:PREVIEW_ROW_CAP],
+        "quarantine": q_items[:PREVIEW_ROW_CAP],
+        "clean_rows": c_count,
+        "quarantine_rows": q_count,
+        "scoped_rows": scoped,
+        "counts_kind": "preview",
+        "warehouse_clean_rows": 0,
+        "warehouse_quarantine_rows": 0,
         "manifest_hash": exec_res.get("manifest_hash") or "",
-        "sampled_rows": len(rows),
+        "sampled_rows": min(len(rows), PREVIEW_ROW_CAP),
         "cell_diffs": cell_diffs,
         "per_rule_counts": {str(k): int(v) for k, v in per_rule.items()},
         "tables": [key],
         "execute": "off",
         "promoted": False,
     }
+
+
+PREVIEW_SAMPLE_CAP = 100
+
+
+def rules_for_preview(db, dataset_key: Optional[str] = None, rule_ids: Optional[list] = None, query: Optional[str] = None) -> list:
+    """Load proposed/approved HITL rules for a no-write sandbox preview. Never invents rules."""
+    sql = (
+        "SELECT id, rule_name, rule_type, rule_expression, status FROM quality_rules "
+        "WHERE lower(trim(cast(status AS VARCHAR))) NOT IN ('rejected')"
+    )
+    params: list = []
+    if rule_ids:
+        placeholders = ",".join(["?"] * len(rule_ids))
+        sql += f" AND id IN ({placeholders})"
+        params.extend(list(rule_ids))
+    if dataset_key:
+        like = f"{dataset_key}__%"
+        sql += " AND (dataset_key = ? OR id LIKE ?)"
+        params.extend([dataset_key, like])
+    q = (query or "").strip().lower()
+    if q:
+        like_q = f"%{q}%"
+        sql += " AND (lower(cast(id AS VARCHAR)) LIKE ? OR lower(cast(rule_name AS VARCHAR)) LIKE ? OR lower(cast(rule_expression AS VARCHAR)) LIKE ?)"
+        params.extend([like_q, like_q, like_q])
+    try:
+        rows = db.execute(sql, params) if params else db.execute(sql)
+    except Exception:
+        rows = []
+    out = []
+    for row in rows or []:
+        status = str(row[4] or "proposed").strip().lower()
+        decision = "edit" if status in ("edited", "edit") else ("approved" if status == "approved" else "preview")
+        out.append({
+            "rule_id": row[0],
+            "id": row[0],
+            "name": row[1],
+            "rule_name": row[1],
+            "rule_type": row[2],
+            "expression": row[3],
+            "rule_expression": row[3],
+            "status": status,
+            "decision": decision,
+        })
+    return out
+
+
+def run_sandbox_preview(
+    dataset_key: str,
+    rule_ids: Optional[list] = None,
+    query: Optional[str] = None,
+    calendar_day: Optional[str] = None,
+    day_idx: Optional[int] = None,
+    sample_size: Optional[int] = None,
+    db=None,
+) -> dict:
+    """Day COUNT + sample split. Never persist quarantine/clean. Warehouse stays 0."""
+    from src.db.connection import get_db
+    from src.services.dataset_engine import load_sandbox_rows, execute_compiled_rules, PREVIEW_ROW_CAP
+    from src.services.th_hitl_flow import day_scoped_count, preview_split_counts, resolve_calendar_day
+
+    if db is None:
+        db = get_db()
+    key = (dataset_key or "").strip() or "ev_telemetry"
+    rules = rules_for_preview(db, key, rule_ids=rule_ids, query=query)
+    scored = [{**r, "decision": "approved"} for r in rules]
+    cap = max(1, min(int(sample_size or PREVIEW_SAMPLE_CAP), PREVIEW_SAMPLE_CAP))
+    day = resolve_calendar_day(calendar_day, day_idx)
+    count_payload = day_scoped_count(db, key, day, day_idx)
+    counts = preview_split_counts(db, key, scored, calendar_day, day_idx) if scored else {}
+    sample_q: list = []
+    sample_c = 0
+    sample_n = 0
+    note: str | None = None
+    per_rule = counts.get("per_rule_counts") or {}
+    if scored:
+        try:
+            rows = load_sandbox_rows(
+                key, scored, cap, db=db, calendar_day=day, day_idx=day_idx,
+            )
+            exec_res = execute_compiled_rules(rows, scored)
+            sample_n = len(rows)
+            sample_c = int(exec_res.get("clean_count") or 0)
+            sample_q = list(exec_res.get("sample_quarantined") or [])[:8]
+            if not per_rule:
+                per_rule = exec_res.get("quarantine_breakdown_by_rule") or {}
+        except Exception as exc:
+            note = f"Sample eval skipped: {exc}"
+        else:
+            note = None
+    else:
+        note = "No matching HITL rule. Preview did not write."
+    q_count = int(counts.get("quarantine_rows") if counts.get("quarantine_rows") is not None else len(sample_q))
+    c_count = int(counts.get("clean_rows") if counts.get("clean_rows") is not None else sample_c)
+    cell_diffs = []
+    for item in sample_q[:8]:
+        data = item.get("data") if isinstance(item, dict) else {}
+        data = data if isinstance(data, dict) else {}
+        reasons = item.get("reasons") or []
+        reason = reasons[0] if reasons else ""
+        field = next((k for k in data if k and k in str(reason)), None) or (next(iter(data), None) if data else None)
+        if not field:
+            continue
+        cell_diffs.append({
+            "row_id": str(item.get("trip_id") or item.get("row_id") or data.get("vehicle_vin") or ""),
+            "field": str(field),
+            "rule_id": (item.get("violated_rule_ids") or [""])[0],
+            "before_value": data.get(field),
+            "after_value": None,
+            "reason": reason,
+        })
+    return {
+        "preview": True,
+        "write": False,
+        "sandbox": True,
+        "execute": "off",
+        "promoted": False,
+        "dataset_key": key,
+        "query": query or "",
+        "rules": rules,
+        "day_count": count_payload,
+        "sampled_rows": sample_n or min(8, len(count_payload.get("preview") or [])),
+        "sample_cap": cap,
+        "clean_rows": c_count,
+        "quarantine_rows": q_count,
+        "warehouse_clean_rows": 0,
+        "warehouse_quarantine_rows": 0,
+        "counts_kind": "preview",
+        "per_rule_counts": {str(k): int(v) for k, v in (per_rule or {}).items()},
+        "quarantine": sample_q,
+        "cell_diffs": cell_diffs,
+        "tables": [key],
+        "calendar_day": day,
+        "note": note,
+    }
+
+
+class SandboxPreviewInput(BaseModel):
+    dataset_key: str = Field(default="ev_telemetry", description="Workspace dataset_key")
+    query: Optional[str] = Field(default=None, description="Rule name/id/expression fragment from edit-rule")
+    rule_ids: Optional[List[str]] = None
+    calendar_day: Optional[str] = None
+    day_idx: Optional[int] = None
+
+
+class SandboxPreviewTool(BaseTool):
+    name = "sandbox_preview"
+    description = (
+        "HITL sandbox preview only: day COUNT(*) + sample split. No write. "
+        "Does not list datasets, profile, or search Algolia. Does not approve or execute."
+    )
+    input_schema = SandboxPreviewInput
+
+    def execute(self, input_data: dict) -> ToolResult:
+        payload = run_sandbox_preview(
+            dataset_key=input_data.get("dataset_key") or "ev_telemetry",
+            rule_ids=input_data.get("rule_ids"),
+            query=input_data.get("query"),
+            calendar_day=input_data.get("calendar_day"),
+            day_idx=input_data.get("day_idx"),
+        )
+        return ToolResult(status="success", output_data=payload)
 
 
 class ListDatasetsInput(BaseModel):
@@ -778,7 +972,9 @@ class ProposeQualityRulesTool(BaseTool):
             proposals = unique_proposals
 
             try:
-                persist_hitl_proposals(dataset_key, proposals)
+                persisted = persist_hitl_proposals(dataset_key, proposals)
+                if persisted:
+                    proposals = persisted
             except Exception as dbe:
                 print(f"[WARN] Could not persist quality_rules to DuckDB: {dbe}")
 

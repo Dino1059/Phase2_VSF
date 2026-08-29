@@ -59,7 +59,7 @@ def test_hitl_role_gate_copy_and_role_normalize():
     rules = _src("frontend/src/components/workspace/QualityRulesTab.tsx")
     assert 'roleCan(s.user?.role, \'review_rules\')' in rules or 'roleCan(s.user?.role, "review_rules")' in rules
     assert "Switch persona" in rules
-    assert "Steward/Admin to approve" in rules
+    assert "Steward to approve" in rules or "Steward/Admin to approve" in rules
 
 
 def test_analyst_lacks_review_rules_permission():
@@ -87,11 +87,22 @@ def test_analyst_hitl_approve_x_user_role_is_403():
     assert resp.status_code == 403
 
 
-def test_admin_hitl_approve_still_404_for_missing_rule():
+def test_admin_hitl_approve_is_403_watch_only():
     token = create_access_token({
         "sub": "admin@datatrust.os",
         "user_id": "usr_admin_01",
         "role": "Admin",
+    })
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    resp = client.post("/api/v1/hitl/approve/RULE_QA_FAKE", json={"approved_by": "qa"})
+    assert resp.status_code == 403
+
+
+def test_steward_hitl_approve_still_404_for_missing_rule():
+    token = create_access_token({
+        "sub": "steward@datatrust.os",
+        "user_id": "usr_steward_01",
+        "role": "Steward",
     })
     client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
     resp = client.post("/api/v1/hitl/approve/RULE_QA_FAKE", json={"approved_by": "qa"})

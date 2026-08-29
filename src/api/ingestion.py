@@ -373,6 +373,13 @@ async def activate_warmup():
             logger.error(f"Warmup execution error on day {failed_runs[0].day_idx}: {err_detail}")
             raise HTTPException(status_code=500, detail=f"Warmup execution failed on Day {failed_runs[0].day_idx}: {err_detail}")
 
+        try:
+            from src.services.landing_promote import promote_landing_day
+            for idx in range(10):
+                promote_landing_day(db, idx)
+        except Exception:
+            logger.debug("warmup landing promote skipped", exc_info=True)
+
         db.execute("UPDATE demo_ops.landing_day_snapshots SET is_activated = TRUE WHERE day_idx <= 9")
         db.execute(
             "UPDATE demo_ops.demo_state SET current_day_idx = 9, warmup_completed = TRUE, realtime_running = TRUE, last_reset_at = ? WHERE TRUE",
@@ -538,6 +545,12 @@ async def activate_day(day_idx: int, request: ActivateRequest):
             db.get_connection().commit()
         except Exception:
             pass
+
+        try:
+            from src.services.landing_promote import promote_landing_day
+            promote_landing_day(db, day_idx)
+        except Exception:
+            logger.debug("landing promote skipped", exc_info=True)
 
         last_res = results[-1] if results else None
         inc_cnt = getattr(last_res, 'incident_count', 0)
@@ -894,6 +907,18 @@ async def resolve_quarantine(request: QuarantineResolveRequest):
     except Exception as e:
         logger.error(f"resolve_quarantine error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PromoteRequest(BaseModel):
+    day_idx: Optional[int] = None
+
+
+@router.post("/promote")
+async def promote_landing(req: PromoteRequest):
+    """Promote vingroup_pilot landing.* → main.* for one day. Live ingest stays landing-only."""
+    from src.services.landing_promote import promote_landing_day
+    db = get_db()
+    return promote_landing_day(db, req.day_idx)
 
 
 @router.get("/health")

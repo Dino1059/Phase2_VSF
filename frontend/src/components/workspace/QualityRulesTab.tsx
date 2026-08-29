@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Layers,
   Sparkles,
+  FlaskConical,
 } from 'lucide-react';
 
 import { approvalsApi, hitlApi, HITLProposal, getGlobalUseLlm, rulesApi } from '../../services/api';
@@ -19,6 +20,7 @@ import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useAuthStore, roleCan, normalizeUserRole } from '../../stores/authStore';
+import { dayIdxToCalendarDay } from '../../lib/calendarDay';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -26,6 +28,7 @@ const EMPTY_SPLIT = {
   totalClean: 0,
   totalQuarantine: 0,
   cleanRan: false,
+  warehouseCommitted: false,
   thisRun: false,
   snapshotId: '',
 };
@@ -37,6 +40,7 @@ interface QualityRulesTabProps {
   onExecuteClean?: () => void;
   dayIdx?: number | null;
   runId?: string | null;
+  highlightRuleId?: string | null;
 }
 
 interface EnrichedRuleReasoning {
@@ -213,7 +217,7 @@ function asHitlProposal(p: any): HITLProposal {
   };
 }
 
-export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean, dayIdx = null, runId: _runId = null }) => {
+export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, active = false, onExecuteClean: _onExecuteClean, dayIdx = null, runId = null, highlightRuleId = null }) => {
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -233,7 +237,16 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const dropKeptAfterResetRef = useRef(false);
   const fetchGenRef = useRef(0);
   const [proposeSeen, setProposeSeen] = useState(false);
+  const [dayCount, setDayCount] = useState<{ count: number; preview: any[]; table?: string } | null>(null);
+  const [optedOut, setOptedOut] = useState<Set<string>>(new Set());
+  const [previewedIds, setPreviewedIds] = useState<Set<string>>(new Set());
+  const [pendingApplyId, setPendingApplyId] = useState<string | null>(null);
+  const [focusRuleId, setFocusRuleId] = useState<string | null>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const calendarDay = runId && String(runId).includes('-') ? String(runId) : dayIdxToCalendarDay(dayIdx);
+  const hitlCtx = { dataset_key: datasetKey, calendar_day: calendarDay || undefined, persona: 'Steward' };
   const canReviewRules = useAuthStore((s) => roleCan(s.user?.role, 'review_rules'));
+  const canHitlWrite = useAuthStore((s) => roleCan(s.user?.role, 'hitl_write'));
   const canExecute = useAuthStore((s) => roleCan(s.user?.role, 'execute_transform'));
   const reviewRole = useAuthStore((s) => normalizeUserRole(s.user?.role) || s.user?.role || 'unknown');
   const setAuthModalOpen = useAuthStore((s) => s.setAuthModalOpen);
@@ -256,10 +269,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     if (!silent) setLoading(true);
     try {
       const targetKey = datasetKey;
-      let res = await hitlApi.queue(targetKey);
+      let res = await hitlApi.queue(targetKey, calendarDay || undefined);
       if (myGen !== fetchGenRef.current) return;
       if ((!res?.proposals || res.proposals.length === 0) && targetKey) {
-        res = await hitlApi.queue();
+        res = await hitlApi.queue(undefined, calendarDay || undefined);
       }
       if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
@@ -292,7 +305,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [datasetKey]);
+  }, [datasetKey, calendarDay]);
 
   useEffect(() => {
     void fetchRules();
@@ -325,6 +338,34 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   }, [fetchRules]);
 
   useEffect(() => {
+    const onApply = (e: Event) => {
+      const id = String((e as CustomEvent).detail?.rule_id || '');
+      if (!id) return;
+      setPendingApplyId(id);
+      setFocusRuleId(id);
+      setActiveFilter('proposed');
+    };
+    const onEdit = (e: Event) => {
+      const id = String((e as CustomEvent).detail?.rule_id || '');
+      const rule = proposals.find((r) => r.rule_id === id) || proposals[0];
+      if (!rule) return;
+      setFocusRuleId(rule.rule_id);
+      setEditingRule(rule);
+      setEditExpression(rule.rule_expression);
+    };
+    window.addEventListener('datatrust:hitl-apply-pending', onApply as EventListener);
+    window.addEventListener('datatrust:hitl-edit-focus', onEdit as EventListener);
+    return () => {
+      window.removeEventListener('datatrust:hitl-apply-pending', onApply as EventListener);
+      window.removeEventListener('datatrust:hitl-edit-focus', onEdit as EventListener);
+    };
+  }, [proposals]);
+
+  useEffect(() => {
+    if (editingRule && editTextareaRef.current) editTextareaRef.current.focus();
+  }, [editingRule]);
+
+  useEffect(() => {
     const onReset = () => {
       fetchGenRef.current += 1;
       dropKeptAfterResetRef.current = true;
@@ -351,9 +392,13 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   }, [fetchRules]);
 
   const handleApprove = async (ruleId: string) => {
+    if (!previewedIds.has(ruleId) && !previewedIds.has('*')) {
+      setSandboxError(isVi ? 'Xem trước sandbox trước khi Approve.' : 'Preview sandbox before Approve.');
+      return;
+    }
     setActionLoading(ruleId);
     try {
-      const res: any = await hitlApi.approve(ruleId, 'human');
+      const res: any = await hitlApi.approve(ruleId, 'Steward', hitlCtx);
       const qCount = res?.quarantined_count ?? 0;
       setProposals((prev) =>
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'approved' } : r))
@@ -373,7 +418,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     const reasonText = rejectReason.trim() || (isVi ? 'Không phù hợp với đặc thù dữ liệu hiện tại' : 'Not suitable for current dataset');
     setActionLoading(ruleId);
     try {
-      await hitlApi.reject(ruleId, 'human', reasonText);
+      await hitlApi.reject(ruleId, 'Steward', reasonText, hitlCtx);
       setProposals((prev) =>
         prev.map((r) => (r.rule_id === ruleId ? { ...r, status: 'rejected', reject_reason: reasonText } : r))
       );
@@ -392,6 +437,11 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       (r) => (r.status || 'proposed').toLowerCase() === 'proposed' || (r.status || '').toLowerCase() === 'pending'
     );
     if (pendingRules.length === 0) return;
+    const unpreviewed = pendingRules.filter((r) => !previewedIds.has(r.rule_id) && !previewedIds.has('*'));
+    if (unpreviewed.length) {
+      setSandboxError(isVi ? 'Xem trước sandbox trước khi Approve.' : 'Preview sandbox before Approve.');
+      return;
+    }
 
     setActionLoading('batch');
     setSandboxError(null);
@@ -420,7 +470,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     if (!editingRule) return;
     setActionLoading(editingRule.rule_id);
     try {
-      await hitlApi.edit(editingRule.rule_id, editExpression);
+      await hitlApi.edit(editingRule.rule_id, editExpression, 'Steward', hitlCtx);
       setProposals((prev) =>
         prev.map((r) =>
           r.rule_id === editingRule.rule_id
@@ -437,6 +487,54 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     }
   };
 
+  const handleSandboxPreview = async (ruleIds?: string[]) => {
+    const targets = (ruleIds && ruleIds.length)
+      ? proposals.filter((r) => ruleIds.includes(r.rule_id))
+      : proposals.filter((r) => {
+          const st = (r.status || 'proposed').toLowerCase();
+          return st === 'proposed' || st === 'pending' || st === 'approved' || st === 'edited';
+        });
+    if (targets.length === 0) return;
+    setActionLoading('sandbox');
+    setSandboxError(null);
+    try {
+      const preview = await hitlApi.sandboxPreview(
+        datasetKey || 'ev_telemetry',
+        targets.map((r) => r.rule_id),
+        calendarDay,
+        dayIdx,
+      );
+      const qRows = Array.isArray(preview.quarantine) ? preview.quarantine : [];
+      const qCount = preview.quarantine_rows ?? qRows.length;
+      const cCount = preview.clean_rows ?? 0;
+      setSandboxDiff({
+        run_id: 'preview',
+        dataset_key: datasetKey || 'ev_telemetry',
+        clean_rows: cCount,
+        quarantine_rows: qCount,
+        sampled_rows: preview.sampled_rows,
+        quarantine: qRows,
+        cell_diffs: preview.cell_diffs,
+        per_rule_counts: preview.per_rule_counts,
+        tables: [datasetKey || 'ev_telemetry'],
+        execute: 'off',
+        promoted: false,
+        warehouse_clean_rows: 0,
+      } as SandboxDiffData);
+      setPreviewedIds((prev) => {
+        const next = new Set(prev);
+        targets.forEach((r) => next.add(r.rule_id));
+        if (!ruleIds?.length) next.add('*');
+        return next;
+      });
+    } catch (err: any) {
+      const raw = String(err?.message || 'sandbox preview failed');
+      setSandboxError(raw);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleSandboxExecute = async () => {
     const approved = proposals.filter((r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited');
     if (approved.length === 0) return;
@@ -445,7 +543,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     const storeKey = datasetStoreKey(datasetKey);
     try {
       const auth = await approvalsApi.authorize(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
-      const sandbox = await hitlApi.sandbox(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id));
+      const sandbox = await hitlApi.sandbox(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id), calendarDay, dayIdx);
       const runId = sandbox?.snapshot_id || '';
       let preview = sandbox as SandboxDiffData;
       if (runId) {
@@ -458,7 +556,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
       const qRows = (preview && Array.isArray(preview.quarantine)) ? preview.quarantine : (sandbox.quarantine || []);
       const cRows = (sandbox && Array.isArray(sandbox.clean)) ? sandbox.clean : [];
       const qCount = preview?.quarantine_rows ?? sandbox?.quarantine_rows ?? qRows.length;
-      const cCount = sandbox?.clean_rows ?? cRows.length;
+      const cCount = preview?.clean_rows ?? sandbox?.clean_rows ?? cRows.length;
       setSandboxDiff({
         ...preview,
         run_id: runId || preview.run_id,
@@ -471,6 +569,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         tables: preview.tables || [datasetKey || 'ev_telemetry'],
         execute: 'off',
         promoted: false,
+        scoped_rows: preview?.scoped_rows ?? sandbox?.scoped_rows,
+        counts_kind: 'preview',
+        warehouse_clean_rows: 0,
+        warehouse_quarantine_rows: 0,
       });
       useWorkspaceStore.getState().replaceSplitRows(storeKey, {
         cleanRan: true,
@@ -531,6 +633,56 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     }
   };
 
+  const handleWarehouseExecute = async () => {
+    const approved = proposals.filter((r) => (r.status || '').toLowerCase() === 'approved' || (r.status || '').toLowerCase() === 'edited');
+    if (approved.length === 0 || !canHitlWrite) return;
+    setActionLoading('execute');
+    setSandboxError(null);
+    const storeKey = datasetStoreKey(datasetKey);
+    try {
+      const res = await hitlApi.executeWarehouse(datasetKey || 'ev_telemetry', approved.map((r) => r.rule_id), calendarDay, dayIdx);
+      const c = res.warehouse_clean_rows ?? res.clean_rows ?? 0;
+      const q = res.warehouse_quarantine_rows ?? res.quarantine_rows ?? 0;
+      setSandboxDiff((prev) => prev ? {
+        ...prev,
+        clean_rows: c,
+        quarantine_rows: q,
+        scoped_rows: (c + q) || prev.scoped_rows,
+        counts_kind: 'warehouse',
+        warehouse_clean_rows: c,
+        warehouse_quarantine_rows: q,
+        execute: 'on',
+        promoted: true,
+      } : prev);
+      useWorkspaceStore.getState().mergeSplitRows(storeKey, {
+        cleanRan: true,
+        thisRun: true,
+        warehouseCommitted: true,
+        totalClean: c,
+        totalQuarantine: q,
+        snapshotId: res.snapshot_id || '',
+      });
+      const detail = {
+        ...(res || {}),
+        thisRun: true,
+        cleanRan: true,
+        warehouseCommitted: true,
+        dataset_key: datasetKey || 'ev_telemetry',
+        snapshot_id: res.snapshot_id,
+        clean_rows: c,
+        quarantine_rows: q,
+        counts_kind: 'warehouse',
+      };
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
+      } catch { /* ignore */ }
+    } catch (err: any) {
+      setSandboxError(String(err?.message || 'execute failed'));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const totalCount = proposals.length;
   const proposedCount = proposals.filter(
     (r) => (r.status || 'proposed').toLowerCase() === 'proposed' || (r.status || '').toLowerCase() === 'pending'
@@ -544,8 +696,19 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
   const sourceIngestionRunId = usePipelineStore((s) => s.sourceIngestionRunId);
 
+  useEffect(() => {
+    if (!datasetKey) return;
+    void hitlApi.dayCount(datasetKey, calendarDay, dayIdx).then((r) => {
+      setDayCount({ count: r.count, preview: r.preview || [], table: r.table });
+    }).catch(() => setDayCount(null));
+    void hitlApi.memory(datasetKey).then((r) => {
+      setOptedOut(new Set((r.opted_out || []).map((m) => m.rule_id)));
+    }).catch(() => {});
+  }, [datasetKey, calendarDay, dayIdx]);
+
   const filteredProposals = proposals.filter((rule) => {
-    if (sourceIngestionRunId && rule.source_ingestion_run_id && rule.source_ingestion_run_id !== sourceIngestionRunId) {
+    const bound = calendarDay || sourceIngestionRunId;
+    if (bound && rule.source_ingestion_run_id && rule.source_ingestion_run_id !== bound && rule.calendar_day && rule.calendar_day !== bound) {
       return false;
     }
     const status = (rule.status || 'proposed').toLowerCase();
@@ -555,8 +718,15 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     return true;
   });
 
+  useEffect(() => {
+    const rid = focusRuleId || highlightRuleId;
+    if (!rid || !active) return;
+    const el = document.querySelector(`[data-rule-id="${CSS.escape(rid)}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlightRuleId, focusRuleId, active, filteredProposals.length]);
+
   return (
-    <div className="quality-rules-tab" style={{ padding: '4px' }}>
+    <div className="quality-rules-tab" data-testid="hitl-preview-before-approve" style={{ padding: '4px' }}>
       {/* SUMMARY HEADER BAR WITH FILTER TABS */}
       <div
         className="rules-summary-bar"
@@ -634,7 +804,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           >
             {rejectedCount} {isVi ? 'Đã Từ Chối' : 'Rejected'}
           </button>
-          {canReviewRules && proposedCount > 0 && (
+          {canHitlWrite && proposedCount > 0 && (
             <button
               type="button"
               className="btn-batch-approve"
@@ -661,7 +831,33 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
           )}
         </div>
 
+        {proposedCount > 0 ? (
+          <button
+            type="button"
+            data-testid="hitl-sandbox-preview"
+            onClick={() => void handleSandboxPreview()}
+            disabled={actionLoading === 'sandbox'}
+            title={isVi ? 'Xem trước COUNT ngày + mẫu, không ghi. Approve sau.' : 'Preview day COUNT + sample, no write. Approve after.'}
+            style={{
+              background: 'rgba(2, 132, 199, 0.12)',
+              border: '1px solid rgba(2, 132, 199, 0.3)',
+              color: '#0284c7',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: actionLoading === 'sandbox' ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <FlaskConical size={12} /> {isVi ? 'Xem trước sandbox' : 'Preview sandbox'}
+          </button>
+        ) : null}
+
         {sandboxAuthorized && payloadHash ? (
+          <>
           <span
             title={payloadHash}
             style={{
@@ -677,6 +873,29 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             {isVi ? 'Sandbox đã chạy · authorized' : 'Sandbox run · authorized'}{' '}
             <code>{payloadHash.length > 16 ? `${payloadHash.slice(0, 12)}…` : payloadHash}</code>
           </span>
+          {canHitlWrite ? (
+            <button
+              type="button"
+              onClick={() => void handleWarehouseExecute()}
+              disabled={actionLoading === 'execute'}
+              title={isVi ? 'Steward Execute — ghi kho sạch + cách ly' : 'Steward Execute — commit clean + quarantine warehouse'}
+              style={{
+                background: 'rgba(5, 150, 105, 0.15)',
+                border: '1px solid rgba(5, 150, 105, 0.4)',
+                color: '#059669',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: actionLoading === 'execute' ? 'wait' : 'pointer',
+              }}
+            >
+              {actionLoading === 'execute'
+                ? (isVi ? 'Đang Execute…' : 'Executing…')
+                : (isVi ? 'Execute kho (Steward)' : 'Execute warehouse (Steward)')}
+            </button>
+          ) : null}
+          </>
         ) : approvedCount >= 1 && canExecute ? (
           <button
             type="button"
@@ -776,9 +995,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
       </div>
 
-      {!canReviewRules && proposedCount > 0 && (
+      {!canHitlWrite && proposedCount > 0 && (
         <div
           data-testid="hitl-role-gate"
+          data-can-review={canReviewRules ? '1' : '0'}
           role="status"
           style={{
             margin: '0 0 12px',
@@ -798,8 +1018,8 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
         >
           <span>
             {isVi
-              ? `Persona ${reviewRole}: Propose được, duyệt thì không. Approve / Sửa / Từ chối cần Steward hoặc Admin.`
-              : `Persona ${reviewRole}: you can propose, not approve. Approve / Edit / Reject need Steward or Admin.`}
+              ? `Persona ${reviewRole}: Propose được, duyệt thì không. Approve / Sửa / Remember / Rollback cần Data Steward.`
+              : `Persona ${reviewRole}: you can propose, not approve. Approve / Edit / Remember / Rollback need Data Steward.`}
           </span>
           <button
             type="button"
@@ -857,8 +1077,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             return (
               <div
                 key={rule.rule_id}
+                data-rule-id={rule.rule_id}
                 className={`rule-card ${status}`}
                 style={{
+                  outline: (highlightRuleId === rule.rule_id || focusRuleId === rule.rule_id || pendingApplyId === rule.rule_id) ? '2px solid var(--electric-green, #10B981)' : undefined,
                   background: 'var(--bg-card)',
                   border: isApproved
                     ? '1px solid rgba(5, 150, 105, 0.35)'
@@ -942,6 +1164,22 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                       </>
                     )}
                   </span>
+                  {pendingApplyId === rule.rule_id ? (
+                    <span
+                      data-testid="hitl-pending-apply"
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: 'rgba(5, 150, 105, 0.12)',
+                        color: '#059669',
+                        border: '1px solid rgba(5, 150, 105, 0.3)',
+                      }}
+                    >
+                      {isVi ? 'Chờ Confirm trên thẻ' : 'Pending apply · Confirm still required'}
+                    </span>
+                  ) : null}
                 </div>
 
                 {/* SQL / PYTHON CONSTRAINT EXPRESSION */}
@@ -1002,6 +1240,13 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                       {reasoning.guarantee} {reasoning.impact}
                     </div>
                   </div>
+                  {dayCount && (
+                    <div data-testid="rule-day-count" style={{ color: 'var(--text-muted)' }}>
+                      <strong>{isVi ? 'Ngày (COUNT):' : 'Day COUNT(*):'} </strong>
+                      {dayCount.count.toLocaleString()} · {dayCount.table || datasetKey} · {calendarDay || 'all'}
+                      {dayCount.preview?.length ? ` · sample ${dayCount.preview.length}` : ''}
+                    </div>
+                  )}
                 </div>
 
                 {rule.reject_reason && (
@@ -1018,12 +1263,36 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                   </div>
 
                   <div className="rule-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {canReviewRules && !isApproved && (
+                    {!isApproved && (
+                      <button
+                        type="button"
+                        data-testid="btn-rule-preview"
+                        onClick={() => void handleSandboxPreview([rule.rule_id])}
+                        disabled={actionLoading === 'sandbox'}
+                        title={isVi ? 'Xem trước COUNT + mẫu, không ghi' : 'Preview COUNT + sample, no write'}
+                        style={{
+                          background: 'rgba(2, 132, 199, 0.1)',
+                          border: '1px solid rgba(2, 132, 199, 0.3)',
+                          color: '#0284c7',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <FlaskConical size={12} /> {isVi ? 'Xem trước' : 'Preview'}
+                      </button>
+                    )}
+                    {canHitlWrite && !isApproved && (
                       <button
                         className="btn-rule-accept"
                         data-testid="btn-rule-approve"
                         onClick={() => handleApprove(rule.rule_id)}
-                        disabled={actionLoading === rule.rule_id}
+                        disabled={actionLoading === rule.rule_id || (!previewedIds.has(rule.rule_id) && !previewedIds.has('*'))}
                         title={isVi ? 'Phê duyệt bộ luật để đưa vào biên dịch cách ly' : 'Approve rule for quarantine compilation'}
                         style={{
                           background: 'rgba(5, 150, 105, 0.12)',
@@ -1043,7 +1312,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                       </button>
                     )}
 
-                    {canReviewRules && (
+                    {canHitlWrite && (
                     <button
                       className="btn-rule-edit"
                       onClick={() => {
@@ -1068,7 +1337,59 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                     </button>
                     )}
 
-                    {canReviewRules && !isRejected && (
+                    {canHitlWrite && (
+                      <button
+                        type="button"
+                        data-testid="btn-rule-remember"
+                        data-remembered={optedOut.has(rule.rule_id) ? 'false' : 'true'}
+                        onClick={() => {
+                          const on = optedOut.has(rule.rule_id);
+                          void hitlApi.remember(datasetKey || '', rule.rule_id, on, 'Steward').then(() => {
+                            setOptedOut((prev) => {
+                              const next = new Set(prev);
+                              if (on) next.delete(rule.rule_id); else next.add(rule.rule_id);
+                              return next;
+                            });
+                          });
+                        }}
+                        title={isVi ? 'Mặc định nhớ. Bỏ nhớ = không tái dùng ngày sau (không hoàn tác hôm nay)' : 'Default ON. Forget = do not reuse next day (does not undo today)'}
+                        style={{
+                          background: optedOut.has(rule.rule_id) ? 'none' : 'rgba(2, 132, 199, 0.15)',
+                          border: '1px solid var(--glass-border)',
+                          color: '#0284c7',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {optedOut.has(rule.rule_id) ? (isVi ? 'Nhớ sau' : 'Remember') : (isVi ? 'Bỏ nhớ' : 'Forget')}
+                      </button>
+                    )}
+                    {canHitlWrite && isApproved && (
+                      <button
+                        type="button"
+                        data-testid="btn-rule-rollback"
+                        onClick={() => {
+                          void hitlApi.rollback(datasetKey || '', calendarDay, rule.rule_id, 'Steward').then(() => {
+                            window.dispatchEvent(new CustomEvent('datatrust:quarantine-updated'));
+                          });
+                        }}
+                        title={isVi ? 'Rollback: đưa các dòng clean vừa rồi về quarantine' : 'Rollback last clean rows to quarantine'}
+                        style={{
+                          background: 'rgba(168, 85, 247, 0.1)',
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                          color: '#a855f7',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Rollback
+                      </button>
+                    )}
+                    {canHitlWrite && !isRejected && (
                       <button
                         className="btn-rule-reject"
                         data-testid="btn-rule-reject"
@@ -1094,9 +1415,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                         <XCircle size={12} /> {isVi ? 'Từ Chối' : 'Reject'}
                       </button>
                     )}
-                    {!canReviewRules && (
+                    {!canHitlWrite && (
                       <span data-testid="hitl-card-locked" style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
-                        {isVi ? 'Steward/Admin duyệt' : 'Steward/Admin to approve'}
+                        {isVi ? 'Chỉ Data Steward duyệt' : 'Steward to approve'}
                       </span>
                     )}
                   </div>
@@ -1124,7 +1445,9 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
             </div>
             <div className="modal-body">
               <textarea
+                ref={editTextareaRef}
                 className="rule-edit-textarea"
+                data-testid="rule-edit-textarea"
                 rows={4}
                 value={editExpression}
                 onChange={(e) => setEditExpression(e.target.value)}

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ingestionApi } from '../../services/api';
 import type { IngestionRun, IngestionDaySnapshot } from '../../services/api';
 import { usePipelineStore } from '../../stores/pipelineStore';
+import { calendarDayToDayIdx, dayIdxToCalendarDay } from '../../lib/calendarDay';
 
 interface SourceIngestionRunFilterProps {
   value?: string | null;
@@ -71,7 +72,8 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
   const handleSelectDay = (dayIdx: number | null, runId?: string | null, isActivated = true) => {
     if (!isActivated && dayIdx !== null && dayIdx >= 0) return; // Prevent selecting un-executed days
     setSelectedDayIdx(dayIdx);
-    const finalRunId = runId !== undefined ? runId : null;
+    const calendarDay = dayIdxToCalendarDay(dayIdx);
+    const finalRunId = calendarDay || (runId !== undefined ? runId : null);
     setStoreRunId(finalRunId);
     if (onChange) {
       onChange(finalRunId);
@@ -105,10 +107,15 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
     if (selectedDayIdx === -10) {
       return isVi ? 'Baseline Warmup (Day 0–9 · 2026-01-01→10)' : 'Warmup Baseline (Day 0–9 · 2026-01-01→10)';
     }
-    if (activeDayObj && activeDayObj.is_activated) {
-      const dateStr = formatDayDate(activeDayObj.day_idx, activeDayObj.day_date);
-      const rowStr = activeDayObj.ingested_rows > 0 ? ` · ${activeDayObj.ingested_rows.toLocaleString()} rows` : '';
-      return `Day ${activeDayObj.day_idx} (${dateStr})${rowStr}`;
+    const boundIdx = selectedDayIdx != null
+      ? selectedDayIdx
+      : calendarDayToDayIdx(activeRunId && String(activeRunId).includes('-') ? activeRunId : null);
+    if (boundIdx !== null && boundIdx !== undefined && boundIdx >= 0) {
+      const dateStr = (activeDayObj && formatDayDate(activeDayObj.day_idx, activeDayObj.day_date))
+        || dayIdxToCalendarDay(boundIdx)
+        || formatDayDate(boundIdx);
+      const rowStr = activeDayObj && activeDayObj.ingested_rows > 0 ? ` · ${activeDayObj.ingested_rows.toLocaleString()} rows` : '';
+      return `Day ${boundIdx} (${dateStr})${rowStr}`;
     }
     const actCount = activatedDays.length;
     if (actCount === 0) {
@@ -138,34 +145,30 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
   }, [filteredDays]);
   const warmupDays = filteredDays.filter((d) => d.day_idx < 10);
 
+  const hasDayBound =
+    selectedDayIdx === -10
+    || (selectedDayIdx != null && selectedDayIdx >= 0)
+    || Boolean(activeRunId && String(activeRunId).includes('-'));
+
   return (
     <div className={`source-ingestion-filter ${className}`}>
       <div
-        className="sif-trigger-v2"
+        className={`sif-trigger-v2 shortcut-item ${hasDayBound ? 'active' : ''}`}
         onClick={() => setOpen((o) => !o)}
         title={isVi ? 'Chọn ngày đã nạp dữ liệu để kiểm tra lịch sử' : 'Select executed ingestion day to inspect history'}
+        role="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
       >
-        <div className="sif-trigger-icon">
-          <Calendar size={13} color="var(--neon-cyan)" />
+        <div className="ds-icon">
+          <Calendar size={14} />
         </div>
-        <div className="sif-trigger-text">
-          <span className="sif-tag-small">{isVi ? 'DAY HISTORY' : 'DAY HISTORY'}</span>
-          <span className="sif-main-label">{triggerLabel}</span>
-        </div>
-
-        {activeDayObj?.status === 'running' ? (
-          <span className="sif-live-badge running">
-            <Activity size={10} className="spin" /> RUNNING
-          </span>
-        ) : activeDayObj?.is_activated ? (
-          <span className="sif-live-badge done">
-            <Check size={10} color="var(--electric-green)" /> ACTIVE
-          </span>
-        ) : null}
-
+        <span data-testid="run-id-chip" title="ICT calendar day is Run Id">
+          {triggerLabel}
+        </span>
         <ChevronDown
-          size={13}
-          color="var(--text-muted)"
+          size={14}
+          className="sub-arrow"
           style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }}
         />
       </div>

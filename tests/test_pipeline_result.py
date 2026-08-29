@@ -23,9 +23,9 @@ def test_pipeline_trigger_persists_result_and_exposes_it(monkeypatch):
         )
 
     monkeypatch.setattr(pipeline, "_run_pipeline_async", fake_background)
-    client = TestClient(app, headers={"X-User-Role": "Admin"})
+    client = TestClient(app, headers={"X-User-Role": "Steward"})
 
-    trigger = client.post("/api/v1/pipeline/trigger?table_name=pipeline_result_test")
+    trigger = client.post("/api/v1/pipeline/trigger?table_name=ev_telemetry")
     assert trigger.status_code == 200
     run_id = trigger.json()["run_id"]
 
@@ -39,4 +39,4 @@ def test_pipeline_trigger_persists_result_and_exposes_it(monkeypatch):
     payload = result.json()
     assert payload["status"] == "completed"
     assert payload["manifest"]["hash"] == "test-manifest"
-    assert payload["dataset_key"] == "pipeline_result_test"
+    assert payload["dataset_key"] == "ev_telemetry"

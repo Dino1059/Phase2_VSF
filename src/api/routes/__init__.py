@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import (
     APIRouter,
@@ -34,6 +35,7 @@ from src.tools.chat_tools import (
     ProposeQualityRulesTool,
     CleanDatabaseTool,
     RunFullPipelineTool,
+    SandboxPreviewTool,
 )
 
 # Global shared in-memory state objects for API
@@ -73,6 +75,16 @@ from src.tools.anomaly_detector import AnomalyDetectorTool
 from src.agents.baselines import A1Agent, C0Baseline, C1Baseline
 from src.agents.react import BoundedReActEngine
 from src.orchestrator.engine import ReActStep, is_hitl_stop_prompt, _is_hitl_stop, _allow_hitl_tool, HITL_REFUSED_TOOLS, HITL_STOP_ALLOWED_TOOLS
+from src.orchestrator.prompt_intent import (
+    EDIT_RULE_ALLOWED_TOOLS,
+    SMALLTALK_SYSTEM,
+    asks_dataset_inventory,
+    grill_edit_rule,
+    is_edit_rule_prompt,
+    is_smalltalk_prompt,
+    parse_edit_rule_query,
+    smalltalk_reply,
+)
 from src.models.schemas import (
     AlertCreateRequest,
     AnomalyDetectRequest,
@@ -307,7 +319,9 @@ def format_friendly_observation(action: str, observation: Any, lang: str = "vi")
                     prof = {}
                 total_rows = data.get("total_rows", prof.get("total_rows", 0))
                 cols_count = data.get("columns_count", len(prof.get("columns", [])))
-                health = data.get("health_score", prof.get("health_score", 100.0))
+                health = data.get("health_score", prof.get("health_score", None))
+                if health is None:
+                    health = prof.get("data_health_score")
                 key = data.get("dataset_key", "dataset")
 
                 # Build column breakdown rows (support single and multi-table structures)
@@ -339,27 +353,33 @@ def format_friendly_observation(action: str, observation: Any, lang: str = "vi")
                     header_title = "#### 📋 Schema Cột & Chất Lượng\n| Cột | Kiểu | Tỷ Lệ Null | Giá Trị Riêng Biệt |\n| :--- | :--- | :--- | :--- |\n" if is_vi else "#### 📋 Column Schema & Quality\n| Column | Type | Null Rate | Unique Values |\n| :--- | :--- | :--- | :--- |\n"
                     col_table = f"\n\n{header_title}" + "\n".join(col_rows)
 
-                if is_vi:
+                if health is None:
+                    health_disp, health_badge = "—", "—"
+                elif is_vi:
+                    health_disp = f"{health}%"
                     health_badge = "🟢 Xuất Sắc" if health >= 95 else ("🟡 Trung Bình" if health >= 80 else "🔴 Nghiêm Trọng")
+                else:
+                    health_disp = f"{health}%"
+                    health_badge = "🟢 Excellent" if health >= 95 else ("🟡 Moderate" if health >= 80 else "🔴 Critical")
+                if is_vi:
                     return (
                         f"### 📊 Tóm Tắt Khảo Sát: `{key}`\n\n"
                         f"| Chỉ Số | Giá Trị | Phân Hạng Sức Khỏe |\n"
                         f"| :--- | :--- | :--- |\n"
                         f"| **Tổng Số Dòng Lấy Mẫu** | **{total_rows:,}** | 🟢 Đã Xác Thực Nạp Dữ Liệu |\n"
                         f"| **Số Cột Đã Phân Tích** | **{cols_count}** | 🟢 Đã Ánh Xạ Schema |\n"
-                        f"| **Điểm Sức Khỏe Dữ Liệu** | **{health}%** | {health_badge} |\n"
+                        f"| **Điểm Sức Khỏe Dữ Liệu** | **{health_disp}** | {health_badge} |\n"
                         f"{col_table}\n\n"
                         f"> 💡 *Toàn bộ chi tiết khảo sát sâu đã được đồng bộ vào bảng **Khảo Sát Dữ Liệu**.*"
                     )
                 else:
-                    health_badge = "🟢 Excellent" if health >= 95 else ("🟡 Moderate" if health >= 80 else "🔴 Critical")
                     return (
                         f"### 📊 Profile Summary: `{key}`\n\n"
                         f"| Metric | Value | Health Grade |\n"
                         f"| :--- | :--- | :--- |\n"
                         f"| **Total Sampled Rows** | **{total_rows:,}** | 🟢 Verified Ingestion |\n"
                         f"| **Columns Analyzed** | **{cols_count}** | 🟢 Schema Mapped |\n"
-                        f"| **Dataset Health Score** | **{health}%** | {health_badge} |\n"
+                        f"| **Dataset Health Score** | **{health_disp}** | {health_badge} |\n"
                         f"{col_table}\n\n"
                         f"> 💡 *Full deep-profile details synced to the **Data Profiler** panel.*"
                     )
@@ -442,6 +462,27 @@ def format_friendly_observation(action: str, observation: Any, lang: str = "vi")
                         f"```text\n{m_hash}\n```\n"
                         f"> ✅ *Clean database snapshot ready for enterprise consumption.*"
                     )
+
+            elif action == "sandbox_preview":
+                key = data.get("dataset_key", "dataset")
+                day = data.get("day_count") if isinstance(data.get("day_count"), dict) else {}
+                qn = data.get("quarantine_rows", 0)
+                cn = data.get("clean_rows", 0)
+                sampled = data.get("sampled_rows", 0)
+                warehouse = data.get("warehouse_clean_rows", 0)
+                if is_vi:
+                    return (
+                        f"### Xem trước sandbox (không ghi): `{key}`\n\n"
+                        f"COUNT(*) ngày = **{day.get('count', '—')}**. Mẫu **{sampled}** dòng: "
+                        f"{cn} sẽ sạch, {qn} sẽ cách ly. Clean Warehouse = **{warehouse}** đến khi Execute.\n\n"
+                        f"> *Không ghi quarantine/kho sạch. Steward Confirm trên thẻ.*"
+                    )
+                return (
+                    f"### Sandbox preview (no write): `{key}`\n\n"
+                    f"Day COUNT(*) = **{day.get('count', '—')}**. Sampled **{sampled}** rows: "
+                    f"{cn} would pass, {qn} would quarantine. Clean Warehouse = **{warehouse}** until Execute.\n\n"
+                    f"> *No quarantine/warehouse write. Steward Confirm still required on the card.*"
+                )
 
             elif action == "list_datasets":
                 datasets = data.get("datasets", [])
@@ -555,7 +596,9 @@ def _session_has_tool_beat(session_id: str, tool_name: str) -> bool:
         rows = get_db().execute(
             f"SELECT 1 FROM agent_traces WHERE session_id = ? AND (tool_name IN ({placeholders}) OR action IN ({placeholders})) LIMIT 1",
             params,
-        ).fetchall()
+        )
+        if hasattr(rows, "fetchall"):
+            rows = rows.fetchall()
         return bool(rows)
     except Exception:
         return False
@@ -569,10 +612,32 @@ def is_pong_ping(message: str) -> bool:
     return any(k in m for k in ("reply", "only", "one word", "ping"))
 
 
+def _llm_turns(prior: list | None) -> list[dict]:
+    """User + orchestrator turns only. Skip tool-row dumps (profile/list tables)."""
+    out: list[dict] = []
+    for m in prior or []:
+        if not isinstance(m, dict):
+            continue
+        content = str(m.get("content") or "").strip()
+        if not content:
+            continue
+        kind = m.get("type")
+        agent = m.get("agentId") or ""
+        if kind == "user":
+            out.append({"role": "user", "content": content[:2000]})
+        elif kind == "agent" and agent in ("", "orchestrator"):
+            out.append({"role": "assistant", "content": content[:2000]})
+    return out[-12:]
+
+
 def missing_requested_tools(prompt: str, executed: list[str] | None) -> list[str]:
     """Ensure detect_anomalies and propose_quality_rules are executed in sequence."""
     blob = (prompt or "").lower()
     done = {str(a).replace("default_api:", "").strip() for a in (executed or []) if a}
+    if is_edit_rule_prompt(prompt):
+        if "sandbox_preview" not in done:
+            return ["sandbox_preview"]
+        return []
     wants_anomaly = any(
         w in blob
         for w in (
@@ -670,17 +735,70 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "tokens": {"total_tokens": tokens, "tokens_used": tokens},
         }
 
+    if is_smalltalk_prompt(request.message):
+        lang_pref = request.lang or "vi"
+        reply = smalltalk_reply(request.message, lang_pref)
+        if effective_use_llm:
+            try:
+                llm_service = LLMService(use_llm=True)
+                resp = llm_service.chat(
+                    [
+                        {"role": "system", "content": SMALLTALK_SYSTEM},
+                        *_llm_turns(prior),
+                        {"role": "user", "content": request.message},
+                    ]
+                )
+                content = (resp.content or "").strip()
+                low = content.lower()
+                if content and "4 datasets" not in low and "available enterprise datasets" not in low:
+                    reply = content
+            except Exception:
+                pass
+        tokens = 0
+        agent_msg = conversation_store.save_message(
+            {
+                "type": "agent",
+                "agentId": "orchestrator",
+                "content": reply,
+                "metadata": {"use_llm": effective_use_llm, "smalltalk": True},
+            },
+            session_id=session_id,
+        )
+        await ws_manager.broadcast({"type": "chat.message", "data": agent_msg}, session_id=session_id)
+        await ws_manager.broadcast(
+            {"type": "agent.status", "agent": "orchestrator", "status": "done"},
+            session_id=session_id,
+        )
+        return {
+            "status": "completed",
+            "session_id": session_id,
+            "response": reply,
+            "analysis": "smalltalk",
+            "steps_count": 0,
+            "total_tokens": tokens,
+            "tokens": {"total_tokens": tokens, "tokens_used": tokens},
+        }
+
     hitl_stop = is_hitl_stop_prompt(request.message)
+    edit_rule = is_edit_rule_prompt(request.message)
+    edit_query = parse_edit_rule_query(request.message) if edit_rule else ""
     registry = ToolRegistry()
-    registry.register(ProfileDatasetTool())
-    registry.register(DetectAnomaliesTool())
-    registry.register(ProposeQualityRulesTool())
-    if not hitl_stop:
-        registry.register(ListDatasetsTool())
-        registry.register(CleanDatabaseTool())
-    registry.register(RunFullPipelineTool())
-    registry.register(AlgoliaSearchTool())
-    registry.register(AnomalyDetectorTool())
+    tool_allowlist = None
+    if edit_rule:
+        registry.register(SandboxPreviewTool())
+        tool_allowlist = EDIT_RULE_ALLOWED_TOOLS
+    else:
+        registry.register(ProfileDatasetTool())
+        registry.register(DetectAnomaliesTool())
+        registry.register(ProposeQualityRulesTool())
+        if not hitl_stop:
+            registry.register(ListDatasetsTool())
+            registry.register(CleanDatabaseTool())
+        registry.register(RunFullPipelineTool())
+        registry.register(AlgoliaSearchTool())
+        registry.register(AnomalyDetectorTool())
+        if hitl_stop:
+            tool_allowlist = HITL_STOP_ALLOWED_TOOLS
 
     lang_pref = request.lang or "vi"
     msg_lower = request.message.lower()
@@ -694,7 +812,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
     )
 
     # Deterministic 4-Stage Sequential Execution for Full Pipeline Requests
-    if is_full_pipeline_req:
+    if is_full_pipeline_req and not edit_rule:
         steps_executed = []
         
         # Step 1: Profiling
@@ -910,7 +1028,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
     react_engine = BoundedReActEngine(
         llm_service=llm_service,
         tools=registry,
-        tool_allowlist=HITL_STOP_ALLOWED_TOOLS if hitl_stop else None,
+        tool_allowlist=tool_allowlist,
     )
     
     try:
@@ -932,6 +1050,10 @@ async def send_chat_message(request: ChatRequest, http: Request):
         context["stop_at_hitl"] = True
     if request.dataset_key:
         context["dataset_key"] = request.dataset_key
+    if edit_rule:
+        context["edit_rule"] = True
+        if edit_query:
+            context["edit_query"] = edit_query
 
     if is_session_start:
         try:
@@ -964,10 +1086,18 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "\nHITL GATE: After propose_quality_rules succeeds, Action: FINISH. "
             "Do not call clean_database, list_datasets, algolia_search, or any write tool."
         )
+    if edit_rule:
+        task += (
+            "\nEDIT-RULE GATE: If this session lacks traces for the named rule, call sandbox_preview only "
+            "(day COUNT + sample, no write). Do not call profile_dataset, list_datasets, algolia_search, "
+            "or clean_database. Grill using only those observations. Do not apply the edit."
+        )
 
     with sentry_ctx:
         # Offload blocking ReAct so GET /traces can serve the seeded running Profile beat.
-        result = await asyncio.to_thread(lambda: react_engine.run(task, context=context))
+        result = await asyncio.to_thread(
+            lambda: react_engine.run(task, context=context, history=_llm_turns(prior))
+        )
 
     executed_so_far = [
         s.action for s in getattr(result, "steps", [])
@@ -985,14 +1115,26 @@ async def send_chat_message(request: ChatRequest, http: Request):
             if getattr(react_engine, "_skip_duplicate_propose", lambda *_a, **_k: False)(session_id, tool_name):
                 continue
             # do not force-run clean / search / list (HITL-stop allowlist)
+            if edit_rule and tool_name in (
+                "list_datasets", "algolia_search", "profile_dataset", "clean_database",
+                "detect_anomalies", "propose_quality_rules",
+            ):
+                continue
             if tool_name in HITL_REFUSED_TOOLS or not _allow_hitl_tool(tool_name):
                 if _is_hitl_stop(request.message) or tool_name in ("clean_database", "algolia_search", "list_datasets"):
                     continue
+            action_input: dict = {}
+            if request.dataset_key:
+                action_input["dataset_key"] = request.dataset_key
+            if edit_rule and edit_query:
+                action_input["query"] = edit_query
+            if request.active_day is not None:
+                action_input["day_idx"] = request.active_day
             step = ReActStep(
                 step_index=max((getattr(s, "step_index", -1) for s in result.steps), default=-1) + 1,
                 thought="",
                 action=tool_name,
-                action_input={"dataset_key": request.dataset_key} if request.dataset_key else {},
+                action_input=action_input,
             )
             react_engine._log_trace(session_id, step, status="running")
             try:
@@ -1019,6 +1161,8 @@ async def send_chat_message(request: ChatRequest, http: Request):
         }, session_id=session_id)
 
         if step.action and step.action not in ("FINISH", "ABSTAIN"):
+            if edit_rule and step.action in ("list_datasets", "algolia_search", "profile_dataset"):
+                continue
             if step.action == "profile_dataset" and "profile_dataset" in emitted_actions:
                 continue
             emitted_actions.add(step.action)
@@ -1061,24 +1205,48 @@ async def send_chat_message(request: ChatRequest, http: Request):
 
     default_completion = "Quá trình thực thi ReAct đã hoàn thành thành công." if lang_pref == "vi" else "ReAct execution completed."
     final_content = result.final_answer or default_completion
-    if (
+    preview_obs = None
+    preview_rule_id = ""
+    if edit_rule:
+        for step in result.steps:
+            if getattr(step, "action", None) == "sandbox_preview":
+                preview_obs = step.observation
+                break
+        if preview_obs:
+            final_content = grill_edit_rule(preview_obs, lang_pref)
+            try:
+                pdata = json.loads(preview_obs) if isinstance(preview_obs, str) else (preview_obs or {})
+                rules = pdata.get("rules") if isinstance(pdata, dict) else []
+                if rules and isinstance(rules[0], dict):
+                    preview_rule_id = str(rules[0].get("rule_id") or "")
+            except Exception:
+                preview_rule_id = ""
+        elif "4 datasets" in (final_content or "") or "Available registered datasets" in (final_content or ""):
+            final_content = grill_edit_rule({}, lang_pref)
+    elif (
         not hitl_stop
         and not is_pong_ping(request.message)
-        and ("how many" in msg_lower or "list" in msg_lower or "dataset" in msg_lower)
+        and asks_dataset_inventory(request.message)
         and "ev_telemetry" not in final_content
     ):
         final_content += "\nAvailable registered datasets include: `ev_telemetry`, `charging_sessions`, `trips`, `nlp_feedback`."
+
+    orch_meta: dict = {
+        "total_tokens": getattr(result, "total_tokens", 0),
+        "tokens": {"total_tokens": getattr(result, "total_tokens", 0), "tokens_used": getattr(result, "total_tokens", 0)},
+        "status": getattr(result, "status", ""),
+    }
+    if edit_rule:
+        orch_meta["edit_rule"] = True
+        orch_meta["rule_id"] = preview_rule_id
+        orch_meta["actions"] = ["apply_pending", "edit_myself"]
 
     agent_msg = conversation_store.save_message(
         {
             "type": "agent",
             "agentId": "orchestrator",
             "content": final_content,
-            "metadata": {
-                "total_tokens": getattr(result, "total_tokens", 0),
-                "tokens": {"total_tokens": getattr(result, "total_tokens", 0), "tokens_used": getattr(result, "total_tokens", 0)},
-                "status": getattr(result, "status", ""),
-            },
+            "metadata": orch_meta,
         },
         session_id=session_id,
     )
@@ -1108,8 +1276,23 @@ async def get_chat_history(session_id: str = "default"):
 
 
 @router.get("/chat/sessions")
-async def get_chat_sessions():
-    return {"sessions": conversation_store.list_sessions()}
+async def get_chat_sessions(dataset_key: Optional[str] = None, calendar_day: Optional[str] = None):
+    return {"sessions": conversation_store.list_sessions(dataset_key=dataset_key, calendar_day=calendar_day)}
+
+
+class BindSessionRequest(BaseModel):
+    session_id: str
+    dataset_key: Optional[str] = None
+    calendar_day: Optional[str] = None
+    title: Optional[str] = None
+
+
+@router.post("/chat/sessions")
+async def bind_or_create_chat_session(req: BindSessionRequest):
+    sid = req.session_id or f"session_{int(datetime.now().timestamp() * 1000)}"
+    row = conversation_store.bind_session(sid, req.dataset_key, req.calendar_day, req.title)
+    latest = conversation_store.latest_session(req.dataset_key or "", req.calendar_day or "") if req.dataset_key else None
+    return {"session": {**row, "session_id": sid}, "latest": latest}
 
 
 class ClearChatRequest(BaseModel):
@@ -1266,4 +1449,7 @@ __all__ = [
     "evaluation_router",
     "_session_has_tool_beat",
     "missing_requested_tools",
+    "is_edit_rule_prompt",
+    "asks_dataset_inventory",
+    "is_smalltalk_prompt",
 ]

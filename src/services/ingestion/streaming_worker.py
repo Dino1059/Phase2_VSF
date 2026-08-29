@@ -58,6 +58,8 @@ class StreamingIngestionWorker:
     async def ingest_next_batch(self) -> Dict[str, int]:
         """Reads a batch of records from data_new, writes to DuckDB, and broadcasts."""
         db = get_db()
+        from src.services.landing_promote import ensure_landing_tables
+        ensure_landing_tables(db)
         ingested_counts = {"telemetry": 0, "charging": 0, "trips": 0}
 
         # 1. Read EV Telemetry (synthetic_ev_telemetry_ved_ref.csv)
@@ -76,7 +78,7 @@ class StreamingIngestionWorker:
 
                         db.execute(
                             """
-                            INSERT INTO main.ev_telemetry (
+                            INSERT INTO landing.ev_telemetry (
                                 record_id, vehicle_vin, day_idx, sample_idx, timestamp,
                                 speed_kmh, motor_rpm, battery_soc, battery_voltage,
                                 battery_current, battery_temp_c, state_at_sample,
@@ -139,7 +141,7 @@ class StreamingIngestionWorker:
                         ts = cr.get("start_time") or datetime.now().isoformat()
                         db.execute(
                             """
-                            INSERT INTO main.charging_sessions (
+                            INSERT INTO landing.charging_sessions (
                                 vehicle_vin, session_id, station_id, charger_id, start_time,
                                 duration_mins, kwh_consumed, power_kw, charging_pattern,
                                 assigned_day_index, station_temp_c, cost_vnd, status,

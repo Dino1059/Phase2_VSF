@@ -35,7 +35,7 @@ def test_classify_a1_failure_budget_exhaustion():
         ground_truth_evidence_ids=set(),
         description="test",
     )
-    hyp = Hypothesis(incident_id="inc-test", claim="test", classification="OPERATIONAL")
+    hyp = Hypothesis(incident_id="inc-test", claim="test", classification="UNKNOWN")
     meta = {"stop_reason": "max_tool_calls_exceeded", "tool_calls_made": 5, "tokens_spent": 2000}
 
     mode, expl = classify_a1_failure(case, hyp, meta)
@@ -82,7 +82,7 @@ def test_classify_a1_failure_unsupported_claim():
     hyp = Hypothesis(
         incident_id="inc-test",
         claim="Claim",
-        classification="OPERATIONAL",
+        classification="SYSTEM_DATA_LOGIC",
         supporting_evidence=["ev-hallucinated-999"],
     )
     meta = {"stop_reason": "completed"}
@@ -108,7 +108,7 @@ def test_classify_a1_failure_insufficient_tool_depth():
     hyp = Hypothesis(
         incident_id="inc-test",
         claim="Claim",
-        classification="OPERATIONAL",
+        classification="SYSTEM_DATA_LOGIC",
         supporting_evidence=["ev-real"],
     )
     meta = {"stop_reason": "completed"}

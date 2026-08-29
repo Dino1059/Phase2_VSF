@@ -1,10 +1,28 @@
 name: CI Quality Gate
 
+# runs-on: self-hosted → org eph-vmrunner-* in runner group "default"
+# (machine vm-runner, workdir /home/gh-runner/eph/<hex>/). Not ubuntu-latest:
+# hosted dies in ~2s on org spend cap (see ci-hosted-probe.yml).
+#
+# Last green on this PR (33229495730 PR + 33229494187 push @ 9ef05b5) used
+# feat/** push + pull_request and concurrency github.ref so the two events
+# do not cancel each other. 4cf3879 dropped feat push and unified the
+# concurrency key; 33255172365 then sat queued with identical labels
+# ["self-hosted"] and was never claimed. Restore the last-green triggers.
+# There is no workflow_run / reusable provisioner in this repo; the
+# eph-vmrunner controller lives on host vm-runner (org, not P-086).
+# workflow_dispatch lets an operator re-queue after that controller starts.
+# Do not register a new self-hosted runner on the chat host.
 on:
+  workflow_dispatch:
   push:
-    branches: [main, develop, v5]
+    branches: [main, develop, v5, "feat/**", "ci/**", "fix/**"]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, v5]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-quality:

@@ -18,13 +18,22 @@ class RuleProposalCard(BaseModel):
 
 class ApproveRequest(BaseModel):
     approved_by: str = "human"
+    dataset_key: Optional[str] = None
+    calendar_day: Optional[str] = None
+    persona: Optional[str] = None
 
 
 class RejectRequest(BaseModel):
     rejected_by: str = "human"
     reason: str = ""
+    dataset_key: Optional[str] = None
+    calendar_day: Optional[str] = None
+    persona: Optional[str] = None
 
 
 class EditRequest(BaseModel):
     rule_expression: str
     edited_by: str = "human"
+    dataset_key: Optional[str] = None
+    calendar_day: Optional[str] = None
+    persona: Optional[str] = None

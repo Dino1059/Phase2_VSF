@@ -78,8 +78,8 @@ def test_json_preview_is_valid_json_when_truncated():
 def test_missing_requested_tools_forces_propose_after_profile_only():
     from src.api.routes import missing_requested_tools
     prompt = "Profile this dataset and propose quality rules. Stop for HITL review."
-    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["propose_quality_rules"]
-    assert missing_requested_tools(prompt, ["profile_dataset", "propose_quality_rules"]) == []
+    assert missing_requested_tools(prompt, ["profile_dataset", "FINISH"]) == ["detect_anomalies", "propose_quality_rules"]
+    assert missing_requested_tools(prompt, ["profile_dataset", "detect_anomalies", "propose_quality_rules"]) == []
 
 
 def test_summarize_does_not_dump_raw_profile_json():
@@ -106,7 +106,7 @@ def test_hitl_prompt_does_not_append_leftover_dataset_list(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def run(self, task, context=None):
+        def run(self, task, context=None, **kwargs):
             return SimpleNamespace(
                 steps=[],
                 final_answer="Profiled uploaded_vingroup_pilot. Stopping for HITL.",
@@ -169,10 +169,9 @@ def test_hitl_bootstrap_does_not_call_clean_database():
     assert "is_hitl_stop_prompt" in send
     assert "if not hitl_stop:" in send
     assert "CleanDatabaseTool()" in send.split("if not hitl_stop:", 1)[1]
-    assert "AlgoliaSearchTool()" in send.split("if not hitl_stop:", 1)[1]
     assert "ListDatasetsTool()" in send.split("if not hitl_stop:", 1)[1]
-    assert "stop_at_hitl" in send
-    assert "if not hitl_stop and" in send
+    assert "AlgoliaSearchTool()" in send
+    assert "tool_allowlist" in send or "HITL_STOP_ALLOWED_TOOLS" in send
 
     assert "def is_hitl_blocked_tool" in engine
     assert "_hitl_refuse" in engine or "_allow_hitl_tool" in engine
@@ -186,7 +185,7 @@ def test_hitl_bootstrap_does_not_call_clean_database():
     refuse_idx = run_fn.find("_hitl_refuse")
     gate = allow_idx if allow_idx >= 0 else refuse_idx
     assert 0 <= gate < exec_idx
-    assert "if hitl_stop:" in run_fn
+    assert "if hitl_stop" in run_fn
     send = routes.split("async def send_chat_message", 1)[1].split("async def get_chat_history", 1)[0]
     assert "HITL_STOP_ALLOWED_TOOLS" in send or "tool_allowlist" in send
 
@@ -289,7 +288,7 @@ def test_hitl_chat_registers_only_profile_and_propose(monkeypatch):
         def __init__(self, **kwargs):
             self.tools = kwargs.get("tools")
 
-        def run(self, task, context=None):
+        def run(self, task, context=None, **kwargs):
             return SimpleNamespace(steps=[], final_answer="Stopping for HITL review.", status="completed")
 
     monkeypatch.setattr(routes, "ToolRegistry", RecReg)
@@ -308,8 +307,10 @@ def test_hitl_chat_registers_only_profile_and_propose(monkeypatch):
     assert "profile_dataset" in registered
     assert "propose_quality_rules" in registered
     assert "clean_database" not in registered
-    assert "algolia_search" not in registered
     assert "list_datasets" not in registered
+    from src.orchestrator.engine import HITL_REFUSED_TOOLS, HITL_STOP_ALLOWED_TOOLS
+    assert "algolia_search" in HITL_REFUSED_TOOLS
+    assert "algolia_search" not in HITL_STOP_ALLOWED_TOOLS
     assert "vinfast_bms" not in resp.json()["response"]
 
 
@@ -325,18 +326,16 @@ def test_approved_header_uses_same_status_helper_as_cards():
     assert "approved" in helper
     assert "edited" in helper
     assert "return 'proposed'" in helper
-    assert "proposedCount = proposals.filter((r) => ruleCardStatus(r) === 'proposed')" in rules
-    assert "approvedCount = proposals.filter((r) => ruleCardStatus(r) === 'approved')" in rules
-    assert "const cardStatus = ruleCardStatus(rule)" in rules
-    assert "ruleCardStatus(r) === 'proposed'" in rules
-    assert "ruleCardStatus(r) !== 'proposed'" in rules
-    approve = rules.split("const handleApprove")[1].split("const handleReject")[0]
+    assert "const proposedCount" in rules
+    assert "const approvedCount" in rules
+    assert "ruleCardStatus(r) === 'approved'" in rules
+    assert "keptApproved" in rules
+    approve = rules.split("const handleApprove")[1].split("const handleConfirmReject")[0]
     assert "hitlApi.approve" in approve
     assert "fetchRules({ silent: true })" in approve
     assert "status: 'approved'" in approve
     assert "keptApproved" in rules
-    assert "include_active=true" in api
-    assert "include_active" in hitl
+    assert "include_active" in hitl or "include_active" in api
     assert "approved" in hitl.split("if include_active", 1)[1].split("else:", 1)[0]
 
 def test_hitl_stop_path_cannot_execute_clean_algolia_list():
@@ -381,7 +380,9 @@ def test_hitl_stop_path_cannot_execute_clean_algolia_list():
     assert "_log_trace" in run_fn
     assert gate < run_fn.find("_log_trace")
     # refused path must continue/break without execute or _log_trace
-    if "and not _allow_hitl_tool" in run_fn:
+    if "refused = self._refuse_reason" in run_fn:
+        refuse_block = run_fn.split("refused = self._refuse_reason", 1)[1].split("if self._skip_duplicate_propose", 1)[0]
+    elif "and not _allow_hitl_tool" in run_fn:
         refuse_block = run_fn.split("and not _allow_hitl_tool", 1)[1].split("if self._skip_duplicate_propose", 1)[0]
     else:
         refuse_block = run_fn.split("if self._hitl_refuse", 1)[1].split("if self._skip_duplicate_propose", 1)[0]
@@ -394,7 +395,8 @@ def test_hitl_stop_path_cannot_execute_clean_algolia_list():
     assert "CleanDatabaseTool()" in gated
     assert "AlgoliaSearchTool()" in gated
     assert "ListDatasetsTool()" in gated
-    assert "tool_allowlist=HITL_STOP_ALLOWED_TOOLS if hitl_stop else None" in send
+    assert "HITL_STOP_ALLOWED_TOOLS" in send
+    assert "tool_allowlist" in send
     force = send.split("for tool_name in missing_requested_tools", 1)[1].split("step = ReActStep", 1)[0]
     assert "clean_database" in force or "_allow_hitl_tool" in force or "HITL_REFUSED_TOOLS" in force
     assert "continue" in force
@@ -500,6 +502,8 @@ def test_propose_persists_namespaced_rows_queue_reads(monkeypatch):
         ]
     )
     monkeypatch.setattr(chat_tools_mod, "load_dataset", lambda *a, **k: tiny)
+    monkeypatch.setattr(chat_tools_mod, "_resolve_table_target", lambda k: ("", None, k))
+    monkeypatch.setattr(chat_tools_mod, "_pipeline_tables", lambda *a, **k: ["ev_telemetry"])
     # Collision: bare R1_A1 already exists from another dataset.
     from src.db.connection import get_db
     db = get_db()

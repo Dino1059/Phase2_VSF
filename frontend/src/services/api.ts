@@ -759,12 +759,23 @@ export async function fetchChatHistory(sessionId: string = 'default') {
   return request(`/chat/history?session_id=${encodeURIComponent(sessionId)}`);
 }
 
-export async function fetchChatSessions() {
+export async function fetchChatSessions(datasetKey?: string, calendarDay?: string) {
   try {
-    return await request('/chat/sessions');
+    const q = new URLSearchParams();
+    if (datasetKey) q.set('dataset_key', datasetKey);
+    if (calendarDay) q.set('calendar_day', calendarDay);
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return await request(`/chat/sessions${suffix}`);
   } catch {
     return { sessions: [] };
   }
+}
+
+export async function bindChatSession(sessionId: string, datasetKey?: string, calendarDay?: string, title?: string) {
+  return request('/chat/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, dataset_key: datasetKey, calendar_day: calendarDay, title }),
+  });
 }
 
 export async function clearChatDatabase(sessionId?: string) {
@@ -818,12 +829,19 @@ export interface HITLProposal {
   feedback_by?: string;
   feedback_at?: string | null;
   source_ingestion_run_id?: string;
+  calendar_day?: string | null;
   created_at?: string | null;
+  pending_patch?: { before?: string; after?: string } | null;
 }
 
 export const hitlApi = {
-  queue: (datasetKey?: string) =>
-    request<{ proposals: HITLProposal[] }>(`/hitl/queue${datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : ''}`),
+  queue: (datasetKey?: string, calendarDay?: string) => {
+    const q = new URLSearchParams();
+    if (datasetKey) q.set('dataset_key', datasetKey);
+    if (calendarDay) q.set('calendar_day', calendarDay);
+    const qs = q.toString();
+    return request<{ proposals: HITLProposal[] }>(`/hitl/queue${qs ? `?${qs}` : ''}`);
+  },
   synthesizeLlm: (datasetKey?: string, tableName?: string, useLlm?: boolean) =>
     request<{ status: string; count: number; dataset_key?: string; proposals: HITLProposal[]; llm_powered?: boolean; model_used?: string }>('/hitl/synthesize-llm', {
       method: 'POST',
@@ -831,26 +849,113 @@ export const hitlApi = {
     }),
 
 
-  approve: (ruleId: string, approvedBy: string = 'human') =>
+  approve: (ruleId: string, approvedBy: string = 'human', ctx?: { dataset_key?: string; calendar_day?: string; persona?: string }) =>
     request<{ status: string; rule_id: string }>(`/hitl/approve/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
-      body: JSON.stringify({ approved_by: approvedBy }),
+      body: JSON.stringify({ approved_by: approvedBy, ...ctx }),
     }),
-  reject: (ruleId: string, rejectedBy: string = 'human', reason: string = '') =>
+  reject: (ruleId: string, rejectedBy: string = 'human', reason: string = '', ctx?: { dataset_key?: string; calendar_day?: string; persona?: string }) =>
     request<{ status: string; rule_id: string }>(`/hitl/reject/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
-      body: JSON.stringify({ rejected_by: rejectedBy, reason }),
+      body: JSON.stringify({ rejected_by: rejectedBy, reason, ...ctx }),
     }),
-  edit: (ruleId: string, ruleExpression: string, editedBy: string = 'human') =>
+  edit: (ruleId: string, ruleExpression: string, editedBy: string = 'human', ctx?: { dataset_key?: string; calendar_day?: string; persona?: string }) =>
     request<{ status: string; rule_id: string }>(`/hitl/edit/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
-      body: JSON.stringify({ rule_expression: ruleExpression, edited_by: editedBy }),
+      body: JSON.stringify({ rule_expression: ruleExpression, edited_by: editedBy, ...ctx }),
     }),
-  execute: (ruleId: string) =>
-    request<{ status: string; rule_id: string }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
+  dayCount: (datasetKey: string, calendarDay?: string | null, dayIdx?: number | null) => {
+    const q = new URLSearchParams({ dataset_key: datasetKey });
+    if (calendarDay) q.set('calendar_day', calendarDay);
+    if (dayIdx !== null && dayIdx !== undefined) q.set('day_idx', String(dayIdx));
+    return request<{ count: number; preview: unknown[]; calendar_day?: string; run_id?: string; table?: string; sample_cap?: number }>(`/hitl/day-count?${q.toString()}`);
+  },
+  remember: (datasetKey: string, ruleId: string, remember = true, actor = 'Steward') =>
+    request('/hitl/remember', { method: 'POST', body: JSON.stringify({ dataset_key: datasetKey, rule_id: ruleId, remember, actor }) }),
+  memory: (datasetKey: string) =>
+    request<{
+      memories: Array<{ rule_id: string; dataset_key: string }>;
+      opted_out?: Array<{ rule_id: string }>;
+      default_on?: boolean;
+    }>(`/hitl/memory?dataset_key=${encodeURIComponent(datasetKey)}`),
+  rollback: (datasetKey: string, calendarDay?: string | null, ruleId?: string, actor = 'Steward') =>
+    request('/hitl/rollback', { method: 'POST', body: JSON.stringify({ dataset_key: datasetKey, calendar_day: calendarDay, rule_id: ruleId, actor }) }),
+  incidentStories: (datasetKey?: string, calendarDay?: string | null, dayIdx?: number | null) => {
+    const q = new URLSearchParams();
+    if (datasetKey) q.set('dataset_key', datasetKey);
+    if (calendarDay) q.set('calendar_day', calendarDay);
+    if (dayIdx !== null && dayIdx !== undefined) q.set('day_idx', String(dayIdx));
+    return request<{ incidents: any[] }>(`/hitl/incidents?${q.toString()}`);
+  },
+  confirmPatch: (ruleId: string, ruleExpression: string, editedBy = 'Steward', ctx?: { dataset_key?: string; calendar_day?: string }) =>
+    request(`/hitl/confirm-patch/${encodeURIComponent(ruleId)}`, {
       method: 'POST',
+      body: JSON.stringify({ rule_id: ruleId, rule_expression: ruleExpression, edited_by: editedBy, ...ctx }),
     }),
-  sandbox: (datasetKey: string, ruleIds: string[]) =>
+  execute: (ruleId: string, body?: { dataset_key?: string; calendar_day?: string | null; day_idx?: number | null }) =>
+    request<{
+      status?: string;
+      rule_id?: string;
+      clean_rows?: number;
+      quarantine_rows?: number;
+      warehouse_clean_rows?: number;
+      warehouse_quarantine_rows?: number;
+      counts_kind?: string;
+      snapshot_id?: string;
+    }>(`/hitl/execute/${encodeURIComponent(ruleId)}`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  executeWarehouse: (
+    datasetKey: string,
+    ruleIds: string[],
+    calendarDay?: string | null,
+    dayIdx?: number | null,
+  ) =>
+    request<{
+      clean_rows?: number;
+      quarantine_rows?: number;
+      warehouse_clean_rows?: number;
+      warehouse_quarantine_rows?: number;
+      counts_kind?: string;
+      snapshot_id?: string;
+      execute?: string;
+    }>('/hitl/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        dataset_key: datasetKey,
+        rule_ids: ruleIds,
+        calendar_day: calendarDay,
+        day_idx: dayIdx,
+      }),
+    }),
+  sandboxPreview: (datasetKey: string, ruleIds: string[], calendarDay?: string | null, dayIdx?: number | null, query?: string) =>
+    request<{
+      dataset_key: string;
+      preview?: boolean;
+      write?: boolean;
+      clean_rows?: number;
+      quarantine_rows?: number;
+      warehouse_clean_rows?: number;
+      sampled_rows?: number;
+      day_count?: { count?: number; preview?: unknown[]; table?: string };
+      quarantine?: any[];
+      cell_diffs?: any[];
+      per_rule_counts?: Record<string, number>;
+      rules?: Array<{ rule_id?: string }>;
+      execute?: string;
+      note?: string | null;
+    }>('/hitl/sandbox-preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        dataset_key: datasetKey,
+        rule_ids: ruleIds,
+        calendar_day: calendarDay,
+        day_idx: dayIdx,
+        query,
+      }),
+    }),
+  sandbox: (datasetKey: string, ruleIds: string[], calendarDay?: string | null, dayIdx?: number | null) =>
     request<{
       dataset_key: string;
       sandbox?: boolean;
@@ -862,6 +967,10 @@ export const hitlApi = {
       snapshot_id?: string;
       this_run?: boolean;
       sampled_rows?: number;
+      scoped_rows?: number;
+      counts_kind?: string;
+      warehouse_clean_rows?: number;
+      warehouse_quarantine_rows?: number;
       cell_diffs?: any[];
       execute?: string;
       run_id?: string;
@@ -869,13 +978,18 @@ export const hitlApi = {
       tables?: string[];
     }>('/hitl/sandbox', {
       method: 'POST',
-      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds }),
+      body: JSON.stringify({ dataset_key: datasetKey, rule_ids: ruleIds, calendar_day: calendarDay, day_idx: dayIdx }),
     }),
   getSandbox: (runId: string) =>
     request<{
       run_id: string;
       dataset_key?: string;
+      clean_rows?: number;
       quarantine_rows?: number;
+      scoped_rows?: number;
+      counts_kind?: string;
+      warehouse_clean_rows?: number;
+      warehouse_quarantine_rows?: number;
       quarantine?: any[];
       cell_diffs?: any[];
       execute?: string;
@@ -1137,6 +1251,11 @@ export const ingestionApi = {
     }),
   getRuns: (limit = 50) => request<IngestionRunsResponse>(`/ingestion/runs?limit=${limit}`),
   reset: () => request<{ status: string; message: string }>('/ingestion/reset', { method: 'POST' }),
+  promote: (dayIdx: number | null) =>
+    request<{ day_idx: number | null; promoted: Record<string, number>; status: string }>('/ingestion/promote', {
+      method: 'POST',
+      body: JSON.stringify({ day_idx: dayIdx }),
+    }),
   getRealtimeStatus: () => request<RealtimeStatus>('/ingestion/realtime/status'),
   startRealtime: () => request<{ action: string; status: string; message: string }>('/ingestion/realtime/start', { method: 'POST' }),
   stopRealtime: () => request<{ action: string; status: string; message: string }>('/ingestion/realtime/stop', { method: 'POST' }),

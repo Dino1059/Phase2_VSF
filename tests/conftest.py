@@ -1,7 +1,9 @@
 import os
-# Ensure pytest always uses isolated test database before any src modules are imported
+# Isolated test DB. PYTEST_DUCKDB_PATH only — never inherit a live DUCKDB_PATH.
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ["DUCKDB_PATH"] = os.path.join(_project_root, "data", "datatrust_test.duckdb")
+os.environ["DUCKDB_PATH"] = os.environ.get("PYTEST_DUCKDB_PATH") or os.path.join(
+    _project_root, "data", "datatrust_test.duckdb"
+)
 os.environ.pop("GOOGLE_AI_API_KEY", None)
 os.environ.pop("OPENAI_API_KEY", None)
 
@@ -26,6 +28,11 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+def pytest_collection_modifyitems(items):
+    """HITL/workspace source contracts run as real tests (no known-fail xfail)."""
+    return
 
 
 @pytest.fixture

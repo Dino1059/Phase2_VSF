@@ -112,7 +112,64 @@ class ConversationStore:
         conn = self.db.get_connection()
         conn.execute("DELETE FROM messages WHERE session_id = ?", [session_id])
 
-    def list_sessions(self) -> List[Dict[str, Any]]:
+    def bind_session(self, session_id: str, dataset_key: Optional[str] = None, calendar_day: Optional[str] = None, title: Optional[str] = None) -> Dict[str, Any]:
+        from src.services.th_hitl_flow import ensure_th_flow_tables
+        ensure_th_flow_tables(self.db)
+        sid = session_id or "default"
+        existing = self.db.execute("SELECT id, title, dataset_key, calendar_day FROM chat_sessions WHERE id = ?", [sid])
+        if existing:
+            self.db.execute(
+                "UPDATE chat_sessions SET dataset_key = COALESCE(?, dataset_key), calendar_day = COALESCE(?, calendar_day), "
+                "title = COALESCE(?, title), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [dataset_key, calendar_day, title, sid],
+            )
+        else:
+            self.db.execute(
+                "INSERT INTO chat_sessions (id, title, dataset_key, calendar_day) VALUES (?, ?, ?, ?)",
+                [sid, title or "New Agent Chat", dataset_key or "", calendar_day or ""],
+            )
+        return {"session_id": sid, "dataset_key": dataset_key, "calendar_day": calendar_day, "title": title}
+
+    def latest_session(self, dataset_key: str, calendar_day: str) -> Optional[Dict[str, Any]]:
+        from src.services.th_hitl_flow import ensure_th_flow_tables
+        ensure_th_flow_tables(self.db)
+        rows = self.db.execute(
+            "SELECT id, title, dataset_key, calendar_day, updated_at FROM chat_sessions "
+            "WHERE dataset_key = ? AND calendar_day = ? ORDER BY updated_at DESC LIMIT 1",
+            [dataset_key or "", calendar_day or ""],
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {"session_id": r[0], "title": r[1], "dataset_key": r[2], "calendar_day": r[3], "last_updated": str(r[4]) if r[4] else None}
+
+    def list_sessions(self, dataset_key: Optional[str] = None, calendar_day: Optional[str] = None) -> List[Dict[str, Any]]:
+        from src.services.th_hitl_flow import ensure_th_flow_tables
+        ensure_th_flow_tables(self.db)
+        if dataset_key is not None or calendar_day is not None:
+            sql = "SELECT id, title, dataset_key, calendar_day, updated_at FROM chat_sessions WHERE 1=1"
+            params: list = []
+            if dataset_key is not None:
+                sql += " AND dataset_key = ?"
+                params.append(dataset_key)
+            if calendar_day is not None:
+                sql += " AND calendar_day = ?"
+                params.append(calendar_day)
+            sql += " ORDER BY updated_at DESC"
+            bound = self.db.execute(sql, params)
+            result = []
+            for r in bound or []:
+                cnt_rows = self.db.execute("SELECT COUNT(*) FROM messages WHERE session_id = ?", [r[0]])
+                result.append({
+                    "session_id": r[0],
+                    "title": r[1] or "New Agent Chat",
+                    "dataset_key": r[2],
+                    "calendar_day": r[3],
+                    "last_updated": str(r[4]) if r[4] else None,
+                    "msg_count": int(cnt_rows[0][0]) if cnt_rows else 0,
+                })
+            return result
+
         conn = self.db.get_connection()
         rows = conn.execute("""
             SELECT session_id, COUNT(*) as msg_count, MAX(timestamp) as last_updated
@@ -134,11 +191,14 @@ class ConversationStore:
             clean_title = raw_title.replace("\n", " ").strip()
             if len(clean_title) > 35:
                 clean_title = clean_title[:32] + "..."
+            meta = self.db.execute("SELECT dataset_key, calendar_day FROM chat_sessions WHERE id = ?", [sid])
             result.append({
                 "session_id": sid,
                 "msg_count": cnt,
                 "last_updated": last_up,
                 "title": clean_title,
+                "dataset_key": meta[0][0] if meta else None,
+                "calendar_day": meta[0][1] if meta else None,
             })
         return result
 

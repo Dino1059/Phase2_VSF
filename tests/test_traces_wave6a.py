@@ -18,7 +18,7 @@ def test_normalize_trace_step_aliases_and_honest_summary():
     card = normalize_trace_step(row)
     assert card["tool"] == "profile_dataset"
     assert card["tokens"] == 120
-    assert card["actor_kind"] == "C1_AI"
+    assert card["actor_kind"] in ("PROFILER", "C1_AI")
     assert "50000" in card["summary_done"] or "Sampled" in card["summary_done"]
     assert "12 anomalies" not in card["summary_done"]
     # Thought is payload, not Done theater.

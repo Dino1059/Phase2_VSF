@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,11 +16,12 @@ AUTH_HEADERS = {"X-User-Role": "Admin"}
 
 def test_telemetry_ingest_bms_endpoint():
     """Test external live ingestion endpoint for BMS battery telemetry."""
+    vin = f"VF8-LANDING-{int(time.time() * 1000)}"
     payload = {
-        "dataset": "vinfast_bms",
+        "dataset": "ev_telemetry",
         "records": [
             {
-                "vin": "VF8-PROV-TEST-001",
+                "vin": vin,
                 "timestamp": "2026-08-15T02:00:00Z",
                 "battery_soc": 92.5,
                 "battery_temp_c": 32.0,
@@ -34,17 +37,18 @@ def test_telemetry_ingest_bms_endpoint():
     assert data["status"] == "success"
     assert data["inserted_count"] == 1
 
-    # Verify DuckDB persistence
     db = get_db()
-    rows = db.execute("SELECT vehicle_id, battery_soc FROM vinfast_bms WHERE vehicle_id = 'VF8-PROV-TEST-001'")
-    assert len(rows) > 0
-    assert rows[0][1] == 92.5
+    land = db.execute("SELECT vehicle_vin, battery_soc FROM landing.ev_telemetry WHERE vehicle_vin = ?", [vin])
+    assert len(land) > 0
+    assert land[0][1] == 92.5
+    main_hit = db.execute("SELECT COUNT(*) FROM main.ev_telemetry WHERE vehicle_vin = ?", [vin])
+    assert int(main_hit[0][0]) == 0
 
 
 def test_telemetry_ingest_charging_endpoint():
     """Test external live ingestion endpoint for V-GREEN charging stations."""
     payload = {
-        "dataset": "vgreen_telemetry",
+        "dataset": "charging_sessions",
         "records": [
             {
                 "station_id": "VGREEN-STATION-99",

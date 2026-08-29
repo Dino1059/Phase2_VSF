@@ -1,0 +1,76 @@
+# Hosted ubuntu-latest probe. Kept for when org billing/spend is lifted.
+#
+# 2026-08-29: ubuntu-latest dies in ~2s with
+# "The job was not started because recent account payments have failed or
+# your spending limit needs to be increased."
+# Job names MUST NOT match CI Quality Gate (Backend Lint & Pytest Gate /
+# Frontend Typecheck & Build Gate) or those required checks stay red.
+#
+# When billing is lifted, smallest green path is ci.yml
+# `runs-on: ubuntu-latest` (not this file). Dispatch this workflow only as a
+# hosted-runner smoke — it is not a PR required check.
+name: CI Hosted Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backend-quality:
+    name: Hosted Probe Backend (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python Dependencies
+        run: |
+          uv sync --frozen
+
+      - name: Lint with Ruff
+        run: |
+          uv run ruff check src/ tests/ --select F821,F823
+
+      - name: Run Pytest Test Suite
+        run: |
+          uv run pytest tests/ -v --tb=short
+        env:
+          APP_ENV: test
+          GOOGLE_AI_API_KEY: test-dummy-key
+          OPENAI_API_KEY: test-dummy-key
+
+  frontend-quality:
+    name: Hosted Probe Frontend (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Frontend Dependencies
+        run: |
+          pnpm --dir frontend install --ignore-workspace
+
+      - name: Typecheck and Build Frontend
+        run: |
+          pnpm --dir frontend run build

@@ -1,4 +1,5 @@
 import io
+import socket
 import pytest
 from fastapi.testclient import TestClient
 
@@ -39,7 +40,7 @@ def test_p0_02_executing_unapproved_rules_denied(client):
         headers={"X-User-Role": "Admin"}
     )
     assert resp_hitl.status_code == 403
-    assert "not execute" in resp_hitl.json()["detail"].lower() or "denied" in resp_hitl.json()["detail"].lower()
+    assert "not execute" in resp_hitl.json()["detail"].lower() or "denied" in resp_hitl.json()["detail"].lower() or "steward" in resp_hitl.json()["detail"].lower() or "hitl write" in resp_hitl.json()["detail"].lower()
 
     # 3. Test HITL execution endpoint /api/v1/hitl/execute with JSON payload
     resp_hitl_json = client.post(
@@ -48,7 +49,7 @@ def test_p0_02_executing_unapproved_rules_denied(client):
         headers={"X-User-Role": "Admin"}
     )
     assert resp_hitl_json.status_code == 403
-    assert "not execute" in resp_hitl_json.json()["detail"].lower() or "denied" in resp_hitl_json.json()["detail"].lower()
+    assert "not execute" in resp_hitl_json.json()["detail"].lower() or "denied" in resp_hitl_json.json()["detail"].lower() or "steward" in resp_hitl_json.json()["detail"].lower() or "hitl write" in resp_hitl_json.json()["detail"].lower()
 
     # 4. Test transform execution endpoint /api/v1/executions/transform with unapproved rule
     resp_trans = client.post(
@@ -216,8 +217,11 @@ def test_p0_06_ssrf_private_ip_webhook_validation():
     assert validate_webhook_url("ftp://example.com/webhook") is False
     assert validate_webhook_url("file:///etc/passwd") is False
 
-    # Valid public HTTPS URL
-    assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
+    # Valid public HTTPS URL (mock DNS so CI/offline is deterministic)
+    from unittest.mock import patch
+    fake = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 0))]
+    with patch("src.services.security.socket.getaddrinfo", return_value=fake):
+        assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
 
 
 from src.reliability.governance.preventive_controls import PreventiveControlManager

@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from src.db.connection import get_db
@@ -27,11 +27,16 @@ def check_rule_approved(rule_id: str):
 
 
 def _ensure_hitl_columns(db):
-    for col in ["layer", "problem_discovered", "why_proposed", "quality_impact"]:
+    for col in ["layer", "problem_discovered", "why_proposed", "quality_impact", "source_ingestion_run_id", "calendar_day", "approved_by", "approved_at"]:
         try:
             db.execute(f"ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS {col} VARCHAR")
         except Exception:
             pass
+    try:
+        from src.services.th_hitl_flow import ensure_th_flow_tables
+        ensure_th_flow_tables(db)
+    except Exception:
+        pass
 
 
 def _norm_rule_status(raw) -> str:
@@ -109,7 +114,8 @@ def _hydrate_queue_from_traces(db, dataset_key: str) -> None:
 def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     select_sql = (
         "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at, "
-        "layer, problem_discovered, why_proposed, quality_impact, reject_reason, feedback_by, feedback_at "
+        "layer, problem_discovered, why_proposed, quality_impact, reject_reason, feedback_by, feedback_at, "
+        "source_ingestion_run_id, calendar_day "
         f"FROM quality_rules WHERE {where_status} "
     )
     if not dataset_key:
@@ -135,10 +141,19 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
         )
     except Exception:
         like = f"%{dataset_key}%"
-        return db.execute(
-            select_sql + "AND (CAST(dataset_key AS VARCHAR) LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
-            [like, like],
-        )
+        try:
+            return db.execute(
+                select_sql + "AND (CAST(dataset_key AS VARCHAR) LIKE ? OR id LIKE ?) ORDER BY created_at DESC",
+                [like, like],
+            )
+        except Exception:
+            fallback = (
+                "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at, "
+                "layer, problem_discovered, why_proposed, quality_impact, reject_reason, feedback_by, feedback_at "
+                f"FROM quality_rules WHERE {where_status} AND (CAST(dataset_key AS VARCHAR) LIKE ? OR id LIKE ?) "
+                "ORDER BY created_at DESC"
+            )
+            return db.execute(fallback, [like, like])
 
 
 @hitl_router.get("/queue")
@@ -146,9 +161,13 @@ async def get_queue(
     status: Optional[str] = None,
     include_active: bool = False,
     dataset_key: Optional[str] = None,
+    calendar_day: Optional[str] = None,
 ):
     db = get_db()
     _ensure_hitl_columns(db)
+    if dataset_key:
+        from src.services.th_hitl_flow import apply_inherited_hitl
+        apply_inherited_hitl(db, dataset_key, calendar_day)
     if status and status.lower() != "all":
         where_status = f"LOWER(status) = '{status.lower()}'"
     elif include_active:
@@ -159,6 +178,9 @@ async def get_queue(
     rows = _fetch_queue_rows(db, where_status, dataset_key)
     if not rows and dataset_key:
         _hydrate_queue_from_traces(db, dataset_key)
+        if dataset_key:
+            from src.services.th_hitl_flow import apply_inherited_hitl
+            apply_inherited_hitl(db, dataset_key, calendar_day)
         rows = _fetch_queue_rows(db, where_status, dataset_key)
 
     return {"proposals": [
@@ -178,6 +200,8 @@ async def get_queue(
             "reject_reason": r[12] if len(r) > 12 else None,
             "feedback_by": r[13] if len(r) > 13 else None,
             "feedback_at": str(r[14]) if len(r) > 14 and r[14] else None,
+            "source_ingestion_run_id": r[15] if len(r) > 15 else None,
+            "calendar_day": r[16] if len(r) > 16 else None,
         }
         for r in rows
     ]}
@@ -367,18 +391,25 @@ async def approve_rule(rule_id: str, req: ApproveRequest = ApproveRequest()):
     db.execute("UPDATE quality_rules SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
                [req.approved_by, datetime.now().isoformat(), rule_id])
 
+    from src.services.th_hitl_flow import persist_decision, stamp_rule_run_context
+    persona = req.persona or req.approved_by or "Steward"
+    stamp_rule_run_context(db, rule_id, req.calendar_day, req.dataset_key)
+    persist_decision(
+        db,
+        dataset_key=req.dataset_key or "",
+        calendar_day=req.calendar_day,
+        rule_id=rule_id,
+        persona=persona,
+        action="accept",
+        details={"approved_by": req.approved_by},
+    )
+
     AuditService.log("APPROVE_RULE", req.approved_by, "quality_rules", rule_id,
-                     {"state_hash": AuditService.compute_state_hash(rule_id, "", "approved")})
+                     {"state_hash": AuditService.compute_state_hash(rule_id, "", "approved"),
+                      "dataset_key": req.dataset_key, "calendar_day": req.calendar_day, "persona": persona})
 
-    quarantined_count = 0
-    try:
-        from src.api.routes.rules import quarantine_violating_data_for_rule
-        q_res = await asyncio.to_thread(quarantine_violating_data_for_rule, rule_id, db)
-        quarantined_count = q_res.get("quarantined_count", 0)
-    except Exception as qe:
-        print(f"[WARN] Error executing quarantine on HITL approval: {qe}")
-
-    return {"status": "approved", "rule_id": rule_id, "quarantined_count": quarantined_count}
+    # Approve commits the rule only. Execute writes quarantine/clean. Preview is no-write.
+    return {"status": "approved", "rule_id": rule_id, "quarantined_count": 0, "execute": "off"}
 
 
 @hitl_router.post("/reject/{rule_id}")
@@ -392,8 +423,20 @@ async def reject_rule(rule_id: str, req: RejectRequest = RejectRequest()):
         "UPDATE quality_rules SET status = 'rejected', reject_reason = ?, feedback_by = ?, feedback_at = ? WHERE id = ?",
         [req.reason, req.rejected_by, datetime.now().isoformat(), rule_id]
     )
+    from src.services.th_hitl_flow import persist_decision, stamp_rule_run_context
+    persona = req.persona or req.rejected_by or "Steward"
+    stamp_rule_run_context(db, rule_id, req.calendar_day, req.dataset_key)
+    persist_decision(
+        db,
+        dataset_key=req.dataset_key or "",
+        calendar_day=req.calendar_day,
+        rule_id=rule_id,
+        persona=persona,
+        action="reject",
+        details={"reason": req.reason},
+    )
     AuditService.log("REJECT_RULE", req.rejected_by, "quality_rules", rule_id,
-                     {"reason": req.reason})
+                     {"reason": req.reason, "dataset_key": req.dataset_key, "calendar_day": req.calendar_day, "persona": persona})
     return {"status": "rejected", "rule_id": rule_id, "reject_reason": req.reason}
 
 
@@ -411,21 +454,83 @@ async def edit_rule(rule_id: str, req: EditRequest):
     return {"status": "edited", "rule_id": rule_id}
 
 
-@hitl_router.post("/execute/{rule_id}")
-async def execute_hitl_rule(rule_id: str):
-    # Intentional for every role including Admin. Not CSRF/auth. Path is authorize + POST /sandbox + GET preview.
-    raise HTTPException(
-        status_code=403,
-        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
+def _require_steward_execute(request: Request) -> None:
+    from src.middleware.auth import UserRole
+
+    role = getattr(request.state, "user_role", None)
+    got = role.value if isinstance(role, UserRole) else role
+    if str(got or "").lower() != UserRole.STEWARD.value.lower():
+        raise HTTPException(status_code=403, detail="Execute is Data Steward only")
+
+
+def _run_steward_execute(payload: Optional[dict], rule_id: Optional[str] = None) -> dict:
+    from src.tools.chat_tools import approved_rules_for_clean
+    from src.services.th_hitl_flow import commit_warehouse_split, persist_decision, resolve_calendar_day
+
+    body = payload if isinstance(payload, dict) else {}
+    dataset_key = (body.get("dataset_key") or "").strip()
+    rule_ids = list(body.get("rule_ids") or ([] if not rule_id else [rule_id]))
+    if rule_id and rule_id not in rule_ids:
+        rule_ids.append(rule_id)
+    db = get_db()
+    if not dataset_key and rule_ids:
+        try:
+            row = db.execute("SELECT dataset_key FROM quality_rules WHERE id = ?", [rule_ids[0]])
+            dataset_key = str(row[0][0] or "").strip() if row else ""
+        except Exception:
+            dataset_key = ""
+    if not dataset_key:
+        raise HTTPException(status_code=400, detail="dataset_key is required")
+    for rid in rule_ids:
+        check_rule_approved(rid)
+    rules = approved_rules_for_clean(db, dataset_key, rule_ids or None)
+    if not rules:
+        raise HTTPException(status_code=403, detail="Rule execution denied: Rule is not approved by HITL")
+    day = resolve_calendar_day(body.get("calendar_day"), body.get("day_idx"))
+    out = commit_warehouse_split(db, dataset_key, rules, body.get("calendar_day"), body.get("day_idx"))
+    try:
+        persist_decision(
+            db,
+            dataset_key=dataset_key,
+            calendar_day=day,
+            rule_id=(rule_ids[0] if rule_ids else "warehouse"),
+            persona="Steward",
+            action="warehouse_execute",
+            row_ids=[],
+            details={
+                "snapshot_id": out.get("snapshot_id"),
+                "counts_kind": "warehouse",
+                "warehouse_clean_rows": out.get("warehouse_clean_rows"),
+                "warehouse_quarantine_rows": out.get("warehouse_quarantine_rows"),
+            },
+        )
+    except Exception:
+        pass
+    AuditService.log(
+        "EXECUTE_WAREHOUSE",
+        "STEWARD",
+        "clean",
+        dataset_key,
+        {
+            "clean_rows": out.get("warehouse_clean_rows"),
+            "quarantine_rows": out.get("warehouse_quarantine_rows"),
+            "calendar_day": day,
+            "snapshot_id": out.get("snapshot_id"),
+        },
     )
+    return out
+
+
+@hitl_router.post("/execute/{rule_id}")
+async def execute_hitl_rule(rule_id: str, request: Request, payload: Optional[dict] = None):
+    _require_steward_execute(request)
+    return _run_steward_execute(payload, rule_id)
 
 
 @hitl_router.post("/execute")
-async def execute_hitl_rules(payload: Optional[dict] = None):
-    raise HTTPException(
-        status_code=403,
-        detail="Execute off: HITL approve is not execute. Sandbox + authorize required.",
-    )
+async def execute_hitl_rules(request: Request, payload: Optional[dict] = None):
+    _require_steward_execute(request)
+    return _run_steward_execute(payload)
 
 
 
@@ -471,6 +576,43 @@ class SandboxRequest(BaseModel):
     dataset_key: str
     rule_ids: Optional[List[str]] = None
     sample_size: Optional[int] = None
+    calendar_day: Optional[str] = None
+    day_idx: Optional[int] = None
+    query: Optional[str] = None
+
+
+class SandboxPreviewRequest(BaseModel):
+    dataset_key: str
+    rule_ids: Optional[List[str]] = None
+    query: Optional[str] = None
+    calendar_day: Optional[str] = None
+    day_idx: Optional[int] = None
+    sample_size: Optional[int] = None
+
+
+@hitl_router.post("/sandbox-preview")
+async def sandbox_preview_endpoint(req: SandboxPreviewRequest):
+    """Day COUNT + sample. No persist. Proposed rules allowed. Warehouse stays 0."""
+    dataset_key = (req.dataset_key or "").strip()
+    if not dataset_key:
+        raise HTTPException(status_code=400, detail="dataset_key is required")
+    from src.tools.chat_tools import run_sandbox_preview
+
+    def _run():
+        return run_sandbox_preview(
+            dataset_key,
+            rule_ids=list(req.rule_ids or []) or None,
+            query=req.query,
+            calendar_day=req.calendar_day,
+            day_idx=req.day_idx,
+            sample_size=req.sample_size,
+        )
+
+    try:
+        payload = await asyncio.to_thread(_run)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return payload
 
 
 @hitl_router.post("/sandbox")
@@ -485,7 +627,8 @@ async def sandbox_clean(req: SandboxRequest):
         raise HTTPException(status_code=400, detail="dataset_key is required")
     db = get_db()
     from src.tools.chat_tools import approved_rules_for_clean, persist_sandbox_split
-    from src.services.dataset_engine import load_sandbox_rows, execute_compiled_rules
+    from src.services.dataset_engine import PREVIEW_ROW_CAP, load_sandbox_rows, execute_compiled_rules
+    from src.services.th_hitl_flow import preview_split_counts, resolve_calendar_day
 
     rule_ids = list(req.rule_ids or [])
     for rid in rule_ids:
@@ -496,22 +639,34 @@ async def sandbox_clean(req: SandboxRequest):
             status_code=403,
             detail="Rule execution denied: Rule is not approved by HITL",
         )
-    cap = SANDBOX_SAMPLE_CAP
+    cap = PREVIEW_ROW_CAP
     if req.sample_size is not None:
         try:
-            cap = max(1, min(int(req.sample_size), SANDBOX_SAMPLE_CAP))
+            cap = max(1, min(int(req.sample_size), PREVIEW_ROW_CAP))
         except (TypeError, ValueError):
-            cap = SANDBOX_SAMPLE_CAP
+            cap = PREVIEW_ROW_CAP
     snapshot_id = f"sandbox:{dataset_key}:{uuid.uuid4().hex[:12]}"
+    day = resolve_calendar_day(req.calendar_day, req.day_idx)
+    counts = preview_split_counts(db, dataset_key, rules, req.calendar_day, req.day_idx)
 
     def _run():
-        rows = load_sandbox_rows(dataset_key, rules, cap, db=db)
+        rows = load_sandbox_rows(
+            dataset_key, rules, cap, db=db, calendar_day=day, day_idx=req.day_idx,
+        )
         exec_res = execute_compiled_rules(rows, rules)
         payload = persist_sandbox_split(
-            dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id
+            dataset_key, rows, exec_res, rules, db=db, snapshot_id=snapshot_id,
+            preview_counts=counts, calendar_day=day,
         )
-        payload["sampled_rows"] = len(rows)
+        payload["sampled_rows"] = min(len(rows), PREVIEW_ROW_CAP)
         payload["sample_cap"] = cap
+        payload["scoped_rows"] = counts.get("scoped_rows")
+        payload["clean_rows"] = counts.get("clean_rows")
+        payload["quarantine_rows"] = counts.get("quarantine_rows")
+        payload["per_rule_counts"] = counts.get("per_rule_counts") or payload.get("per_rule_counts")
+        payload["counts_kind"] = "preview"
+        payload["warehouse_clean_rows"] = 0
+        payload["warehouse_quarantine_rows"] = 0
         return payload
 
     try:
@@ -525,6 +680,28 @@ async def sandbox_clean(req: SandboxRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    from src.services.th_hitl_flow import persist_decision
+    q_items = payload.get("quarantine") or []
+    row_ids = [str(x.get("source_row_id") or x.get("id") or "") for x in q_items if isinstance(x, dict)]
+    try:
+        persist_decision(
+            db,
+            dataset_key=dataset_key,
+            calendar_day=day,
+            rule_id=(rule_ids[0] if rule_ids else "sandbox"),
+            persona="Steward",
+            action="sandbox_clean",
+            row_ids=row_ids,
+            details={
+                "snapshot_id": payload.get("snapshot_id"),
+                "clean_rows": payload.get("clean_rows"),
+                "quarantine_rows": payload.get("quarantine_rows"),
+                "scoped_rows": payload.get("scoped_rows"),
+                "counts_kind": "preview",
+            },
+        )
+    except Exception:
+        pass
     AuditService.log(
         "SANDBOX_CLEAN",
         "HITL_USER",
@@ -534,35 +711,49 @@ async def sandbox_clean(req: SandboxRequest):
             "clean_rows": payload.get("clean_rows"),
             "quarantine_rows": payload.get("quarantine_rows"),
             "manifest_hash": payload.get("manifest_hash"),
+            "calendar_day": day,
         },
     )
     _log_sandbox_clean_beat(dataset_key, payload)
-    return payload
+    payload["calendar_day"] = day
+    payload["run_id"] = day or payload.get("snapshot_id")
+    def _jsonable(obj):
+        import math
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        if isinstance(obj, dict):
+            return {k: _jsonable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_jsonable(v) for v in obj]
+        return obj
+    return _jsonable(payload)
 
 
 @hitl_router.get("/sandbox/{run_id}")
 async def get_sandbox_run(run_id: str):
-    """Preview a sandbox run from canonical quarantine (snapshot_id), not sandbox.*."""
+    """Preview a sandbox run from meta first, then example quarantine rows. COUNT-only (Q=0) is 200."""
     db = get_db()
     snap = (run_id or "").strip()
     if not snap:
         raise HTTPException(status_code=400, detail="run_id is required")
+    from src.services.th_hitl_flow import load_sandbox_preview_meta
+    meta = load_sandbox_preview_meta(db, snap) or {}
     try:
         q_rows = db.execute(
             "SELECT id, snapshot_id, source_table, source_row_id, rule_id, reason, original_data, lineage_hash "
             "FROM main.quarantine WHERE snapshot_id = ? ORDER BY source_row_id LIMIT 100",
             [snap],
         )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    if not q_rows:
+    except Exception:
+        q_rows = []
+    if not q_rows and not meta:
         raise HTTPException(status_code=404, detail=f"Sandbox run '{snap}' not found")
     import json as _json
     quarantine_items = []
     cell_diffs = []
     per_rule: dict = {}
-    dataset_key = ""
-    for r in q_rows:
+    dataset_key = str(meta.get("dataset_key") or "")
+    for r in q_rows or []:
         orig = r[6]
         if isinstance(orig, str):
             try:
@@ -599,20 +790,39 @@ async def get_sandbox_run(run_id: str):
                     "after_value": None,
                     "reason": reason,
                 })
+    q_count = int(meta.get("quarantine_rows") if meta.get("quarantine_rows") is not None else len(quarantine_items))
+    c_count = int(meta.get("clean_rows") if meta.get("clean_rows") is not None else 0)
+    scoped = int(meta.get("scoped_rows") or (c_count + q_count) or 0)
+    if meta.get("per_rule_counts"):
+        per_rule = {str(k): int(v) for k, v in (meta.get("per_rule_counts") or {}).items()}
+    kind = str(meta.get("counts_kind") or "preview")
+    wh_c = int(meta.get("warehouse_clean_rows") or 0) if kind == "warehouse" else 0
+    wh_q = int(meta.get("warehouse_quarantine_rows") or 0) if kind == "warehouse" else 0
     return {
         "run_id": snap,
         "dataset_key": dataset_key,
         "health_before": None,
         "health_after": None,
-        "counts": {"quarantine_rows": len(quarantine_items), "per_rule": per_rule},
-        "clean_rows": 0,
-        "quarantine_rows": len(quarantine_items),
+        "counts": {
+            "clean_rows": c_count,
+            "quarantine_rows": q_count,
+            "scoped_rows": scoped,
+            "per_rule": per_rule,
+            "kind": kind,
+        },
+        "clean_rows": c_count,
+        "quarantine_rows": q_count,
+        "scoped_rows": scoped,
+        "counts_kind": kind,
+        "warehouse_clean_rows": wh_c,
+        "warehouse_quarantine_rows": wh_q,
         "quarantine": quarantine_items,
         "cell_diffs": cell_diffs[:10],
         "per_rule_counts": per_rule,
+        "sampled_rows": len(quarantine_items),
         "tables": [dataset_key] if dataset_key else [],
-        "promoted": False,
-        "execute": "off",
+        "promoted": kind == "warehouse",
+        "execute": "on" if kind == "warehouse" else "off",
     }
 
 
@@ -652,4 +862,99 @@ async def reset_hitl_and_rules():
         "message": "DB rule history and audit log reset successfully",
         "details": deleted_counts
     }
+
+
+class DayCountRequest(BaseModel):
+    dataset_key: str
+    calendar_day: Optional[str] = None
+    day_idx: Optional[int] = None
+
+
+@hitl_router.get("/day-count")
+async def hitl_day_count(dataset_key: str, calendar_day: Optional[str] = None, day_idx: Optional[int] = None):
+    from src.services.th_hitl_flow import day_scoped_count
+    db = get_db()
+    _ensure_hitl_columns(db)
+    return day_scoped_count(db, dataset_key, calendar_day, day_idx)
+
+
+class RememberRequest(BaseModel):
+    dataset_key: str
+    rule_id: str
+    remember: bool = True
+    actor: str = "Steward"
+
+
+@hitl_router.post("/remember")
+async def hitl_remember(req: RememberRequest):
+    from src.services.th_hitl_flow import remember_rule, expire_memory
+    db = get_db()
+    _ensure_hitl_columns(db)
+    if req.remember:
+        return remember_rule(db, req.dataset_key, req.rule_id, req.actor, True)
+    return expire_memory(db, req.dataset_key, req.rule_id, req.actor)
+
+
+@hitl_router.get("/memory")
+async def hitl_memory(dataset_key: str):
+    from src.services.th_hitl_flow import memory_payload
+    db = get_db()
+    _ensure_hitl_columns(db)
+    return memory_payload(db, dataset_key)
+
+
+class RollbackRequest(BaseModel):
+    dataset_key: str
+    calendar_day: Optional[str] = None
+    rule_id: Optional[str] = None
+    actor: str = "Steward"
+
+
+@hitl_router.post("/rollback")
+async def hitl_rollback(req: RollbackRequest):
+    from src.services.th_hitl_flow import rollback_last_clean
+    db = get_db()
+    _ensure_hitl_columns(db)
+    return rollback_last_clean(db, req.dataset_key, req.calendar_day, req.actor, req.rule_id)
+
+
+@hitl_router.get("/incidents")
+async def hitl_incident_stories(dataset_key: Optional[str] = None, calendar_day: Optional[str] = None, day_idx: Optional[int] = None):
+    from src.services.th_hitl_flow import incident_stories
+    db = get_db()
+    _ensure_hitl_columns(db)
+    return {"incidents": incident_stories(db, dataset_key, calendar_day, day_idx)}
+
+
+class ConfirmPatchRequest(BaseModel):
+    rule_id: str
+    rule_expression: str
+    edited_by: str = "Steward"
+    dataset_key: Optional[str] = None
+    calendar_day: Optional[str] = None
+
+
+@hitl_router.post("/confirm-patch/{rule_id}")
+async def confirm_chat_patch(rule_id: str, req: ConfirmPatchRequest):
+    """Steward Confirm of a chat-proposed rule edit (before/after). Analyst 403 via middleware."""
+    db = get_db()
+    _ensure_hitl_columns(db)
+    rules = db.execute("SELECT id, rule_expression FROM quality_rules WHERE id = ?", [rule_id])
+    if not rules:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+    before = rules[0][1]
+    db.execute("UPDATE quality_rules SET rule_expression = ?, status = 'edited' WHERE id = ?", [req.rule_expression, rule_id])
+    from src.services.th_hitl_flow import persist_decision, stamp_rule_run_context
+    stamp_rule_run_context(db, rule_id, req.calendar_day, req.dataset_key)
+    persist_decision(
+        db,
+        dataset_key=req.dataset_key or "",
+        calendar_day=req.calendar_day,
+        rule_id=rule_id,
+        persona=req.edited_by,
+        action="confirm_patch",
+        details={"before": before, "after": req.rule_expression},
+    )
+    AuditService.log("CONFIRM_PATCH", req.edited_by, "quality_rules", rule_id, {"before": before, "after": req.rule_expression})
+    return {"status": "edited", "rule_id": rule_id, "before": before, "after": req.rule_expression}
 

@@ -74,6 +74,13 @@ def _ensure_main_quarantine_table(db):
 
 def _this_run_quarantine_count(db) -> int:
     try:
+        meta = db.execute("SELECT COALESCE(SUM(quarantine_rows), 0) FROM sandbox_preview_meta")
+        n = int(meta[0][0]) if meta else 0
+        if n:
+            return n
+    except Exception:
+        pass
+    try:
         tr = db.execute(
             "SELECT COUNT(*) FROM main.quarantine "
             "WHERE CAST(snapshot_id AS VARCHAR) LIKE 'sandbox:%' OR rule_version_id = 'sandbox'"

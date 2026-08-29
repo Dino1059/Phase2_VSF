@@ -5,6 +5,7 @@ import { RuleProposalCard } from '../hitl/RuleProposalCard';
 import { AGENTS } from '../../types';
 import type { ChatMessage, RuleProposal } from '../../types';
 import { Wrench } from 'lucide-react';
+import { useAuthStore, roleCan } from '../../stores/authStore';
 
 const AGENT_ALIASES: Record<string, keyof typeof AGENTS> = {
   'rule_proposer': 'ruleProposer',
@@ -57,6 +58,9 @@ export function AgentMessage({
   const proposals: RuleProposal[] = Array.isArray(message.metadata?.proposals) ? message.metadata.proposals : [];
   const toolName = toolNameFromMessage(message);
   const chip = catalogFor(toolName);
+  const editRule = Boolean(message.metadata?.edit_rule);
+  const editRuleId = typeof message.metadata?.rule_id === 'string' ? message.metadata.rule_id : '';
+  const canHitlWrite = useAuthStore((s) => roleCan(s.user?.role, 'hitl_write'));
 
   if (isThought) {
     return null;
@@ -103,6 +107,56 @@ export function AgentMessage({
         {!isObservation && content ? (
           <div className="bg-chat-agent-bubble border border-border/70 rounded-2xl rounded-tl-md px-4 py-2.5 text-sm text-text-primary leading-relaxed space-y-1.5 shadow-sm">
             {renderFormattedContent(content)}
+          </div>
+        ) : null}
+
+        {editRule ? (
+          <div className="mt-2 flex flex-wrap gap-2" data-testid="chat-edit-rule-actions">
+            {canHitlWrite ? (
+              <button
+                type="button"
+                data-testid="chat-edit-rule-apply"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('datatrust:hitl-apply-pending', { detail: { rule_id: editRuleId } }));
+                }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(5, 150, 105, 0.45)',
+                  background: 'rgba(5, 150, 105, 0.14)',
+                  color: '#059669',
+                  cursor: 'pointer',
+                }}
+              >
+                Apply pending on card
+              </button>
+            ) : (
+              <span data-testid="chat-edit-rule-analyst-locked" style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
+                Analyst cannot Apply — Steward Confirm required
+              </span>
+            )}
+            {canHitlWrite ? (
+              <button
+                type="button"
+                data-testid="chat-edit-rule-edit-myself"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('datatrust:hitl-edit-focus', { detail: { rule_id: editRuleId } }));
+                }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid var(--glass-border, #cbd5e1)',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                I&apos;ll edit myself
+              </button>
+            ) : null}
           </div>
         ) : null}
 

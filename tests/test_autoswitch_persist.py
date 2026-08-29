@@ -55,7 +55,7 @@ def _autoswitch_block(ws: str) -> str:
     start = ws.find("Context-Aware Auto-Switch")
     assert start != -1, "auto-switch effect missing"
     rest = ws[start:]
-    end = rest.find("\n  }, [chatMessages]")
+    end = rest.find("\n  }, [chatMessages")
     assert end != -1, "auto-switch must run on chatMessages, not a user click"
     return rest[: end + len("\n  }, [chatMessages]")]
 
@@ -174,7 +174,7 @@ def test_autoswitch_does_not_unmount_traces_or_clear_on_empty_get():
     code = _strip_comments(load)
     auto = _autoswitch_block(ws)
 
-    assert "[chatMessages]" in auto
+    assert "[chatMessages" in auto
     assert "setRightTab('tab-profiler')" in auto
     assert "setRightTab('tab-rules')" in auto
 
@@ -290,7 +290,7 @@ def test_autoswitch_does_not_relax_vin_flash_hitl_or_keep_mount():
     assert "socBelowZero: 172" in facts
     assert "openIncidents: 8" in facts
 
-    approve = rules.split("const handleApprove")[1].split("const handleReject")[0]
+    approve = rules.split("const handleApprove")[1].split("const handleConfirmReject")[0]
     assert "hitlApi.approve" in approve
     assert "hitlApi.execute" not in approve
     assert "Execute disabled · sandbox not run · quarantine=0" in rules

@@ -12,6 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
 
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
+import { dayIdxToCalendarDay, searchHitWorkspacePath, workspaceHref } from '../../lib/calendarDay';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chatStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
@@ -31,12 +32,27 @@ interface StaticSearchResult {
 const STATIC_OPERATIONS: StaticSearchResult[] = [
   { id: 'op-dashboard', title: { en: 'Executive Homepage', vi: 'Trang Chủ Điều Hành' }, category: 'operation', description: { en: 'Real-time KPI metrics, anomaly trends, and HITL governance', vi: 'Chỉ số KPI thời gian thực, xu hướng bất thường và quản trị HITL' }, path: '/dashboard', icon: LayoutDashboard },
   { id: 'op-new-chat', title: { en: 'New Agent Session', vi: 'Phiên Trò Chuyện Agent Mới' }, category: 'action', description: { en: 'Start AI Steward interactive analysis session', vi: 'Bắt đầu phiên phân tích tương tác với AI Steward' }, path: '/workspace', icon: MessageSquare },
+  { id: 'ws-rules', title: { en: 'Workspace · Rules', vi: 'Workspace · Bộ Luật' }, category: 'operation', description: { en: 'HITL rules for current table and day', vi: 'Luật HITL cho bảng và ngày hiện tại' }, path: '/workspace?tab=tab-rules', icon: ShieldCheck },
+  { id: 'ws-split', title: { en: 'Workspace · Quarantine', vi: 'Workspace · Cách ly' }, category: 'operation', description: { en: 'Split / quarantine for current table and day', vi: 'Phân tách / cách ly theo bảng và ngày' }, path: '/workspace?tab=tab-split', icon: History },
+  { id: 'ws-traces', title: { en: 'Workspace · Traces', vi: 'Workspace · Dấu vết' }, category: 'operation', description: { en: 'Agent traces for current table and day', vi: 'Dấu vết agent theo bảng và ngày' }, path: '/workspace?tab=tab-traces', icon: GitBranch },
   { id: 'op-alerts', title: { en: 'Alert Dashboard', vi: 'Bảng Cảnh Báo Điều Hành' }, category: 'operation', description: { en: 'Real-time threshold alerts and multi-layer triage', vi: 'Cảnh báo ngưỡng thời gian thực và phân loại đa tầng' }, path: '/operations/alerts', icon: AlertTriangle },
   { id: 'op-traces', title: { en: 'Agent Traces', vi: 'Dấu Vết Thực Thi Agent' }, category: 'operation', description: { en: 'ReAct agent execution trajectories and tool logs', vi: 'Quỹ đạo thực thi agent ReAct và nhật ký công cụ' }, path: '/operations/traces', icon: GitBranch },
   { id: 'op-governance', title: { en: 'Governance & Rules', vi: 'Quản Trị & Bộ Luật' }, category: 'operation', description: { en: 'Data quality rule policies and audit controls', vi: 'Chính sách luật chất lượng dữ liệu và kiểm toán' }, path: '/operations/governance', icon: ShieldCheck },
   { id: 'op-executions', title: { en: 'Execution History', vi: 'Lịch Sử Thực Thi' }, category: 'operation', description: { en: 'Quarantine and clean split transformation executions', vi: 'Lịch sử phân tách tập sạch và vùng cách ly' }, path: '/operations/executions', icon: History },
   { id: 'op-snapshots', title: { en: 'Data Snapshots', vi: 'Ảnh Chụp Dữ Liệu' }, category: 'operation', description: { en: 'Cryptographic schema state and row count manifests', vi: 'Trạng thái schema mã hóa và bản kê số hàng' }, path: '/operations/snapshots', icon: Camera },
 ];
+
+function axisFromSearch(search: string): { table: string; day: string | null } {
+  const locQ = new URLSearchParams(search);
+  const urlDayRaw = locQ.get('day') || locQ.get('run_id') || locQ.get('day_idx');
+  const urlDay = urlDayRaw && urlDayRaw.includes('-')
+    ? urlDayRaw
+    : dayIdxToCalendarDay(urlDayRaw != null ? parseInt(urlDayRaw, 10) : null);
+  return {
+    table: locQ.get('dataset_key') || usePipelineStore.getState().domainId || 'ev_telemetry',
+    day: urlDay || usePipelineStore.getState().sourceIngestionRunId || dayIdxToCalendarDay(usePipelineStore.getState().selectedDayIdx),
+  };
+}
 
 export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; onToggleNav?: () => void } = {}) {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -200,13 +216,19 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
   const localResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     const curLang = isVi ? 'vi' : 'en';
+    const { table: axisTable, day: axisDay } = axisFromSearch(location.search);
+    const bindWs = (path: string) => {
+      if (!path.startsWith('/workspace?tab=')) return path;
+      const tab = new URLSearchParams(path.split('?')[1] || '').get('tab') || 'tab-profiler';
+      return workspaceHref(axisTable, axisDay, tab);
+    };
     if (!q) {
       return STATIC_OPERATIONS.slice(0, 6).map((op) => ({
         id: op.id,
         title: op.title[curLang],
         category: op.category,
         description: op.description[curLang],
-        path: op.path,
+        path: bindWs(op.path),
         icon: op.icon,
       }));
     }
@@ -217,14 +239,21 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
         op.title.vi.toLowerCase().includes(q) ||
         op.description.en.toLowerCase().includes(q) ||
         op.description.vi.toLowerCase().includes(q)
-    ).map((op) => ({
-      id: op.id,
-      title: op.title[curLang],
-      category: op.category,
-      description: op.description[curLang],
-      path: op.path,
-      icon: op.icon,
-    }));
+    ).map((op) => {
+      let path = op.path;
+      if (path.startsWith('/workspace?tab=')) {
+        const tab = new URLSearchParams(path.split('?')[1] || '').get('tab') || 'tab-profiler';
+        path = workspaceHref(axisTable, axisDay, tab);
+      }
+      return {
+        id: op.id,
+        title: op.title[curLang],
+        category: op.category,
+        description: op.description[curLang],
+        path,
+        icon: op.icon,
+      };
+    });
 
     const matchedDatasets = DOMAIN_LIST.filter(
       (d) => d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q) || d.shortcut.toLowerCase().includes(q)
@@ -233,12 +262,12 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
       title: d.name,
       category: 'dataset' as const,
       description: isVi ? `Bộ dữ liệu thử nghiệm · ${d.shortcut}` : `Pilot dataset · ${d.shortcut}`,
-      path: `/workspace?dataset_key=${encodeURIComponent(d.id)}`,
+      path: workspaceHref(d.id, axisDay, 'tab-profiler'),
       icon: Database,
     }));
 
     return [...matchedDatasets, ...matchedOps];
-  }, [searchQuery, isVi]);
+  }, [searchQuery, isVi, location.search]);
 
 
 
@@ -263,14 +292,9 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
       }
     });
 
+    const { day: calendarDay } = axisFromSearch(location.search);
     backendHits.forEach((hit, idx) => {
-      const path = hit.entity_type === 'dataset' && hit.key
-        ? `/workspace?dataset_key=${encodeURIComponent(hit.key)}`
-        : hit.entity_type === 'alert'
-          ? '/operations/alerts'
-          : hit.entity_type === 'rule'
-            ? '/operations/governance'
-            : '/dashboard';
+      const path = searchHitWorkspacePath(hit, calendarDay);
 
       const title = hit.name || hit.title || hit.key || 'Entity';
       const tLower = title.toLowerCase().trim();
@@ -288,7 +312,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
     });
 
     return items;
-  }, [localResults, backendHits]);
+  }, [localResults, backendHits, location.search]);
 
   const handleSelectItem = (path: string) => {
     setSearchOpen(false);
@@ -759,13 +783,8 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
                   {backendHits.map((hit, hIdx) => {
                     const globalIdx = localResults.length + hIdx;
                     const isSelected = globalIdx === selectedIndex;
-                    const path = hit.entity_type === 'dataset' && hit.key
-                      ? `/workspace?dataset_key=${encodeURIComponent(hit.key)}`
-                      : hit.entity_type === 'alert'
-                        ? '/operations/alerts'
-                        : hit.entity_type === 'rule'
-                          ? '/operations/governance'
-                          : '/dashboard';
+                    const { day: axisDay } = axisFromSearch(location.search);
+                    const path = searchHitWorkspacePath(hit, axisDay);
 
                     return (
                       <div

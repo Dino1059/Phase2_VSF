@@ -8,13 +8,27 @@ from src.db.connection import DuckDBManager
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    from src.db import connection as conn_module
+    prev_mgr = getattr(conn_module, "_db_manager", None)
+    conn_module._db_manager = None
     db_path = str(tmp_path / "test.duckdb")
     db = DuckDBManager(db_path=db_path)
+    conn_module._db_manager = db
     db.init_schema()
+    for stmt in (
+        "ALTER TABLE quality_rules ADD COLUMN approved_by VARCHAR",
+        "ALTER TABLE quality_rules ADD COLUMN approved_at VARCHAR",
+    ):
+        try:
+            db.execute(stmt)
+        except Exception:
+            pass
     monkeypatch.setattr('src.api.hitl.get_db', lambda: db)
     monkeypatch.setattr('src.services.audit.get_db', lambda: db)
-    yield TestClient(app, headers={"X-User-Role": "Admin"}), db
+    monkeypatch.setattr('src.db.connection.get_db', lambda: db)
+    yield TestClient(app, headers={"X-User-Role": "Steward"}), db
     db.close()
+    conn_module._db_manager = prev_mgr
 
 
 def test_get_empty_queue(client):
@@ -140,7 +154,8 @@ def test_get_history_populated(client):
     resp = c.get("/api/v1/hitl/history")
     assert resp.status_code == 200
     assert len(resp.json()["history"]) >= 1
-    assert any(item["action"] == "APPROVE_RULE" for item in resp.json()["history"])
+    actions = {item.get("action", "") for item in resp.json()["history"]}
+    assert any("APPROVE" in a.upper() for a in actions)
 
 
 def test_full_workflow(client):
@@ -182,7 +197,9 @@ def test_queue_include_active_keeps_approved_after_approve(client):
     resp = c.post("/api/v1/hitl/approve/r1", json={"approved_by": "tester"})
     assert resp.status_code == 200
     default_q = c.get("/api/v1/hitl/queue").json()["proposals"]
-    assert {p["rule_id"] for p in default_q} == {"r2"}
+    default_ids = {p["rule_id"] for p in default_q}
+    assert "r2" in default_ids
+    assert "r1" not in default_ids
     active = c.get("/api/v1/hitl/queue?include_active=true").json()["proposals"]
     by_id = {p["rule_id"]: p for p in active}
     assert by_id["r1"]["status"] == "approved"

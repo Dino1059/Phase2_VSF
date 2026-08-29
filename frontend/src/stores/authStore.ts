@@ -13,7 +13,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
   Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'clear_alerts', 'reset']),
   Analyst: new Set(['read', 'profile', 'propose_rules', 'execute_transform']),
   Auditor: new Set(['read', 'review_rules']),
-  Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'create_alert']),
+  Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'hitl_write', 'execute_transform', 'manage_schedule', 'create_alert']),
   Viewer: new Set(['read']),
 };
 
@@ -47,6 +47,7 @@ interface AuthState {
   isStewardOrAdmin: () => boolean;
   hasPermission: (action: string) => boolean;
   canReviewRules: () => boolean;
+  canHitlWrite: () => boolean;
   canPropose: () => boolean;
   canExecute: () => boolean;
 }
@@ -180,6 +181,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPermission: (action) => roleCan(get().user?.role, action),
 
   canReviewRules: () => get().hasPermission('review_rules'),
+  canHitlWrite: () => get().hasPermission('hitl_write'),
   canPropose: () => get().hasPermission('propose_rules'),
   canExecute: () => get().hasPermission('execute_transform'),
 }));

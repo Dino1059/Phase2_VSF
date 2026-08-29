@@ -49,10 +49,10 @@ def test_datasets_list_endpoint():
 
 
 def test_dataset_metadata_endpoint():
-    response = client.get("/api/v1/datasets/nyc_fhvhv")
+    response = client.get("/api/v1/datasets/ev_telemetry")
     assert response.status_code == 200
     data = response.json()
-    assert data["key"] == "nyc_fhvhv"
+    assert data["key"] == "ev_telemetry"
     assert "exists" in data
 
 

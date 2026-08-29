@@ -29,6 +29,7 @@ import {
   authorizationsApi,
   executionsApi,
   incidentsApi,
+  hitlApi,
   rulesApi,
   QualityRuleItem,
   quarantineApi,
@@ -39,6 +40,8 @@ import {
 } from '../services/api';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useAuthStore } from '../stores/authStore';
+import { usePipelineStore } from '../stores/pipelineStore';
+import { dayIdxToCalendarDay } from '../lib/calendarDay';
 
 /** This-run Split totals (sandbox DuckDB), never leftover warehouse 50k. */
 function thisRunSplitTotals(): { thisRun: boolean; quarantine: number } {
@@ -131,6 +134,8 @@ export const OperationsWorkspace: React.FC = () => {
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const canReviewRules = useAuthStore((s) => s.canReviewRules());
+  const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
+  const axisDay = dayIdxToCalendarDay(selectedDayIdx);
 
   // Determine main dashboard group and active subtab
   const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || !!ruleParam;
@@ -153,6 +158,9 @@ export const OperationsWorkspace: React.FC = () => {
 
   // Rules-specific filters & states
   const [datasetFilter, setDatasetFilter] = useState<string>('all');
+  const storyDataset = datasetFilter === 'all'
+    ? undefined
+    : (datasetFilter === 'vinfast_ev_telemetry' ? 'ev_telemetry' : datasetFilter);
   const [layerFilter, setLayerFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [actionLoadingRuleId, setActionLoadingRuleId] = useState<string | null>(null);
@@ -216,14 +224,28 @@ export const OperationsWorkspace: React.FC = () => {
     setError(null);
     try {
       if (activeSubTab === 'alerts' || activeSubTab === 'incidents') {
-        const [sumRes, incRes, qCountRes, auditRes] = await Promise.all([
+        const [sumRes, incRes, storiesRes, qCountRes, auditRes] = await Promise.all([
           summaryApi.get().catch(() => null),
           incidentsApi.list().catch(() => []),
+          hitlApi.incidentStories(storyDataset, axisDay, selectedDayIdx).catch(() => ({ incidents: [] })),
           quarantineApi.count().catch(() => null),
           auditApi.list(50).catch(() => []),
         ]);
         if (sumRes) setSummary(sumRes);
-        setData(incRes || []);
+        const stories = (storiesRes as { incidents?: any[] })?.incidents || [];
+        const storyRows = stories.map((s) => ({
+          incident_id: s.incident_id,
+          target_entity: s.entity_id,
+          llm_claim: `${s.copy?.suspected || ''} ${s.copy?.because || ''} ${s.copy?.recommend || ''}`.trim(),
+          severity: s.severity,
+          status: s.status,
+          layer: s.primary_rule_id || 'rule',
+          rule_href: s.rule_href,
+          quarantine_href: s.quarantine_href,
+          dataset_key: s.dataset_key,
+          calendar_day: s.calendar_day,
+        }));
+        setData(storyRows.length ? storyRows : (incRes || []));
         const stored = thisRunSplitTotals();
         const apiThisRun = Number(
           (qCountRes as { this_run?: number } | null)?.this_run
@@ -275,7 +297,7 @@ export const OperationsWorkspace: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeSubTab, isVi]);
+  }, [activeSubTab, isVi, storyDataset, axisDay, selectedDayIdx]);
 
   useEffect(() => {
     loadData();

@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Layers, Activity, ShieldCheck, Sparkles } from 'lucide-react';
-import { sendChatMessage, fetchChatHistory } from '../../services/api';
+import { sendChatMessage, fetchChatHistory, hitlApi } from '../../services/api';
 import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
+import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
+import { dayIdxToCalendarDay } from '../../lib/calendarDay';
 
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -21,8 +23,11 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
   const abortRef = useRef<AbortController | null>(null);
   const sessionId = useChatStore((s) => s.sessionId);
   const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
+  const sourceIngestionRunId = usePipelineStore((s) => s.sourceIngestionRunId);
+  const pipelineRunId = usePipelineStore((s) => s.runId);
   const canPropose = useAuthStore((s) => s.canPropose());
   const canExecute = useAuthStore((s) => s.canExecute());
+  const canHitlWrite = useAuthStore((s) => s.canHitlWrite());
 
   const executePrompt = async (promptText: string) => {
     if (isSending || !promptText.trim()) return;
@@ -42,6 +47,73 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return;
       console.error('Failed to send message:', e instanceof Error ? e.message : 'Unable to reach the assistant.');
+    } finally {
+      setIsSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleWarehouseExecute = async () => {
+    if (isSending || !canHitlWrite) return;
+    setIsSending(true);
+    const key = datasetKey || 'ev_telemetry';
+    const axisRun = sourceIngestionRunId || pipelineRunId;
+    const calendarDay = axisRun && String(axisRun).includes('-')
+      ? String(axisRun)
+      : dayIdxToCalendarDay(selectedDayIdx);
+    const storeKey = datasetStoreKey(key);
+    try {
+      let ruleIds: string[] = [];
+      try {
+        const queue = await hitlApi.queue(key, calendarDay || undefined);
+        ruleIds = (queue.proposals || [])
+          .filter((r) => {
+            const s = (r.status || '').toLowerCase();
+            return s === 'approved' || s === 'edited';
+          })
+          .map((r) => r.rule_id);
+      } catch { /* backend still selects approved rules */ }
+      const res = await hitlApi.executeWarehouse(key, ruleIds, calendarDay, selectedDayIdx);
+      const c = res.warehouse_clean_rows ?? res.clean_rows ?? 0;
+      const q = res.warehouse_quarantine_rows ?? res.quarantine_rows ?? 0;
+      useWorkspaceStore.getState().mergeSplitRows(storeKey, {
+        cleanRan: true,
+        thisRun: true,
+        warehouseCommitted: true,
+        totalClean: c,
+        totalQuarantine: q,
+        snapshotId: res.snapshot_id || '',
+      });
+      const detail = {
+        ...(res || {}),
+        thisRun: true,
+        cleanRan: true,
+        warehouseCommitted: true,
+        dataset_key: key,
+        snapshot_id: res.snapshot_id,
+        clean_rows: c,
+        quarantine_rows: q,
+        counts_kind: 'warehouse',
+      };
+      try {
+        window.dispatchEvent(new CustomEvent('datatrust:sandbox-split', { detail }));
+      } catch { /* ignore */ }
+      useChatStore.getState().addMessage({
+        id: `wh-exe-${Date.now()}`,
+        type: 'agent',
+        content: i18n.language === 'vi'
+          ? `Execute kho (Steward): sạch ${c} · cách ly ${q}`
+          : `Warehouse execute (Steward): clean ${c} · quarantine ${q}`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'execute failed';
+      useChatStore.getState().addMessage({
+        id: `wh-exe-err-${Date.now()}`,
+        type: 'agent',
+        content: msg,
+        timestamp: new Date().toISOString(),
+      });
     } finally {
       setIsSending(false);
       inputRef.current?.focus();
@@ -144,11 +216,12 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
         </>
         )}
 
-        {canExecute && (
+        {canHitlWrite && canExecute && (
         <button
           type="button"
+          data-testid="chat-clean-chip-steward"
           disabled={isSending}
-          onClick={() => executePrompt(i18n.language === 'vi' ? 'Làm sạch dữ liệu' : 'clean database')}
+          onClick={() => void handleWarehouseExecute()}
           style={{
             background: 'var(--bg-card)',
             border: '1px solid var(--glass-border)',

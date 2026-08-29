@@ -30,10 +30,10 @@ def e2e_db(monkeypatch):
     monkeypatch.setattr("src.services.audit.get_db", lambda: db)
     monkeypatch.setattr("src.db.connection.get_db", lambda: db)
     # Seed data
-    db.execute("INSERT INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (1, 'VG-001', 45.0, 220.0, 75.0, 'OK')")
-    db.execute("INSERT INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
-    db.execute("INSERT INTO nlp_feedback (id, review_text, rating, source) VALUES (1, 'Dịch vụ tốt lắm', 5.0, 'csv')")
-    db.execute("INSERT INTO nlp_feedback (id, review_text, rating, source) VALUES (2, 'App lag quá, xe bẩn', 1.0, 'csv')")
+    db.execute("INSERT INTO ev_telemetry (record_id, vehicle_vin, battery_soc, battery_temp_c, state_at_sample) VALUES ('R-1', 'VF8-001', 85.0, 35.0, 'OK')")
+    db.execute("INSERT INTO ev_telemetry (record_id, vehicle_vin, battery_soc, battery_temp_c, state_at_sample) VALUES ('R-2', 'VF8-001', 150.0, 99.0, 'FAULT')")
+    db.execute("INSERT INTO nlp_feedback (feedback_id, sentence, sentiment, topic) VALUES ('F-1', 'Dich vu tot lam', 2, 1)")
+    db.execute("INSERT INTO nlp_feedback (feedback_id, sentence, sentiment, topic) VALUES ('F-2', 'App lag qua, xe ban', 0, 1)")
     yield db
     db.close()
     os.unlink(db_path)
@@ -77,9 +77,9 @@ def test_e2e_pipeline(e2e_db):
     assert approved[0][0] == "approved"
 
     # Step 6: Execute and verify quarantine
-    e2e_db.execute("INSERT OR REPLACE INTO ev_telemetry (id, station_id, temperature_celsius, voltage, duty_cycle, status) VALUES (2, 'VG-001', 999.0, 220.0, 75.0, 'FAULT')")
-    violations = e2e_db.execute("SELECT id FROM ev_telemetry WHERE NOT (temperature_celsius BETWEEN -10 AND 85)")
-    assert len(violations) >= 1  # id=2 has temp=999
+    e2e_db.execute("INSERT INTO ev_telemetry (record_id, vehicle_vin, battery_temp_c, state_at_sample) VALUES ('R-2b', 'VF8-001', 999.0, 'FAULT')")
+    violations = e2e_db.execute("SELECT record_id FROM ev_telemetry WHERE NOT (battery_temp_c BETWEEN -10 AND 85)")
+    assert len(violations) >= 1
 
     # Step 7: Verify audit logging
     audit_id = AuditService.log("E2E_TEST", "tester", "ev_telemetry", "e2e-r1", {"violations": len(violations)})

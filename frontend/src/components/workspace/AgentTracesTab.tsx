@@ -113,8 +113,10 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   onSelectStep,
   pendingRun = false,
   active = false,
+  dayIdx = null,
+  runId = null,
 }) => {
-  const storeKey = datasetStoreKey(datasetKey, sessionId);
+  const storeKey = `${datasetStoreKey(datasetKey, sessionId)}:${runId || dayIdx || 'all'}`;
   const traces = useWorkspaceStore((s) => s.tracesByDataset[storeKey] || EMPTY_TRACES);
   const mergeTraces = useWorkspaceStore((s) => s.mergeTraces);
   const [loading, setLoading] = useState(false);
@@ -217,7 +219,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
     } catch {
       // keep existing hash trail
     }
-  }, [datasetKey, effectiveSessionId, mergeTraces, replayBeats, storeKey, timeFilter]);
+  }, [datasetKey, effectiveSessionId, mergeTraces, replayBeats, storeKey, timeFilter, dayIdx, runId]);
 
   useEffect(() => {
     void loadTraces();

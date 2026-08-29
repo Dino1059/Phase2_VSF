@@ -51,7 +51,7 @@ def test_init_schema_idempotent(tmp_db):
 def test_insert_and_query_raw_snapshots(tmp_db):
     """Can insert and query raw_snapshots."""
     tmp_db.execute(
-        "INSERT INTO raw_snapshots (id, topic_name, file_path, sha256_hash, row_count, column_count) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO raw_snapshots (id, source_name, file_path, sha256_hash, row_count, column_count) VALUES (?, ?, ?, ?, ?, ?)",
         ["snap-1", "test_topic", "/tmp/test.csv", "abc123" * 10 + "abcd", 100, 5]
     )
     rows = tmp_db.execute("SELECT * FROM raw_snapshots WHERE id = 'snap-1'")
@@ -62,19 +62,19 @@ def test_insert_and_query_raw_snapshots(tmp_db):
 def test_insert_and_query_nlp_feedback(tmp_db):
     """Can insert and query nlp_feedback."""
     tmp_db.execute(
-        "INSERT INTO nlp_feedback (id, sentence, sentiment, topic) VALUES (?, ?, ?, ?)",
-        [1, "Trạm sạc rất tốt", 4.5, "google_maps"]
+        "INSERT INTO nlp_feedback (feedback_id, sentence, sentiment, topic) VALUES (?, ?, ?, ?)",
+        ["1", "Trạm sạc rất tốt", 4, 1]
     )
-    rows = tmp_db.execute("SELECT * FROM nlp_feedback WHERE id = 1")
+    rows = tmp_db.execute("SELECT sentence FROM nlp_feedback WHERE feedback_id = '1'")
     assert len(rows) == 1
-    assert rows[0][1] == "Trạm sạc rất tốt"
+    assert rows[0][0] == "Trạm sạc rất tốt"
 
 
 def test_insert_and_query_charging_sessions(tmp_db):
     """Can insert and query charging_sessions."""
     tmp_db.execute(
-        "INSERT INTO charging_sessions (id, station_id, station_temp_c, status) VALUES (?, ?, ?, ?)",
-        [1, "VG-001", 85.5, "THERMAL_FAULT"]
+        "INSERT INTO charging_sessions (session_id, station_id, station_temp_c, status) VALUES (?, ?, ?, ?)",
+        ["S-1", "VG-001", 85.5, "THERMAL_FAULT"]
     )
     rows = tmp_db.execute("SELECT station_temp_c FROM charging_sessions WHERE station_id = 'VG-001'")
     assert rows[0][0] == 85.5
@@ -83,8 +83,8 @@ def test_insert_and_query_charging_sessions(tmp_db):
 def test_insert_and_query_ev_telemetry(tmp_db):
     """Can insert and query ev_telemetry."""
     tmp_db.execute(
-        "INSERT INTO ev_telemetry (id, vehicle_vin, battery_soc, record_id) VALUES (?, ?, ?, ?)",
-        [1, "VF8-001", 72.5, "0x4B"]
+        "INSERT INTO ev_telemetry (record_id, vehicle_vin, battery_soc) VALUES (?, ?, ?)",
+        ["0x4B", "VF8-001", 72.5]
     )
     rows = tmp_db.execute("SELECT record_id FROM ev_telemetry WHERE vehicle_vin = 'VF8-001'")
     assert rows[0][0] == "0x4B"
@@ -103,7 +103,7 @@ def test_insert_and_query_quality_rules(tmp_db):
 def test_insert_and_query_quarantine(tmp_db):
     """Can insert quarantine records."""
     tmp_db.execute(
-        "INSERT INTO quarantine (id, topic_table, topic_row_id, reason, lineage_hash) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO quarantine (id, source_table, source_row_id, reason, lineage_hash) VALUES (?, ?, ?, ?, ?)",
         ["q-1", "charging_sessions", 1, "Temperature exceeds threshold", "sha256hash"]
     )
     rows = tmp_db.execute("SELECT reason FROM quarantine WHERE id = 'q-1'")
@@ -123,8 +123,8 @@ def test_insert_and_query_agent_traces(tmp_db):
 def test_insert_and_query_trips(tmp_db):
     """Can insert and query trips."""
     tmp_db.execute(
-        "INSERT INTO trips (id, trip_id, driver_id, trip_distance_km, fare_amount) VALUES (?, ?, ?, ?, ?)",
-        [1, "TRIP-001", "DRV-001", 12.5, 85000.0]
+        "INSERT INTO trips (trip_id, driver_id, trip_distance_km, fare_amount) VALUES (?, ?, ?, ?)",
+        ["TRIP-001", "DRV-001", 12.5, 85000.0]
     )
     rows = tmp_db.execute("SELECT fare_amount FROM trips WHERE trip_id = 'TRIP-001'")
     assert rows[0][0] == 85000.0
@@ -162,7 +162,7 @@ def test_seed_database(tmp_db):
     seed_database(db_path=tmp_db.db_path)
     
     snaps = tmp_db.execute("SELECT COUNT(*) FROM raw_snapshots")
-    assert snaps[0][0] == 4
+    assert snaps[0][0] == 5
 
     feedback = tmp_db.execute("SELECT COUNT(*) FROM nlp_feedback")
     assert feedback[0][0] > 0
@@ -172,6 +172,9 @@ def test_seed_database(tmp_db):
 
     bms = tmp_db.execute("SELECT COUNT(*) FROM ev_telemetry")
     assert bms[0][0] > 0
+
+    land = tmp_db.execute("SELECT COUNT(*) FROM landing.ev_telemetry")
+    assert land[0][0] > 0
 
     trips = tmp_db.execute("SELECT COUNT(*) FROM trips")
     assert trips[0][0] > 0
@@ -184,8 +187,8 @@ def test_seed_database_provenance_verification(tmp_db):
 
     seed_database(db_path=tmp_db.db_path)
     
-    rows = tmp_db.execute("SELECT topic_name, provenance, tag FROM raw_snapshots")
-    assert len(rows) == 4
+    rows = tmp_db.execute("SELECT source_name, provenance, tag FROM raw_snapshots")
+    assert len(rows) == 5
     for r in rows:
         assert r[1] == DataProvenance.SEMI_SYNTHETIC.value
         assert r[2] == "Semi-Synthetic Causal Digital Twin"

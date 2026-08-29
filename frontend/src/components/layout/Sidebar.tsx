@@ -66,7 +66,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     setActiveShortcut(shortcut);
     const domain = DOMAIN_LIST.find((d) => d.shortcut === shortcut);
     const datasetKey = domain ? domain.id : shortcut;
-    navigate(`/workspace?dataset_key=${encodeURIComponent(datasetKey)}`);
+    const day = searchParams.get('day') || searchParams.get('day_idx') || '';
+    const q = new URLSearchParams({ dataset_key: datasetKey });
+    if (day) {
+      q.set('day', day);
+      q.set('run_id', day.includes('-') ? day : day);
+    }
+    navigate(`/workspace?${q.toString()}`);
     onNavigate?.();
   };
 

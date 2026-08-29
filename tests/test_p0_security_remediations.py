@@ -107,8 +107,12 @@ def test_p0_06_ssrf_defense():
     assert validate_webhook_url("ftp://example.com/webhook") is False
     assert validate_webhook_url("file:///etc/passwd") is False
 
-    # Accept valid public HTTPS URLs
-    assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
+    # Accept valid public HTTPS URLs (mock DNS so CI/offline is deterministic)
+    import socket
+    from unittest.mock import patch
+    fake = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 0))]
+    with patch("src.services.security.socket.getaddrinfo", return_value=fake):
+        assert validate_webhook_url("https://hooks.slack.com/services/test/webhook") is True
 
 
 def test_p0_signed_jwt_authentication_and_server_role_resolution():

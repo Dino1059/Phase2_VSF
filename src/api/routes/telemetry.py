@@ -45,9 +45,12 @@ class IngestionResponse(BaseModel):
 async def ingest_telemetry(payload: IngestionRequest) -> IngestionResponse:
     """
     HTTP POST endpoint for external API providers and IoT edge sensors
-    to push live telemetry data batches directly into DataTrust OS warehouse.
+    to push live telemetry into landing.* only. Promote copies to main on Run All / day close.
     """
     db = get_db()
+    from src.services.landing_promote import ensure_landing_tables, live_day_idx
+    ensure_landing_tables(db)
+    day_idx = live_day_idx(db)
     inserted = 0
     try:
         target = normalize_table_name(payload.dataset)
@@ -66,22 +69,24 @@ async def ingest_telemetry(payload: IngestionRequest) -> IngestionResponse:
 
                 db.execute(
                     """
-                    INSERT INTO main.ev_telemetry (
-                        record_id, vehicle_vin, timestamp, speed_kmh, battery_soc,
-                        battery_voltage, battery_temp_c, state_at_sample, snapshot_id,
-                        source_ingestion_run_id
+                    INSERT INTO landing.ev_telemetry (
+                        record_id, vehicle_vin, day_idx, timestamp, speed_kmh, battery_soc,
+                        battery_voltage, battery_temp_c, state_at_sample, assigned_day_index,
+                        snapshot_id, source_ingestion_run_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         f"LIVE_EV_{datetime.now().timestamp()}",
                         vehicle_vin,
+                        day_idx,
                         ts,
                         r.speed_kmh,
                         soc,
                         voltage,
                         temp,
                         r.status or "NORMAL",
+                        day_idx,
                         "live_provider",
                         "TELEMETRY_API",
                     ],
@@ -113,12 +118,12 @@ async def ingest_telemetry(payload: IngestionRequest) -> IngestionResponse:
 
                 db.execute(
                     """
-                    INSERT INTO main.charging_sessions (
+                    INSERT INTO landing.charging_sessions (
                         vehicle_vin, session_id, station_id, charger_id, start_time,
-                        duration_mins, kwh_consumed, power_kw, station_temp_c,
-                        status, snapshot_id, source_ingestion_run_id
+                        duration_mins, kwh_consumed, power_kw, assigned_day_index,
+                        station_temp_c, status, snapshot_id, source_ingestion_run_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         r.vin or "VF8_EXTERNAL",
@@ -129,6 +134,7 @@ async def ingest_telemetry(payload: IngestionRequest) -> IngestionResponse:
                         None,
                         r.energy_kwh,
                         None,
+                        day_idx,
                         temp_c,
                         status,
                         "live_provider",

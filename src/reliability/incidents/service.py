@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 from src.db.connection import get_db, DuckDBManager

@@ -483,7 +483,7 @@ def test_force_log_does_not_duplicate_propose_when_already_ran(monkeypatch):
         """LLM already wrote both beats; result.steps omits Propose so today's
         missing_requested_tools still force-logs a second Propose."""
 
-        def run(self, task, context=None, session_id=None):
+        def run(self, task, context=None, session_id=None, history=None):
             sid_ = session_id or (context or {}).get("session_id") or "default"
             result = ReActResult(task=task, session_id=sid_)
             profile = ReActStep(

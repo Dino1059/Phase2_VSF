@@ -39,7 +39,8 @@ import { AgentTracesTab } from '../components/workspace/AgentTracesTab';
 import { DataProfilerTab } from '../components/workspace/DataProfilerTab';
 import { QualityRulesTab } from '../components/workspace/QualityRulesTab';
 import { SplitDbQuarantineTab } from '../components/workspace/SplitDbQuarantineTab';
-import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, resetDemoSession } from '../services/api';
+import { fetchChatHistory, pipelineApi, uploadDatasetFile, sendChatMessage, resetDemoSession, ingestionApi } from '../services/api';
+import { calendarDayToDayIdx, dayIdxToCalendarDay } from '../lib/calendarDay';
 import { agentSocket } from '../services/websocket';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
@@ -131,7 +132,7 @@ export function AgentChatWorkspace() {
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const datasetKey = searchParams.get('dataset_key') || undefined;
   const demoMode = searchParams.get('demo');
   const story = searchParams.get('story');
@@ -143,19 +144,47 @@ export function AgentChatWorkspace() {
   const liveChatSessionId = useChatStore((s) => s.sessionId);
   const chatMessages = useChatStore((s) => s.messages);
   const store = usePipelineStore();
+  const tabParam = searchParams.get('tab');
+  const calendarDay = dayParam && dayParam.includes('-')
+    ? dayParam
+    : dayIdxToCalendarDay(dayParam != null ? parseInt(dayParam, 10) : store.selectedDayIdx);
 
   useEffect(() => {
-    if (dayParam !== null && dayParam !== undefined) {
-      const parsedDay = parseInt(dayParam, 10);
-      if (!isNaN(parsedDay)) {
-        store.setSelectedDayIdx(parsedDay);
+    if (dayParam !== null && dayParam !== undefined && dayParam !== '') {
+      if (dayParam.includes('-')) {
+        const idx = calendarDayToDayIdx(dayParam);
+        if (idx !== null) store.setSelectedDayIdx(idx);
+        store.setSourceIngestionRunId(dayParam);
+        store.setRunId(dayParam);
+      } else {
+        const parsedDay = parseInt(dayParam, 10);
+        if (!isNaN(parsedDay)) {
+          store.setSelectedDayIdx(parsedDay);
+          const day = dayIdxToCalendarDay(parsedDay);
+          if (day) {
+            store.setSourceIngestionRunId(day);
+            store.setRunId(day);
+          }
+        }
       }
     }
-    if (runIdParam) {
+    if (runIdParam && !dayParam?.includes('-')) {
       store.setSourceIngestionRunId(runIdParam);
       store.setRunId(runIdParam);
     }
   }, [dayParam, runIdParam]);
+
+  useEffect(() => {
+    if (!datasetKey) return;
+    void useChatStore.getState().bindAxis(datasetKey, calendarDay || undefined);
+  }, [datasetKey, calendarDay]);
+
+  useEffect(() => {
+    if (tabParam === 'tab-traces' || tabParam === 'tab-profiler' || tabParam === 'tab-rules' || tabParam === 'tab-split') {
+      setRightTab(tabParam);
+      setRightPanelOpen(true);
+    }
+  }, [tabParam]);
 
   const executionStage = useIngestionStore((s) => s.executionStage);
   const activeDayIdx = useIngestionStore((s) => s.activeDayIdx);
@@ -198,7 +227,10 @@ export function AgentChatWorkspace() {
   const resetPipeline = usePipelineStore((s) => s.resetPipeline);
   const { acceptRule, rejectRule, saveRuleEdit, clearTimers } = usePipelineRun(datasetKey);
   const [stream, setStream] = useState<StreamMessage[]>([]);
-  const [rightTab, setRightTab] = useState<RightTab>('tab-profiler');
+  const [rightTab, setRightTab] = useState<RightTab>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return (t === 'tab-traces' || t === 'tab-profiler' || t === 'tab-rules' || t === 'tab-split') ? t : 'tab-profiler';
+  });
   const [rightPanelOpen, setRightPanelOpen] = useState(
     () => typeof window === 'undefined' || window.innerWidth >= 900,
   );
@@ -227,6 +259,10 @@ export function AgentChatWorkspace() {
       const prompt = lang === 'vi' ? HITL_STOP_PROMPT_VI : HITL_STOP_PROMPT_EN;
       const currentSession = useChatStore.getState().sessionId;
       agentSocket.connect(currentSession);
+      const dayIdx = usePipelineStore.getState().selectedDayIdx;
+      if (dayIdx !== null && dayIdx !== undefined) {
+        await ingestionApi.promote(dayIdx).catch(() => null);
+      }
       await sendChatMessage(prompt, currentSession, datasetKey, lang);
       const history = await fetchChatHistory(currentSession);
       if (history.messages && Array.isArray(history.messages)) {
@@ -291,10 +327,15 @@ export function AgentChatWorkspace() {
       }
     };
     window.addEventListener('datatrust:sandbox-split', onSandbox as EventListener);
+    const onHitlFocus = () => setRightTab('tab-rules');
+    window.addEventListener('datatrust:hitl-apply-pending', onHitlFocus);
+    window.addEventListener('datatrust:hitl-edit-focus', onHitlFocus);
     window.addEventListener('datatrust:split-refresh', onSandbox as EventListener);
     return () => {
       window.removeEventListener('datatrust:sandbox-split', onSandbox as EventListener);
       window.removeEventListener('datatrust:split-refresh', onSandbox as EventListener);
+      window.removeEventListener('datatrust:hitl-apply-pending', onHitlFocus);
+      window.removeEventListener('datatrust:hitl-edit-focus', onHitlFocus);
     };
   }, []);
 
@@ -655,7 +696,18 @@ export function AgentChatWorkspace() {
             <SessionSwitcher />
             <SourceIngestionRunFilter
               value={store.sourceIngestionRunId}
-              onChange={(runId) => store.setSourceIngestionRunId(runId)}
+              onChange={(runId) => {
+                store.setSourceIngestionRunId(runId);
+                const next = new URLSearchParams(searchParams);
+                if (runId) {
+                  next.set('day', runId);
+                  next.set('run_id', runId);
+                } else {
+                  next.delete('day');
+                  next.delete('run_id');
+                }
+                setSearchParams(next, { replace: true });
+              }}
             />
           </div>
 
@@ -717,10 +769,10 @@ export function AgentChatWorkspace() {
                           <span className="review-impact"><Database size={12} /> Impact: {store.quarantineRows} {t('rowsCount')}</span>
                         </div>
                         <div className="review-logic-box">{store.currentRuleLogic}</div>
-                        <div className="review-actions">
-                          <button className="btn-accept" onClick={handleAccept}><CheckCircle2 size={14} /> {t('acceptExecute')}</button>
-                          <button className="btn-edit" onClick={() => { setEditText(store.currentRuleLogic); setEditOpen(true); }}><Pencil size={13} /> {t('editConditions')}</button>
-                          <button className="btn-reject" onClick={handleReject}><XCircle size={14} /> {t('reject')}</button>
+                        <div className="review-actions" hidden data-testid="chat-hitl-hidden">
+                          <button type="button" className="btn-accept" tabIndex={-1} onClick={handleAccept}><CheckCircle2 size={14} /> {t('acceptExecute')}</button>
+                          <button type="button" className="btn-edit" tabIndex={-1} onClick={() => { setEditText(store.currentRuleLogic); setEditOpen(true); }}><Pencil size={13} /> {t('editConditions')}</button>
+                          <button type="button" className="btn-reject" tabIndex={-1} onClick={handleReject}><XCircle size={14} /> {t('reject')}</button>
                         </div>
                       </div>
                     )}
@@ -918,8 +970,8 @@ export function AgentChatWorkspace() {
               selectedTool={selectedTraceTool}
               pendingRun={waitingForBackendAgentEvents || isRunningPipeline}
               active={rightTab === 'tab-traces'}
-              dayIdx={store.selectedDayIdx}
-              runId={store.sourceIngestionRunId || store.runId}
+              dayIdx={store.selectedDayIdx ?? calendarDayToDayIdx(calendarDay)}
+              runId={store.sourceIngestionRunId || store.runId || calendarDay}
               onSelectStep={(n) => {
                 setSelectedTraceStep(n);
                 setSelectedTraceTool(null);
@@ -927,10 +979,10 @@ export function AgentChatWorkspace() {
             />
           </div>
           <div hidden={rightTab !== 'tab-profiler'}>
-            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} dayIdx={store.selectedDayIdx} runId={store.sourceIngestionRunId || store.runId} />
+            <DataProfilerTab datasetKey={datasetKey} story={story} active={rightTab === 'tab-profiler'} dayIdx={store.selectedDayIdx ?? calendarDayToDayIdx(calendarDay)} runId={store.sourceIngestionRunId || store.runId || calendarDay} />
           </div>
           <div hidden={rightTab !== 'tab-rules'}>
-            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} dayIdx={store.selectedDayIdx} runId={store.sourceIngestionRunId || store.runId} />
+            <QualityRulesTab datasetKey={datasetKey} active={rightTab === 'tab-rules'} dayIdx={store.selectedDayIdx ?? calendarDayToDayIdx(calendarDay)} runId={store.sourceIngestionRunId || store.runId || calendarDay} highlightRuleId={searchParams.get('rule_id')} />
           </div>
           <div hidden={rightTab !== 'tab-split'}>
             <SplitDbQuarantineTab
@@ -938,8 +990,8 @@ export function AgentChatWorkspace() {
               manifestHash={pipelineResult?.manifest?.hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}
               active={rightTab === 'tab-split'}
               splitResult={pipelineResult?.split}
-              dayIdx={store.selectedDayIdx}
-              runId={store.sourceIngestionRunId || store.runId}
+              dayIdx={store.selectedDayIdx ?? calendarDayToDayIdx(calendarDay)}
+              runId={store.sourceIngestionRunId || store.runId || calendarDay}
             />
           </div>
         </div>

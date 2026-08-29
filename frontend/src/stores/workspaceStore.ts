@@ -29,6 +29,7 @@ export type SplitRows = {
   cleanRan: boolean;
   thisRun?: boolean;
   snapshotId?: string;
+  warehouseCommitted?: boolean;
 };
 
 const EMPTY_SPLIT: SplitRows = {
@@ -39,6 +40,7 @@ const EMPTY_SPLIT: SplitRows = {
   cleanRan: false,
   thisRun: false,
   snapshotId: '',
+  warehouseCommitted: false,
 };
 
 function beatKey(b: WorkspaceTraceBeat): string {
@@ -113,6 +115,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       const next: SplitRows = { ...prev };
       if (patch.cleanRan) next.cleanRan = true;
       if (patch.thisRun) next.thisRun = true;
+      if (patch.warehouseCommitted) next.warehouseCommitted = true;
       if (typeof patch.snapshotId === 'string' && patch.snapshotId) next.snapshotId = patch.snapshotId;
       if (Array.isArray(patch.quarantineRows) && patch.quarantineRows.length > 0) {
         next.quarantineRows = patch.quarantineRows;
@@ -127,10 +130,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
           next.cleanRan = true;
         }
       }
-      if (typeof patch.totalQuarantine === 'number' && patch.totalQuarantine > next.totalQuarantine) {
+      if (typeof patch.totalQuarantine === 'number' && (next.warehouseCommitted || patch.totalQuarantine > next.totalQuarantine)) {
         next.totalQuarantine = patch.totalQuarantine;
       }
-      if (typeof patch.totalClean === 'number' && patch.totalClean > next.totalClean && next.cleanRan) {
+      if (typeof patch.totalClean === 'number' && next.cleanRan && (next.warehouseCommitted || patch.totalClean > next.totalClean)) {
         next.totalClean = patch.totalClean;
       }
       return { splitRowsByDataset: { ...state.splitRowsByDataset, [key]: next } };

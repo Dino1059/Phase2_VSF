@@ -212,10 +212,10 @@ def test_execute_rules_on_dataset_endpoint():
 
 @_SKIP_LLM
 def test_benchmark_dataset_endpoint():
-    response = client.post("/api/v1/datasets/vgreen_charging/benchmark?sample_size=10")
+    response = client.post("/api/v1/datasets/charging_sessions/benchmark?sample_size=10")
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["dataset"] == "vgreen_charging"
+    assert data["dataset"] == "charging_sessions"
     assert "results" in data
 
 
@@ -285,7 +285,7 @@ def test_chat_send_react_loop_propose_rules():
     assert response.status_code == 200, response.text
     data = response.json()
     assert "response" in data
-    assert data["state"] == "RULES_PROPOSED"
+    assert data["status"] == "completed"
 
 
 @_SKIP_LLM
@@ -294,7 +294,7 @@ def test_chat_send_react_loop_anomaly():
     assert response.status_code == 200, response.text
     data = response.json()
     assert "response" in data
-    assert data["state"] == "ANOMALY_DETECTED"
+    assert data["status"] == "completed"
 
 
 @_SKIP_LLM
@@ -303,7 +303,7 @@ def test_chat_send_react_loop_diagnose():
     assert response.status_code == 200, response.text
     data = response.json()
     assert "response" in data
-    assert data["state"] == "DIAGNOSED"
+    assert data["status"] == "completed"
 
 
 @_SKIP_LLM
@@ -312,7 +312,7 @@ def test_chat_send_list_datasets():
     assert response.status_code == 200, response.text
     data = response.json()
     assert "response" in data
-    assert "vinfast_bms" in data["response"]
+    assert "ev_telemetry" in data["response"]
 
 
 def test_upload_dataset_endpoint():
@@ -410,7 +410,7 @@ def test_chat_send_tool_driven_state_transition_mocked(monkeypatch):
     )
 
     from src.orchestrator.engine import ReActEngine
-    monkeypatch.setattr(ReActEngine, "run", lambda self, task, context=None: mock_result)
+    monkeypatch.setattr(ReActEngine, "run", lambda self, task, context=None, **kwargs: mock_result)
 
     # Note user prompt contains NO keyword like 'profile' or 'scan'
     response = client.post("/api/v1/chat/send", json={"message": "Please do some analysis"})

@@ -149,7 +149,13 @@ class DuckDBManager:
         self._ensure_snapshots_schema(conn)
         self._ensure_reliability_tables(conn)
         self._ensure_quality_rules_dataset_key(conn)
+        self._ensure_th_flow_schema(conn)
         self._ensure_incidents_feedback_columns(conn)
+        try:
+            from src.services.landing_promote import ensure_landing_tables
+            ensure_landing_tables(self)
+        except Exception:
+            pass
 
     def _ensure_quality_rules_dataset_key(self, conn) -> None:
         try:
@@ -168,8 +174,45 @@ class DuckDBManager:
                     conn.execute("ALTER TABLE quality_rules ADD COLUMN feedback_by VARCHAR")
                 if "feedback_at" not in cols:
                     conn.execute("ALTER TABLE quality_rules ADD COLUMN feedback_at TIMESTAMP")
+                if "source_ingestion_run_id" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN source_ingestion_run_id VARCHAR")
+                if "calendar_day" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN calendar_day VARCHAR")
+                if "approved_by" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN approved_by VARCHAR")
+                if "approved_at" not in cols:
+                    conn.execute("ALTER TABLE quality_rules ADD COLUMN approved_at VARCHAR")
         except Exception:
             pass
+        try:
+            self._ensure_th_flow_schema(conn)
+        except Exception:
+            pass
+
+    def _ensure_th_flow_schema(self, conn) -> None:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS chat_sessions (
+                id VARCHAR PRIMARY KEY, title VARCHAR, dataset_key VARCHAR, calendar_day VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS hitl_decisions (
+                id VARCHAR PRIMARY KEY, dataset_key VARCHAR, calendar_day VARCHAR, rule_id VARCHAR,
+                persona VARCHAR, action VARCHAR, status VARCHAR DEFAULT 'active', row_ids JSON, details JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS rule_memory (
+                dataset_key VARCHAR, rule_id VARCHAR, remembered BOOLEAN DEFAULT TRUE,
+                actor VARCHAR, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expired_at TIMESTAMP,
+                PRIMARY KEY (dataset_key, rule_id))"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS rule_pending_patches (
+                id VARCHAR PRIMARY KEY, dataset_key VARCHAR, calendar_day VARCHAR, rule_id VARCHAR,
+                before_expr VARCHAR, after_expr VARCHAR, status VARCHAR DEFAULT 'pending',
+                proposed_by VARCHAR, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+        )
 
     def _ensure_incidents_feedback_columns(self, conn) -> None:
         try:

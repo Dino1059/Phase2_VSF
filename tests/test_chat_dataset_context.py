@@ -12,7 +12,7 @@ def test_chat_passes_selected_dataset_context_to_react_engine(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def run(self, task, context=None):
+        def run(self, task, context=None, **kwargs):
             captured["task"] = task
             captured["context"] = context
             return SimpleNamespace(steps=[], final_answer="ok", status="completed")

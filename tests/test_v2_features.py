@@ -63,8 +63,8 @@ def test_datasource_duckdb_db_loading():
     os.remove(db_path)
 
     conn = duckdb.connect(db_path)
-    conn.execute("CREATE TABLE uploaded_rows (id INTEGER, status VARCHAR)")
-    conn.execute("INSERT INTO uploaded_rows VALUES (1, 'ok'), (2, 'error')")
+    conn.execute("CREATE TABLE ev_telemetry (id INTEGER, status VARCHAR)")
+    conn.execute("INSERT INTO ev_telemetry VALUES (1, 'ok'), (2, 'error')")
     conn.close()
 
     try:

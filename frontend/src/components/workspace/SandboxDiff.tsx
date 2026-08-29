@@ -30,12 +30,18 @@ export interface SandboxDiffData {
   counts?: {
     clean_rows?: number;
     quarantine_rows?: number;
+    scoped_rows?: number;
     total_rows?: number;
     per_rule?: Record<string, number>;
+    kind?: string;
   };
   clean_rows?: number;
   quarantine_rows?: number;
+  scoped_rows?: number;
   sampled_rows?: number;
+  counts_kind?: string;
+  warehouse_clean_rows?: number;
+  warehouse_quarantine_rows?: number;
   quarantine?: any[];
   cell_diffs?: SandboxCellDiff[];
   per_rule_counts?: Record<string, number>;
@@ -66,9 +72,12 @@ export const SandboxDiff: React.FC<SandboxDiffProps> = ({
   const runId = diffData.run_id || '';
   const healthBefore = diffData.health_before || '—';
   const healthAfter = diffData.health_after || '—';
-  const quarantineCount = diffData.quarantine_rows ?? diffData.counts?.quarantine_rows ?? (diffData.quarantine?.length || 0);
+  const quarantineCount = diffData.quarantine_rows ?? diffData.counts?.quarantine_rows ?? 0;
   const cleanCount = diffData.clean_rows ?? diffData.counts?.clean_rows ?? 0;
-  const sampledCount = diffData.sampled_rows ?? diffData.counts?.total_rows ?? (cleanCount + quarantineCount);
+  const scopedCount = diffData.scoped_rows ?? diffData.counts?.scoped_rows ?? (cleanCount + quarantineCount);
+  const sampledCount = diffData.sampled_rows ?? 0;
+  const warehouseClean = diffData.warehouse_clean_rows ?? 0;
+  const warehouseQ = diffData.warehouse_quarantine_rows ?? 0;
   
   const perRuleCounts = diffData.per_rule_counts || diffData.counts?.per_rule || {};
   const cellDiffs = (diffData.cell_diffs && diffData.cell_diffs.length > 0)
@@ -139,10 +148,22 @@ export const SandboxDiff: React.FC<SandboxDiffProps> = ({
                   ? (isVi ? 'ĐÃ QUẢNG BÁ PROD' : 'PROMOTED TO PROD')
                   : (isVi ? 'XEM TRƯỚC CÔ LẬP' : 'ISOLATED PREVIEW')}
               </span>
+              <span data-testid="hitl-warehouse-clean-zero" style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                {warehouseClean > 0
+                  ? (isVi ? `Clean Warehouse = ${warehouseClean}` : `Clean Warehouse = ${warehouseClean}`)
+                  : (isVi ? 'Clean Warehouse = 0 đến Execute' : 'Clean Warehouse = 0 until Execute')}
+              </span>
             </div>
             {runId && (
               <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                <code>{runId}</code> · {sampledCount.toLocaleString()} {isVi ? 'dòng kiểm thử' : 'sampled rows'}
+                <code>{runId}</code>
+                {' · '}
+                {isVi
+                  ? `Ước lượng xem trước (bảng + ngày): ${cleanCount.toLocaleString()} sạch · ${quarantineCount.toLocaleString()} cách ly / ${scopedCount.toLocaleString()} trong phạm vi`
+                  : `Preview estimate (table + day): ${cleanCount.toLocaleString()} clean · ${quarantineCount.toLocaleString()} quarantined / ${scopedCount.toLocaleString()} in-scope`}
+                {sampledCount > 0
+                  ? (isVi ? ` · ${sampledCount} dòng mẫu` : ` · ${sampledCount} example rows`)
+                  : ''}
               </div>
             )}
           </div>
@@ -273,7 +294,11 @@ export const SandboxDiff: React.FC<SandboxDiffProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
                 <span>{isVi ? 'Bản xem trước sai khác giá trị mẫu (5–10 dòng):' : 'Sample cell diff preview (5–10 rows):'}</span>
-                <span style={{ fontSize: '10.5px' }}>{cleanCount} clean · {quarantineCount} quarantined</span>
+                <span style={{ fontSize: '10.5px' }}>
+                  {isVi
+                    ? `${cleanCount} sạch · ${quarantineCount} cách ly (xem trước)`
+                    : `${cleanCount} clean · ${quarantineCount} quarantined (preview)`}
+                </span>
               </div>
               <div
                 style={{
@@ -366,7 +391,9 @@ export const SandboxDiff: React.FC<SandboxDiffProps> = ({
                 </span>
               ) : (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <Lock size={12} /> {isVi ? 'Xem trước cô lập trên quarantine canonical — execute tắt.' : 'Isolated preview on canonical quarantine — execute off.'}
+                  <Lock size={12} /> {isVi
+                    ? `Xem trước cô lập — execute tắt. Kho sau Execute: Sạch ${warehouseClean} · Cách ly ${warehouseQ}.`
+                    : `Isolated preview — execute off. Warehouse after Execute: Clean ${warehouseClean} · Quarantine ${warehouseQ}.`}
                 </span>
               )}
             </div>

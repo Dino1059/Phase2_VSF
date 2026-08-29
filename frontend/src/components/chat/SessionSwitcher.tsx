@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquare, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { usePipelineStore } from '../../stores/pipelineStore';
+import { dayIdxToCalendarDay } from '../../lib/calendarDay';
+import { useSearchParams } from 'react-router-dom';
 
 export function SessionSwitcher() {
   const { i18n } = useTranslation();
@@ -18,15 +21,20 @@ export function SessionSwitcher() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
 
+  const [searchParams] = useSearchParams();
+  const datasetKey = searchParams.get('dataset_key') || '';
+  const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
+  const calendarDay = searchParams.get('day') || dayIdxToCalendarDay(selectedDayIdx);
+
   useEffect(() => {
-    void fetchSessions();
-  }, [fetchSessions]);
+    void fetchSessions(datasetKey || undefined, calendarDay || undefined);
+  }, [fetchSessions, datasetKey, calendarDay]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
 
   const handleCreate = () => {
     const title = isVi ? 'Phiên Trò Chuyện Mới' : 'New Agent Chat';
-    const newId = createSession(title);
+    const newId = createSession(title, datasetKey || undefined, calendarDay || undefined);
     void switchSession(newId);
   };
 

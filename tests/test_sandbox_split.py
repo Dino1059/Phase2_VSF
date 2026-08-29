@@ -38,7 +38,7 @@ def test_handle_sandbox_execute_calls_clean_and_writes_split_store():
     ui = _rules()
     api = _api()
     hitl = _hitl()
-    sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const proposedCount", 1)[0]
+    sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const handleWarehouseExecute", 1)[0]
     assert "approvalsApi.authorize" in sandbox_fn
     assert "hitlApi.execute" not in sandbox_fn
     assert "hitlApi.sandbox" in sandbox_fn
@@ -49,8 +49,9 @@ def test_handle_sandbox_execute_calls_clean_and_writes_split_store():
     assert "cleanRan: true" in sandbox_fn
     assert "datatrust:sandbox-split" in sandbox_fn or "datatrust:split-refresh" in sandbox_fn
     approve = ui.split("const handleApprove", 1)[1].split("const handleSandboxExecute", 1)[0]
-    assert "hitlApi.sandbox" not in approve
-    assert "hitlApi.execute" not in approve
+    assert "hitlApi.sandbox(" not in approve
+    assert "hitlApi.executeWarehouse" not in approve
+    assert "hitlApi.execute(" not in approve
     assert "sandbox:" in api.split("export const hitlApi", 1)[1]
     assert '@hitl_router.post("/sandbox")' in hitl or '@hitl_router.post("/sandbox")' in hitl.replace("'", '"')
     assert "persist_sandbox_split" in hitl
@@ -116,7 +117,10 @@ def test_persist_sandbox_split_writes_measured_quarantine_only():
     body = preview.json()
     assert body.get("execute") == "off"
     assert body.get("promoted") is False
-    assert int(body.get("quarantine_rows") or 0) >= 1
+    assert int(body.get("quarantine_rows") or 0) == 1
+    assert int(body.get("clean_rows") or 0) == 1
+    assert body.get("counts_kind") == "preview"
+    assert int(body.get("warehouse_clean_rows") or 0) == 0
     assert body.get("cell_diffs")
     assert "sandbox." not in preview.text
 
@@ -129,7 +133,7 @@ def test_approved_rules_for_clean_never_synthesizes():
 
 
 def test_execute_off_is_design_not_csrf_or_auth():
-    """POST /hitl/execute 403 is execute-off for Admin too. Missing JWT is 401. Viewer write is role 403."""
+    """POST /hitl/execute is Steward-only. Admin/anon/viewer stay 403. Missing JWT is 401."""
     from fastapi.testclient import TestClient
     from src.main import app
     from src.middleware.auth import create_access_token
@@ -145,7 +149,7 @@ def test_execute_off_is_design_not_csrf_or_auth():
     off = admin.post("/api/v1/hitl/execute", json={"rule_id": "any"})
     assert off.status_code == 403, off.text
     detail = str(off.json().get("detail") or "").lower()
-    assert "execute off" in detail or "not execute" in detail
+    assert "steward" in detail or "hitl write" in detail or "execute off" in detail or "not execute" in detail
     assert "csrf" not in detail
     assert "token" not in detail
     assert "viewer" not in detail
@@ -155,6 +159,32 @@ def test_execute_off_is_design_not_csrf_or_auth():
     assert blocked.status_code == 403, blocked.text
     vdetail = str(blocked.json().get("detail") or "").lower()
     assert "viewer" in vdetail or "read-only" in vdetail
+
+
+def test_steward_execute_uses_token_role_value_not_enum_str():
+    """Steward JWT role is UserRole.STEWARD.value ('Steward'), never str(enum)='UserRole.STEWARD'."""
+    from fastapi.testclient import TestClient
+    from src.main import app
+    from src.middleware.auth import UserRole, create_access_token, decode_access_token
+
+    assert UserRole.STEWARD.value.lower() == "steward"
+    token = create_access_token(
+        {"sub": "steward@datatrust.os", "user_id": "usr_steward_01", "role": UserRole.STEWARD.value}
+    )
+    payload = decode_access_token(token)
+    assert payload["role"] == UserRole.STEWARD.value
+    assert payload["role"].lower() == "steward"
+    assert payload["role"] != "UserRole.STEWARD"
+
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    resp = client.post(
+        "/api/v1/hitl/execute",
+        json={"dataset_key": "qa_steward_role_gate_missing", "calendar_day": "2026-01-11", "day_idx": 10},
+    )
+    detail = str((resp.json() or {}).get("detail") or "")
+    assert "Execute is Data Steward only" not in detail
+    assert "UserRole.STEWARD" not in detail
+    assert resp.status_code != 403 or "not approved" in detail.lower()
 
 
 def test_admin_authorize_accepts_edited_then_sandbox_preview():
@@ -187,7 +217,8 @@ def test_admin_authorize_accepts_edited_then_sandbox_preview():
     assert auth.json().get("payload_hash")
     exe = client.post(f"/api/v1/hitl/execute/{rid}")
     assert exe.status_code == 403
-    assert "not execute" in str(exe.json().get("detail") or "").lower() or "execute off" in str(exe.json().get("detail") or "").lower()
+    ed = str(exe.json().get("detail") or "").lower()
+    assert "steward" in ed or "hitl write" in ed or "not execute" in ed or "execute off" in ed
 
 
 def test_sandbox_endpoint_exists_and_requires_approved_rule():
@@ -219,7 +250,7 @@ def test_sandbox_504_does_not_keep_leftover_split_as_success():
     ui = _rules()
     split = _split()
     store = (ROOT / "frontend/src/stores/workspaceStore.ts").read_text()
-    sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const proposedCount", 1)[0]
+    sandbox_fn = ui.split("const handleSandboxExecute", 1)[1].split("const handleWarehouseExecute", 1)[0]
     assert "datatrust:sandbox-failed" in sandbox_fn
     assert "HTTP 504" in sandbox_fn
     assert "replaceSplitRows" in sandbox_fn
@@ -441,4 +472,453 @@ def test_profile_and_health_offload_event_loop():
     routes = (ROOT / "src/api/routes/__init__.py").read_text()
     pipe = routes.split("is_full_pipeline_req", 1)[1].split("Standard Dynamic ReAct", 1)[0]
     assert "asyncio.to_thread(prof_tool.execute" in pipe
+
+
+def test_preview_split_counts_sql_not_sample_cap():
+    """Headline Q/C is COUNT(*) over table+day, not SANDBOX_SAMPLE_CAP / LIMIT 100."""
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import PREVIEW_ROW_CAP, execute_compiled_rules
+    from src.services.th_hitl_flow import preview_split_counts
+    from src.tools.chat_tools import persist_sandbox_split
+
+    conn = duckdb.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (64, ?, 10, 10, '2026-01-11')", [f"c{i}"]
+        )
+    for i in range(3):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (-3, ?, 10, 10, '2026-01-11')", [f"b{i}"]
+        )
+    for i in range(20):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (-3, ?, 11, 11, '2026-01-12')", [f"x{i}"]
+        )
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "qa_day__R1",
+        "id": "qa_day__R1",
+        "decision": "approved",
+        "expression": "battery_soc >= 0",
+        "rule_expression": "battery_soc >= 0",
+        "name": "soc",
+    }]
+    db = _DB(conn)
+    counts = preview_split_counts(db, "ev_telemetry", rules, "2026-01-11", 10)
+    assert counts["scoped_rows"] == 10
+    assert counts["clean_rows"] == 7
+    assert counts["quarantine_rows"] == 3
+    assert counts["counts_kind"] == "preview"
+    assert counts["warehouse_clean_rows"] == 0
+    assert counts["warehouse_quarantine_rows"] == 0
+
+    rows = [{"vin": f"D{i}", "battery_soc": -1} for i in range(60)] + [{"vin": "C", "battery_soc": 50}]
+    exec_res = execute_compiled_rules(rows, rules)
+    from src.db.connection import get_db
+    live = get_db()
+    try:
+        live.execute("DELETE FROM quarantine WHERE source_table = 'qa_cap' OR id LIKE 'q-qa_cap%'")
+    except Exception:
+        pass
+    payload = persist_sandbox_split(
+        "qa_cap", rows, exec_res, rules, db=live,
+        preview_counts={"clean_rows": 7, "quarantine_rows": 3, "scoped_rows": 10},
+    )
+    assert payload["clean_rows"] == 7
+    assert payload["quarantine_rows"] == 3
+    assert payload["scoped_rows"] == 10
+    stored = live.execute("SELECT count(*) FROM quarantine WHERE source_table = 'qa_cap'")
+    assert stored and int(stored[0][0]) <= PREVIEW_ROW_CAP
+    assert int(stored[0][0]) < 60
+
+
+def test_split_labels_preview_not_warehouse():
+    split = _split()
+    assert "Preview quarantine" in split
+    assert "Preview clean" in split
+    assert "not warehouse after Execute" in split
+    assert "Committed warehouse: Clean 0" in split
+    sand = (ROOT / "frontend/src/components/workspace/SandboxDiff.tsx").read_text()
+    assert "Preview estimate (table + day)" in sand
+    assert "Warehouse after Execute" in sand
+    get_fn = _hitl().split("async def get_sandbox_run", 1)[1].split("async def get_history", 1)[0]
+    assert '"clean_rows": 0' not in get_fn
+    assert "load_sandbox_preview_meta" in get_fn
+    assert "preview_split_counts" in _hitl()
+    assert "commit_warehouse_split" in _hitl() or "commit_warehouse_split" in (
+        ROOT / "src/services/th_hitl_flow.py"
+    ).read_text()
+    assert "Execute warehouse (Steward)" in _rules()
+
+
+def test_commit_warehouse_split_writes_clean_and_quarantine():
+    import threading
+
+    import duckdb
+
+    from src.services.th_hitl_flow import commit_warehouse_split
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA IF NOT EXISTS main")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, ?, 10, 10, '2026-01-11')", [f"c{i}"])
+    for i in range(3):
+        conn.execute("INSERT INTO ev_telemetry VALUES (-3, ?, 10, 10, '2026-01-11')", [f"b{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "qa_wh__R1",
+        "id": "qa_wh__R1",
+        "decision": "approved",
+        "expression": "battery_soc >= 0",
+        "rule_expression": "battery_soc >= 0",
+    }]
+    out = commit_warehouse_split(_DB(conn), "ev_telemetry", rules, "2026-01-11", 10)
+    assert out["counts_kind"] == "warehouse"
+    assert out["warehouse_clean_rows"] == 7
+    assert out["warehouse_quarantine_rows"] == 3
+    assert out["execute"] == "on"
+    clean_n = conn.execute("SELECT count(*) FROM clean.ev_telemetry").fetchone()[0]
+    q_n = conn.execute("SELECT count(*) FROM main.quarantine WHERE rule_version_id = 'execute'").fetchone()[0]
+    assert int(clean_n) == 7
+    assert int(q_n) == 3
+
+
+def test_get_sandbox_run_uses_meta_when_quarantine_empty():
+    """COUNT-only preview (Q=0) must 200 from sandbox_preview_meta, not 404 on empty quarantine."""
+    from src.db.connection import get_db
+    from src.services.th_hitl_flow import save_sandbox_preview_meta
+    from src.middleware.auth import create_access_token
+    from fastapi.testclient import TestClient
+    from src.main import app
+
+    db = get_db()
+    snap = "sandbox:qa_meta_empty:cut"
+    save_sandbox_preview_meta(
+        db,
+        snapshot_id=snap,
+        dataset_key="qa_meta_empty",
+        calendar_day="2026-01-11",
+        scoped_rows=10,
+        clean_rows=10,
+        quarantine_rows=0,
+        per_rule_counts={"soc": 0},
+        sample_cap=50,
+        counts_kind="preview",
+    )
+    token = create_access_token(
+        {"sub": "analyst@datatrust.os", "user_id": "usr_analyst_01", "role": "Analyst"}
+    )
+    client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    preview = client.get(f"/api/v1/hitl/sandbox/{snap}")
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body.get("counts_kind") == "preview"
+    assert int(body.get("clean_rows") or 0) == 10
+    assert int(body.get("quarantine_rows") or 0) == 0
+    assert int(body.get("warehouse_clean_rows") or 0) == 0
+    assert body.get("execute") == "off"
+    missing = client.get("/api/v1/hitl/sandbox/sandbox:does-not-exist")
+    assert missing.status_code == 404
+
+
+def test_load_sandbox_rows_respects_table_day():
+    import duckdb
+    import threading
+
+    from src.services.dataset_engine import load_sandbox_rows
+
+    conn = duckdb.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, record_id VARCHAR, "
+        "day_idx INTEGER, assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(5):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (64, ?, ?, 10, 10, '2026-01-11')",
+            [f"c{i}", f"c{i}"],
+        )
+    for i in range(2):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (-12.5, ?, ?, 10, 10, '2026-01-11')",
+            [f"f10-{i}", f"f10-{i}"],
+        )
+    for i in range(40):
+        conn.execute(
+            "INSERT INTO ev_telemetry VALUES (-12.5, ?, ?, 11, 11, '2026-01-12')",
+            [f"f11-{i}", f"f11-{i}"],
+        )
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def _get_master_conn(self):
+            return self._c
+
+        def fetch_df(self, q, p=None):
+            with self._conn_lock:
+                return self._c.execute(q, p).fetchdf() if p is not None else self._c.execute(q).fetchdf()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [{
+        "rule_id": "soc",
+        "id": "soc",
+        "decision": "approved",
+        "expression": "battery_soc BETWEEN 0 AND 100",
+        "rule_expression": "battery_soc BETWEEN 0 AND 100",
+    }]
+    rows = load_sandbox_rows(
+        "ev_telemetry", rules, 50, db=_DB(conn), calendar_day="2026-01-11", day_idx=10,
+    )
+    assert rows
+    assert all(int(r.get("day_idx") or -1) == 10 for r in rows)
+    bad = [r for r in rows if float(r.get("battery_soc") or 0) < 0]
+    assert len(bad) == 2
+    assert all(str(r.get("vin") or "").startswith("f10-") for r in bad)
+
+
+def test_per_rule_counts_are_exclusive():
+    import threading
+
+    import duckdb
+
+    from src.services.th_hitl_flow import preview_split_counts
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA IF NOT EXISTS main")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, speed_kmh DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, 10, ?, 10, 10, '2026-01-11')", [f"c{i}"])
+    for i in range(2):
+        conn.execute("INSERT INTO ev_telemetry VALUES (-3, 10, ?, 10, 10, '2026-01-11')", [f"s{i}"])
+    conn.execute("INSERT INTO ev_telemetry VALUES (50, 999, 'spd', 10, 10, '2026-01-11')")
+    conn.execute("INSERT INTO ev_telemetry VALUES (-3, 999, 'both', 10, 10, '2026-01-11')")
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [
+        {"rule_id": "soc", "id": "soc", "decision": "approved", "expression": "battery_soc >= 0", "rule_expression": "battery_soc >= 0"},
+        {"rule_id": "speed", "id": "speed", "decision": "approved", "expression": "speed_kmh < 200", "rule_expression": "speed_kmh < 200"},
+    ]
+    counts = preview_split_counts(_DB(conn), "ev_telemetry", rules, "2026-01-11", 10)
+    assert counts["scoped_rows"] == 11
+    assert counts["clean_rows"] == 7
+    assert counts["quarantine_rows"] == 4
+    per = counts["per_rule_counts"]
+    assert per.get("soc") == 3
+    assert per.get("speed") == 1
+    assert sum(per.values()) == counts["quarantine_rows"]
+
+
+def test_per_rule_counts_treat_null_as_fail():
+    import threading
+
+    import duckdb
+
+    from src.services.th_hitl_flow import preview_split_counts
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA IF NOT EXISTS main")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, battery_current DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, 1, ?, 10, 10, '2026-01-11')", [f"c{i}"])
+    for i in range(2):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, NULL, ?, 10, 10, '2026-01-11')", [f"n{i}"])
+    conn.execute("INSERT INTO ev_telemetry VALUES (-3, 1, 'soc', 10, 10, '2026-01-11')")
+    conn.execute("INSERT INTO ev_telemetry VALUES (-3, NULL, 'both', 10, 10, '2026-01-11')")
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [
+        {"rule_id": "soc", "id": "soc", "decision": "approved", "expression": "battery_soc >= 0", "rule_expression": "battery_soc >= 0"},
+        {"rule_id": "current", "id": "current", "decision": "approved", "expression": "battery_current >= 0", "rule_expression": "battery_current >= 0"},
+    ]
+    counts = preview_split_counts(_DB(conn), "ev_telemetry", rules, "2026-01-11", 10)
+    assert counts["scoped_rows"] == 11
+    assert counts["clean_rows"] == 7
+    assert counts["quarantine_rows"] == 4
+    per = counts["per_rule_counts"]
+    assert per.get("soc") == 2
+    assert per.get("current") == 2
+    assert sum(per.values()) == counts["quarantine_rows"]
+
+
+def test_per_rule_counts_skip_unrunnable_expr():
+    import threading
+
+    import duckdb
+
+    from src.services.th_hitl_flow import preview_split_counts
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA IF NOT EXISTS main")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, ?, 10, 10, '2026-01-11')", [f"c{i}"])
+    for i in range(3):
+        conn.execute("INSERT INTO ev_telemetry VALUES (-3, ?, 10, 10, '2026-01-11')", [f"b{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    rules = [
+        {"rule_id": "missing", "id": "missing", "decision": "approved", "expression": "no_such_col > 0", "rule_expression": "no_such_col > 0"},
+        {"rule_id": "soc", "id": "soc", "decision": "approved", "expression": "battery_soc >= 0", "rule_expression": "battery_soc >= 0"},
+    ]
+    counts = preview_split_counts(_DB(conn), "ev_telemetry", rules, "2026-01-11", 10)
+    assert counts["scoped_rows"] == 10
+    assert counts["clean_rows"] == 7
+    assert counts["quarantine_rows"] == 3
+    per = counts["per_rule_counts"]
+    assert "missing" not in per
+    assert per.get("soc") == 3
+    assert sum(per.values()) == counts["quarantine_rows"]
+
+
+def test_rollback_warehouse_moves_clean_rows():
+    import threading
+
+    import duckdb
+
+    from src.services.th_hitl_flow import commit_warehouse_split, persist_decision, rollback_last_clean
+
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA IF NOT EXISTS main")
+    conn.execute(
+        "CREATE TABLE ev_telemetry (battery_soc DOUBLE, vin VARCHAR, day_idx INTEGER, "
+        "assigned_day_index INTEGER, source_ingestion_run_id VARCHAR)"
+    )
+    for i in range(7):
+        conn.execute("INSERT INTO ev_telemetry VALUES (64, ?, 10, 10, '2026-01-11')", [f"c{i}"])
+    for i in range(3):
+        conn.execute("INSERT INTO ev_telemetry VALUES (-3, ?, 10, 10, '2026-01-11')", [f"b{i}"])
+
+    class _DB:
+        def __init__(self, c):
+            self._c = c
+            self._conn_lock = threading.RLock()
+
+        def execute(self, q, p=None):
+            with self._conn_lock:
+                res = self._c.execute(q, p) if p is not None else self._c.execute(q)
+                try:
+                    return res.fetchall()
+                except Exception:
+                    return []
+
+    db = _DB(conn)
+    rules = [{
+        "rule_id": "qa_wh__R1",
+        "id": "qa_wh__R1",
+        "decision": "approved",
+        "expression": "battery_soc >= 0",
+        "rule_expression": "battery_soc >= 0",
+    }]
+    out = commit_warehouse_split(db, "ev_telemetry", rules, "2026-01-11", 10)
+    persist_decision(
+        db,
+        dataset_key="ev_telemetry",
+        calendar_day="2026-01-11",
+        rule_id="qa_wh__R1",
+        persona="Steward",
+        action="warehouse_execute",
+        details={"counts_kind": "warehouse", "snapshot_id": out.get("snapshot_id")},
+    )
+    assert int(conn.execute("SELECT count(*) FROM clean.ev_telemetry").fetchone()[0]) == 7
+    rb = rollback_last_clean(db, "ev_telemetry", "2026-01-11", "Steward", "qa_wh__R1")
+    assert rb["status"] == "superseded"
+    assert rb["moved"] == 7
+    assert int(conn.execute("SELECT count(*) FROM clean.ev_telemetry").fetchone()[0]) == 0
 

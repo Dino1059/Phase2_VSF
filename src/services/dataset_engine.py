@@ -216,6 +216,7 @@ def load_dataset(dataset_key: str = None, file_path: str = None,
 
 
 SANDBOX_SAMPLE_CAP = 3000
+PREVIEW_ROW_CAP = 50
 PROFILE_SAMPLE_CAP = 3000
 
 _CANONICAL_MAIN = {
@@ -296,12 +297,20 @@ def _sandbox_source_tables(db, table: str) -> list:
     return found or [f"main.{table}"]
 
 
-def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
+def load_sandbox_rows(
+    dataset_key: str,
+    rules: list,
+    cap: int,
+    db=None,
+    calendar_day: Optional[str] = None,
+    day_idx: Optional[int] = None,
+) -> list:
     """Bounded sample that includes GT/rule faults, not a head LIMIT that misses them.
 
     Persist still writes main.quarantine. Source rows come from main.* first, then raw.*
     if main has no matching violators. Fault-hint rows are always pulled before other
     WHERE NOT hits so 3000 over-range rows cannot crowd out labeled SOC<0 faults.
+    When calendar_day/day_idx is set, every SELECT is table+day — never fill from other days.
     """
     if db is None:
         db = get_db()
@@ -310,6 +319,12 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
     sources = _sandbox_source_tables(db, table)
     seen: set = set()
     out: list = []
+    from src.services.th_hitl_flow import calendar_day_to_day_idx, day_filter_sql, resolve_calendar_day
+
+    day = resolve_calendar_day(calendar_day, day_idx)
+    idx = calendar_day_to_day_idx(day) if day else day_idx
+    day_params: list = [idx, idx, day or ""] if (idx is not None or day) else []
+    day_clause = day_filter_sql() if day_params else ""
 
     def _key(row: dict) -> str:
         for k in ("record_id", "trip_id", "session_id"):
@@ -330,17 +345,27 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
             if len(out) >= cap:
                 return
 
-    def _from(sql: str) -> None:
+    def _from(pred: str) -> None:
         if len(out) >= cap:
             return
+        parts: list[str] = []
+        params: list = []
+        if day_clause:
+            parts.append(day_clause)
+            params.extend(day_params)
+        if pred:
+            parts.append(f"({pred})")
+        where = (" WHERE " + " AND ".join(parts)) if parts else ""
+        fill_n = cap - len(out)
+        sql_t = f"SELECT * FROM {{qtable}}{where} LIMIT {fill_n}"
         for qtable in sources:
-            _add(_dicts_from_sql(db, sql.format(qtable=qtable)))
+            _add(_dicts_from_sql(db, sql_t.format(qtable=qtable), params or None))
             if len(out) >= cap:
                 return
 
     hint = _FAULT_HINTS.get(table)
     if hint:
-        _from(f"SELECT * FROM {{qtable}} WHERE {hint} LIMIT {cap}")
+        _from(hint)
 
     for r in rules or []:
         if len(out) >= cap:
@@ -352,13 +377,14 @@ def load_sandbox_rows(dataset_key: str, rules: list, cap: int, db=None) -> list:
         )
         if not expr:
             continue
-        _from(f"SELECT * FROM {{qtable}} WHERE NOT ({expr}) LIMIT {cap}")
+        _from(f"NOT ({expr})")
 
     if len(out) < cap:
-        fill_n = cap - len(out)
-        _from(f"SELECT * FROM {{qtable}} LIMIT {fill_n}")
+        _from("")
 
     if not out:
+        if day_params:
+            return []
         df = load_dataset(dataset_key=dataset_key, sample_size=cap)
         return df.to_dict("records")
     return out[:cap]
@@ -840,9 +866,9 @@ def execute_compiled_rules(rows: List[Dict[str, Any]], rules: List[Dict[str, Any
                 rule_name_str = r.get("name") or r.get("rule_name") or "Rule"
                 violated_rules.append(r["rule_id"])
                 reasons.append(f"Violated {rule_name_str} ({r['rule_id']}): {expr}")
-                quarantine_breakdown[r["rule_id"]] += 1
 
         if violated_rules:
+            quarantine_breakdown[violated_rules[0]] = quarantine_breakdown.get(violated_rules[0], 0) + 1
             quarantine_table.append({
                 "row_id": idx + 1,
                 "trip_id": row.get("trip_id", idx + 1),

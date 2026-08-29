@@ -582,8 +582,20 @@ class UnifiedLLMAdapter:
             )
 
     def _heuristic_fallback(self, messages: list[dict]) -> LLMResponse:
+        from src.orchestrator.prompt_intent import (
+            asks_dataset_inventory,
+            grill_edit_rule,
+            heuristic_user_task,
+            is_edit_rule_prompt,
+            is_smalltalk_prompt,
+            last_observation_text,
+            parse_edit_rule_query,
+            smalltalk_reply,
+        )
+
         all_text = " ".join([str(m.get("content", "")) for m in messages if isinstance(m, dict)]).lower()
         last_msg = (messages[-1]["content"] if messages else "").lower()
+        task_text = heuristic_user_task(messages)
 
         # 1. A1 Bounded Investigator Fallback -> Return FINAL_HYPOTHESIS JSON immediately
         if "begin your investigation" in all_text or "incident id" in all_text or "rca hypothesis" in all_text:
@@ -611,6 +623,31 @@ class UnifiedLLMAdapter:
             )
             for m in messages
         )
+        if is_edit_rule_prompt(task_text):
+            obs = last_observation_text(messages)
+            if obs and not obs.upper().startswith("REFUSED"):
+                return LLMResponse(
+                    content=grill_edit_rule(obs),
+                    finish_reason="stop",
+                    model_used="heuristic-edit-rule",
+                )
+            q = parse_edit_rule_query(task_text)
+            args = {"query": q} if q else {}
+            return LLMResponse(
+                content="ACTION: sandbox_preview\nARGS: " + json.dumps(args),
+                tool_calls=[{"name": "sandbox_preview", "args": args}],
+                finish_reason="tool_calls",
+                model_used="heuristic-edit-rule",
+            )
+
+        # Greetings / "what can you do?" — never profile/list from tool catalog or Context JSON
+        if is_smalltalk_prompt(task_text):
+            return LLMResponse(
+                content=smalltalk_reply(task_text),
+                finish_reason="stop",
+                model_used="heuristic-smalltalk",
+            )
+
         if has_observation:
             return LLMResponse(
                 content=f"Completed task via heuristic analysis. Observation processed: {last_msg[:300]}",
@@ -618,28 +655,28 @@ class UnifiedLLMAdapter:
                 model_used="heuristic-done"
             )
 
-        if "profile" in last_msg or "profile_dataset" in last_msg or "profiling" in last_msg:
+        if "profile" in task_text or "profile_dataset" in task_text or "profiling" in task_text:
             return LLMResponse(
                 content="ACTION: profile_dataset\nARGS: {}",
                 tool_calls=[{"name": "profile_dataset", "args": {}}],
                 finish_reason="tool_calls",
                 model_used="heuristic-profiler"
             )
-        if "anomal" in last_msg or "detect_anomalies" in last_msg:
+        if "anomal" in task_text or "detect_anomalies" in task_text:
             return LLMResponse(
                 content="ACTION: detect_anomalies\nARGS: {}",
                 tool_calls=[{"name": "detect_anomalies", "args": {}}],
                 finish_reason="tool_calls",
                 model_used="heuristic-anomaly"
             )
-        if "propose" in last_msg or "rule" in last_msg or "propose_quality_rules" in last_msg:
+        if "propose" in task_text or "quality rule" in task_text or "propose_quality_rules" in task_text:
             return LLMResponse(
                 content="ACTION: propose_quality_rules\nARGS: {}",
                 tool_calls=[{"name": "propose_quality_rules", "args": {}}],
                 finish_reason="tool_calls",
                 model_used="heuristic-proposer"
             )
-        if "clean" in last_msg or "quarantine" in last_msg:
+        if ("clean" in task_text or "quarantine" in task_text) and "edit rule" not in task_text:
             return LLMResponse(
                 content="ACTION: clean_database\nARGS: {}",
                 tool_calls=[{"name": "clean_database", "args": {}}],
@@ -647,22 +684,23 @@ class UnifiedLLMAdapter:
                 model_used="heuristic-executor"
             )
 
-        # 3. Chat / General Inquiry Fallback
+        # 3. Chat / General Inquiry Fallback — never match Context JSON dataset_key
         if "pong" in last_msg and any(k in last_msg for k in ("reply", "only", "one word", "ping")):
             reply = (
                 "You have **4 datasets** registered in the DataTrust OS repository "
                 "including ev_telemetry, charging_sessions, trips, and nlp_feedback."
             )
-        elif "dataset" in last_msg or "how many" in last_msg:
+        elif asks_dataset_inventory(task_text):
             reply = "You have **4 datasets** registered in the DataTrust OS repository including ev_telemetry, charging_sessions, trips, and nlp_feedback."
-        elif "evidence" in last_msg or "summarize" in last_msg:
+        elif "evidence" in task_text or "summarize" in task_text:
             reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."
-        elif "rca" in last_msg or "hypothesis" in last_msg or "root cause" in last_msg:
+        elif "rca" in task_text or "hypothesis" in task_text or "root cause" in task_text:
             reply = "RCA Hypothesis Synthesis:\n- Primary: Dynamic A1 verified data contract violation in entity STATION-VGREEN-01.\n- Data Cause (Confidence: 88%). Recommend enforcing preventive range rule check."
-        elif "hitl" in last_msg or "authorize" in last_msg or "governance" in last_msg:
+        elif "hitl" in task_text or "authorize" in task_text or "governance" in task_text:
             reply = "HITL Governance Audit:\n- Preventive control rule requires Data Steward digital signature & authorization.\n- Execution payload is hash-bound to authorization token."
         else:
-            reply = f"DataTrust Operational Trust Assistant: Received inquiry '{last_msg}'. I am monitoring incident context, supporting evidence, and governance state. How can I assist your data stewardship workflow?"
+            shown = (task_text or last_msg)[:240]
+            reply = f"DataTrust Operational Trust Assistant: Received inquiry '{shown}'. I am monitoring incident context, supporting evidence, and governance state. How can I assist your data stewardship workflow?"
 
         return LLMResponse(content=reply, finish_reason="stop", model_used="heuristic")
 

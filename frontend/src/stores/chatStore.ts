@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import type { ChatMessage, AgentId, AgentStatus, WorkspaceView, RuleProposal } from '../types';
-import { fetchChatSessions, fetchChatHistory, clearChatDatabase } from '../services/api';
+import { fetchChatSessions, fetchChatHistory, clearChatDatabase, bindChatSession } from '../services/api';
 
 export interface ChatSession {
   id: string;
   title: string;
   createdAt: string;
   messages: ChatMessage[];
+  datasetKey?: string | null;
+  calendarDay?: string | null;
 }
 
 interface ChatState {
@@ -37,8 +39,9 @@ interface ChatState {
   appendStreamThought: (id: string, delta: string) => void;
 
   // Session Actions
-  fetchSessions: () => Promise<void>;
-  createSession: (title?: string) => string;
+  fetchSessions: (datasetKey?: string, calendarDay?: string) => Promise<void>;
+  bindAxis: (datasetKey?: string, calendarDay?: string) => Promise<void>;
+  createSession: (title?: string, datasetKey?: string, calendarDay?: string) => string;
   switchSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionId: string, newTitle: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -247,30 +250,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessions: state.sessions.map((s) => (s.id === state.activeSessionId ? { ...s, messages: [] } : s)),
     })),
 
-  fetchSessions: async () => {
+  fetchSessions: async (datasetKey?: string, calendarDay?: string) => {
     try {
-      const res = await fetchChatSessions();
+      const res = await fetchChatSessions(datasetKey, calendarDay);
       if (res && Array.isArray(res.sessions)) {
-        set((state) => {
-          const currentSessions = [...state.sessions];
-          for (const s of res.sessions) {
-            const idx = currentSessions.findIndex((ex) => ex.id === s.session_id);
-            if (idx >= 0) {
-              currentSessions[idx] = {
-                ...currentSessions[idx],
-                title: s.title || currentSessions[idx].title,
-                createdAt: s.last_updated || currentSessions[idx].createdAt,
-              };
-            } else {
-              currentSessions.push({
-                id: s.session_id,
-                title: s.title || 'Chat Session',
-                createdAt: s.last_updated || new Date().toISOString(),
-                messages: [],
-              });
-            }
-          }
-          return { sessions: currentSessions };
+        set(() => {
+          const mapped = res.sessions.map((s: any) => ({
+            id: s.session_id,
+            title: s.title || 'Chat Session',
+            createdAt: s.last_updated || new Date().toISOString(),
+            messages: [] as ChatMessage[],
+            datasetKey: s.dataset_key,
+            calendarDay: s.calendar_day,
+          }));
+          return { sessions: mapped };
         });
       }
 
@@ -288,13 +281,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createSession: (title) => {
+  bindAxis: async (datasetKey?: string, calendarDay?: string) => {
+    await get().fetchSessions(datasetKey, calendarDay);
+    const pair = get().sessions;
+    if (pair.length > 0) {
+      await get().switchSession(pair[0].id);
+      return;
+    }
+    get().createSession(undefined, datasetKey, calendarDay);
+  },
+
+  createSession: (title, datasetKey, calendarDay) => {
     const newId = `session_${Date.now()}`;
     const newSession: ChatSession = {
       id: newId,
       title: title || 'New Agent Chat',
       createdAt: new Date().toISOString(),
       messages: [],
+      datasetKey,
+      calendarDay,
     };
     saveActiveSessionId(newId);
     set((state) => ({
@@ -303,6 +308,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessionId: newId,
       messages: [],
     }));
+    void bindChatSession(newId, datasetKey, calendarDay, title || 'New Agent Chat');
     return newId;
   },
 

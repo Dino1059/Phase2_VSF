@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.services.llm import GemmaLLMAdapter, LLMResponse
+from src.orchestrator.prompt_intent import (
+    EDIT_RULE_ALLOWED_TOOLS,
+    is_edit_rule_prompt,
+    is_smalltalk_prompt,
+)
 from src.tools.base import ToolRegistry, ToolCall
 from src.db.connection import get_db
 from src.schemas.evidence import EvidenceLedger, EvidenceItem, EvidenceTier, ConfidenceMethod
@@ -274,11 +279,14 @@ Action Input: [JSON arguments for the tool, or {{}} for FINISH/ABSTAIN]
 
 Rules:
 1. Always start with a Thought explaining your reasoning.
-2. Use tools to gather data before making conclusions.
-3. Use FINISH when you have enough information to answer.
-4. Use ABSTAIN if the task is outside your capabilities.
-5. Maximum {max_steps} steps allowed.
-6. Always provide evidence-based conclusions.
+2. The user utterance is the task. Follow prior user/assistant turns.
+3. Greetings, small talk, and "what can you do?" → Action: FINISH with a short honest answer. Do not call profile_dataset, list_datasets, or run Auto Profile unless the user asked.
+4. Context JSON dataset_key is workspace binding, not a request to list datasets.
+5. Use tools only when the user asked to profile, detect, propose, preview, clean, or list datasets.
+6. Use FINISH when you have enough information to answer.
+7. Use ABSTAIN if the task is outside your capabilities.
+8. Maximum {max_steps} steps allowed.
+9. Always provide evidence-based conclusions.
 """
 
 
@@ -312,7 +320,7 @@ class ReActEngine:
             else None
         )
 
-    def run(self, task: str, context: dict | None = None, session_id: str | None = None) -> ReActResult:
+    def run(self, task: str, context: dict | None = None, session_id: str | None = None, history: list[dict] | None = None) -> ReActResult:
         """Execute a bounded dynamic ReAct loop."""
         start_time = time.time()
         result = ReActResult(task=task)
@@ -326,8 +334,7 @@ class ReActEngine:
         # Build system prompt with available tools
         tool_specs = self.tools.list_tools() if hasattr(self.tools, "list_tools") else []
         hitl_stop = _is_hitl_stop(task, context)
-        if hitl_stop:
-            # Allowlist: LLM must not even see clean / algolia / list / write tools.
+        if hitl_stop or self.tool_allowlist is not None:
             filtered = []
             for t in tool_specs:
                 fn = t.get("function") if isinstance(t, dict) else None
@@ -341,10 +348,15 @@ class ReActEngine:
         ) if tool_specs else "No tools registered."
         system_msg = SYSTEM_PROMPT.format(tool_list=tool_desc, max_steps=self.max_steps)
 
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"Task: {task}"}
-        ]
+        messages = [{"role": "system", "content": system_msg}]
+        for h in (history or [])[-12:]:
+            if not isinstance(h, dict):
+                continue
+            role = h.get("role")
+            content = str(h.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content[:2000]})
+        messages.append({"role": "user", "content": f"Task: {task}"})
 
         if context:
             messages.append({"role": "user", "content": f"Context: {json.dumps(context, default=str)}"})
@@ -405,19 +417,16 @@ class ReActEngine:
                 elif isinstance(tc, dict) and not step.action:
                     step.action = str(tc.get("name") or "")
                     step.action_input = args
-                if context and context.get("dataset_key") and isinstance(step.action_input, dict):
-                    step.action_input.setdefault("dataset_key", context["dataset_key"])
+                step.action_input = self._inject_context_args(context, step.action_input)
 
                 if not step.action:
                     # Empty native payload — do not write a nameless running row.
                     continue
 
-                if _is_hitl_stop(task, context) and not _allow_hitl_tool(step.action):
+                refused = self._refuse_reason(task, context, step.action)
+                if refused:
                     messages.append({"role": "assistant", "content": llm_response.content or f"Calling {step.action}"})
-                    messages.append({
-                        "role": "user",
-                        "content": "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools.",
-                    })
+                    messages.append({"role": "user", "content": refused})
                     if self._hitl_already_proposed(result):
                         result.status = "completed"
                         result.final_answer = result.final_answer or "Stopping for HITL review."
@@ -498,14 +507,11 @@ class ReActEngine:
                 or step.action.replace("default_api:", "") in self.tools.tool_names
             ):
                 action_name = step.action.replace("default_api:", "")
-                if context and context.get("dataset_key") and isinstance(step.action_input, dict):
-                    step.action_input.setdefault("dataset_key", context["dataset_key"])
-                if _is_hitl_stop(task, context) and not _allow_hitl_tool(action_name):
+                step.action_input = self._inject_context_args(context, step.action_input)
+                refused = self._refuse_reason(task, context, action_name)
+                if refused:
                     messages.append({"role": "assistant", "content": llm_response.content})
-                    messages.append({
-                        "role": "user",
-                        "content": "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools.",
-                    })
+                    messages.append({"role": "user", "content": refused})
                     if self._hitl_already_proposed(result):
                         result.status = "completed"
                         result.final_answer = result.final_answer or "Stopping for HITL review."
@@ -623,7 +629,16 @@ class ReActEngine:
 
     def _seed_running_profile(self, result: ReActResult, task: str, context: dict | None) -> None:
         """Write one running profile_dataset row at step 0 when the steward asked to profile."""
-        blob = f"{task or ''} {json.dumps(context or {}, default=str)}".lower()
+        if context and context.get("edit_rule"):
+            return
+        if is_edit_rule_prompt(task):
+            return
+        user = task or ""
+        if "User request:" in user:
+            user = user.split("User request:", 1)[-1]
+        if is_smalltalk_prompt(user):
+            return
+        blob = user.lower()
         if not any(k in blob for k in ("profile", "khảo sát", "khao sat", "scan")):
             return
         dataset_key = (context or {}).get("dataset_key")
@@ -644,6 +659,43 @@ class ReActEngine:
 
     def _is_hitl_stop(self, task: str, context: dict | None = None) -> bool:
         return _is_hitl_stop(task, context)
+
+    def _inject_context_args(self, context: dict | None, action_input: dict | None) -> dict:
+        out = dict(action_input) if isinstance(action_input, dict) else {}
+        if context and context.get("dataset_key"):
+            out.setdefault("dataset_key", context["dataset_key"])
+        if context and context.get("edit_query"):
+            out.setdefault("query", context["edit_query"])
+        if context and context.get("active_day") is not None:
+            out.setdefault("day_idx", context["active_day"])
+        return out
+
+    def _refuse_reason(self, task: str, context: dict | None, action: str | None) -> str | None:
+        n = self._normalize_tool_name(action)
+        if not n or n in ("finish", "abstain", "finish_default"):
+            return None
+        edit = bool(context and context.get("edit_rule")) or is_edit_rule_prompt(task)
+        if self.tool_allowlist is not None and n not in self.tool_allowlist:
+            if edit:
+                return (
+                    "Observation: REFUSED — edit-rule. Only sandbox_preview (no write). "
+                    "Do not call profile_dataset, list_datasets, algolia_search."
+                )
+            return (
+                "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. "
+                "After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools."
+            )
+        if edit and n not in EDIT_RULE_ALLOWED_TOOLS:
+            return (
+                "Observation: REFUSED — edit-rule. Only sandbox_preview (no write). "
+                "Do not call profile_dataset, list_datasets, algolia_search."
+            )
+        if _is_hitl_stop(task, context) and not _allow_hitl_tool(n):
+            return (
+                "Observation: REFUSED — HITL stop. Only profile_dataset and propose_quality_rules. "
+                "After Propose, FINISH. Do not call clean_database, list_datasets, algolia_search, or write tools."
+            )
+        return None
 
     def _allow_hitl_tool(self, name: str | None) -> bool:
         n = self._normalize_tool_name(name)

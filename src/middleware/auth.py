@@ -48,6 +48,7 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[str]] = {
         "profile",
         "propose_rules",
         "review_rules",
+        "hitl_write",
         "execute_transform",
         "manage_schedule",
         "create_alert",
@@ -186,7 +187,16 @@ def check_role_permission(role: UserRole, action: str) -> bool:
     return action in allowed
 
 
-_REVIEW_MARKERS = ("/hitl/approve", "/hitl/reject", "/hitl/edit", "/batch-approve")
+_REVIEW_MARKERS = (
+    "/hitl/approve",
+    "/hitl/reject",
+    "/hitl/edit",
+    "/batch-approve",
+    "/hitl/remember",
+    "/hitl/rollback",
+    "/hitl/confirm-patch",
+    "/hitl/execute",
+)
 
 
 def is_hitl_review_write(path: str, method: str) -> bool:
@@ -300,10 +310,10 @@ async def check_user_role(request: Request) -> str:
                     detail=f"Role 'Viewer' has read-only access. '{method}' operation is forbidden.",
                 )
 
-    if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "review_rules"):
+    if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "hitl_write"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: role cannot approve or reject HITL rules",
+            detail="Forbidden: HITL write is Data Steward only",
         )
 
     if resolved_role in (UserRole.STEWARD, UserRole.ANALYST, UserRole.AUDITOR):
@@ -354,7 +364,7 @@ class RoleMiddleware(BaseHTTPMiddleware):
             )
 
         role_str = resolved_role.value
-        request.state.user_role = resolved_role
+        request.state.user_role = role_str
         request.state.user_id = user_id
         method = request.method.upper()
 
@@ -366,9 +376,9 @@ class RoleMiddleware(BaseHTTPMiddleware):
                     media_type="application/json",
                 )
 
-        if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "review_rules"):
+        if is_hitl_review_write(path, method) and not check_role_permission(resolved_role, "hitl_write"):
             return Response(
-                content='{"detail": "Forbidden: role cannot approve or reject HITL rules"}',
+                content='{"detail": "Forbidden: HITL write is Data Steward only"}',
                 status_code=status.HTTP_403_FORBIDDEN,
                 media_type="application/json",
             )

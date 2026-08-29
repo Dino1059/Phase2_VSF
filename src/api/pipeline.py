@@ -179,7 +179,8 @@ async def trigger_pipeline(
 ):
     """Trigger the analysis pipeline on a table."""
     table_name = _pipeline_table_name(table_name)
-    check_pipeline_rule_approved(rule_id, table_name)
+    if rule_id:
+        check_pipeline_rule_approved(rule_id, table_name)
     run_id = str(uuid.uuid4())[:8]
     db = get_db()
     db.execute(
