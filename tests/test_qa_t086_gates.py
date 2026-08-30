@@ -221,8 +221,8 @@ def test_pong_ping_llm_on_vs_off_are_distinct():
     assert off.status_code == 200 and on.status_code == 200
     assert off.json()["response"] != on.json()["response"]
     assert on.json()["response"].strip() == "PONG"
-    assert "4 datasets" in off.json()["response"]
-    assert "PONG" not in off.json()["response"]
+    assert "4 datasets" not in off.json()["response"]
+    assert "LLM off" in off.json()["response"]
 
 
 def test_synth_off_uses_rule_det_prefix():

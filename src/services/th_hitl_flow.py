@@ -982,13 +982,28 @@ def _story_kind(entity: str) -> str:
     return "station" if any(k in blob for k in ("stn", "cs-", "vg-", "charger", "station")) else "vehicle"
 
 
-def _story_record(ds, day, entity, rule_id, n=None, reason=None, sev="HIGH", status="OPEN", inc_id=None) -> dict:
+def _row_bit(n=None, row_ids=None) -> str:
+    ids = [str(x) for x in (row_ids or []) if x not in (None, "")]
+    sample = ", ".join(ids[:3])
+    if n is not None and sample:
+        return f"{n} dòng (vd. {sample})"
+    if n is not None:
+        return f"{n} dòng"
+    if sample:
+        return f"dòng {sample}"
+    return "dòng vi phạm"
+
+
+def _story_record(ds, day, entity, rule_id, n=None, reason=None, sev="HIGH", status="OPEN", inc_id=None, row_ids=None) -> dict:
     kind = _story_kind(entity)
     rid = rule_id or "cluster"
     src = ds or ""
     cday = day or ""
-    n_bit = f"{n} rows" if n is not None else "rows"
-    because = reason or f"because {n_bit} assigned to primary rule {rid}"
+    noun = "Trạm" if kind == "station" else "Xe"
+    rows = _row_bit(n, row_ids)
+    because = reason or f"vì {rows} gắn luật {rid}"
+    suspected = f"{noun} {entity} nghi {rid}"
+    recommend = f"→ kiểm tra luật {rid} và cách ly ngày {cday}" if cday else f"→ kiểm tra luật {rid} và cách ly"
     return {
         "incident_id": inc_id or f"INC-{src}-{cday}-{entity}-{rid}",
         "dataset_key": src,
@@ -998,13 +1013,15 @@ def _story_record(ds, day, entity, rule_id, n=None, reason=None, sev="HIGH", sta
         "primary_rule_id": rid,
         "severity": sev,
         "status": status,
+        "row_ids": [str(x) for x in (row_ids or [])[:5] if x not in (None, "")],
         "copy": {
-            "suspected": f"Suspected {kind} {entity}",
+            "suspected": suspected,
             "because": because,
-            "recommend": "recommend check rule card and quarantine for this (table, day)",
+            "recommend": recommend,
+            "sentence": f"{suspected} {because} {recommend}",
         },
         "rule_href": f"/workspace?dataset_key={src}&day={cday}&tab=tab-rules&rule_id={rid}",
-        "quarantine_href": f"/workspace?dataset_key={src}&day={cday}&tab=tab-split&rule_id={rid}",
+        "quarantine_href": f"/workspace?dataset_key={src}&day={cday}&tab=tab-split&rule_id={rid}&entity_id={entity}",
     }
 
 
@@ -1036,7 +1053,8 @@ def incident_stories(db, dataset_key: Optional[str], calendar_day: Optional[str]
         "CAST(source_row_id AS VARCHAR))"
     )
     qsql = (
-        f"SELECT COALESCE(NULLIF(rule_id, ''), 'cluster'), source_table, {entity_sql}, COUNT(*) "
+        f"SELECT COALESCE(NULLIF(rule_id, ''), 'cluster'), source_table, {entity_sql}, COUNT(*), "
+        "list(CAST(source_row_id AS VARCHAR)) "
         "FROM main.quarantine "
     )
     qparams: list[Any] = []
@@ -1059,12 +1077,26 @@ def incident_stories(db, dataset_key: Optional[str], calendar_day: Optional[str]
     try:
         qrows = db.execute(qsql, qparams) if qparams else db.execute(qsql)
     except Exception:
-        qrows = []
+        try:
+            qsql_plain = qsql.replace("list(CAST(source_row_id AS VARCHAR))", "NULL")
+            qrows = db.execute(qsql_plain, qparams) if qparams else db.execute(qsql_plain)
+        except Exception:
+            qrows = []
     for qr in qrows or []:
         rid, src, entity, n = qr[:4]
+        raw_ids = qr[4] if len(qr) > 4 else None
+        if isinstance(raw_ids, str):
+            row_ids = [x.strip() for x in raw_ids.strip("[]").split(",") if x.strip()]
+        elif isinstance(raw_ids, (list, tuple)):
+            row_ids = list(raw_ids)
+        else:
+            row_ids = []
         if not entity:
             continue
-        _add(_story_record(src or dataset_key, day, str(entity), str(rid or "cluster"), n=int(n or 0)))
+        _add(_story_record(
+            src or dataset_key, day, str(entity), str(rid or "cluster"),
+            n=int(n or 0), row_ids=row_ids,
+        ))
 
     try:
         rows = db.execute(
@@ -1097,9 +1129,36 @@ def incident_stories(db, dataset_key: Optional[str], calendar_day: Optional[str]
         if not entity:
             continue
         rid = str(rule_id or "cluster")
-        because = f"because rows failed {rid} — {reason or 'quality violation'}"
+        because = f"vì dòng fail {rid} — {reason or 'vi phạm chất lượng'}"
         _add(_story_record(
             ds or dataset_key, cday or day, str(entity), rid,
             reason=because, sev=sev or "HIGH", status=status or "OPEN", inc_id=inc_id,
         ))
     return stories
+
+
+def causal_reply_for_ask(db, dataset_key, calendar_day, needle: str) -> str:
+    """Human sentence for a why/quarantine ask. Empty if no matching story."""
+    stories = incident_stories(db, dataset_key, calendar_day)
+    n = (needle or "").lower()
+    picked = None
+    for s in stories or []:
+        ent = str(s.get("entity_id") or "").lower()
+        sent = str((s.get("copy") or {}).get("sentence") or "").lower()
+        if n and (n in ent or n in sent):
+            picked = s
+            break
+    if picked is None and stories:
+        picked = stories[0] if not n else None
+    if not picked:
+        return ""
+    copy = picked.get("copy") or {}
+    sentence = copy.get("sentence") or f"{copy.get('suspected', '')} {copy.get('because', '')} {copy.get('recommend', '')}".strip()
+    rule_h = picked.get("rule_href") or ""
+    q_h = picked.get("quarantine_href") or ""
+    bits = [sentence]
+    if rule_h:
+        bits.append(f"Luật: {rule_h}")
+    if q_h:
+        bits.append(f"Cách ly: {q_h}")
+    return "\n".join(bits)

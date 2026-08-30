@@ -281,8 +281,8 @@ Rules:
 1. Always start with a Thought explaining your reasoning.
 2. The user utterance is the task. Follow prior user/assistant turns.
 3. Greetings, small talk, and "what can you do?" → Action: FINISH with a short honest answer. Do not call profile_dataset, list_datasets, or run Auto Profile unless the user asked.
-4. Context JSON dataset_key is workspace binding, not a request to list datasets.
-5. Use tools only when the user asked to profile, detect, propose, preview, clean, or list datasets.
+4. Workspace binding / Context JSON is NOT the user message. dataset_key is table+day context only.
+5. Use tools only when the user asked to profile, detect, propose, preview, clean, or list datasets. Never recite Dataset Ready / Auto Profile.
 6. Use FINISH when you have enough information to answer.
 7. Use ABSTAIN if the task is outside your capabilities.
 8. Maximum {max_steps} steps allowed.
@@ -356,10 +356,13 @@ class ReActEngine:
             content = str(h.get("content") or "").strip()
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content[:2000]})
-        messages.append({"role": "user", "content": f"Task: {task}"})
+        messages.append({"role": "user", "content": task})
 
         if context:
-            messages.append({"role": "user", "content": f"Context: {json.dumps(context, default=str)}"})
+            messages.append({
+                "role": "system",
+                "content": "Workspace binding (not a user request): " + json.dumps(context, default=str),
+            })
 
         # Pre-flight 10k cap. Word-count (memory narrative is inside context). Not len/4.
         prompt_words = sum(len(str(m.get("content") or "").split()) for m in messages)

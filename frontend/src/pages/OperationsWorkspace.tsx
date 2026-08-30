@@ -41,7 +41,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useAuthStore } from '../stores/authStore';
 import { usePipelineStore } from '../stores/pipelineStore';
-import { dayIdxToCalendarDay } from '../lib/calendarDay';
+import { axisFromLocation, calendarDayToDayIdx, dayIdxToCalendarDay, workspaceHref } from '../lib/calendarDay';
 
 /** This-run Split totals (sandbox DuckDB), never leftover warehouse 50k. */
 function thisRunSplitTotals(): { thisRun: boolean; quarantine: number } {
@@ -109,7 +109,7 @@ const COLUMN_TRANSLATIONS: Record<string, { en: string; vi: string }> = {
   column_count: { en: 'COLUMN COUNT', vi: 'SỐ CỘT' },
   sha256_hash: { en: 'SHA-256 HASH', vi: 'MÃ BĂM SHA-256' },
   ingested_at: { en: 'INGESTED AT', vi: 'THỜI ĐIỂM NẠP' },
-  llm_claim: { en: 'AI REASONING CONCLUSION', vi: 'SUY LUẬN / KẾT LUẬN CUỐI' },
+  llm_claim: { en: 'STORY (vehicle → rows → check)', vi: 'CÂU CHUYỆN (xe → dòng → kiểm tra)' },
   confidence: { en: 'CLASSIFICATION & CONFIDENCE', vi: 'PHÂN LOẠI & ĐỘ TIN CẬY' },
   rule_id: { en: 'RULE ID', vi: 'MÃ BỘ LUẬT' },
   dataset_name: { en: 'DATASET SOURCE', vi: 'NGUỒN DỮ LIỆU' },
@@ -135,7 +135,8 @@ export const OperationsWorkspace: React.FC = () => {
   const isVi = i18n.language === 'vi';
   const canReviewRules = useAuthStore((s) => s.canReviewRules());
   const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
-  const axisDay = dayIdxToCalendarDay(selectedDayIdx);
+  const urlAxis = axisFromLocation();
+  const axisDay = dayIdxToCalendarDay(selectedDayIdx) || urlAxis.day;
 
   // Determine main dashboard group and active subtab
   const isGovernanceView = view === 'rules' || view === 'quarantine' || view === 'governance' || view === 'executions' || view === 'snapshots' || !!ruleParam;
@@ -159,7 +160,7 @@ export const OperationsWorkspace: React.FC = () => {
   // Rules-specific filters & states
   const [datasetFilter, setDatasetFilter] = useState<string>('all');
   const storyDataset = datasetFilter === 'all'
-    ? undefined
+    ? (urlAxis.table || undefined)
     : (datasetFilter === 'vinfast_ev_telemetry' ? 'ev_telemetry' : datasetFilter);
   const [layerFilter, setLayerFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -227,7 +228,7 @@ export const OperationsWorkspace: React.FC = () => {
         const [sumRes, incRes, storiesRes, qCountRes, auditRes] = await Promise.all([
           summaryApi.get().catch(() => null),
           incidentsApi.list().catch(() => []),
-          hitlApi.incidentStories(storyDataset, axisDay, selectedDayIdx).catch(() => ({ incidents: [] })),
+          hitlApi.incidentStories(storyDataset, axisDay, selectedDayIdx ?? calendarDayToDayIdx(axisDay)).catch(() => ({ incidents: [] })),
           quarantineApi.count().catch(() => null),
           auditApi.list(50).catch(() => []),
         ]);
@@ -236,14 +237,17 @@ export const OperationsWorkspace: React.FC = () => {
         const storyRows = stories.map((s) => ({
           incident_id: s.incident_id,
           target_entity: s.entity_id,
-          llm_claim: `${s.copy?.suspected || ''} ${s.copy?.because || ''} ${s.copy?.recommend || ''}`.trim(),
+          llm_claim: s.copy?.sentence || `${s.copy?.suspected || ''} ${s.copy?.because || ''} ${s.copy?.recommend || ''}`.trim(),
+          copy: s.copy,
           severity: s.severity,
           status: s.status,
           layer: s.primary_rule_id || 'rule',
+          primary_rule_id: s.primary_rule_id,
           rule_href: s.rule_href,
           quarantine_href: s.quarantine_href,
           dataset_key: s.dataset_key,
           calendar_day: s.calendar_day,
+          row_ids: s.row_ids,
         }));
         setData(storyRows.length ? storyRows : (incRes || []));
         const stored = thisRunSplitTotals();
@@ -338,9 +342,16 @@ export const OperationsWorkspace: React.FC = () => {
     setModalTab('rca');
 
     try {
-      const full = await incidentsApi.get(incidentId);
+      const full = await incidentsApi.get(incidentId) as Record<string, any> | null;
       if (full) {
-        setSelectedIncident(full);
+        setSelectedIncident({
+          ...full,
+          ...initialRow,
+          copy: initialRow?.copy || full.copy,
+          llm_claim: initialRow?.llm_claim || full.llm_claim,
+          rule_href: initialRow?.rule_href || full.rule_href,
+          quarantine_href: initialRow?.quarantine_href || full.quarantine_href,
+        });
       }
     } catch (err) {
       console.warn('Could not fetch full incident details:', err);
@@ -1458,20 +1469,42 @@ export const OperationsWorkspace: React.FC = () => {
                           );
                         }
                         if (col === 'llm_claim') {
-                          const claimText = row.llm_claim || row.admission_reason || '—';
+                          const claimText = row.copy?.sentence || row.llm_claim || row.admission_reason || '—';
+                          const ruleTo = row.rule_href || workspaceHref(row.dataset_key || storyDataset || 'ev_telemetry', row.calendar_day || axisDay, 'tab-rules', { rule_id: row.primary_rule_id || row.layer || '' });
+                          const qTo = row.quarantine_href || workspaceHref(row.dataset_key || storyDataset || 'ev_telemetry', row.calendar_day || axisDay, 'tab-split', { rule_id: row.primary_rule_id || row.layer || '', entity_id: row.target_entity || '' });
                           return (
-                            <td key={col} style={{ maxWidth: '320px', minWidth: '220px' }}>
+                            <td key={col} style={{ maxWidth: '420px', minWidth: '240px' }}>
                               <div
+                                data-testid="alert-causal-sentence"
                                 title={String(claimText)}
                                 style={{
-                                  fontSize: '11.5px',
-                                  color: 'var(--text-muted)',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
+                                  fontSize: '12px',
+                                  color: 'var(--text-main)',
+                                  lineHeight: 1.45,
+                                  whiteSpace: 'normal',
                                 }}
                               >
                                 {claimText}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  data-testid="alert-link-rule"
+                                  className="hud-btn"
+                                  style={{ height: '22px', fontSize: '10.5px', padding: '0 8px' }}
+                                  onClick={(e) => { e.stopPropagation(); navigate(ruleTo); }}
+                                >
+                                  {isVi ? 'Luật' : 'Rule'}
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid="alert-link-quarantine"
+                                  className="hud-btn"
+                                  style={{ height: '22px', fontSize: '10.5px', padding: '0 8px' }}
+                                  onClick={(e) => { e.stopPropagation(); navigate(qTo); }}
+                                >
+                                  {isVi ? 'Cách ly' : 'Quarantine'}
+                                </button>
                               </div>
                             </td>
                           );
@@ -1906,7 +1939,45 @@ export const OperationsWorkspace: React.FC = () => {
                         </div>
                         <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '12px 14px', borderRadius: '6px', marginTop: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                           <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: 600, lineHeight: 1.5 }}>
-                            {selectedIncident.llm_claim || selectedIncident.ground_truth_cause || selectedIncident.admission_reason}
+                            {selectedIncident.copy?.sentence || selectedIncident.llm_claim || selectedIncident.ground_truth_cause || selectedIncident.admission_reason}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="hud-btn primary"
+                              data-testid="alert-modal-link-rule"
+                              style={{ fontSize: '11px', padding: '4px 10px' }}
+                              onClick={() => {
+                                const href = selectedIncident.rule_href || workspaceHref(
+                                  selectedIncident.dataset_key || storyDataset || 'ev_telemetry',
+                                  selectedIncident.calendar_day || axisDay,
+                                  'tab-rules',
+                                  { rule_id: selectedIncident.primary_rule_id || '' },
+                                );
+                                setSelectedIncident(null);
+                                navigate(href);
+                              }}
+                            >
+                              {isVi ? 'Mở luật' : 'Open rule'}
+                            </button>
+                            <button
+                              type="button"
+                              className="hud-btn"
+                              data-testid="alert-modal-link-quarantine"
+                              style={{ fontSize: '11px', padding: '4px 10px' }}
+                              onClick={() => {
+                                const href = selectedIncident.quarantine_href || workspaceHref(
+                                  selectedIncident.dataset_key || storyDataset || 'ev_telemetry',
+                                  selectedIncident.calendar_day || axisDay,
+                                  'tab-split',
+                                  { rule_id: selectedIncident.primary_rule_id || '', entity_id: selectedIncident.target_entity || selectedIncident.entity_id || '' },
+                                );
+                                setSelectedIncident(null);
+                                navigate(href);
+                              }}
+                            >
+                              {isVi ? 'Mở cách ly' : 'Open quarantine'}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1930,13 +2001,14 @@ export const OperationsWorkspace: React.FC = () => {
                             className="hud-btn primary"
                             style={{ fontSize: '11.5px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                             onClick={() => {
-                              const incId = selectedIncident.incident_id || selectedIncident.id;
+                              const href = selectedIncident.rule_href || workspaceHref(
+                                selectedIncident.dataset_key || storyDataset || 'ev_telemetry',
+                                selectedIncident.calendar_day || axisDay,
+                                'tab-rules',
+                                { rule_id: selectedIncident.primary_rule_id || '' },
+                              );
                               setSelectedIncident(null);
-                              setActiveSubTab('rules');
-                              navigate('/operations/rules');
-                              if (incId) {
-                                setFilterQuery(incId);
-                              }
+                              navigate(href);
                             }}
                           >
                             <ShieldCheck size={14} />

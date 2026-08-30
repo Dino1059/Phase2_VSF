@@ -3,6 +3,12 @@
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
 > **Last Updated:** 2026-08-29
 
+**2026-08-30 chat why-VIN day:** `workspace_binding` split on first `:` so `(not a user request):` dropped the JSON; chat Luật hrefs had `day=`. Parse from first `{`; stamp `calendar_day` from `active_day`.
+
+**2026-08-30 ops alerts bind (table, day):** HashRouter + leftover `?dataset_key&day` before `#` were ignored, so stories said `cách ly ngày (table, day)` and Luật/Cách ly hrefs had empty day. `axisFromLocation` merges `location.search` + hash query; `_story_record` omits the placeholder when day is empty.
+
+**2026-08-30 agentic chat + causal alerts:** ReAct task is `request.message` only (table+day stay in workspace binding, not the user utterance). Heuristic never treats SYSTEM_PROMPT / Dataset Ready as the ask; canned inventory only on explicit list-datasets. Alerts: `Xe {VIN} nghi {rule} vì dòng… → kiểm tra` + Luật/Cách ly links. Remember default ON + LLM toggle unchanged.
+
 **2026-08-30 TH+Huyen merge:** HITL causal flow + Remember default ON (replay warehouse Execute). Huyen dashboard/60fps/stewardLabels kept. **LLM toggle kept** (grill 9A) — do not force LLM ON.
 
 **2026-08-29 TH exclusive assignment:** Preview `per_rule_counts` and warehouse quarantine use first-failing primary rule (sum == Q). Incidents = unique `(dataset, day, entity_id, primary_rule)`. Warehouse Execute persists `warehouse_execute` so Rollback moves `clean.*` day rows back. Analyst chat Clean & Quarantine chip gated `canHitlWrite` (Steward warehouse Execute stays on Rules tab).

@@ -20,6 +20,27 @@ export function calendarDayToDayIdx(calendarDay: string | null | undefined): num
   return Math.round((target - epoch) / 86400000);
 }
 
+/** HashRouter search + leftover `?…` before `#` (d086 ops URLs). Later sources win. */
+export function queryFromWindow(extraSearch?: string): URLSearchParams {
+  const hashQ = typeof window !== 'undefined' ? (window.location.hash.split('?')[1] || '') : '';
+  const winSearch = typeof window !== 'undefined' ? window.location.search.replace(/^\?/, '') : '';
+  const extra = (extraSearch || '').replace(/^\?/, '');
+  const merged = new URLSearchParams();
+  for (const src of [winSearch, extra, hashQ]) {
+    new URLSearchParams(src).forEach((v, k) => { if (v) merged.set(k, v); });
+  }
+  return merged;
+}
+
+export function axisFromLocation(search?: string): { table: string | null; day: string | null } {
+  const q = queryFromWindow(search);
+  const urlDayRaw = q.get('day') || q.get('run_id') || q.get('day_idx');
+  const urlDay = urlDayRaw && urlDayRaw.includes('-')
+    ? urlDayRaw
+    : dayIdxToCalendarDay(urlDayRaw != null ? parseInt(urlDayRaw, 10) : null);
+  return { table: q.get('dataset_key'), day: urlDay };
+}
+
 export function workspaceHref(datasetKey: string, calendarDay?: string | null, tab?: string, extra?: Record<string, string>): string {
   const q = new URLSearchParams();
   if (datasetKey) q.set('dataset_key', datasetKey);

@@ -705,10 +705,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
         reply = (
             "PONG"
             if effective_use_llm
-            else (
-                "You have **4 datasets** registered in the DataTrust OS repository "
-                "including ev_telemetry, charging_sessions, trips, and nlp_feedback."
-            )
+            else "LLM off. You asked for a one-word PONG ping — I will not list datasets or run tools."
         )
         tokens = 1992 if effective_use_llm else 327
         agent_msg = conversation_store.save_message(
@@ -1068,19 +1065,20 @@ async def send_chat_message(request: ChatRequest, http: Request):
 
     day_ctx_str = ""
     if request.active_day is not None:
+        from src.services.th_hitl_flow import day_idx_to_calendar_day
+
         context["active_day"] = request.active_day
-        day_date = f"2026-01-{(1 + request.active_day):02d}" if request.active_day >= 0 else "2026-01-01"
+        day_date = day_idx_to_calendar_day(request.active_day) or (
+            f"2026-01-{(1 + request.active_day):02d}" if request.active_day >= 0 else "2026-01-01"
+        )
+        context["calendar_day"] = day_date
         day_ctx_str = f"[GLOBAL TIMEBAR CONTEXT: User is inspecting Day {request.active_day} ({day_date}). Analyze dataset metrics and anomalies for Day {request.active_day}.]\n"
 
-    if request.dataset_key:
-        task = (
-            f"Use dataset_key='{request.dataset_key}' for every dataset tool call.\n"
-            f"{day_ctx_str}"
-            f"{lang_instruction}\n"
-            f"User request: {request.message}"
-        )
-    else:
-        task = f"{day_ctx_str}{lang_instruction}\nUser request: {request.message}"
+    task = request.message
+    if day_ctx_str:
+        context["timebar"] = day_ctx_str.strip()
+    if lang_instruction:
+        context["lang_instruction"] = lang_instruction
     if hitl_stop:
         task += (
             "\nHITL GATE: After propose_quality_rules succeeds, Action: FINISH. "

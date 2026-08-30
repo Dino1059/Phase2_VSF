@@ -20,7 +20,8 @@ import { SandboxDiff, type SandboxDiffData } from './SandboxDiff';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useAuthStore, roleCan, normalizeUserRole } from '../../stores/authStore';
-import { dayIdxToCalendarDay } from '../../lib/calendarDay';
+import { dayIdxToCalendarDay, workspaceHref } from '../../lib/calendarDay';
+import { useNavigate } from 'react-router-dom';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -232,6 +233,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const [activeFilter, setActiveFilter] = useState<'all' | 'proposed' | 'approved' | 'rejected'>('proposed');
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const navigate = useNavigate();
   // First hidden boot GET is often []. Do not treat that as a locked 0/0.
   const emptyBootRef = useRef(true);
   const dropKeptAfterResetRef = useRef(false);
@@ -1366,6 +1368,40 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
                         {optedOut.has(rule.rule_id) ? (isVi ? 'Nhớ sau' : 'Remember') : (isVi ? 'Bỏ nhớ' : 'Forget')}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      data-testid="btn-rule-link-alerts"
+                      onClick={() => navigate(`/operations/alerts?rule_id=${encodeURIComponent(rule.rule_id)}`)}
+                      title={isVi ? 'Mở cảnh báo gắn luật này' : 'Open alerts for this rule'}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--glass-border)',
+                        color: 'var(--text-main)',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isVi ? 'Cảnh báo' : 'Alerts'}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="btn-rule-link-quarantine"
+                      onClick={() => navigate(workspaceHref(datasetKey || 'ev_telemetry', calendarDay, 'tab-split', { rule_id: rule.rule_id }))}
+                      title={isVi ? 'Mở cách ly gắn luật này' : 'Open quarantine for this rule'}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--glass-border)',
+                        color: 'var(--text-main)',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isVi ? 'Cách ly' : 'Quarantine'}
+                    </button>
                     {canHitlWrite && isApproved && (
                       <button
                         type="button"

@@ -13,6 +13,9 @@ import {
 
 import { quarantineApi } from '../../services/api';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
+import { dayIdxToCalendarDay, workspaceHref } from '../../lib/calendarDay';
+import { useNavigate } from 'react-router-dom';
+import { usePipelineStore } from '../../stores/pipelineStore';
 
 const EMPTY_SPLIT = {
   cleanRows: [] as unknown[],
@@ -59,6 +62,9 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
   const [copiedHash, setCopiedHash] = useState(false);
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
+  const navigate = useNavigate();
+  const selectedDayIdx = usePipelineStore((s) => s.selectedDayIdx);
+  const calendarDay = runId && String(runId).includes('-') ? String(runId) : dayIdxToCalendarDay(dayIdx ?? selectedDayIdx);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -381,9 +387,37 @@ export const SplitDbQuarantineTab: React.FC<SplitDbQuarantineTabProps> = ({
             </span>
             <button className="col-detail-close" onClick={() => setSelectedRow(null)}>✕</button>
           </div>
-          <pre className="trace-code-block" style={{ maxHeight: 180, marginTop: 8 }}>
-            <code>{JSON.stringify(selectedRow, null, 2)}</code>
-          </pre>
+          <div data-testid="quarantine-row-story" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.5 }}>
+            {isVi
+              ? `Xe/dòng ${selectedRow.source_row_id || selectedRow.id || '—'} nghi ${selectedRow.rule_id || 'cluster'} vì ${selectedRow.reason || 'vi phạm'} → kiểm tra luật.`
+              : `Row ${selectedRow.source_row_id || selectedRow.id || '—'} flagged by ${selectedRow.rule_id || 'cluster'} (${selectedRow.reason || 'violation'}) → check rule.`}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              data-testid="quarantine-link-rule"
+              className="hud-btn"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => navigate(workspaceHref(datasetKey || selectedRow.source_table || 'ev_telemetry', calendarDay, 'tab-rules', { rule_id: selectedRow.rule_id || '' }))}
+            >
+              {isVi ? 'Mở luật' : 'Open rule'}
+            </button>
+            <button
+              type="button"
+              data-testid="quarantine-link-alerts"
+              className="hud-btn"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => navigate(`/operations/alerts?rule_id=${encodeURIComponent(selectedRow.rule_id || '')}`)}
+            >
+              {isVi ? 'Cảnh báo' : 'Alerts'}
+            </button>
+          </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>{isVi ? 'Raw (không phải câu chuyện)' : 'Raw (not the story)'}</summary>
+            <pre className="trace-code-block" style={{ maxHeight: 180, marginTop: 8 }}>
+              <code>{JSON.stringify(selectedRow, null, 2)}</code>
+            </pre>
+          </details>
         </div>
       )}
     </div>

@@ -439,9 +439,10 @@ def test_then6_search_and_then8_hide_are_wired():
     assert "bindWs" in empty and "workspaceHref" in header
     assert "path: op.path" not in empty
     assert "def axisFromSearch" in header or "function axisFromSearch" in header
-    assert "location.search" in header and "dataset_key" in header
+    assert "location.search" in header and "axisFromLocation" in header
     cal = Path("frontend/src/lib/calendarDay.ts").read_text()
     assert "tab-rules" in cal and "tab-split" in cal
+    assert "queryFromWindow" in cal and "axisFromLocation" in cal
     ws = Path("frontend/src/pages/AgentChatWorkspace.tsx").read_text()
     assert "tabParam" in ws
     assert "chat-hitl-hidden" in ws
@@ -459,6 +460,7 @@ def test_then6_search_and_then8_hide_are_wired():
     assert "Làm sạch dữ liệu" not in chip
     ops = Path("frontend/src/pages/OperationsWorkspace.tsx").read_text()
     assert "incidentStories(storyDataset" in ops
+    assert "axisFromLocation" in ops
     ing = Path("src/api/ingestion.py").read_text()
     assert ing.count("promote_landing_day") >= 3
 
@@ -525,8 +527,42 @@ def test_incident_stories_are_causal_not_signal_dump():
         assert "suspected" in story["copy"]
         assert "because" in story["copy"]
         assert "recommend" in story["copy"]
+        blob = " ".join(str(v) for v in story["copy"].values()).lower()
+        assert "nghi" in blob
+        assert "vì" in blob or "vi " in blob
+        assert "kiểm tra" in blob
+        assert "sentence" in story["copy"]
+        assert "(table, day)" not in blob
         assert "tab-rules" in (story.get("rule_href") or "")
         assert "tab-split" in (story.get("quarantine_href") or "")
+
+
+def test_story_record_omits_placeholder_without_day():
+    from src.services.th_hitl_flow import _story_record
+
+    empty = _story_record("ev_telemetry", "", "VIN-A", "soc")
+    assert "(table, day)" not in empty["copy"]["recommend"]
+    assert empty["calendar_day"] == ""
+    filled = _story_record("ev_telemetry", "2026-01-11", "VIN-A", "soc")
+    assert "2026-01-11" in filled["copy"]["recommend"]
+    assert filled["calendar_day"] == "2026-01-11"
+
+
+def test_workspace_binding_reads_json_after_colon_in_label():
+    from src.orchestrator.prompt_intent import workspace_binding
+
+    msgs = [
+        {"role": "system", "content": "You are DataTrust OS Agent"},
+        {"role": "user", "content": "why is VF8VNF_0001 quarantined?"},
+        {
+            "role": "system",
+            "content": 'Workspace binding (not a user request): {"dataset_key": "ev_telemetry", "active_day": 10, "calendar_day": "2026-01-11"}',
+        },
+    ]
+    ctx = workspace_binding(msgs)
+    assert ctx.get("dataset_key") == "ev_telemetry"
+    assert ctx.get("calendar_day") == "2026-01-11"
+    assert ctx.get("active_day") == 10
 
 
 def test_day_count_sql_is_count_star_not_full_scan():
@@ -601,6 +637,15 @@ def test_must_ui_still_binds_axis():
     msg = Path("frontend/src/components/chat/AgentMessage.tsx").read_text()
     assert 'data-testid="chat-edit-rule-apply"' in msg
     assert 'data-testid="chat-edit-rule-edit-myself"' in msg
+    ops = Path("frontend/src/pages/OperationsWorkspace.tsx").read_text()
+    assert "alert-causal-sentence" in ops
+    assert "alert-link-rule" in ops
+    assert "alert-link-quarantine" in ops
+    assert "btn-rule-link-alerts" in rules
+    assert "btn-rule-link-quarantine" in rules
+    split = Path("frontend/src/components/workspace/SplitDbQuarantineTab.tsx").read_text()
+    assert "quarantine-row-story" in split
+    assert "quarantine-link-rule" in split
 
 
 def test_edit_rule_heuristic_ignores_context_dataset_json():
@@ -836,6 +881,118 @@ def test_capabilities_chat_send_does_not_run_dataset_tools(monkeypatch):
     assert any(k in text.lower() for k in ("hitl", "preview", "rule", "steward", "execute"))
 
 
+def test_chat_task_is_user_utterance_not_auto_profile():
+    from pathlib import Path
+
+    send = Path("src/api/routes/__init__.py").read_text().split("async def send_chat_message", 1)[1]
+    assert "task = request.message" in send
+    assert "Auto Profile" not in send.split("@router.get", 1)[0]
+    assert "Use dataset_key=" not in send.split("with sentry_ctx", 1)[0]
+    engine = Path("src/orchestrator/engine.py").read_text()
+    assert '{"role": "user", "content": task}' in engine
+    assert "Workspace binding (not a user request)" in engine
+    assert "history=_llm_turns(prior)" in send
+
+
+def test_why_question_heuristic_uses_user_text_not_catalog():
+    import json
+
+    from src.orchestrator.prompt_intent import CANNED_INVENTORY
+    from src.services.llm import LLMService
+
+    resp = LLMService(use_llm=False)._heuristic_fallback(_react_shaped("why is VF8VNF_0001 quarantined?"))
+    blob = (resp.content or "") + json.dumps(resp.tool_calls or [])
+    assert CANNED_INVENTORY not in blob
+    assert "4 datasets" not in blob
+    assert "vf8vnf_0001" in (resp.content or "").lower()
+    assert not (resp.tool_calls or [])
+
+
+def test_explicit_list_datasets_still_canned():
+    from src.orchestrator.prompt_intent import CANNED_INVENTORY
+    from src.services.llm import LLMService
+
+    resp = LLMService(use_llm=False)._heuristic_fallback(_react_shaped("how many datasets do I have?"))
+    assert CANNED_INVENTORY in (resp.content or "")
+
+
+def test_assistant_profile_mention_does_not_force_profile_tool():
+    import json
+
+    from src.orchestrator.prompt_intent import CANNED_INVENTORY, last_user_utterance
+    from src.services.llm import LLMService
+
+    messages = [
+        {"role": "system", "content": "- profile_dataset: Scans dataset schema.\n- list_datasets: Lists datasets."},
+        {"role": "user", "content": "hi can you reply me?"},
+        {"role": "assistant", "content": "I can profile a dataset, scan L1–L4 anomalies, propose quality rules."},
+        {"role": "user", "content": "why is VF8VNF_0001 quarantined today?"},
+        {"role": "system", "content": 'Workspace binding (not a user request): {"dataset_key": "ev_telemetry"}'},
+    ]
+    assert "vf8vnf_0001" in last_user_utterance(messages)
+    assert "profile" not in last_user_utterance(messages)
+    resp = LLMService(use_llm=False)._heuristic_fallback(messages)
+    blob = (resp.content or "") + json.dumps(resp.tool_calls or [])
+    assert CANNED_INVENTORY not in blob
+    assert not (resp.tool_calls or [])
+    assert "vf8vnf_0001" in (resp.content or "").lower()
+
+
+def test_chat_send_why_does_not_run_dataset_tools(monkeypatch):
+    import uuid as _uuid
+
+    from src.orchestrator.prompt_intent import CANNED_INVENTORY
+
+    def boom(self, *a, **k):
+        raise AssertionError(f"{self.name} must not run for a why-question")
+
+    monkeypatch.setattr("src.tools.chat_tools.ProfileDatasetTool.execute", boom)
+    monkeypatch.setattr("src.tools.chat_tools.ListDatasetsTool.execute", boom)
+    resp = _steward().post(
+        "/api/v1/chat/send",
+        json={
+            "message": "why is VF8VNF_0001 quarantined today?",
+            "session_id": f"th-whyq-{_uuid.uuid4().hex[:8]}",
+            "dataset_key": "ev_telemetry",
+            "use_llm": False,
+            "lang": "en",
+            "active_day": 10,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    text = (body.get("response") or "").lower()
+    analysis = (body.get("analysis") or "").lower()
+    assert CANNED_INVENTORY not in (body.get("response") or "")
+    _assert_no_inventory_tools(body.get("response") or "", analysis)
+    assert "vf8vnf_0001" in text
+    assert "list_datasets" not in analysis
+    assert "profile_dataset" not in analysis
+
+
+def test_chat_send_why_after_hi_does_not_profile(monkeypatch):
+    import uuid as _uuid
+
+    def boom(self, *a, **k):
+        raise AssertionError(f"{self.name} must not run after greeting history")
+
+    monkeypatch.setattr("src.tools.chat_tools.ProfileDatasetTool.execute", boom)
+    monkeypatch.setattr("src.tools.chat_tools.ListDatasetsTool.execute", boom)
+    sid = f"th-hist-{_uuid.uuid4().hex[:8]}"
+    payload = {"session_id": sid, "dataset_key": "ev_telemetry", "use_llm": False, "lang": "en", "active_day": 10}
+    hi = _steward().post("/api/v1/chat/send", json={**payload, "message": "hi can you reply me?"})
+    assert hi.status_code == 200
+    why = _steward().post("/api/v1/chat/send", json={**payload, "message": "why is VF8VNF_0001 quarantined today?"})
+    assert why.status_code == 200, why.text
+    body = why.json()
+    analysis = (body.get("analysis") or "").lower()
+    text = (body.get("response") or "").lower()
+    assert "profile_dataset" not in analysis
+    assert "list_datasets" not in analysis
+    assert "4 datasets" not in text
+    assert "vf8vnf_0001" in text
+
+
 def test_preview_before_approve_does_not_write_warehouse():
     from pathlib import Path
 
@@ -888,6 +1045,10 @@ def test_incident_stories_exclusive_entity_and_primary_rule(tmp_path):
     assert ("VIN-A", "speed") in keys
     tuples = [(s["dataset_key"], s["calendar_day"], s["entity_id"], s["primary_rule_id"]) for s in stories]
     assert len(tuples) == len(set(tuples))
+    reply = flow.causal_reply_for_ask(db, "ev_telemetry", "2026-01-11", "VIN-A")
+    assert "nghi" in reply.lower()
+    assert "vin-a" in reply.lower()
+    assert "tab-rules" in reply
     db.close()
 
 

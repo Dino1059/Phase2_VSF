@@ -155,8 +155,92 @@ def smalltalk_reply(text: str, lang: str = "en") -> str:
     return capabilities_reply(lang) if is_capabilities_prompt(text) else greeting_reply(lang)
 
 
+_INJECTED_LINE = (
+    "use dataset_key=",
+    "important: respond",
+    "[global timebar",
+    "hitl gate:",
+    "edit-rule gate:",
+    "workspace binding",
+    "auto profile +",
+    "dataset ready",
+)
+
+
+def _strip_injected_task(text: str) -> str:
+    """Keep the steward sentence. Drop catalog wrappers and Dataset Ready chrome."""
+    parts: list[str] = []
+    for raw in (text or "").replace("\r", "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low.startswith("context:") or low.startswith("context :"):
+            continue
+        if "user request:" in low:
+            idx = low.find("user request:")
+            s = s[idx + len("user request:") :].strip()
+            low = s.lower()
+        elif low.startswith("task:"):
+            s = s.split(":", 1)[-1].strip()
+            low = s.lower()
+        if not s:
+            continue
+        if any(low.startswith(p) for p in _INJECTED_LINE):
+            continue
+        parts.append(s)
+    return " ".join(parts)
+
+
+def last_user_utterance(messages: list | None) -> str:
+    """Latest steward sentence only. Do not scan assistant 'I can profile…' history."""
+    for m in reversed(messages or []):
+        if not isinstance(m, dict):
+            continue
+        if (m.get("role") or "").lower() != "user":
+            continue
+        cleaned = _strip_injected_task(str(m.get("content") or ""))
+        if cleaned:
+            return cleaned.lower()
+    return ""
+
+
+def workspace_binding(messages: list | None) -> dict:
+    found: dict = {}
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        c = str(m.get("content") or "")
+        if "Workspace binding" not in c and not c.lstrip().startswith("Context:"):
+            continue
+        idx = c.find("{")
+        if idx < 0:
+            continue
+        try:
+            data = json.loads(c[idx:])
+            if isinstance(data, dict):
+                found = data
+        except Exception:
+            continue
+    return found
+
+
+def extract_entity_token(text: str) -> str:
+    m = re.search(r"\b(VF\d[A-Z0-9_]+|[A-Z]{2,}[_-][A-Z0-9]{3,}|STN[-A-Z0-9]+)\b", text or "", re.I)
+    return (m.group(1) if m else "")
+
+
+def asks_causal_story(text: str) -> bool:
+    b = (text or "").lower()
+    if not b or is_edit_rule_prompt(b) or is_smalltalk_prompt(b) or asks_dataset_inventory(b):
+        return False
+    why = any(w in b for w in ("why", "tại sao", "tai sao", "vì sao", "vi sao"))
+    q = any(w in b for w in ("quarantine", "cách ly", "cach ly", "nghi"))
+    return why or q
+
+
 def heuristic_user_task(messages: list | None) -> str:
-    """Steward sentence + observations. Skip system catalog and Context JSON."""
+    """Steward sentence + observations. Never SYSTEM_PROMPT catalog or Context JSON."""
     chunks: list[str] = []
     for m in messages or []:
         if not isinstance(m, dict):
@@ -165,14 +249,13 @@ def heuristic_user_task(messages: list | None) -> str:
             continue
         c = str(m.get("content") or "")
         stripped = c.lstrip()
+        if stripped.lower().startswith("workspace binding"):
+            continue
         if stripped.startswith("Context:") or stripped.startswith("Context :"):
             continue
-        if "User request:" in c:
-            chunks.append(c.split("User request:", 1)[-1])
-            continue
-        if stripped.startswith("Task:"):
-            continue
-        chunks.append(c)
+        cleaned = _strip_injected_task(c)
+        if cleaned:
+            chunks.append(cleaned)
     return " ".join(chunks).lower()
 
 

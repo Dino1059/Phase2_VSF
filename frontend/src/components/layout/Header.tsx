@@ -12,7 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
 
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
-import { dayIdxToCalendarDay, searchHitWorkspacePath, workspaceHref } from '../../lib/calendarDay';
+import { axisFromLocation, dayIdxToCalendarDay, searchHitWorkspacePath, workspaceHref } from '../../lib/calendarDay';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chatStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
@@ -43,14 +43,10 @@ const STATIC_OPERATIONS: StaticSearchResult[] = [
 ];
 
 function axisFromSearch(search: string): { table: string; day: string | null } {
-  const locQ = new URLSearchParams(search);
-  const urlDayRaw = locQ.get('day') || locQ.get('run_id') || locQ.get('day_idx');
-  const urlDay = urlDayRaw && urlDayRaw.includes('-')
-    ? urlDayRaw
-    : dayIdxToCalendarDay(urlDayRaw != null ? parseInt(urlDayRaw, 10) : null);
+  const url = axisFromLocation(search);
   return {
-    table: locQ.get('dataset_key') || usePipelineStore.getState().domainId || 'ev_telemetry',
-    day: urlDay || usePipelineStore.getState().sourceIngestionRunId || dayIdxToCalendarDay(usePipelineStore.getState().selectedDayIdx),
+    table: url.table || usePipelineStore.getState().domainId || 'ev_telemetry',
+    day: url.day || usePipelineStore.getState().sourceIngestionRunId || dayIdxToCalendarDay(usePipelineStore.getState().selectedDayIdx),
   };
 }
 

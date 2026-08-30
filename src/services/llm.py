@@ -583,19 +583,24 @@ class UnifiedLLMAdapter:
 
     def _heuristic_fallback(self, messages: list[dict]) -> LLMResponse:
         from src.orchestrator.prompt_intent import (
+            CANNED_INVENTORY,
+            asks_causal_story,
             asks_dataset_inventory,
+            extract_entity_token,
             grill_edit_rule,
             heuristic_user_task,
+            last_user_utterance,
             is_edit_rule_prompt,
             is_smalltalk_prompt,
             last_observation_text,
             parse_edit_rule_query,
             smalltalk_reply,
+            workspace_binding,
         )
 
-        all_text = " ".join([str(m.get("content", "")) for m in messages if isinstance(m, dict)]).lower()
-        last_msg = (messages[-1]["content"] if messages else "").lower()
-        task_text = heuristic_user_task(messages)
+        task_text = last_user_utterance(messages) or heuristic_user_task(messages)
+        last_user = task_text
+        all_text = task_text
 
         # 1. A1 Bounded Investigator Fallback -> Return FINAL_HYPOTHESIS JSON immediately
         if "begin your investigation" in all_text or "incident id" in all_text or "rca hypothesis" in all_text:
@@ -648,11 +653,30 @@ class UnifiedLLMAdapter:
                 model_used="heuristic-smalltalk",
             )
 
+        if asks_causal_story(task_text):
+            try:
+                from src.db.connection import get_db
+                from src.services.th_hitl_flow import causal_reply_for_ask, day_idx_to_calendar_day
+
+                ctx = workspace_binding(messages)
+                day = ctx.get("calendar_day") or day_idx_to_calendar_day(ctx.get("active_day"))
+                reply = causal_reply_for_ask(
+                    get_db(), ctx.get("dataset_key"), day, extract_entity_token(task_text)
+                )
+                if reply:
+                    return LLMResponse(content=reply, finish_reason="stop", model_used="heuristic-causal")
+            except Exception:
+                pass
+
         if has_observation:
+            obs = last_observation_text(messages)
+            if asks_dataset_inventory(task_text):
+                return LLMResponse(content=CANNED_INVENTORY, finish_reason="stop", model_used="heuristic")
+            shown = (obs or last_user)[:600]
             return LLMResponse(
-                content=f"Completed task via heuristic analysis. Observation processed: {last_msg[:300]}",
+                content=f"Done. You asked: {(last_user or '')[:180]}\n{shown}".strip(),
                 finish_reason="stop",
-                model_used="heuristic-done"
+                model_used="heuristic-done",
             )
 
         if "profile" in task_text or "profile_dataset" in task_text or "profiling" in task_text:
@@ -676,31 +700,29 @@ class UnifiedLLMAdapter:
                 finish_reason="tool_calls",
                 model_used="heuristic-proposer"
             )
-        if ("clean" in task_text or "quarantine" in task_text) and "edit rule" not in task_text:
+        wants_clean = any(
+            k in task_text
+            for k in ("clean database", "clean the database", "làm sạch", "lam sach", "execute warehouse")
+        )
+        if wants_clean and "edit rule" not in task_text:
             return LLMResponse(
                 content="ACTION: clean_database\nARGS: {}",
                 tool_calls=[{"name": "clean_database", "args": {}}],
                 finish_reason="tool_calls",
-                model_used="heuristic-executor"
+                model_used="heuristic-executor",
             )
 
-        # 3. Chat / General Inquiry Fallback — never match Context JSON dataset_key
-        if "pong" in last_msg and any(k in last_msg for k in ("reply", "only", "one word", "ping")):
-            reply = (
-                "You have **4 datasets** registered in the DataTrust OS repository "
-                "including ev_telemetry, charging_sessions, trips, and nlp_feedback."
-            )
+        # 3. Chat — inventory only on an explicit list-datasets ask. Never catalog / Context JSON.
+        if "pong" in last_user and any(k in last_user for k in ("reply", "only", "one word", "ping")):
+            reply = "LLM off. You asked for a one-word PONG ping — I will not list datasets or run tools."
         elif asks_dataset_inventory(task_text):
-            reply = "You have **4 datasets** registered in the DataTrust OS repository including ev_telemetry, charging_sessions, trips, and nlp_feedback."
-        elif "evidence" in task_text or "summarize" in task_text:
-            reply = "Contextual Assistant Breakdown:\n- Analyzed supporting evidence across L1–L4 layers.\n- Signal discharge_rate exhibits MAD drift above +4.2 thresholds.\n- Evidence ID ev-supp-1 verified as REAL_TELEMETRY provenance."
-        elif "rca" in task_text or "hypothesis" in task_text or "root cause" in task_text:
-            reply = "RCA Hypothesis Synthesis:\n- Primary: Dynamic A1 verified data contract violation in entity STATION-VGREEN-01.\n- Data Cause (Confidence: 88%). Recommend enforcing preventive range rule check."
-        elif "hitl" in task_text or "authorize" in task_text or "governance" in task_text:
-            reply = "HITL Governance Audit:\n- Preventive control rule requires Data Steward digital signature & authorization.\n- Execution payload is hash-bound to authorization token."
+            reply = CANNED_INVENTORY
         else:
-            shown = (task_text or last_msg)[:240]
-            reply = f"DataTrust Operational Trust Assistant: Received inquiry '{shown}'. I am monitoring incident context, supporting evidence, and governance state. How can I assist your data stewardship workflow?"
+            shown = (last_user or "").strip()[:240] or "your last message"
+            reply = (
+                f"LLM off — answering from your text, not the tool catalog: «{shown}». "
+                "Say profile / detect / propose / edit rule / list datasets if you want a tool."
+            )
 
         return LLMResponse(content=reply, finish_reason="stop", model_used="heuristic")
 
