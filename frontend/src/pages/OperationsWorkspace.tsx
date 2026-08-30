@@ -685,14 +685,6 @@ export const OperationsWorkspace: React.FC = () => {
         </div>
       ) : mainGroup === 'eval' ? null : mainGroup === 'alerts' ? (
         <>
-        <div data-testid="gt-pack-banner" style={{
-          marginBottom: 12, padding: '8px 12px', borderRadius: 8,
-          border: '1px solid var(--glass-border)', fontSize: 12, color: 'var(--text-main)',
-        }}>
-          {isVi
-            ? `Gói GT Ngan: 14 sự cố (eval F1=0.8). Live: ${operationalStats.total} ca.`
-            : `Ngan GT pack: 14 incidents (eval F1=0.8). Live alert store: ${operationalStats.total} cases.`}
-        </div>
         <div className="kpi-grid" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           <div className="kpi-card" style={{ borderLeft: '3px solid #f43f5e' }}>
             <div className="kpi-label">{isVi ? 'Tổng Sự Cố & Cảnh Báo' : 'Total Incidents & Alerts'}</div>
@@ -962,15 +954,8 @@ export const OperationsWorkspace: React.FC = () => {
             <div style={{ fontSize: '12px', marginTop: '4px' }}>
               {filterQuery
                 ? (isVi ? `Không tìm thấy dòng nào khớp với "${filterQuery}".` : `No rows matched "${filterQuery}".`)
-                : (isVi ? 'Tất cả các hệ thống đang hoạt động trong ngưỡng cho phép.' : 'All systems operating within acceptable parameters.')}
+                : (isVi ? 'Không có sự cố cho bảng và ngày đang chọn.' : 'No stories for this table and day.')}
             </div>
-            {(activeSubTab === 'alerts' || activeSubTab === 'incidents') && !filterQuery && (
-              <div data-testid="gt-pack-banner" style={{ marginTop: 12, fontSize: 12, color: 'var(--text-main)' }}>
-                {isVi
-                  ? 'Gói GT Ngan: 14 sự cố (eval F1=0.8). Kho cảnh báo live: 0 — chưa chạy detect.'
-                  : 'Ngan GT pack: 14 incidents (eval F1=0.8). Live alert store: 0 until detect runs.'}
-              </div>
-            )}
           </div>
         ) : activeSubTab === 'rules' ? (
           /* ACTIVE RULES SPECIALIZED TABLE */

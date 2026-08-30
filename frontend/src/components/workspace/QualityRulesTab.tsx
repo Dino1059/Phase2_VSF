@@ -244,6 +244,7 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   const [previewedIds, setPreviewedIds] = useState<Set<string>>(new Set());
   const [pendingApplyId, setPendingApplyId] = useState<string | null>(null);
   const [focusRuleId, setFocusRuleId] = useState<string | null>(null);
+  const highlightAppliedRef = useRef<string | null>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const calendarDay = runId && String(runId).includes('-') ? String(runId) : dayIdxToCalendarDay(dayIdx);
   const hitlCtx = { dataset_key: datasetKey, calendar_day: calendarDay || undefined, persona: 'Steward' };
@@ -271,10 +272,10 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
     if (!silent) setLoading(true);
     try {
       const targetKey = datasetKey;
-      let res = await hitlApi.queue(targetKey, calendarDay || undefined);
+      let res = await hitlApi.queue(targetKey, calendarDay || undefined, { includeActive: true });
       if (myGen !== fetchGenRef.current) return;
       if ((!res?.proposals || res.proposals.length === 0) && targetKey) {
-        res = await hitlApi.queue(undefined, calendarDay || undefined);
+        res = await hitlApi.queue(undefined, calendarDay || undefined, { includeActive: true });
       }
       if (myGen !== fetchGenRef.current) return;
       if (res && Array.isArray(res.proposals)) {
@@ -721,6 +722,19 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
   });
 
   useEffect(() => {
+    const rid = highlightRuleId;
+    if (!rid || !proposals.length) return;
+    if (highlightAppliedRef.current === rid) return;
+    const rule = proposals.find((r) => r.rule_id === rid);
+    if (!rule) return;
+    highlightAppliedRef.current = rid;
+    const st = (rule.status || '').toLowerCase();
+    if (st === 'approved' || st === 'edited') setActiveFilter('approved');
+    else if (st === 'rejected') setActiveFilter('rejected');
+    else setActiveFilter('proposed');
+  }, [highlightRuleId, proposals]);
+
+  useEffect(() => {
     const rid = focusRuleId || highlightRuleId;
     if (!rid || !active) return;
     const el = document.querySelector(`[data-rule-id="${CSS.escape(rid)}"]`);
@@ -1045,6 +1059,25 @@ export const QualityRulesTab: React.FC<QualityRulesTabProps> = ({ datasetKey, ac
 
       {sandboxDiff && (
         <SandboxDiff diffData={sandboxDiff} />
+      )}
+
+      {highlightRuleId && !proposals.some((r) => r.rule_id === highlightRuleId) && (
+        <div
+          data-testid="hitl-missing-incident-rule"
+          style={{
+            marginBottom: 12,
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: '1px solid rgba(217, 119, 6, 0.45)',
+            background: 'rgba(217, 119, 6, 0.08)',
+            fontSize: 12,
+            color: 'var(--text-main)',
+          }}
+        >
+          {isVi
+            ? `Sự cố luật ${highlightRuleId} không nằm trong ${proposedCount} thẻ Proposed. Kho này khác hàng đợi HITL — không đổi VIN thành thẻ LENGTH.`
+            : `Incident rule ${highlightRuleId} is not in the ${proposedCount} Proposed HITL cards. Warehouse stories stay on Alerts; this queue is unchanged.`}
+        </div>
       )}
 
       {/* RULES CARDS LIST */}

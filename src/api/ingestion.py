@@ -159,7 +159,35 @@ def _get_demo_state(db) -> dict:
     }
 
 
-def _get_day_snapshots(db) -> list[DaySnapshot]:
+def _warehouse_counts_by_day(db, dataset_key: Optional[str] = None) -> dict[int, int]:
+    """COUNT(*) by day_idx for the bound table. Never invent 1250."""
+    import re
+    from src.services.dataset_engine import canonical_main_table
+
+    table = canonical_main_table(dataset_key or "ev_telemetry")
+    if not re.fullmatch(r"[a-z0-9_]+", table or ""):
+        return {}
+    for src in (f"main.{table}", f"raw.{table}"):
+        try:
+            rows = db.execute(
+                f"SELECT COALESCE(assigned_day_index, day_idx) AS d, COUNT(*) FROM {src} GROUP BY 1"
+            )
+        except Exception:
+            continue
+        out: dict[int, int] = {}
+        for r in rows or []:
+            if r[0] is None:
+                continue
+            try:
+                out[int(r[0])] = int(r[1] or 0)
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+    return {}
+
+
+def _get_day_snapshots(db, dataset_key: Optional[str] = None) -> list[DaySnapshot]:
     """Read landing_day_snapshots timeline with run status and alert metrics."""
     try:
         rows = db.execute("""
@@ -185,6 +213,7 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
     state = _get_demo_state(db)
     curr_day = state.get("current_day_idx", -1)
     rt_active = state.get("realtime_active", False)
+    wh_counts = _warehouse_counts_by_day(db, dataset_key)
 
     days = []
     for r in rows:
@@ -192,6 +221,8 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
         snap_id = str(r[1]) if r[1] else f"SNAP_{d_idx:03d}"
         is_act = (bool(r[2]) if r[2] is not None else False) or (curr_day >= 0 and d_idx < curr_day)
         rows_cnt = int(r[3]) if r[3] is not None else 0
+        if d_idx in wh_counts:
+            rows_cnt = wh_counts[d_idx]
         run_status = str(r[4]) if r[4] else ("completed" if is_act else "idle")
         alerts_cnt = int(r[5]) if r[5] is not None else 0
         dur_ms = int(r[6]) if r[6] is not None else 0
@@ -208,7 +239,7 @@ def _get_day_snapshots(db) -> list[DaySnapshot]:
             day_date=f"2026-01-{(1 + d_idx):02d}" if d_idx >= 0 else "2026-01-01",
             is_activated=is_act,
             is_ingested=is_act,
-            ingested_rows=rows_cnt if rows_cnt > 0 else (1250 if is_act else 0),
+            ingested_rows=rows_cnt,
             status="completed" if is_act and run_status != "error" else (run_status if run_status != "started" else "running"),
             alerts_count=alerts_cnt,
             l1_alerts=l1,
@@ -267,13 +298,14 @@ async def get_demo_status():
 
 
 @router.get("/days", response_model=DayTimelineResponse)
-async def get_day_timeline():
+async def get_day_timeline(dataset_key: Optional[str] = None):
     """
     GET /api/v1/ingestion/days
     Returns 15-day timeline from landing_day_snapshots.
+    ingested_rows is warehouse COUNT(*) for dataset_key (default ev_telemetry), not a fake 1250.
     """
     db = get_db()
-    days = _get_day_snapshots(db)
+    days = _get_day_snapshots(db, dataset_key)
     return DayTimelineResponse(
         days=days,
         total_days=len(days),

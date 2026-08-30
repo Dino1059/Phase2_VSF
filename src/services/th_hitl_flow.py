@@ -1137,8 +1137,24 @@ def incident_stories(db, dataset_key: Optional[str], calendar_day: Optional[str]
     return stories
 
 
+def _causal_empty_state(dataset_key, calendar_day, needle: str, stories: list) -> str:
+    """Honest miss: do not pick a different entity's story (t086 EV_REC_* ≠ VF8 VIN)."""
+    ds = dataset_key or ""
+    day = calendar_day or ""
+    others = []
+    for s in (stories or [])[:6]:
+        ent = str(s.get("entity_id") or "").strip()
+        rid = str(s.get("primary_rule_id") or "cluster").strip()
+        if ent:
+            others.append(f"{ent}/{rid}")
+    other_bit = f" Ngày này có: {', '.join(others)}." if others else " Ngày này chưa có sự cố."
+    href = f"/workspace?dataset_key={ds}&day={day}&tab=tab-rules"
+    label = needle or "(không có VIN)"
+    return f"Không khớp sự cố cho {label} ({ds}, {day}).{other_bit}\nLuật: {href}"
+
+
 def causal_reply_for_ask(db, dataset_key, calendar_day, needle: str) -> str:
-    """Human sentence for a why/quarantine ask. Empty if no matching story."""
+    """Human sentence for a why/quarantine ask. Empty-state if needle misses."""
     stories = incident_stories(db, dataset_key, calendar_day)
     n = (needle or "").lower()
     picked = None
@@ -1151,7 +1167,7 @@ def causal_reply_for_ask(db, dataset_key, calendar_day, needle: str) -> str:
     if picked is None and stories:
         picked = stories[0] if not n else None
     if not picked:
-        return ""
+        return _causal_empty_state(dataset_key, calendar_day, needle, stories)
     copy = picked.get("copy") or {}
     sentence = copy.get("sentence") or f"{copy.get('suspected', '')} {copy.get('because', '')} {copy.get('recommend', '')}".strip()
     rule_h = picked.get("rule_href") or ""

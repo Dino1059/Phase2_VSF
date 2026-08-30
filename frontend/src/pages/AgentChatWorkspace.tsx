@@ -632,6 +632,7 @@ export function AgentChatWorkspace() {
           <div className="time-filter-left">
             <SessionSwitcher />
             <SourceIngestionRunFilter
+              datasetKey={datasetKey}
               value={store.sourceIngestionRunId}
               onChange={(runId) => {
                 store.setSourceIngestionRunId(runId);

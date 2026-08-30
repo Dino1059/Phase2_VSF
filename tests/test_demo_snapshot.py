@@ -381,6 +381,7 @@ def test_right_panel_tabs_stay_mounted():
     css = (ROOT / "frontend/src/assets/styles.css").read_text()
     assert "right-panel-collapsed .right-panel" in css
     assert "translateX(100%)" in css or "display: none" in css
+    assert "width: var(--right-panel-width" in css
 
 
 

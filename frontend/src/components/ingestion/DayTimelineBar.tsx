@@ -119,7 +119,7 @@ export const DayTimelineBar: React.FC<DayTimelineBarProps> = ({
         <div className="tdr-left">
           <span className="tdr-day-title">Day {day.day_idx}</span>
           <span className="tdr-rows-text">
-            {day.ingested_rows > 0 ? `${day.ingested_rows.toLocaleString()} rows` : (isActivated ? '1,250 rows' : '-- rows')}
+            {day.ingested_rows > 0 ? `${day.ingested_rows.toLocaleString()} rows` : (isActivated ? (isVi ? '-- dòng' : '-- rows') : '-- rows')}
           </span>
         </div>
 

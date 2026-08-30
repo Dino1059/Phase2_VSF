@@ -1049,6 +1049,11 @@ def test_incident_stories_exclusive_entity_and_primary_rule(tmp_path):
     assert "nghi" in reply.lower()
     assert "vin-a" in reply.lower()
     assert "tab-rules" in reply
+    miss = flow.causal_reply_for_ask(db, "ev_telemetry", "2026-01-11", "VF8VNF_0001")
+    assert "không khớp" in miss.lower()
+    assert "VF8VNF_0001" in miss
+    assert "Xe VF8VNF_0001 nghi" not in miss
+    assert "VIN-A/" in miss
     db.close()
 
 
@@ -1069,3 +1074,23 @@ def test_incident_stories_use_cluster_when_rule_missing(tmp_path):
     assert stories[0]["primary_rule_id"] == "cluster"
     assert "suspected" in stories[0]["copy"]
     db.close()
+
+
+def test_leftover_gates_empty_state_count_overlay():
+    from pathlib import Path
+
+    flow_src = Path("src/services/th_hitl_flow.py").read_text()
+    assert "_causal_empty_state" in flow_src
+    ingest = Path("src/api/ingestion.py").read_text()
+    assert "1250 if is_act" not in ingest
+    assert "_warehouse_counts_by_day" in ingest
+    tab = Path("frontend/src/components/workspace/QualityRulesTab.tsx").read_text()
+    assert "includeActive: true" in tab
+    assert "hitl-missing-incident-rule" in tab
+    css = Path("frontend/src/assets/styles.css").read_text()
+    assert "width: var(--right-panel-width" in css
+    assert "z-index: 40" in css
+    hud = Path("frontend/src/components/chat/SourceIngestionRunFilter.tsx").read_text()
+    assert "1,250 rows" not in hud
+    ops = Path("frontend/src/pages/OperationsWorkspace.tsx").read_text()
+    assert "Ngan GT pack" not in ops

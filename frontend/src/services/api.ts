@@ -835,10 +835,11 @@ export interface HITLProposal {
 }
 
 export const hitlApi = {
-  queue: (datasetKey?: string, calendarDay?: string) => {
+  queue: (datasetKey?: string, calendarDay?: string, opts?: { includeActive?: boolean }) => {
     const q = new URLSearchParams();
     if (datasetKey) q.set('dataset_key', datasetKey);
     if (calendarDay) q.set('calendar_day', calendarDay);
+    if (opts?.includeActive) q.set('include_active', 'true');
     const qs = q.toString();
     return request<{ proposals: HITLProposal[] }>(`/hitl/queue${qs ? `?${qs}` : ''}`);
   },
@@ -1230,7 +1231,10 @@ export interface QuarantineDetailRecord {
 
 export const ingestionApi = {
   getStatus: () => request<IngestionDemoState>('/ingestion/status'),
-  getDays: () => request<IngestionDayTimeline>('/ingestion/days'),
+  getDays: (datasetKey?: string) => {
+    const q = datasetKey ? `?dataset_key=${encodeURIComponent(datasetKey)}` : '';
+    return request<IngestionDayTimeline>(`/ingestion/days${q}`);
+  },
   getDay: (dayIdx: number) => request<IngestionDaySnapshot>(`/ingestion/days/${dayIdx}`),
   activateWarmup: () =>
     request<{

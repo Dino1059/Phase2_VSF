@@ -10,6 +10,7 @@ interface SourceIngestionRunFilterProps {
   value?: string | null;
   onChange?: (runId: string | null) => void;
   className?: string;
+  datasetKey?: string;
 }
 
 function formatDayDate(dayIdx: number, rawDate?: string): string {
@@ -22,6 +23,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
   value,
   onChange,
   className = '',
+  datasetKey,
 }) => {
   const { i18n } = useTranslation();
   const isVi = i18n.language === 'vi';
@@ -44,7 +46,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
     try {
       const [runsRes, daysRes] = await Promise.allSettled([
         ingestionApi.getRuns(50),
-        ingestionApi.getDays(),
+        ingestionApi.getDays(datasetKey),
       ]);
       if (runsRes.status === 'fulfilled') {
         setRuns(runsRes.value?.runs || []);
@@ -57,7 +59,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [datasetKey]);
 
   useEffect(() => {
     void fetchData();
@@ -285,7 +287,7 @@ export const SourceIngestionRunFilter: React.FC<SourceIngestionRunFilterProps> =
                     {isActivated ? (
                       <>
                         <span className="sif-rows-str">
-                          {day.ingested_rows > 0 ? `${day.ingested_rows.toLocaleString()} rows` : '1,250 rows'}
+                          {day.ingested_rows > 0 ? `${day.ingested_rows.toLocaleString()} rows` : (isVi ? '-- dòng' : '-- rows')}
                         </span>
                         {day.alerts_count && day.alerts_count > 0 ? (
                           <span className="sif-alerts-chip">

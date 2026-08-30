@@ -1,7 +1,9 @@
 # DataTrust OS v5 Operational Trust Console — Technical Implementation Notes & Developer Log
 
 > **Target Audience:** Developers, Co-workers, and Future AI Agent Sessions  
-> **Last Updated:** 2026-08-29
+> **Last Updated:** 2026-08-30
+
+**2026-08-30 leftovers (post #37):** `why VIN` miss → empty-state (list day's `entity/rule`, do not pick another story). Luật `rule_id` fetches HITL `include_active` and flips to Approved; missing rule banner if still absent. Header rows = warehouse COUNT(*) (no fake 1250). 375 Rules tab: inspector overlay `z-index:40` uses `--right-panel-width`. Alerts drop Ngan GT pack banner (Must3 stories). Eval spinner / fault_manifest untouched. t086 warehouse ≠ d086 — no wipe (12B).
 
 **2026-08-30 chat why-VIN day:** `workspace_binding` split on first `:` so `(not a user request):` dropped the JSON; chat Luật hrefs had `day=`. Parse from first `{`; stamp `calendar_day` from `active_day`.
 

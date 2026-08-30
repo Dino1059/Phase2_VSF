@@ -246,10 +246,11 @@ def test_remaining_medium_low_ui_gates():
     assert "overflow-wrap: anywhere" in css
     assert "@media (max-width: 768px)" in css
     ops = _src("frontend/src/pages/OperationsWorkspace.tsx")
-    assert "gt-pack-banner" in ops
+    assert "gt-pack-banner" not in ops
+    assert "Ngan GT pack: 14 incidents" not in ops
+    assert "No stories for this table and day" in ops
     assert "view === 'eval' ? 'eval'" in ops
     assert "mainGroup === 'eval' ? null" in ops
-    assert "Ngan GT pack: 14 incidents" in ops
     assert "minWidth: '120px'" in ops
     header = _src("frontend/src/components/layout/Header.tsx")
     assert "hud-reset-db" in header
