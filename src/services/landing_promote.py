@@ -4,6 +4,52 @@ from __future__ import annotations
 from typing import Optional
 
 LANDING_TABLES = ("ev_telemetry", "charging_sessions", "trips", "nlp_feedback")
+TABLE_KEYS = {
+    "ev_telemetry": "record_id",
+    "charging_sessions": "session_id",
+    "trips": "trip_id",
+    "nlp_feedback": "feedback_id",
+}
+
+
+def _promote_table(db, table: str, day_idx: Optional[int]) -> int:
+    """Insert landing rows not already in main (by natural key); clear staging."""
+    key = TABLE_KEYS[table]
+    try:
+        if day_idx is None:
+            pending = db.execute(
+                f"SELECT COUNT(*) FROM landing.{table} l "
+                f"WHERE NOT EXISTS (SELECT 1 FROM main.{table} m WHERE m.{key} = l.{key})"
+            )
+            n = int(pending[0][0]) if pending else 0
+            if n > 0:
+                db.execute(
+                    f"INSERT INTO main.{table} SELECT l.* FROM landing.{table} l "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM main.{table} m WHERE m.{key} = l.{key})"
+                )
+            db.execute(f"DELETE FROM landing.{table}")
+            return n
+        params = [day_idx, day_idx]
+        day_clause = "(l.assigned_day_index = ? OR l.day_idx = ?)"
+        pending = db.execute(
+            f"SELECT COUNT(*) FROM landing.{table} l WHERE {day_clause} "
+            f"AND NOT EXISTS (SELECT 1 FROM main.{table} m WHERE m.{key} = l.{key})",
+            params,
+        )
+        n = int(pending[0][0]) if pending else 0
+        if n > 0:
+            db.execute(
+                f"INSERT INTO main.{table} SELECT l.* FROM landing.{table} l WHERE {day_clause} "
+                f"AND NOT EXISTS (SELECT 1 FROM main.{table} m WHERE m.{key} = l.{key})",
+                params,
+            )
+        db.execute(
+            f"DELETE FROM landing.{table} WHERE assigned_day_index = ? OR day_idx = ?",
+            params,
+        )
+        return n
+    except Exception:
+        return 0
 
 
 def ensure_landing_schema(db) -> None:
@@ -42,20 +88,11 @@ def reset_landing_tables(db) -> None:
 
 
 def promote_landing_all(db) -> dict:
-    """Copy every landing.* row into main.* (seed / full demo load)."""
+    """Copy every landing.* row into main.* (seed / full demo load). Idempotent by natural key."""
     ensure_landing_tables(db)
     promoted: dict[str, int] = {}
     for table in LANDING_TABLES:
-        n = 0
-        try:
-            src = db.execute(f"SELECT COUNT(*) FROM landing.{table}")
-            available = int(src[0][0]) if src else 0
-            if available > 0:
-                db.execute(f"INSERT INTO main.{table} SELECT * FROM landing.{table}")
-                n = available
-        except Exception:
-            n = 0
-        promoted[table] = n
+        promoted[table] = _promote_table(db, table, None)
     return {"day_idx": None, "promoted": promoted, "status": "ok", "dataset": "vingroup_pilot"}
 
 
@@ -70,7 +107,7 @@ def live_day_idx(db) -> int:
 
 
 def promote_landing_day(db, day_idx: Optional[int]) -> dict:
-    """Copy landing.* rows for one day into main.*. No-op when landing is empty."""
+    """Copy landing.* rows for one day into main.*. Idempotent; clears landing staging."""
     ensure_landing_tables(db)
     promoted: dict[str, int] = {}
     if day_idx is None:
@@ -80,24 +117,5 @@ def promote_landing_day(db, day_idx: Optional[int]) -> dict:
     except (TypeError, ValueError):
         return {"day_idx": day_idx, "promoted": promoted, "status": "skipped", "dataset": "vingroup_pilot"}
     for table in LANDING_TABLES:
-        n = 0
-        try:
-            src = db.execute(
-                f"SELECT COUNT(*) FROM landing.{table} WHERE assigned_day_index = ? OR day_idx = ?",
-                [idx, idx],
-            )
-            available = int(src[0][0]) if src else 0
-            if available > 0:
-                try:
-                    db.execute(
-                        f"INSERT INTO main.{table} SELECT * FROM landing.{table} "
-                        f"WHERE assigned_day_index = ? OR day_idx = ?",
-                        [idx, idx],
-                    )
-                    n = available
-                except Exception:
-                    n = 0
-        except Exception:
-            n = 0
-        promoted[table] = n
+        promoted[table] = _promote_table(db, table, idx)
     return {"day_idx": idx, "promoted": promoted, "status": "ok", "dataset": "vingroup_pilot"}

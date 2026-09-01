@@ -9,7 +9,10 @@ import {
   RotateCcw, Globe, Sparkles, Shield, Zap, Menu,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm } from '../../services/api';
+import {
+  searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm,
+  isLlmProviderAvailable, type LlmStatus,
+} from '../../services/api';
 
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { axisFromLocation, dayIdxToCalendarDay, searchHitWorkspacePath, workspaceHref } from '../../lib/calendarDay';
@@ -144,7 +147,39 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
   };
 
   const [useLlmMode, setUseLlmMode] = useState<boolean>(getGlobalUseLlm);
+  const [llmProviderOk, setLlmProviderOk] = useState(true);
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sync = (status: LlmStatus | null, ok: boolean) => {
+      if (cancelled) return;
+      setLlmStatus(status);
+      setLlmProviderOk(ok);
+      if (!ok && getGlobalUseLlm()) {
+        setUseLlmMode(false);
+        setGlobalUseLlm(false);
+      }
+    };
+    systemApi.getLlmStatus()
+      .then((s) => sync(s, isLlmProviderAvailable(s)))
+      .catch(() => sync(null, false));
+    const iv = window.setInterval(() => {
+      systemApi.getLlmStatus()
+        .then((s) => sync(s, isLlmProviderAvailable(s)))
+        .catch(() => sync(null, false));
+    }, 60_000);
+    return () => { cancelled = true; window.clearInterval(iv); };
+  }, []);
+
+  useEffect(() => {
+    const onLlm = () => setUseLlmMode(getGlobalUseLlm());
+    window.addEventListener('datatrust:llm-mode-changed', onLlm);
+    return () => window.removeEventListener('datatrust:llm-mode-changed', onLlm);
+  }, []);
+
   const handleToggleLlmMode = () => {
+    if (!llmProviderOk) return;
     const next = !useLlmMode;
     setUseLlmMode(next);
     setGlobalUseLlm(next);
@@ -432,11 +467,17 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
           <button
             type="button"
             className="hud-action-pill"
+            data-testid="llm-mode-toggle"
             onClick={handleToggleLlmMode}
+            disabled={!llmProviderOk}
             title={
-              useLlmMode
-                ? (isVi ? 'Đang BẬT LLM toàn hệ thống (Test độ chính xác bằng Gemini ReAct). Click để TẮT.' : 'System-wide LLM ON (Live Gemini ReAct accuracy test). Click to turn OFF.')
-                : (isVi ? 'Đang TẮT LLM toàn hệ thống (Test logic 0 token bằng Rule Engine). Click để BẬT.' : 'System-wide LLM OFF (Fast 0-token logic test via Rule Engine). Click to turn ON.')
+              !llmProviderOk
+                ? (isVi
+                  ? `Nhà cung cấp LLM không khả dụng (${llmStatus?.provider || 'offline'}). Chế độ OFF bắt buộc.`
+                  : `LLM provider unavailable (${llmStatus?.provider || 'offline'}). Forced OFF.`)
+                : useLlmMode
+                  ? (isVi ? 'Đang BẬT LLM toàn hệ thống (Test độ chính xác bằng Gemini ReAct). Click để TẮT.' : 'System-wide LLM ON (Live Gemini ReAct accuracy test). Click to turn OFF.')
+                  : (isVi ? 'Đang TẮT LLM toàn hệ thống (Test logic 0 token bằng Rule Engine). Click để BẬT.' : 'System-wide LLM OFF (Fast 0-token logic test via Rule Engine). Click to turn ON.')
             }
             style={{
               display: 'inline-flex',
@@ -445,16 +486,26 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
               padding: '0 12px',
               height: '32px',
               borderRadius: '9999px',
-              backgroundColor: useLlmMode ? 'rgba(168, 85, 247, 0.18)' : 'rgba(234, 179, 8, 0.18)',
-              border: useLlmMode ? '1px solid rgba(168, 85, 247, 0.45)' : '1px solid rgba(234, 179, 8, 0.45)',
-              color: useLlmMode ? '#c084fc' : '#eab308',
+              backgroundColor: !llmProviderOk
+                ? 'rgba(100, 116, 139, 0.15)'
+                : useLlmMode ? 'rgba(168, 85, 247, 0.18)' : 'rgba(234, 179, 8, 0.18)',
+              border: !llmProviderOk
+                ? '1px solid rgba(100, 116, 139, 0.4)'
+                : useLlmMode ? '1px solid rgba(168, 85, 247, 0.45)' : '1px solid rgba(234, 179, 8, 0.45)',
+              color: !llmProviderOk ? '#94a3b8' : useLlmMode ? '#c084fc' : '#eab308',
               fontSize: '12px',
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: llmProviderOk ? 'pointer' : 'not-allowed',
+              opacity: llmProviderOk ? 1 : 0.85,
               transition: 'all 0.2s ease',
             }}
           >
-            {useLlmMode ? (
+            {!llmProviderOk ? (
+              <>
+                <Zap size={13} style={{ color: '#94a3b8' }} />
+                <span>{isVi ? 'LLM OFF (provider)' : 'LLM OFF (no provider)'}</span>
+              </>
+            ) : useLlmMode ? (
               <>
                 <Sparkles size={13} style={{ color: '#c084fc' }} />
                 <span>LLM ON</span>

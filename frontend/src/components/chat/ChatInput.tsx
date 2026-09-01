@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Layers, Activity, ShieldCheck, Sparkles } from 'lucide-react';
-import { sendChatMessage, fetchChatHistory, hitlApi } from '../../services/api';
+import { sendChatMessage, fetchChatHistory, hitlApi, getGlobalUseLlm, systemApi, isLlmProviderAvailable, LLM_PROVIDER_OFF_MSG } from '../../services/api';
 import { agentSocket } from '../../services/websocket';
 import { useChatStore } from '../../stores/chatStore';
 import { datasetStoreKey, useWorkspaceStore } from '../../stores/workspaceStore';
@@ -39,7 +39,25 @@ export function ChatInput({ datasetKey, onPipelineStarted }: ChatInputProps) {
     try {
       if (onPipelineStarted) onPipelineStarted();
       agentSocket.connect(sessionId);
-      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language, undefined, selectedDayIdx, ac.signal);
+      let useLlm = getGlobalUseLlm();
+      if (useLlm) {
+        try {
+          const st = await systemApi.getLlmStatus();
+          if (!isLlmProviderAvailable(st)) {
+            useLlm = false;
+            const lang = i18n.language === 'vi' ? 'vi' : 'en';
+            useChatStore.getState().addMessage({
+              id: `sys-provider-off-${Date.now()}`,
+              type: 'system',
+              content: LLM_PROVIDER_OFF_MSG[lang],
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch {
+          useLlm = false;
+        }
+      }
+      await sendChatMessage(promptText, sessionId, datasetKey, i18n.language, useLlm, selectedDayIdx, ac.signal);
       const history = await fetchChatHistory(sessionId);
       if (history.messages && Array.isArray(history.messages)) {
         useChatStore.getState().setMessages(history.messages);

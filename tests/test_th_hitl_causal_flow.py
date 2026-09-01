@@ -355,6 +355,43 @@ def test_then7_live_ingest_writes_landing_only(tmp_path):
     db.close()
 
 
+def test_promote_landing_day_is_idempotent(tmp_path):
+    from src.db.connection import DuckDBManager
+    from src.services.landing_promote import ensure_landing_tables, promote_landing_day
+
+    db = DuckDBManager(db_path=str(tmp_path / "th_promote_idem.duckdb"))
+    db.init_schema()
+    ensure_landing_tables(db)
+    db.execute(
+        "INSERT INTO main.ev_telemetry (record_id, vehicle_vin, day_idx, assigned_day_index, battery_soc) "
+        "VALUES ('MAIN_EXISTING', 'VF8_MAIN', 10, 10, 50.0)"
+    )
+    db.execute(
+        "INSERT INTO landing.ev_telemetry (record_id, vehicle_vin, day_idx, assigned_day_index, battery_soc, source_ingestion_run_id) "
+        "VALUES ('MAIN_EXISTING', 'VF8_MAIN', 10, 10, 50.0, 'STREAMING_WORKER'), "
+        "('LIVE_NEW', 'VF8_NEW', 10, 10, 60.0, 'STREAMING_WORKER')"
+    )
+    before = db.execute(
+        "SELECT COUNT(*) FROM main.ev_telemetry WHERE assigned_day_index = 10 OR day_idx = 10"
+    )
+    assert int(before[0][0]) == 1
+    out1 = promote_landing_day(db, 10)
+    assert out1["promoted"].get("ev_telemetry", 0) == 1
+    mid = db.execute(
+        "SELECT COUNT(*) FROM main.ev_telemetry WHERE assigned_day_index = 10 OR day_idx = 10"
+    )
+    assert int(mid[0][0]) == 2
+    land = db.execute("SELECT COUNT(*) FROM landing.ev_telemetry")
+    assert int(land[0][0]) == 0
+    out2 = promote_landing_day(db, 10)
+    assert out2["promoted"].get("ev_telemetry", 0) == 0
+    after = db.execute(
+        "SELECT COUNT(*) FROM main.ev_telemetry WHERE assigned_day_index = 10 OR day_idx = 10"
+    )
+    assert int(after[0][0]) == 2
+    db.close()
+
+
 def test_then7_live_paths_do_not_insert_main():
     from pathlib import Path
 

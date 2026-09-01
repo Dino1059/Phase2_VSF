@@ -18,6 +18,28 @@ export function setGlobalUseLlm(useLlm: boolean) {
   window.dispatchEvent(new CustomEvent('datatrust:llm-mode-changed', { detail: { useLlm } }));
 }
 
+export type LlmStatus = {
+  status: string;
+  model: string;
+  provider: string;
+  has_api_key: boolean;
+  description: string;
+  use_llm?: boolean;
+};
+
+/** True when backend reports a reachable LLM provider (not heuristic-only / offline). */
+export function isLlmProviderAvailable(status: LlmStatus | null | undefined): boolean {
+  if (!status) return false;
+  if (status.status === 'offline' || status.status === 'disabled') return false;
+  if (!status.has_api_key) return false;
+  return status.provider !== 'heuristic';
+}
+
+export const LLM_PROVIDER_OFF_MSG = {
+  en: 'LLM provider unavailable — using deterministic rule engine.',
+  vi: 'Nhà cung cấp LLM không khả dụng — dùng rule engine xác định.',
+};
+
 
 export function readAuthToken(): string | null {
   for (const key of TOKEN_KEYS) {
@@ -128,14 +150,7 @@ export const systemApi = {
       window_end: string;
       ingress: string;
     }>(`/system/demo-snapshot?mode=${mode}`, { method: 'POST' }),
-  getLlmStatus: () =>
-    request<{
-      status: string;
-      model: string;
-      provider: string;
-      has_api_key: boolean;
-      description: string;
-    }>('/system/llm-status'),
+  getLlmStatus: () => request<LlmStatus>('/system/llm-status'),
 };
 
 
