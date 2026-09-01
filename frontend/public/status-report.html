@@ -37,6 +37,7 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:v
       <a href="#phase1">Phase 1</a>
       <a href="#phase2">Phase 2 ACL</a>
       <a href="#landing">Landing</a>
+      <a href="#landing-bold">Bold motion</a>
       <a href="#gallery">Gallery</a>
       <a href="#demo">Demo 2min</a>
       <a href="#btc">BTC 10</a>
@@ -46,6 +47,19 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:v
   </div>
 </header>
 <div class="wrap">
+
+
+<section class="card" id="landing-bold">
+  <h2>Landing · pointer-scroll-bold <span class="badge ok">GO d086</span></h2>
+  <p class="note">Q1=C bold · Q2=A d086-only · stamp <span class="mono">&lt;!-- d086-v5 business-lp 670afe4 pointer-scroll-bold --&gt;</span></p>
+  <ul class="compact">
+    <li>Pointer: layered hero follow ≤40px / ≤10deg (rAF; pause off-screen)</li>
+    <li>Scroll: progress bar + depth scrub + section parallax (no view() timelines)</li>
+    <li>Graphics: ingest · HITL preview≠execute · Steward A≠B · LLM on/off · day COUNT + Blender motifs</li>
+    <li>QA: Playwright <strong>15/15</strong> live · reduced-motion hard stop</li>
+    <li>Feel it: move mouse on hero, then scroll — <a href="https://d086.w9.nu/#/">d086.w9.nu/#/</a></li>
+  </ul>
+</section>
 
 <section class="grid" id="verdict">
   <div class="card">
@@ -116,7 +130,7 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:v
     <tr><th>Item</th><th>Status</th><th>Detail</th></tr>
     <tr><td>Route</td><td><span class="badge ok">/</span></td><td><span class="mono">LandingPage</span> is root; <span class="mono">/landing</span> → <span class="mono">/</span>; Login opens AuthModal → <span class="mono">/dashboard/ingestion</span></td></tr>
     <tr><td>IA</td><td><span class="badge ok">SHIPPED</span></td><td>Hero → Problem → Product → HITL → Roles/ACL → Proof → Tech → CTA</td></tr>
-    <tr><td>Motion</td><td><span class="badge ok">IO + CSS</span></td><td>IntersectionObserver <span class="mono">.in-view</span> reveals · ken-burns poster · CTA 120ms hover · <span class="mono">prefers-reduced-motion</span> · no view()-timeline (overflow scrollport bug) · CDN scrub video optional, no autoplay</td></tr>
+    <tr><td>Motion</td><td><span class="badge ok">BOLD pointer+scroll</span></td><td>Layered pointer ≤40px/10deg · scroll progress + depth · section parallax · SVG DataTrust diagrams · Blender motifs · IO reveals · <span class="mono">prefers-reduced-motion</span> hard stop · stamp <span class="mono">670afe4 pointer-scroll-bold</span></td></tr>
     <tr><td>Hero assets</td><td><span class="badge ok">Blender EEVEE</span></td><td>Real <span class="mono">bpy.ops.render</span> fabric→plane → <span class="mono">hero.poster.webp</span> + <span class="mono">atmos.calm.webp</span> · video <span class="mono">t086-cdn.w9.nu/P-086/landing/hero.*</span> (pre-existing)</td></tr>
     <tr><td>Local QA</td><td><span class="badge ok">PASS</span></td><td>Playwright 375/1440 · evidence <span class="mono">.loop-state/qa-business-landing/</span></td></tr>
     <tr><td>d086</td><td><span class="badge ok">FE deploy</span></td><td>No cloudflared · no wipe · backend untouched</td></tr>

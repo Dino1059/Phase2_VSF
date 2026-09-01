@@ -7,11 +7,21 @@ import { changeLanguage, i18n } from '../i18n';
 import '../assets/landing.css';
 
 const HERO_POSTER = '/landing/hero.poster.webp';
+const MOTIF_TELE = '/landing/motif.telemetry.webp';
+const MOTIF_VIN = '/landing/motif.vin-fabric.webp';
 const HERO_BASE = (import.meta.env.VITE_LANDING_HERO_BASE as string | undefined)?.replace(/\/$/, '') || 'https://t086-cdn.w9.nu';
 const HERO_WEBM = `${HERO_BASE}/P-086/landing/hero.webm`;
 const HERO_MP4 = `${HERO_BASE}/P-086/landing/hero.mp4`;
 const LIVE_T086 = 'https://t086.w9.nu/';
 const LIVE_D086 = 'https://d086.w9.nu/';
+
+/** Bold Q1=C: layered pointer follow ranges (Awwwards intensity) */
+const PTR = {
+  far: { t: 40, r: 10 },
+  mid: { t: 32, r: 8 },
+  near: { t: 22, r: 6 },
+  copy: { t: 14, r: 4 },
+} as const;
 
 type Lang = 'vi' | 'en';
 
@@ -48,6 +58,11 @@ const COPY = {
       { n: '02', t: 'Agents L1–L4', d: 'Profile, anomaly, đề xuất rule — deterministic layers.', en: 'Reliability layers' },
       { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine split + SHA-256 manifests.', en: 'Cryptographic split' },
     ],
+    diagramIngest: 'Landing → Warehouse',
+    diagramHitl: 'Preview ≠ Execute',
+    diagramAcl: 'Steward A ≠ B',
+    diagramLlm: 'LLM ON / OFF',
+    diagramCount: 'Day-scoped COUNT',
     hitlK: 'HITL',
     hitlH: 'AI đề xuất. Steward quyết định.',
     hitlL: 'Preview ≠ execute. Remember giữ quyết định — không promote lại mù.',
@@ -124,6 +139,11 @@ const COPY = {
       { n: '02', t: 'Agents L1–L4', d: 'Profile, anomaly, rule proposals — deterministic layers.', en: 'Reliability layers' },
       { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine split + SHA-256 manifests.', en: 'Cryptographic split' },
     ],
+    diagramIngest: 'Landing → Warehouse',
+    diagramHitl: 'Preview ≠ Execute',
+    diagramAcl: 'Steward A ≠ B',
+    diagramLlm: 'LLM ON / OFF',
+    diagramCount: 'Day-scoped COUNT',
     hitlK: 'HITL',
     hitlH: 'AI proposes. Steward decides.',
     hitlL: 'Preview ≠ execute. Remember keeps causality — no blind re-promote.',
@@ -183,6 +203,115 @@ export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({
   );
 };
 
+/* --- Project-relevant SVG diagrams (DataTrust OS, not generic AI) --- */
+
+const DiagramIngest: React.FC<{ label: string }> = ({ label }) => (
+  <figure className="dt-lp__diagram" aria-label={label}>
+    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
+      <rect className="dg-node" x="8" y="22" width="88" height="44" rx="8" />
+      <text x="52" y="48" textAnchor="middle" className="dg-label">Landing</text>
+      <path className="dg-flow" d="M104 44 H148" markerEnd="url(#dg-arrow)" />
+      <rect className="dg-node dg-node--warn" x="152" y="22" width="72" height="44" rx="8" />
+      <text x="188" y="42" textAnchor="middle" className="dg-label">HITL</text>
+      <text x="188" y="56" textAnchor="middle" className="dg-sub">gate</text>
+      <path className="dg-flow" d="M232 44 H276" markerEnd="url(#dg-arrow)" />
+      <rect className="dg-node dg-node--ok" x="280" y="22" width="72" height="44" rx="8" />
+      <text x="316" y="48" textAnchor="middle" className="dg-label">WH</text>
+      <defs>
+        <marker id="dg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0 0 L6 3 L0 6 Z" fill="currentColor" opacity="0.55" />
+        </marker>
+      </defs>
+    </svg>
+    <figcaption>{label}</figcaption>
+  </figure>
+);
+
+const DiagramHitl: React.FC<{ label: string }> = ({ label }) => (
+  <figure className="dt-lp__diagram" aria-label={label}>
+    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
+      <rect className="dg-node" x="12" y="18" width="100" height="52" rx="8" />
+      <text x="62" y="40" textAnchor="middle" className="dg-label">Preview</text>
+      <text x="62" y="56" textAnchor="middle" className="dg-sub">sandbox</text>
+      <text x="180" y="48" textAnchor="middle" className="dg-neq">≠</text>
+      <rect className="dg-node dg-node--warn" x="248" y="18" width="100" height="52" rx="8" />
+      <text x="298" y="40" textAnchor="middle" className="dg-label">Execute</text>
+      <text x="298" y="56" textAnchor="middle" className="dg-sub">warehouse</text>
+    </svg>
+    <figcaption>{label}</figcaption>
+  </figure>
+);
+
+const DiagramAcl: React.FC<{ label: string }> = ({ label }) => (
+  <figure className="dt-lp__diagram" aria-label={label}>
+    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
+      <rect className="dg-node dg-node--ok" x="20" y="14" width="120" height="60" rx="8" />
+      <text x="80" y="38" textAnchor="middle" className="dg-label">Steward A</text>
+      <text x="80" y="54" textAnchor="middle" className="dg-sub">dataset_a ✓</text>
+      <text x="180" y="48" textAnchor="middle" className="dg-neq">≠</text>
+      <rect className="dg-node" x="220" y="14" width="120" height="60" rx="8" />
+      <text x="280" y="38" textAnchor="middle" className="dg-label">Steward B</text>
+      <text x="280" y="54" textAnchor="middle" className="dg-sub">dataset_b ✓</text>
+      <line className="dg-block" x1="140" y1="70" x2="220" y2="70" />
+      <text x="180" y="82" textAnchor="middle" className="dg-sub">ACL block cross-read</text>
+    </svg>
+    <figcaption>{label}</figcaption>
+  </figure>
+);
+
+const DiagramLlmChip: React.FC<{ label: string }> = ({ label }) => (
+  <figure className="dt-lp__diagram dt-lp__diagram--chips" aria-label={label}>
+    <div className="dt-lp__llm-row">
+      <span className="dt-lp__llm-chip dt-lp__llm-chip--on">LLM ON</span>
+      <span className="dt-lp__llm-chip dt-lp__llm-chip--off">LLM OFF</span>
+      <span className="dt-lp__llm-chip dt-lp__llm-chip--hitl">HITL still works</span>
+    </div>
+    <figcaption>{label}</figcaption>
+  </figure>
+);
+
+const DiagramDayCount: React.FC<{ label: string }> = ({ label }) => (
+  <figure className="dt-lp__diagram" aria-label={label}>
+    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
+      {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+        const h = 18 + ((i * 11) % 37);
+        const active = i === 4;
+        return (
+          <g key={i}>
+            <rect
+              className={active ? 'dg-bar dg-bar--active' : 'dg-bar'}
+              x={28 + i * 46}
+              y={72 - h}
+              width="28"
+              height={h}
+              rx="4"
+            />
+            <text x={42 + i * 46} y="84" textAnchor="middle" className="dg-sub">
+              D{i + 9}
+            </text>
+          </g>
+        );
+      })}
+      <text x="212" y="28" textAnchor="middle" className="dg-label dg-count">
+        COUNT 30 528
+      </text>
+    </svg>
+    <figcaption>{label}</figcaption>
+  </figure>
+);
+
+function useMotionAllowed(): boolean {
+  const [ok, setOk] = useState(true);
+  useEffect(() => {
+    const q = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setOk(!q.matches);
+    sync();
+    q.addEventListener('change', sync);
+    return () => q.removeEventListener('change', sync);
+  }, []);
+  return ok;
+}
+
 function useStaticHeroPreferred(): boolean {
   const [staticHero, setStaticHero] = useState(true);
   useEffect(() => {
@@ -205,10 +334,21 @@ export const LandingPage: React.FC = () => {
   const { isAuthenticated, setAuthModalOpen } = useAuthStore();
   const [lang, setLang] = useState<Lang>(() => ((i18n.language || 'vi').startsWith('vi') ? 'vi' : 'en'));
   const t = COPY[lang];
+  const motionOk = useMotionAllowed();
   const staticHero = useStaticHeroPreferred();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingSeek = useRef<number | null>(null);
   const [videoReady, setVideoReady] = useState(false);
+  const [heavyReady, setHeavyReady] = useState(false);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const heroRef = useRef<HTMLElement | null>(null);
+  const ptrTarget = useRef({ x: 0, y: 0 });
+  const ptrCurrent = useRef({ x: 0, y: 0 });
+  const scrollProgress = useRef(0);
+  const heroOnScreen = useRef(true);
+  const rafPtr = useRef(0);
+  const rafScroll = useRef(0);
 
   useEffect(() => {
     const onLang = (lng: string) => setLang(lng.startsWith('vi') ? 'vi' : 'en');
@@ -220,19 +360,42 @@ export const LandingPage: React.FC = () => {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    // After successful login from marketing LP, enter the OS.
     navigate('/dashboard/ingestion', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  // Time-based reveal fallback (Firefox / no scroll-timeline / @supports miss).
+  /* Defer heavy motif layers until after first paint / LCP poster */
   useEffect(() => {
-    const root = document.querySelector('.dt-lp');
+    if (!motionOk) return;
+    let cancelled = false;
+    const arm = () => {
+      if (!cancelled) setHeavyReady(true);
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let idleId: number | null = null;
+    let timeoutId: number | null = null;
+    if (w.requestIdleCallback) {
+      idleId = w.requestIdleCallback(arm, { timeout: 1200 });
+    } else {
+      timeoutId = window.setTimeout(arm, 400);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId != null && w.cancelIdleCallback) w.cancelIdleCallback(idleId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [motionOk]);
+
+  /* IO reveals */
+  useEffect(() => {
+    const root = rootRef.current;
     if (!root) return;
     const nodes = Array.from(root.querySelectorAll<HTMLElement>('.dt-lp__reveal'));
     if (!nodes.length) return;
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) {
+    if (!motionOk) {
       nodes.forEach((el) => el.classList.add('in-view'));
       return;
     }
@@ -254,7 +417,127 @@ export const LandingPage: React.FC = () => {
     );
     nodes.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [lang]);
+  }, [lang, motionOk]);
+
+  /* Pause pointer when hero off-screen */
+  useEffect(() => {
+    const hero = heroRef.current;
+    if (!hero || !motionOk) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        heroOnScreen.current = e.isIntersecting;
+        if (!e.isIntersecting) {
+          ptrTarget.current = { x: 0, y: 0 };
+        }
+      },
+      { threshold: 0.05 },
+    );
+    io.observe(hero);
+    return () => io.disconnect();
+  }, [motionOk]);
+
+  /* Pointer parallax rAF loop — bold layered follow */
+  useEffect(() => {
+    if (!motionOk) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    const tick = () => {
+      const cur = ptrCurrent.current;
+      const tgt = ptrTarget.current;
+      cur.x += (tgt.x - cur.x) * 0.12;
+      cur.y += (tgt.y - cur.y) * 0.12;
+
+      const x = cur.x;
+      const y = cur.y;
+      const s = scrollProgress.current;
+
+      root.style.setProperty('--ptr-x', x.toFixed(4));
+      root.style.setProperty('--ptr-y', y.toFixed(4));
+      root.style.setProperty(
+        '--ptr-far',
+        `translate3d(${(x * PTR.far.t).toFixed(2)}px, ${(y * PTR.far.t * 0.7).toFixed(2)}px, 0) rotateX(${(-y * PTR.far.r).toFixed(2)}deg) rotateY(${(x * PTR.far.r).toFixed(2)}deg)`,
+      );
+      root.style.setProperty(
+        '--ptr-mid',
+        `translate3d(${(x * PTR.mid.t).toFixed(2)}px, ${(y * PTR.mid.t * 0.65).toFixed(2)}px, 0) rotateX(${(-y * PTR.mid.r).toFixed(2)}deg) rotateY(${(x * PTR.mid.r).toFixed(2)}deg)`,
+      );
+      root.style.setProperty(
+        '--ptr-near',
+        `translate3d(${(x * PTR.near.t).toFixed(2)}px, ${(y * PTR.near.t * 0.6).toFixed(2)}px, 0) rotateX(${(-y * PTR.near.r).toFixed(2)}deg) rotateY(${(x * PTR.near.r).toFixed(2)}deg)`,
+      );
+      root.style.setProperty(
+        '--ptr-copy',
+        `translate3d(${(x * PTR.copy.t).toFixed(2)}px, ${(y * PTR.copy.t * 0.5).toFixed(2)}px, 0) rotateX(${(-y * PTR.copy.r).toFixed(2)}deg) rotateY(${(x * PTR.copy.r).toFixed(2)}deg)`,
+      );
+      /* Scroll-linked hero depth (scale + Y) — scrub feel without video seek thrash */
+      const depthScale = 1.02 + s * 0.1;
+      const depthY = s * -48;
+      root.style.setProperty('--scroll-depth', `translate3d(0, ${depthY.toFixed(1)}px, 0) scale(${depthScale.toFixed(4)})`);
+      root.style.setProperty('--scroll-p', s.toFixed(4));
+
+      rafPtr.current = requestAnimationFrame(tick);
+    };
+    rafPtr.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafPtr.current);
+  }, [motionOk]);
+
+  /* Scroll progress + section parallax (rAF throttled) */
+  useEffect(() => {
+    if (!motionOk) return;
+    const root = rootRef.current;
+    if (!root) return;
+    let pending = false;
+
+    const apply = () => {
+      pending = false;
+      const doc = document.documentElement;
+      const max = Math.max(1, doc.scrollHeight - window.innerHeight);
+      const p = Math.min(1, Math.max(0, window.scrollY / max));
+      scrollProgress.current = p;
+      root.style.setProperty('--scroll-p', p.toFixed(4));
+
+      root.querySelectorAll<HTMLElement>('.dt-lp__parallax').forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        const vh = window.innerHeight;
+        const mid = rect.top + rect.height * 0.5;
+        const norm = (mid - vh * 0.5) / vh; // -1..1-ish
+        const speed = Number(el.dataset.speed || 24);
+        const ty = Math.max(-56, Math.min(56, -norm * speed));
+        const op = Math.max(0.55, Math.min(1, 1 - Math.abs(norm) * 0.25));
+        el.style.transform = `translate3d(0, ${ty.toFixed(1)}px, 0)`;
+        el.style.opacity = op.toFixed(3);
+      });
+    };
+
+    const onScroll = () => {
+      if (pending) return;
+      pending = true;
+      rafScroll.current = requestAnimationFrame(apply);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    apply();
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(rafScroll.current);
+    };
+  }, [motionOk, lang]);
+
+  const onHeroPointer = (e: React.PointerEvent<HTMLElement>) => {
+    if (!motionOk || !heroOnScreen.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+    ptrTarget.current = {
+      x: Math.max(-1, Math.min(1, nx)),
+      y: Math.max(-1, Math.min(1, ny)),
+    };
+  };
+
+  const onHeroLeave = () => {
+    ptrTarget.current = { x: 0, y: 0 };
+  };
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 
@@ -273,7 +556,7 @@ export const LandingPage: React.FC = () => {
   };
 
   const ensureVideo = useCallback(() => {
-    if (staticHero || videoReady) return;
+    if (staticHero || videoReady || !motionOk) return;
     const video = videoRef.current;
     if (!video) return;
     if (!video.querySelector('source')) {
@@ -288,16 +571,18 @@ export const LandingPage: React.FC = () => {
       video.load();
     }
     setVideoReady(true);
-  }, [staticHero, videoReady]);
+  }, [staticHero, videoReady, motionOk]);
 
   const onHeroMove = (e: React.MouseEvent<HTMLElement>) => {
-    if (staticHero) return;
+    if (staticHero || !motionOk) return;
     ensureVideo();
     const video = videoRef.current;
     if (!video || !video.duration || Number.isNaN(video.duration)) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const target = x * video.duration;
+    /* Mix pointer X with scroll progress for pronounced scrub */
+    const mix = Math.min(1, Math.max(0, x * 0.75 + scrollProgress.current * 0.25));
+    const target = mix * video.duration;
     if (video.seeking) {
       pendingSeek.current = target;
       return;
@@ -318,7 +603,11 @@ export const LandingPage: React.FC = () => {
   };
 
   return (
-    <div className="dt-lp">
+    <div className={`dt-lp${motionOk ? ' dt-lp--motion' : ' dt-lp--reduced'}`} ref={rootRef}>
+      <div className="dt-lp__progress" aria-hidden>
+        <div className="dt-lp__progress-bar" />
+      </div>
+
       <nav className="dt-lp__nav" aria-label="Primary">
         <button type="button" className="dt-lp__brand" onClick={() => scrollTo('section-hero')}>
           <DataTrustLogo size={18} />
@@ -347,17 +636,29 @@ export const LandingPage: React.FC = () => {
 
       <header
         id="section-hero"
+        ref={heroRef}
         className="dt-lp__hero"
         onPointerEnter={ensureVideo}
+        onPointerMove={onHeroPointer}
+        onPointerLeave={onHeroLeave}
         onMouseMove={onHeroMove}
       >
         <div className={`dt-lp__hero-media${videoReady && !staticHero ? ' is-video-ready' : ''}`}>
-          <img src={HERO_POSTER} alt="" width={1920} height={1080} decoding="async" fetchPriority="high" />
+          <div className="dt-lp__hero-layer dt-lp__hero-layer--far" aria-hidden>
+            <img src={HERO_POSTER} alt="" width={1920} height={1080} decoding="async" fetchPriority="high" />
+          </div>
           {!staticHero && (
-            <video ref={videoRef} muted playsInline preload="none" poster={HERO_POSTER} onSeeked={onSeeked} aria-hidden />
+            <div className="dt-lp__hero-layer dt-lp__hero-layer--mid" aria-hidden>
+              <video ref={videoRef} muted playsInline preload="none" poster={HERO_POSTER} onSeeked={onSeeked} />
+            </div>
+          )}
+          {heavyReady && motionOk && (
+            <div className="dt-lp__hero-layer dt-lp__hero-layer--motif" aria-hidden>
+              <img src={MOTIF_TELE} alt="" width={1280} height={720} loading="lazy" decoding="async" />
+            </div>
           )}
         </div>
-        <div className="dt-lp__hero-scrub" />
+        <div className="dt-lp__hero-scrub dt-lp__hero-layer--near" />
         <div className="dt-lp__hero-copy">
           <div className="dt-lp__eyebrow">{t.eyebrow}</div>
           <h1 className="dt-lp__brand-hero">{t.brand}</h1>
@@ -382,7 +683,7 @@ export const LandingPage: React.FC = () => {
       </header>
 
       <section id="section-problem" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal">
+        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="36">
           <p className="dt-lp__kicker">{t.problemK}</p>
           <h2 className="dt-lp__h2">{t.problemH}</h2>
           <p className="dt-lp__lead">
@@ -400,17 +701,25 @@ export const LandingPage: React.FC = () => {
               </article>
             ))}
           </div>
+          <div className="dt-lp__diagram-row">
+            <DiagramDayCount label={t.diagramCount} />
+          </div>
         </div>
       </section>
 
-      <section id="section-product" className="dt-lp__section" style={{ backgroundImage: 'url(/landing/atmos.calm.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
-        <div className="dt-lp__inner dt-lp__reveal" style={{ background: 'rgba(7,11,16,0.88)', borderRadius: 16, padding: 24 }}>
+      <section
+        id="section-product"
+        className="dt-lp__section dt-lp__section--motif"
+        style={heavyReady ? { backgroundImage: `url(${MOTIF_VIN})` } : { backgroundImage: 'url(/landing/atmos.calm.webp)' }}
+      >
+        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax dt-lp__inner--glass" data-speed="32">
           <p className="dt-lp__kicker">{t.productK}</p>
           <h2 className="dt-lp__h2">{t.productH}</h2>
           <p className="dt-lp__lead">
             {t.productL}
             <span className="en">{t.productLEn}</span>
           </p>
+          <DiagramIngest label={t.diagramIngest} />
           <div className="dt-lp__grid dt-lp__grid--3">
             {t.products.map((p) => (
               <article key={p.n} className="dt-lp__tile">
@@ -427,13 +736,14 @@ export const LandingPage: React.FC = () => {
       </section>
 
       <section id="section-hitl" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal">
+        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="34">
           <p className="dt-lp__kicker">{t.hitlK}</p>
           <h2 className="dt-lp__h2">{t.hitlH}</h2>
           <p className="dt-lp__lead">
             {t.hitlL}
             <span className="en">{t.hitlLEn}</span>
           </p>
+          <DiagramHitl label={t.diagramHitl} />
           <div className="dt-lp__flow">
             {t.hitlSteps.map((s, i) => (
               <div key={s.t} className="dt-lp__flow-step">
@@ -443,17 +753,19 @@ export const LandingPage: React.FC = () => {
               </div>
             ))}
           </div>
+          <DiagramLlmChip label={t.diagramLlm} />
         </div>
       </section>
 
       <section id="section-roles" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal">
+        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="28">
           <p className="dt-lp__kicker">{t.rolesK}</p>
           <h2 className="dt-lp__h2">{t.rolesH}</h2>
           <p className="dt-lp__lead">
             {t.rolesL}
             <span className="en">{t.rolesLEn}</span>
           </p>
+          <DiagramAcl label={t.diagramAcl} />
           <div className="dt-lp__grid dt-lp__grid--4">
             {t.roles.map((r) => (
               <article key={r.t} className="dt-lp__tile">
@@ -469,7 +781,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       <section id="section-proof" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal">
+        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="24">
           <p className="dt-lp__kicker">{t.proofK}</p>
           <h2 className="dt-lp__h2">{t.proofH}</h2>
           <p className="dt-lp__lead">
