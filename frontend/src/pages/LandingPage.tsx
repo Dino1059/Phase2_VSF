@@ -224,6 +224,38 @@ export const LandingPage: React.FC = () => {
     navigate('/dashboard/ingestion', { replace: true });
   }, [isAuthenticated, navigate]);
 
+  // Time-based reveal fallback (Firefox / no scroll-timeline / @supports miss).
+  useEffect(() => {
+    const root = document.querySelector('.dt-lp');
+    if (!root) return;
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>('.dt-lp__reveal'));
+    if (!nodes.length) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      nodes.forEach((el) => el.classList.add('in-view'));
+      return;
+    }
+
+    if (typeof IntersectionObserver === 'undefined') {
+      nodes.forEach((el) => el.classList.add('in-view'));
+      return;
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          entry.target.classList.add('in-view');
+          io.unobserve(entry.target);
+        }
+      },
+      { root: null, rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
+    );
+    nodes.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [lang]);
+
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 
   const toggleLang = () => {

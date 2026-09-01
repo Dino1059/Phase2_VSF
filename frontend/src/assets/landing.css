@@ -88,20 +88,20 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 180ms var(--lp-ease), opacity 180ms var(--lp-ease), background-color 180ms var(--lp-ease), border-color 180ms var(--lp-ease);
+  transition: transform 120ms var(--lp-ease), opacity 120ms var(--lp-ease), background-color 120ms var(--lp-ease), border-color 120ms var(--lp-ease), filter 120ms var(--lp-ease);
 }
 .dt-lp__btn:active { transform: scale(0.98); }
 .dt-lp__btn--primary {
   background: var(--lp-accent);
   color: #042f2e;
 }
-.dt-lp__btn--primary:hover { filter: brightness(1.06); }
+.dt-lp__btn--primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .dt-lp__btn--ghost {
   background: transparent;
   border-color: var(--lp-line);
   color: var(--lp-ink);
 }
-.dt-lp__btn--ghost:hover { background: rgba(255,255,255,0.04); }
+.dt-lp__btn--ghost:hover { background: rgba(255,255,255,0.04); transform: translateY(-1px); }
 .dt-lp__btn--lg { height: 48px; padding: 0 22px; font-size: 0.95rem; }
 
 .dt-lp__lang {
@@ -141,6 +141,7 @@
   object-fit: cover;
   display: block;
   transform: scale(1.02);
+  transform-origin: 50% 40%;
 }
 .dt-lp__hero-media video { opacity: 0; transition: opacity 280ms var(--lp-ease); }
 .dt-lp__hero-media.is-video-ready video { opacity: 1; }
@@ -152,6 +153,16 @@
     linear-gradient(180deg, rgba(7,11,16,0.35) 0%, rgba(7,11,16,0.55) 45%, rgba(7,11,16,0.92) 100%),
     linear-gradient(90deg, rgba(7,11,16,0.55) 0%, rgba(7,11,16,0.15) 50%, rgba(7,11,16,0.4) 100%);
   pointer-events: none;
+}
+/* Subtle atmosphere when video scrub unavailable / idle poster */
+@media (prefers-reduced-motion: no-preference) {
+  .dt-lp__hero-media img {
+    animation: dt-lp-kenburns 28s var(--lp-ease) infinite alternate;
+  }
+  .dt-lp__hero-scrub {
+    background-size: 120% 120%, 100% 100%;
+    animation: dt-lp-scrub-shift 18s ease-in-out infinite alternate;
+  }
 }
 
 .dt-lp__hero-copy {
@@ -381,24 +392,68 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Scroll-driven reveals (progressive enhancement) */
-@supports (animation-timeline: view()) {
-  .dt-lp__reveal {
-    animation: dt-lp-enter 420ms var(--lp-ease) both;
-    animation-timeline: view();
-    animation-range: entry 8% cover 28%;
-  }
+@keyframes dt-lp-kenburns {
+  from { transform: scale(1.02) translate(0, 0); }
+  to { transform: scale(1.08) translate(-1.2%, -0.8%); }
 }
+
+@keyframes dt-lp-scrub-shift {
+  from { background-position: 0% 0%, center; }
+  to { background-position: 100% 20%, center; }
+}
+
+/*
+ * Reveals: IntersectionObserver + time-based CSS only.
+ * Do NOT use animation-timeline: view() here — `.dt-lp { overflow-x: hidden }`
+ * creates a non-scrolling scrollport; view() timelines jump to 100% at load
+ * (all sections already opacity:1 → looks like “no motion”).
+ */
+.dt-lp__reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 480ms var(--lp-ease), transform 480ms var(--lp-ease);
+  will-change: opacity, transform;
+}
+.dt-lp__reveal.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+.dt-lp__reveal.in-view .dt-lp__tile,
+.dt-lp__reveal.in-view .dt-lp__flow-step,
+.dt-lp__reveal.in-view .dt-lp__shot,
+.dt-lp__reveal.in-view .dt-lp__chip {
+  animation: dt-lp-enter 420ms var(--lp-ease) both;
+}
+.dt-lp__reveal.in-view .dt-lp__tile:nth-child(2),
+.dt-lp__reveal.in-view .dt-lp__flow-step:nth-child(2),
+.dt-lp__reveal.in-view .dt-lp__shot:nth-child(2),
+.dt-lp__reveal.in-view .dt-lp__chip:nth-child(2) { animation-delay: 60ms; }
+.dt-lp__reveal.in-view .dt-lp__tile:nth-child(3),
+.dt-lp__reveal.in-view .dt-lp__flow-step:nth-child(3),
+.dt-lp__reveal.in-view .dt-lp__shot:nth-child(3),
+.dt-lp__reveal.in-view .dt-lp__chip:nth-child(3) { animation-delay: 120ms; }
+.dt-lp__reveal.in-view .dt-lp__tile:nth-child(4),
+.dt-lp__reveal.in-view .dt-lp__flow-step:nth-child(4),
+.dt-lp__reveal.in-view .dt-lp__shot:nth-child(4),
+.dt-lp__reveal.in-view .dt-lp__chip:nth-child(4) { animation-delay: 180ms; }
 
 @media (prefers-reduced-motion: reduce) {
   .dt-lp__hero-copy,
   .dt-lp__reveal,
+  .dt-lp__reveal.in-view,
+  .dt-lp__reveal.in-view .dt-lp__tile,
+  .dt-lp__reveal.in-view .dt-lp__flow-step,
+  .dt-lp__reveal.in-view .dt-lp__shot,
+  .dt-lp__reveal.in-view .dt-lp__chip,
   .dt-lp__btn,
   .dt-lp__shot img,
-  .dt-lp__hero-media video {
+  .dt-lp__hero-media img,
+  .dt-lp__hero-media video,
+  .dt-lp__hero-scrub {
     animation: none !important;
     transition: none !important;
     transform: none !important;
+    opacity: 1 !important;
   }
   .dt-lp__hero-media video { display: none !important; }
 }

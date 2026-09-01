@@ -116,8 +116,8 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:v
     <tr><th>Item</th><th>Status</th><th>Detail</th></tr>
     <tr><td>Route</td><td><span class="badge ok">/</span></td><td><span class="mono">LandingPage</span> is root; <span class="mono">/landing</span> → <span class="mono">/</span>; Login opens AuthModal → <span class="mono">/dashboard/ingestion</span></td></tr>
     <tr><td>IA</td><td><span class="badge ok">SHIPPED</span></td><td>Hero → Problem → Product → HITL → Roles/ACL → Proof → Tech → CTA</td></tr>
-    <tr><td>Motion</td><td><span class="badge ok">CSS-first</span></td><td>transform/opacity · scroll-timeline view() · prefers-reduced-motion · poster LCP · CDN scrub video (no autoplay)</td></tr>
-    <tr><td>Hero assets</td><td><span class="badge ok">Blender</span></td><td>Fabric→plane EEVEE stills → <span class="mono">hero.poster.webp</span> · video <span class="mono">t086-cdn.w9.nu/P-086/landing/hero.*</span></td></tr>
+    <tr><td>Motion</td><td><span class="badge ok">IO + CSS</span></td><td>IntersectionObserver <span class="mono">.in-view</span> reveals · ken-burns poster · CTA 120ms hover · <span class="mono">prefers-reduced-motion</span> · no view()-timeline (overflow scrollport bug) · CDN scrub video optional, no autoplay</td></tr>
+    <tr><td>Hero assets</td><td><span class="badge ok">Blender EEVEE</span></td><td>Real <span class="mono">bpy.ops.render</span> fabric→plane → <span class="mono">hero.poster.webp</span> + <span class="mono">atmos.calm.webp</span> · video <span class="mono">t086-cdn.w9.nu/P-086/landing/hero.*</span> (pre-existing)</td></tr>
     <tr><td>Local QA</td><td><span class="badge ok">PASS</span></td><td>Playwright 375/1440 · evidence <span class="mono">.loop-state/qa-business-landing/</span></td></tr>
     <tr><td>d086</td><td><span class="badge ok">FE deploy</span></td><td>No cloudflared · no wipe · backend untouched</td></tr>
     <tr><td>t086</td><td><span class="badge wip">WAIT</span></td><td>User lock 6B — do not deploy until return</td></tr>
