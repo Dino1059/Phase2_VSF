@@ -76,3 +76,8 @@ demo/
 implementation-notes.md
 implementation_notes.md
 scratch/
+# Agent / loop scratch
+.loop-state/
+.swarm/
+.swarm-reports/
+.grok/
