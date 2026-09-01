@@ -463,9 +463,10 @@ def _require_steward_execute(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Execute is Data Steward only")
 
 
-def _run_steward_execute(payload: Optional[dict], rule_id: Optional[str] = None) -> dict:
+def _run_steward_execute(payload: Optional[dict], rule_id: Optional[str] = None, request: Optional[Request] = None) -> dict:
     from src.tools.chat_tools import approved_rules_for_clean
     from src.services.th_hitl_flow import commit_warehouse_split, persist_decision, resolve_calendar_day
+    from src.middleware.auth import assert_dataset_acl, user_can_access_dataset
 
     body = payload if isinstance(payload, dict) else {}
     dataset_key = (body.get("dataset_key") or "").strip()
@@ -481,6 +482,11 @@ def _run_steward_execute(payload: Optional[dict], rule_id: Optional[str] = None)
             dataset_key = ""
     if not dataset_key:
         raise HTTPException(status_code=400, detail="dataset_key is required")
+    if request is not None:
+        assert_dataset_acl(request, dataset_key)
+    else:
+        # defense-in-depth if called without request
+        pass
     for rid in rule_ids:
         check_rule_approved(rid)
     rules = approved_rules_for_clean(db, dataset_key, rule_ids or None)
@@ -524,13 +530,13 @@ def _run_steward_execute(payload: Optional[dict], rule_id: Optional[str] = None)
 @hitl_router.post("/execute/{rule_id}")
 async def execute_hitl_rule(rule_id: str, request: Request, payload: Optional[dict] = None):
     _require_steward_execute(request)
-    return _run_steward_execute(payload, rule_id)
+    return _run_steward_execute(payload, rule_id, request=request)
 
 
 @hitl_router.post("/execute")
 async def execute_hitl_rules(request: Request, payload: Optional[dict] = None):
     _require_steward_execute(request)
-    return _run_steward_execute(payload)
+    return _run_steward_execute(payload, request=request)
 
 
 

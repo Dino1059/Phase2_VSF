@@ -2,9 +2,10 @@ import asyncio
 import math
 import os
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from src.api.middleware import check_user_role
 from src.config import get_settings
+from src.middleware.auth import filter_datasets_for_acl
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"], dependencies=[Depends(check_user_role)])
@@ -22,12 +23,29 @@ def _sanitize_nans(val: Any) -> Any:
 
 @router.get("", summary="List all registered datasets")
 @router.get("/", summary="List all registered datasets")
-async def list_datasets():
-    """List all registered datasets (built-ins + dynamically uploaded)."""
+async def list_datasets(request: Request):
+    """List registered datasets filtered by ACL. Admin gets names (catalog) only."""
     try:
         settings = get_settings()
         result = settings.list_available_datasets()
-        return {"datasets": result}
+        is_global = bool(getattr(request.state, "is_global", False))
+        allowed = getattr(request.state, "datasets", None) or []
+        role = str(getattr(request.state, "user_role", "") or "")
+        filtered = filter_datasets_for_acl(result, is_global, allowed)
+        # Admin: names/metadata only — strip any row samples if present
+        if role.lower() == "admin":
+            slim = []
+            for item in filtered:
+                if isinstance(item, dict):
+                    slim.append({
+                        k: item[k]
+                        for k in ("key", "dataset_key", "name", "path", "exists", "size_mb", "provenance", "tag")
+                        if k in item
+                    } or {"key": item.get("key") or item.get("dataset_key")})
+                else:
+                    slim.append({"key": str(item)})
+            return {"datasets": slim, "acl": "names_only"}
+        return {"datasets": filtered}
     except (ValueError, FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

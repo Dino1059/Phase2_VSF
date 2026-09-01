@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DataTrust V5 — Status Report / Báo cáo trạng thái</title>
+<style>
+:root{--bg:#0b1220;--card:#121a2b;--line:#243044;--text:#e8eef7;--muted:#93a4bd;--ok:#34d399;--wip:#fbbf24;--no:#f87171;--accent:#38bdf8;--link:#7dd3fc}
+*{box-sizing:border-box}body{margin:0;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#071018,#0b1220 40%,#101826);color:var(--text);line-height:1.45}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+header{padding:28px 20px 12px;border-bottom:1px solid var(--line);background:rgba(8,14,24,.85);position:sticky;top:0;backdrop-filter:blur(8px);z-index:5}
+header h1{margin:0 0 6px;font-size:1.45rem}header .meta{color:var(--muted);font-size:.92rem}
+.wrap{max-width:1100px;margin:0 auto;padding:18px 16px 64px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin:16px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h2,.card h3{margin:0 0 8px;font-size:1.05rem}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:700;letter-spacing:.02em}
+.ok{background:rgba(52,211,153,.15);color:var(--ok)}.wip{background:rgba(251,191,36,.15);color:var(--wip)}.no{background:rgba(248,113,113,.15);color:var(--no)}.info{background:rgba(56,189,248,.12);color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px}
+.shots a{display:block;background:#0a1322;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.shots img{width:100%;height:110px;object-fit:cover;display:block;background:#000}
+.shots span{display:block;padding:6px 8px;font-size:.75rem;color:var(--muted)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem}
+ul.compact{margin:6px 0 0;padding-left:18px}ul.compact li{margin:4px 0}
+.note{color:var(--muted);font-size:.88rem}
+footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+.toc a{margin-right:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap" style="padding-top:0;padding-bottom:0">
+    <h1>DataTrust OS · V5 Status Report <span class="badge info">LIVE d086</span></h1>
+    <div class="meta">Báo cáo trạng thái phiên · Session handoff · Updated <span id="ts"></span> ICT · Host <span class="mono">d086.w9.nu</span></div>
+    <div class="toc" style="margin-top:8px">
+      <a href="#phase1">Phase 1</a>
+      <a href="#phase2">Phase 2 ACL</a>
+      <a href="#landing">Landing</a>
+      <a href="#gallery">Gallery</a>
+      <a href="#demo">Demo 2min</a>
+      <a href="#btc">BTC 10</a>
+      <a href="#stamps">Stamps</a>
+      <a href="#links">Links</a>
+    </div>
+  </div>
+</header>
+<div class="wrap">
+
+<section class="grid" id="verdict">
+  <div class="card">
+    <h3>Phase 1</h3>
+    <p><span class="badge ok">GO · SHIPPED</span></p>
+    <p class="mono">e0f877f · PR #39</p>
+    <p class="note">d086 + t086 live. Promote idempotent + LLM provider-off.</p>
+  </div>
+  <div class="card">
+    <h3>Phase 2 ACL</h3>
+    <p><span class="badge wip" id="p2badge">WIP → target GO</span></p>
+    <p class="mono">feat/v5-dataset-acl</p>
+    <p class="note">steward_a↛B · Admin names+aggregate · is_global demos. t086 #2 only on GO.</p>
+  </div>
+  <div class="card">
+    <h3>Landing surgical</h3>
+    <p><span class="badge wip">DEFER / SURGICAL</span></p>
+    <p class="mono">578d6ef · 16 ahead / 1 behind</p>
+    <p class="note">No blob merge. HITL + INC_010 + #39 promote/LLM win.</p>
+  </div>
+  <div class="card">
+    <h3>Safety</h3>
+    <p><span class="badge ok">cloudflared untouched</span></p>
+    <p><span class="badge ok">no warehouse wipe</span></p>
+    <p class="note">COUNT day-10 d086 historical <b>86244</b> (document only).</p>
+  </div>
+</section>
+
+<section class="card" id="phase1">
+  <h2>1. Phase 1 — shipped</h2>
+  <table>
+    <tr><th>Item</th><th>Status</th><th>Detail</th></tr>
+    <tr><td>PR #39</td><td><span class="badge ok">MERGED</span></td><td><a href="https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/39">pull/39</a> → <span class="mono">e0f877feba9b6db74e36fff02172802cc2cecea3</span></td></tr>
+    <tr><td>Idempotent promote</td><td><span class="badge ok">LIVE</span></td><td>Natural-key <span class="mono">NOT EXISTS</span> + clear staging; double POST no COUNT grow</td></tr>
+    <tr><td>LLM provider-off UX</td><td><span class="badge ok">LIVE</span></td><td>Honest badge when provider unavailable; toggle forced OFF</td></tr>
+    <tr><td>d086</td><td><span class="badge ok">e0f877f</span></td><td>HTML stamp <span class="mono">&lt;!-- d086-v5 merge-deploy e0f877f --&gt;</span></td></tr>
+    <tr><td>t086 #1</td><td><span class="badge ok">SHIPPED</span></td><td>HTML <span class="mono">&lt;!-- t086-v5 e0f877f --&gt;</span> · prod health version prefix e0f877f</td></tr>
+  </table>
+  <p class="note">Evidence: <a href="/qa-gallery.html">/qa-gallery.html</a> · <span class="mono">.loop-state/V5_MERGE_DEPLOY_QA.md</span></p>
+</section>
+
+<section class="card" id="phase2">
+  <h2>2. Phase 2 — Dataset ACL (grill R1–R4)</h2>
+  <table>
+    <tr><th>Lock</th><th>Rule</th></tr>
+    <tr><td>Q11=C</td><td>Admin: dataset <b>names</b> + <b>aggregate dashboard</b>; 403 on row/HITL/ingest detail; manage users + Reset; <b>no execute</b></td></tr>
+    <tr><td>Q12=A</td><td>Analyst / Viewer / Auditor also dataset-scoped</td></tr>
+    <tr><td>Q13</td><td>ACL principal = <span class="mono">dataset_key</span> (A=<span class="mono">ev_telemetry</span>, B=<span class="mono">trips</span>)</td></tr>
+    <tr><td>6A</td><td><span class="mono">is_global=true</span> on demo users; role ≠ global</td></tr>
+    <tr><td>Seeds</td><td><span class="mono">steward_a</span> → A · <span class="mono">steward_b</span> → B · faculty_* aliases</td></tr>
+  </table>
+  <h3 style="margin-top:14px">Implementation progress</h3>
+  <ul class="compact">
+    <li><span class="badge ok">CODE</span> <span class="mono">src/middleware/auth.py</span> — seeds, JWT ACL claims, middleware dataset gate, Admin data-plane deny, Admin no <span class="mono">execute_transform</span></li>
+    <li><span class="badge ok">CODE</span> <span class="mono">src/api/routes/auth.py</span> — login/quick-switch/me return <span class="mono">is_global</span> + <span class="mono">datasets[]</span></li>
+    <li><span class="badge ok">CODE</span> <span class="mono">src/api/routes/datasets.py</span> — catalog filter; Admin names-only</li>
+    <li><span class="badge ok">CODE</span> <span class="mono">src/api/hitl.py</span> — execute asserts dataset ACL</li>
+    <li><span class="badge ok">CODE</span> FE <span class="mono">authStore.ts</span> — ACL helpers + permissions aligned</li>
+    <li><span class="badge wip">NEXT</span> pytest ACL suite · FE domain picker filter · d086 deploy · screenshot QA · PR · t086 #2 on GO</li>
+  </ul>
+  <p class="note">Proof target: <b>steward_a cannot access trips (B)</b> · Admin 403 on rows/execute · global steward still works · LLM on/off useful.</p>
+</section>
+
+<section class="card" id="landing">
+  <h2>3. Landing tip surgical (16 commits)</h2>
+  <p>Tip <span class="mono">578d6ef</span> vs v5 <span class="mono">e0f877f</span> — <b>diverged</b> (16 ahead / 1 behind). Policy from <span class="mono">V5_LANDING_DIFF.md §refresh</span>:</p>
+  <ul class="compact">
+    <li><span class="badge no">DROP</span> INC_010 / fault_manifest overwrite · blob merge · Windows hooks · wholesale promote</li>
+    <li><span class="badge ok">KEEP v5</span> HITL · #39 promote idempotent · provider-off · VIN UNION</li>
+    <li><span class="badge wip">CANDIDATES</span> run-day / IncidentBrief / L4 evidence / realtime batch — cherry by file after ACL GO</li>
+  </ul>
+</section>
+
+<section class="card" id="gallery">
+  <h2>4. Screenshot galleries</h2>
+  <p>
+    <a class="badge ok" href="/qa-gallery.html">Open qa-gallery.html</a>
+    <a class="badge info" href="/th-huyen-delta.html">th-huyen-delta.html</a>
+  </p>
+  <p class="note">Phase 1 merge-deploy shots live under <span class="mono">/qa-full-ui/</span> (285 files on d086). Local Phase 1 evidence also in repo <span class="mono">.loop-state/qa-merge-deploy/</span>.</p>
+  <div class="shots">
+    <a href="/qa-full-ui/1440_steward_dashboard.png"><img src="/qa-full-ui/1440_steward_dashboard.png" alt="steward dashboard"/><span>Steward dashboard</span></a>
+    <a href="/qa-full-ui/1440_steward_workspace.png"><img src="/qa-full-ui/1440_steward_workspace.png" alt="workspace"/><span>Steward workspace</span></a>
+    <a href="/qa-full-ui/1440_admin_dashboard.png"><img src="/qa-full-ui/1440_admin_dashboard.png" alt="admin"/><span>Admin dashboard</span></a>
+    <a href="/qa-full-ui/1440_analyst_dashboard.png"><img src="/qa-full-ui/1440_analyst_dashboard.png" alt="analyst"/><span>Analyst dashboard</span></a>
+    <a href="/qa-full-ui/1440_viewer_dashboard.png"><img src="/qa-full-ui/1440_viewer_dashboard.png" alt="viewer"/><span>Viewer dashboard</span></a>
+    <a href="/qa-full-ui/1440_steward_ops-rules.png"><img src="/qa-full-ui/1440_steward_ops-rules.png" alt="rules"/><span>Ops · Rules</span></a>
+  </div>
+  <p class="note" style="margin-top:10px">Phase 2 ACL gallery target: <span class="mono">.loop-state/qa-phase2-acl/</span> (after d086 ACL deploy).</p>
+</section>
+
+<section class="card" id="demo">
+  <h2>5. Demo 2 minutes (t086 stage) — Round 4 locked</h2>
+  <p>SoT: repo <span class="mono">.loop-state/V5_DEMO_FLOW_2MIN.md</span> · Narrate <b>Vietnamese</b> · UI labels as-is · ≤120s</p>
+  <table>
+    <tr><th>Tab</th><th>Login</th><th>Role in demo</th></tr>
+    <tr><td>T1</td><td>steward (global)</td><td>Data in → day → HITL preview≠execute → LLM-off</td></tr>
+    <tr><td>T2</td><td>steward_a</td><td>Only dataset A · fail open B</td></tr>
+    <tr><td>T3</td><td>admin</td><td>Names + aggregate · no drill · no execute</td></tr>
+  </table>
+  <p><b>15 C→A:</b> Prefer Remember ON replay (no double-promote). If not ready → <b>preview only</b> on stage (no live execute / no Reset).</p>
+  <p><b>14 B+C:</b> ≥3 tabs pre-logged + backup GIF/MP4 if network fails.</p>
+  <ol class="compact">
+    <li>0–13s Data in / promote chip</li>
+    <li>13–43s Day scope + HITL preview≠execute</li>
+    <li>53–68s LLM OFF still useful</li>
+    <li>68–83s steward_a ≠ B</li>
+    <li>83–98s Admin names+aggregate</li>
+  </ol>
+</section>
+
+<section class="card" id="btc">
+  <h2>6. BTC 10 deliverables (sibling lane · by 19:00)</h2>
+  <p class="note">Phase-2 agent does <b>not</b> own README/docs pack. Sibling branch <span class="mono">docs/btc-deliverables</span> · tracker <span class="mono">.loop-state/V5_BTC_DELIVERABLES.md</span> when present. User skips pitch PDF + video recording.</p>
+  <table>
+    <tr><th>#</th><th>Deliverable</th><th>Status</th></tr>
+    <tr><td>1–N</td><td>Docs / README / BTC checklist</td><td><span class="badge wip">SIBLING</span> — see docs PR when opened</td></tr>
+    <tr><td>—</td><td>Pitch PDF</td><td><span class="badge info">USER SKIP</span></td></tr>
+    <tr><td>—</td><td>Video recording</td><td><span class="badge info">USER SKIP</span></td></tr>
+    <tr><td>—</td><td>This status HTML + demo flow + 17:30 handoff</td><td><span class="badge ok">PHASE2</span></td></tr>
+  </table>
+</section>
+
+<section class="card" id="stamps">
+  <h2>7. Stamps / SHAs / ops notes</h2>
+  <table>
+    <tr><th>Env</th><th>Code</th><th>Note</th></tr>
+    <tr><td>origin/v5 tip (Phase 1)</td><td class="mono">e0f877f</td><td>#39</td></tr>
+    <tr><td>d086 backend StartedAt</td><td class="mono">2026-09-01T07:11:58Z</td><td>Phase 1 roll (may update after ACL deploy)</td></tr>
+    <tr><td>t086 #1</td><td class="mono">e0f877f</td><td>Phase 1 production</td></tr>
+    <tr><td>t086 #2</td><td><span class="badge wip">PENDING GO</span></td><td>Only after Phase 2 ACL QA</td></tr>
+    <tr><td>cloudflared</td><td><span class="badge ok">untouched</span></td><td>Do not restart</td></tr>
+    <tr><td>Warehouse</td><td><span class="badge ok">no wipe</span></td><td>d086 COUNT 86244 historical double-promote documented</td></tr>
+  </table>
+</section>
+
+<section class="card" id="links">
+  <h2>8. Quick links</h2>
+  <ul class="compact">
+    <li><a href="https://d086.w9.nu/">d086 app</a> · <a href="https://d086.w9.nu/status-report.html">this report</a> · <a href="https://d086.w9.nu/v5-handoff.html">v5-handoff alias</a></li>
+    <li><a href="/qa-gallery.html">QA gallery</a> · <a href="/th-huyen-delta.html">TH/Huyen delta</a></li>
+    <li><a href="https://github.com/AI20K-Build-Phase-Cohort-3/P-086/pull/39">PR #39 (Phase 1)</a></li>
+    <li>Loop docs (repo): <span class="mono">V5_MERGE_DEPLOY_QA.md</span> · <span class="mono">V5_PROD_RBAC_MATRIX.md</span> · <span class="mono">V5_DEMO_FLOW_2MIN.md</span> · <span class="mono">V5_530_HANDOFF.md</span></li>
+  </ul>
+</section>
+
+<footer>
+  Generated for user return ~17:30–19:00 ICT 2026-09-01 · Agent: Phase 2 / feat/v5-dataset-acl · Refresh this page after ACL deploy for updated GO badge.
+</footer>
+</div>
+<script>document.getElementById('ts').textContent = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Ho_Chi_Minh'}).replace(' ',' · ');</script>
+</body>
+</html>

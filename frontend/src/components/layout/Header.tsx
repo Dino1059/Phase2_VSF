@@ -16,7 +16,7 @@ import {
 
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 import { axisFromLocation, dayIdxToCalendarDay, searchHitWorkspacePath, workspaceHref } from '../../lib/calendarDay';
-import { useAuthStore } from '../../stores/authStore';
+import { useAuthStore, userCanAccessDataset } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chatStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useWorkspaceStore, wipeStewardBrowserKeys } from '../../stores/workspaceStore';
@@ -283,8 +283,11 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
       };
     });
 
+    const authUser = useAuthStore.getState().user;
     const matchedDatasets = DOMAIN_LIST.filter(
-      (d) => d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q) || d.shortcut.toLowerCase().includes(q)
+      (d) =>
+        userCanAccessDataset(authUser, d.id) &&
+        (d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q) || d.shortcut.toLowerCase().includes(q))
     ).map((d) => ({
       id: `dataset-${d.id}`,
       title: d.name,

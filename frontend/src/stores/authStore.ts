@@ -7,11 +7,14 @@ export interface UserProfile {
   user_id: string;
   username: string;
   role: UserRole;
+  is_global?: boolean;
+  datasets?: string[];
+  dept?: string;
 }
 
 export const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
-  Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'execute_transform', 'manage_schedule', 'clear_alerts', 'reset']),
-  Analyst: new Set(['read', 'profile', 'propose_rules', 'execute_transform']),
+  Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'manage_schedule', 'clear_alerts', 'reset', 'manage_acl']),
+  Analyst: new Set(['read', 'profile', 'propose_rules']),
   Auditor: new Set(['read', 'review_rules']),
   Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'hitl_write', 'execute_transform', 'manage_schedule', 'create_alert']),
   Viewer: new Set(['read']),
@@ -33,6 +36,36 @@ export function roleCan(raw: string | null | undefined, action: string): boolean
   return !!role && ROLE_PERMISSIONS[role].has(action);
 }
 
+/** FE ACL: global or dataset in allow-list. Admin catalog uses names-only server-side. */
+export function userCanAccessDataset(
+  user: UserProfile | null | undefined,
+  datasetKey?: string | null,
+): boolean {
+  if (!datasetKey) return true;
+  if (!user) return false;
+  if (user.is_global || (user.datasets || []).includes('*')) return true;
+  const key = String(datasetKey).split('::')[0];
+  const aliases: Record<string, string> = {
+    vinfast_ev_telemetry: 'ev_telemetry',
+    vin_ev_ops: 'ev_telemetry',
+    ev: 'ev_telemetry',
+    vgreen: 'charging_sessions',
+    xanhsm: 'trips',
+    vin_trips_nlp: 'trips',
+    nlp: 'nlp_feedback',
+  };
+  const norm = aliases[key] || key;
+  return (user.datasets || []).includes(norm) || (user.datasets || []).includes(key);
+}
+
+export function filterDatasetsByAcl<T extends { key?: string; dataset_key?: string }>(
+  items: T[],
+  user: UserProfile | null | undefined,
+): T[] {
+  if (!user || user.is_global || (user.datasets || []).includes('*')) return items;
+  return items.filter((d) => userCanAccessDataset(user, d.key || d.dataset_key));
+}
+
 interface AuthState {
   token: string | null;
   user: UserProfile | null;
@@ -50,10 +83,11 @@ interface AuthState {
   canHitlWrite: () => boolean;
   canPropose: () => boolean;
   canExecute: () => boolean;
+  canAccessDataset: (datasetKey?: string | null) => boolean;
 }
 
 
-function profileFromAuth(res: { user?: unknown; user_profile?: UserProfile; role?: string }, fallbackRole?: string): UserProfile {
+function profileFromAuth(res: { user?: unknown; user_profile?: UserProfile; role?: string; is_global?: boolean; datasets?: string[] }, fallbackRole?: string): UserProfile {
   const raw = (res.user_profile && typeof res.user_profile === 'object')
     ? res.user_profile
     : (res.user && typeof res.user === 'object' ? res.user as UserProfile : null);
@@ -62,10 +96,17 @@ function profileFromAuth(res: { user?: unknown; user_profile?: UserProfile; role
   const username = typeof res.user === 'string'
     ? res.user
     : (raw?.username || `${roleNorm.toLowerCase()}@datatrust.os`);
+  const is_global = Boolean(raw?.is_global ?? res.is_global ?? false);
+  const datasets = Array.isArray(raw?.datasets)
+    ? raw!.datasets!
+    : (Array.isArray(res.datasets) ? res.datasets : (is_global ? ['*'] : []));
   return {
     user_id: raw?.user_id || `usr_${roleNorm.toLowerCase()}_01`,
     username,
     role: roleNorm,
+    is_global: is_global || datasets.includes('*'),
+    datasets: is_global || datasets.includes('*') ? ['*'] : datasets,
+    dept: raw?.dept || '',
   };
 }
 
@@ -73,7 +114,7 @@ const TOKEN_KEY = 'datatrust_jwt_token';
 const USER_KEY = 'datatrust_user_profile';
 
 const initialToken = readAuthToken();
-const STEWARD_USER: UserProfile = { user_id: 'usr_steward_01', username: 'steward', role: 'Steward' };
+const STEWARD_USER: UserProfile = { user_id: 'usr_steward_01', username: 'steward', role: 'Steward', is_global: true, datasets: ['*'] };
 const initialUser: UserProfile = (() => {
   try {
     const raw = localStorage.getItem(USER_KEY);
@@ -84,7 +125,7 @@ const initialUser: UserProfile = (() => {
     }
     const storedRole = String(localStorage.getItem('datatrust-role') || '').toLowerCase();
     if (storedRole === 'admin' || storedRole === 'administrator') {
-      return { user_id: 'usr_admin_01', username: 'admin', role: 'Admin' };
+      return { user_id: 'usr_admin_01', username: 'admin', role: 'Admin', is_global: true, datasets: ['*'] };
     }
     return STEWARD_USER;
   } catch {
@@ -136,12 +177,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (err) {
       console.error('Quick switch failed:', err);
-      // Fallback local role update
       const fallbackRole = normalizeUserRole(role) || 'Steward';
       const fallbackUser: UserProfile = {
         user_id: `usr_${fallbackRole.toLowerCase()}_01`,
         username: `${fallbackRole.toLowerCase()}@datatrust.os`,
         role: fallbackRole,
+        is_global: true,
+        datasets: ['*'],
       };
       set({ user: fallbackUser, isAuthModalOpen: false });
     }
@@ -184,4 +226,5 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   canHitlWrite: () => get().hasPermission('hitl_write'),
   canPropose: () => get().hasPermission('propose_rules'),
   canExecute: () => get().hasPermission('execute_transform'),
+  canAccessDataset: (datasetKey) => userCanAccessDataset(get().user, datasetKey),
 }));

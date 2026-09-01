@@ -261,7 +261,7 @@ export const AuthModal: React.FC = () => {
         {/* Custom Login Form */}
         <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '16px' }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '10px' }}>
-            Or Sign In with Custom Credentials
+            Or Sign In with Custom Credentials (steward_a / steward_b for ACL demo)
           </div>
           <form onSubmit={handleCustomLogin} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: '1 1 140px', display: 'flex', flexDirection: 'column', gap: 4 }}>
