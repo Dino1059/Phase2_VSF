@@ -1,126 +1,180 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, useScroll, useTransform, useSpring, useMotionTemplate } from 'framer-motion';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Globe } from 'lucide-react';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
+import { AuthModal } from '../components/auth/AuthModal';
+import { useAuthStore } from '../stores/authStore';
+import { changeLanguage, i18n } from '../i18n';
+import '../assets/landing.css';
 
+const HERO_POSTER = '/landing/hero.poster.webp';
+const HERO_BASE = (import.meta.env.VITE_LANDING_HERO_BASE as string | undefined)?.replace(/\/$/, '') || 'https://t086-cdn.w9.nu';
+const HERO_WEBM = `${HERO_BASE}/P-086/landing/hero.webm`;
+const HERO_MP4 = `${HERO_BASE}/P-086/landing/hero.mp4`;
+const LIVE_T086 = 'https://t086.w9.nu/';
+const LIVE_D086 = 'https://d086.w9.nu/';
 
-const CHAR_SET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+~|}{[]:;?><';
+type Lang = 'vi' | 'en';
 
-/* --- ScrambleIn Component --- */
-export const ScrambleIn: React.FC<{ text: string; delay?: number; triggered?: boolean; className?: string }> = ({
-  text,
-  delay = 0,
-  triggered = true,
-  className = '',
-}) => {
-  const [displayed, setDisplayed] = useState<string>(text);
-  const [started, setStarted] = useState<boolean>(false);
+const COPY = {
+  vi: {
+    brand: 'DataTrust OS',
+    navProblem: 'Vấn đề',
+    navProduct: 'Sản phẩm',
+    navHitl: 'HITL',
+    navRoles: 'Vai trò',
+    navProof: 'Bằng chứng',
+    login: 'Đăng nhập',
+    enter: 'Vào hệ thống',
+    liveT086: 'Live t086',
+    eyebrow: 'VinGroup · EV telemetry · Demo Day',
+    headline: 'Chất lượng dữ liệu vận hành — có người gác cổng.',
+    sub: 'Từ bảng landing bẩn đến warehouse tin cậy: ingest theo ngày, bất biến L1–L4, HITL trước khi compile, ACL theo dataset.',
+    subEn: 'Steward-grade data trust for Vin/EV ops — AI proposes, humans decide.',
+    problemK: 'Vấn đề',
+    problemH: 'Telemetry bẩn → quyết định mù.',
+    problemL: 'Bảng landing không lineage, hàng lỗi bị nuốt thầm, không ai chịu trách nhiệm trước khi rule vào warehouse.',
+    problemLEn: 'Untrusted landing tables · silent drops · no steward gate.',
+    problems: [
+      { t: 'Landing không chứng minh được', d: 'Schema lệch, batch ngày trôi — không biết ngày nào sạch.', en: 'Day-bound ingest without proof' },
+      { t: 'Dị thường bị chôn', d: 'Corrupt rows biến mất thay vì quarantine có hash.', en: 'Silent loss vs quarantine' },
+      { t: 'AI đề xuất ≠ được phép chạy', d: 'Không có cổng HITL thì rule compile là rủi ro vận hành.', en: 'Propose ≠ execute' },
+    ],
+    productK: 'Sản phẩm',
+    productH: 'Ingest → Agents → Govern',
+    productL: 'Ba nhịp vận hành — đủ cho Demo Day và đủ cho steward Vin/EV.',
+    productLEn: 'Day-bound ingest · L1–L4 agents · clean/quarantine lineage.',
+    products: [
+      { n: '01', t: 'Ingest landing', d: 'Bảng landing theo ngày, promote có kiểm soát vào warehouse.', en: 'Landing → promote' },
+      { n: '02', t: 'Agents L1–L4', d: 'Profile, anomaly, đề xuất rule — deterministic layers.', en: 'Reliability layers' },
+      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine split + SHA-256 manifests.', en: 'Cryptographic split' },
+    ],
+    hitlK: 'HITL',
+    hitlH: 'AI đề xuất. Steward quyết định.',
+    hitlL: 'Preview ≠ execute. Remember giữ quyết định — không promote lại mù.',
+    hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember.',
+    hitlSteps: [
+      { t: 'Đề xuất', d: 'Agent đưa rule card + evidence.' },
+      { t: 'Preview', d: 'Sandbox — không ghi warehouse.' },
+      { t: 'Steward gate', d: 'Accept / Edit / Reject.' },
+      { t: 'Remember', d: 'Giữ causality; tắt LLM vẫn dùng được HITL.' },
+    ],
+    rolesK: 'Vai trò & ACL',
+    rolesH: 'Đúng người thấy đúng dataset.',
+    rolesL: 'ACL theo dataset_key — steward_a không thấy B; Admin tên + aggregate, không drill hàng.',
+    rolesLEn: 'dataset_key ACL · is_global demos · Admin names-only.',
+    roles: [
+      { t: 'Steward', d: 'Write path: promote, HITL execute/Remember, ingest.', en: 'Write + HITL' },
+      { t: 'Analyst', d: 'Đọc + hỏi; không execute warehouse.', en: 'Read + ask' },
+      { t: 'Admin', d: 'Catalog names + aggregate; Reset/users — không execute.', en: 'Names + aggregate' },
+      { t: 'Viewer', d: 'Chỉ xem scoped — không ghi.', en: 'Read scoped' },
+    ],
+    proofK: 'Bằng chứng',
+    proofH: 'Live staging + UI đã QA.',
+    proofL: 'd086 = sandbox phát triển. t086 = live staging cho Demo Day (không đụng cloudflared).',
+    proofLEn: 'Screenshots from QA gallery · marketing-honest static KPIs.',
+    shots: [
+      { src: '/landing/proof/ingestion.png', cap: 'Ingest / landing theo ngày' },
+      { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
+      { src: '/landing/proof/workspace.png', cap: 'Workspace chat + evidence' },
+      { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL vẫn chạy' },
+    ],
+    kpis: [
+      { v: 'L1–L4', l: 'Lớp tin cậy xác định' },
+      { v: 'HITL', l: 'Cổng trước compile' },
+      { v: 'ACL', l: 'dataset_key scoped' },
+      { v: 'SHA-256', l: 'Lineage manifests' },
+    ],
+    techK: 'Tech stack',
+    techH: 'Ngắn gọn — đủ để tin.',
+    techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'Cloudflare Tunnel'],
+    footH: 'Sẵn sàng vào hệ thống?',
+    footL: 'Đăng nhập trên d086 để thao tác. Xem live staging trên t086.',
+    footNote: '© 2026 DataTrust OS · VinGroup data trust · AI20K Demo Day',
+    stagingNote: 't086 = staging live · d086 = sandbox',
+  },
+  en: {
+    brand: 'DataTrust OS',
+    navProblem: 'Problem',
+    navProduct: 'Product',
+    navHitl: 'HITL',
+    navRoles: 'Roles',
+    navProof: 'Proof',
+    login: 'Log in',
+    enter: 'Enter OS',
+    liveT086: 'Live t086',
+    eyebrow: 'VinGroup · EV telemetry · Demo Day',
+    headline: 'Operational data quality — with a human gate.',
+    sub: 'From dirty landing tables to trusted warehouse: day-bound ingest, L1–L4 invariants, HITL before compile, dataset ACL.',
+    subEn: 'Steward-grade trust for Vin/EV ops — AI proposes, humans decide.',
+    problemK: 'Problem',
+    problemH: 'Dirty telemetry → blind decisions.',
+    problemL: 'Landing without lineage, silent row loss, no owner before rules hit the warehouse.',
+    problemLEn: 'Untrusted landing · silent drops · no steward gate.',
+    problems: [
+      { t: 'Landing without proof', d: 'Drifted schemas, floating day batches — unclear which day is clean.', en: 'Day-bound ingest without proof' },
+      { t: 'Buried anomalies', d: 'Corrupt rows vanish instead of hashed quarantine.', en: 'Silent loss vs quarantine' },
+      { t: 'AI propose ≠ allowed run', d: 'Without HITL, rule compile is operational risk.', en: 'Propose ≠ execute' },
+    ],
+    productK: 'Product',
+    productH: 'Ingest → Agents → Govern',
+    productL: 'Three beats — Demo Day ready and Vin/EV steward ready.',
+    productLEn: 'Day-bound ingest · L1–L4 agents · clean/quarantine lineage.',
+    products: [
+      { n: '01', t: 'Ingest landing', d: 'Day-bound landing tables; controlled promote into warehouse.', en: 'Landing → promote' },
+      { n: '02', t: 'Agents L1–L4', d: 'Profile, anomaly, rule proposals — deterministic layers.', en: 'Reliability layers' },
+      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine split + SHA-256 manifests.', en: 'Cryptographic split' },
+    ],
+    hitlK: 'HITL',
+    hitlH: 'AI proposes. Steward decides.',
+    hitlL: 'Preview ≠ execute. Remember keeps causality — no blind re-promote.',
+    hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember.',
+    hitlSteps: [
+      { t: 'Propose', d: 'Agent ships rule card + evidence.' },
+      { t: 'Preview', d: 'Sandbox — no warehouse write.' },
+      { t: 'Steward gate', d: 'Accept / Edit / Reject.' },
+      { t: 'Remember', d: 'Keep causality; LLM-off still useful.' },
+    ],
+    rolesK: 'Roles & ACL',
+    rolesH: 'Right people, right datasets.',
+    rolesL: 'dataset_key ACL — steward_a cannot see B; Admin names + aggregate, no row drill.',
+    rolesLEn: 'dataset_key ACL · is_global demos · Admin names-only.',
+    roles: [
+      { t: 'Steward', d: 'Write path: promote, HITL execute/Remember, ingest.', en: 'Write + HITL' },
+      { t: 'Analyst', d: 'Read + ask; no warehouse execute.', en: 'Read + ask' },
+      { t: 'Admin', d: 'Catalog names + aggregate; Reset/users — no execute.', en: 'Names + aggregate' },
+      { t: 'Viewer', d: 'Scoped view only — no writes.', en: 'Read scoped' },
+    ],
+    proofK: 'Proof',
+    proofH: 'Live staging + QA’d UI.',
+    proofL: 'd086 = dev sandbox. t086 = live staging for Demo Day (cloudflared untouched).',
+    proofLEn: 'QA gallery screenshots · marketing-honest static KPIs.',
+    shots: [
+      { src: '/landing/proof/ingestion.png', cap: 'Day-bound ingest / landing' },
+      { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
+      { src: '/landing/proof/workspace.png', cap: 'Workspace chat + evidence' },
+      { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL still works' },
+    ],
+    kpis: [
+      { v: 'L1–L4', l: 'Deterministic reliability' },
+      { v: 'HITL', l: 'Gate before compile' },
+      { v: 'ACL', l: 'dataset_key scoped' },
+      { v: 'SHA-256', l: 'Lineage manifests' },
+    ],
+    techK: 'Tech stack',
+    techH: 'Brief — enough to trust.',
+    techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'Cloudflare Tunnel'],
+    footH: 'Ready to enter the OS?',
+    footL: 'Log in on d086 to operate. Open live staging on t086.',
+    footNote: '© 2026 DataTrust OS · VinGroup data trust · AI20K Demo Day',
+    stagingNote: 't086 = live staging · d086 = sandbox',
+  },
+} as const;
 
-  useEffect(() => {
-    if (!triggered) {
-      setDisplayed('');
-      setStarted(false);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setStarted(true);
-      let frame = 0;
-
-      const interval = setInterval(() => {
-        frame++;
-        const revealedCount = Math.floor(frame * 0.5);
-
-
-        if (revealedCount >= text.length) {
-          setDisplayed(text);
-          clearInterval(interval);
-          return;
-        }
-
-        let output = '';
-        for (let i = 0; i < text.length; i++) {
-          if (text[i] === ' ') {
-            output += ' ';
-          } else if (i < revealedCount) {
-            output += text[i];
-          } else if (i < revealedCount + 3) {
-            output += CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
-          }
-        }
-        setDisplayed(output);
-      }, 25);
-
-      return () => clearInterval(interval);
-    }, delay);
-
-    return () => clearTimeout(timer);
-  }, [text, delay, triggered]);
-
-  if (!triggered || !started) {
-    return <span className={className}>&nbsp;</span>;
-  }
-
-  return <span className={className}>{displayed || '\u00A0'}</span>;
-};
-
-/* --- ScrambleText Component (Hover-Driven) --- */
-export const ScrambleText: React.FC<{ text: string; isHovered: boolean; className?: string }> = ({
-  text,
-  isHovered,
-  className = '',
-}) => {
-  const [displayed, setDisplayed] = useState<string>(text);
-
-  useEffect(() => {
-    if (!isHovered) {
-      setDisplayed(text);
-      return;
-    }
-
-    let frame = 0;
-    const interval = setInterval(() => {
-      frame++;
-      const revealedCount = Math.floor(frame / 4);
-
-      if (revealedCount >= text.length) {
-        setDisplayed(text);
-        clearInterval(interval);
-        return;
-      }
-
-      let output = '';
-      for (let i = 0; i < text.length; i++) {
-        if (text[i] === ' ') {
-          output += ' ';
-        } else if (i < revealedCount) {
-          output += text[i];
-        } else {
-          output += CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
-        }
-      }
-      setDisplayed(output);
-    }, 25);
-
-    return () => clearInterval(interval);
-  }, [isHovered, text]);
-
-  return <span className={className}>{displayed}</span>;
-};
-
-/* --- 4-Fold Rotation Abstract Logo --- */
-export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = '' }) => {
-  const path = 'M 1.5,23 L 1.5,33 C 1.5,38.5 6,43 11.5,43 L 16.5,43 C 22,43 26.5,38.5 26.5,33 Q 28,28 33,26.5 C 38.5,26.5 43,22 43,16.5 L 43,11.5 C 43,6 38.5,1.5 33,1.5 L 23,1.5 Q 12,12 1.5,23 Z';
-
+export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({ size = 22, className = '' }) => {
+  const path =
+    'M 1.5,23 L 1.5,33 C 1.5,38.5 6,43 11.5,43 L 16.5,43 C 22,43 26.5,38.5 26.5,33 Q 28,28 33,26.5 C 38.5,26.5 43,22 43,16.5 L 43,11.5 C 43,6 38.5,1.5 33,1.5 L 23,1.5 Q 12,12 1.5,23 Z';
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="-50 -50 100 100"
-      className={className}
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <svg width={size} height={size} viewBox="-50 -50 100 100" className={className} fill="currentColor" aria-hidden>
       <path d={path} transform="rotate(0)" />
       <path d={path} transform="rotate(90)" />
       <path d={path} transform="rotate(180)" />
@@ -129,986 +183,323 @@ export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({
   );
 };
 
-const NAV_ITEMS = [
-  { id: 'section-overview', label: 'Overview' },
-  { id: 'section-vision', label: 'Vision' },
-  { id: 'section-metrics', label: 'Metrics' },
-  { id: 'section-intelligence', label: 'Intelligence' },
-  { id: 'section-architecture', label: 'Architecture' },
-];
+function useStaticHeroPreferred(): boolean {
+  const [staticHero, setStaticHero] = useState(true);
+  useEffect(() => {
+    const motionQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const coarseQ = window.matchMedia('(pointer: coarse)');
+    const sync = () => setStaticHero(motionQ.matches || coarseQ.matches);
+    sync();
+    motionQ.addEventListener('change', sync);
+    coarseQ.addEventListener('change', sync);
+    return () => {
+      motionQ.removeEventListener('change', sync);
+      coarseQ.removeEventListener('change', sync);
+    };
+  }, []);
+  return staticHero;
+}
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const [entranceComplete, setEntranceComplete] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<string>('section-overview');
-  const [navHovered, setNavHovered] = useState<string | null>(null);
-  const [downloadHovered, setDownloadHovered] = useState<boolean>(false);
+  const { isAuthenticated, setAuthModalOpen } = useAuthStore();
+  const [lang, setLang] = useState<Lang>(() => ((i18n.language || 'vi').startsWith('vi') ? 'vi' : 'en'));
+  const t = COPY[lang];
+  const staticHero = useStaticHeroPreferred();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pendingSeek = useRef<number | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
 
-  const heroVideoRef = useRef<HTMLVideoElement | null>(null);
-  const pendingSeekRef = useRef<number | null>(null);
-
-  // Entrance trigger
   useEffect(() => {
-    const t = setTimeout(() => setEntranceComplete(true), 800);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Scroll spy tracking for active section highlighting
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollPosition = window.scrollY + 180;
-      for (let i = NAV_ITEMS.length - 1; i >= 0; i--) {
-        const el = document.getElementById(NAV_ITEMS[i].id);
-        if (el) {
-          if (scrollPosition >= el.offsetTop) {
-            setActiveSection(NAV_ITEMS[i].id);
-            break;
-          }
-        }
-      }
+    const onLang = (lng: string) => setLang(lng.startsWith('vi') ? 'vi' : 'en');
+    i18n.on('languageChanged', onLang);
+    return () => {
+      i18n.off('languageChanged', onLang);
     };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const scrollToSection = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    // After successful login from marketing LP, enter the OS.
+    navigate('/dashboard/ingestion', { replace: true });
+  }, [isAuthenticated, navigate]);
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+
+  const toggleLang = () => {
+    const next: Lang = lang === 'vi' ? 'en' : 'vi';
+    void changeLanguage(next);
+    setLang(next);
+  };
+
+  const openLogin = () => {
+    if (isAuthenticated) {
+      navigate('/dashboard/ingestion');
+      return;
+    }
+    setAuthModalOpen(true);
+  };
+
+  const ensureVideo = useCallback(() => {
+    if (staticHero || videoReady) return;
+    const video = videoRef.current;
+    if (!video) return;
+    if (!video.querySelector('source')) {
+      const webm = document.createElement('source');
+      webm.src = HERO_WEBM;
+      webm.type = 'video/webm';
+      const mp4 = document.createElement('source');
+      mp4.src = HERO_MP4;
+      mp4.type = 'video/mp4';
+      video.appendChild(webm);
+      video.appendChild(mp4);
+      video.load();
+    }
+    setVideoReady(true);
+  }, [staticHero, videoReady]);
+
+  const onHeroMove = (e: React.MouseEvent<HTMLElement>) => {
+    if (staticHero) return;
+    ensureVideo();
+    const video = videoRef.current;
+    if (!video || !video.duration || Number.isNaN(video.duration)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const target = x * video.duration;
+    if (video.seeking) {
+      pendingSeek.current = target;
+      return;
+    }
+    try {
+      video.currentTime = target;
+    } catch {
+      /* ignore */
     }
   };
 
-  // Section 2 scroll-driven 3D text
-  const section2Ref = useRef<HTMLDivElement | null>(null);
-  const { scrollYProgress: s2Progress } = useScroll({
-    target: section2Ref,
-    offset: ['start end', 'end start'],
-  });
-
-  const rawY = useTransform(s2Progress, [0.1, 0.9], [60, -120]);
-  const smoothY = useSpring(rawY, { stiffness: 15, damping: 32, mass: 1.8 });
-  const s2Opacity = useTransform(s2Progress, [0.2, 0.45, 0.75, 0.95], [0, 1, 1, 0]);
-  const transformStyle = useMotionTemplate`perspective(400px) rotateX(24deg) translateY(${smoothY}px) translateZ(15px)`;
-
-  // Hero Video Mouse Scrubbing (delta horizontal movement)
-  const handleHeroMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const video = heroVideoRef.current;
-    if (!video || !video.duration) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const normalizedX = (e.clientX - rect.left) / rect.width; // 0 to 1
-    const targetTime = normalizedX * video.duration * 0.8;
-
-    const performSeek = (time: number) => {
-      if (video.seeking) {
-        pendingSeekRef.current = time;
-        return;
-      }
-      try {
-        video.currentTime = Math.max(0, Math.min(video.duration, time));
-      } catch (err) {
-        // Ignore seek error
-      }
-    };
-
-    performSeek(targetTime);
-  };
-
-  const handleHeroSeeked = () => {
-    if (pendingSeekRef.current !== null && heroVideoRef.current) {
-      const nextTime = pendingSeekRef.current;
-      pendingSeekRef.current = null;
-      heroVideoRef.current.currentTime = nextTime;
+  const onSeeked = () => {
+    if (pendingSeek.current !== null && videoRef.current) {
+      const next = pendingSeek.current;
+      pendingSeek.current = null;
+      videoRef.current.currentTime = next;
     }
   };
 
   return (
-    <div
-      style={{
-        backgroundColor: '#000000',
-        color: '#ffffff',
-        fontFamily: '"Space Mono", monospace',
-        minHeight: '100vh',
-        overflowX: 'hidden',
-        position: 'relative',
-      }}
-    >
-      {/* FULL TOP BAR WITH GLASS EFFECT & ACTIVE SECTION HIGHLIGHT */}
-      <motion.nav
-        initial={{ opacity: 0, y: -15 }}
-        animate={{ opacity: entranceComplete ? 1 : 0, y: entranceComplete ? 0 : -15 }}
-        transition={{ duration: 0.8 }}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '72px',
-          zIndex: 50,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 28px',
-          backgroundColor: 'rgba(8, 8, 12, 0.72)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)',
-          pointerEvents: 'auto',
-        }}
-      >
-        {/* Left: Logo Capsule */}
-        <motion.div
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => scrollToSection('section-overview')}
-          style={{
-            height: '44px',
-            padding: '0 18px',
-            backgroundColor: 'rgba(255, 255, 255, 0.08)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            cursor: 'pointer',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-          }}
-        >
-          <DataTrustLogo size={18} className="text-white" />
-          <span style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', color: '#ffffff' }}>
-            DataTrustOS
-          </span>
-        </motion.div>
-
-        {/* Center: Glass Navigation Track with Active Highlight */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            backgroundColor: 'rgba(255, 255, 255, 0.06)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            borderRadius: '9999px',
-            padding: '4px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.1)',
-          }}
-        >
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeSection === item.id;
-            const isHovered = navHovered === item.id;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => scrollToSection(item.id)}
-                onMouseEnter={() => setNavHovered(item.id)}
-                onMouseLeave={() => setNavHovered(null)}
-                style={{
-                  position: 'relative',
-                  padding: '6px 16px',
-                  borderRadius: '9999px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: isActive ? '#ffffff' : isHovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.55)',
-                  fontSize: '13px',
-                  fontFamily: '"Space Mono", monospace',
-                  fontWeight: isActive ? 700 : 500,
-                  cursor: 'pointer',
-                  transition: 'color 0.2s ease',
-                  outline: 'none',
-                }}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="activeNavIndicator"
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      backgroundColor: 'rgba(255, 255, 255, 0.18)',
-                      borderRadius: '9999px',
-                      border: '1px solid rgba(255, 255, 255, 0.28)',
-                      boxShadow: '0 2px 12px rgba(255, 255, 255, 0.15)',
-                      zIndex: -1,
-                    }}
-                  />
-                )}
-                {item.label}
-              </button>
-            );
-          })}
+    <div className="dt-lp">
+      <nav className="dt-lp__nav" aria-label="Primary">
+        <button type="button" className="dt-lp__brand" onClick={() => scrollTo('section-hero')}>
+          <DataTrustLogo size={18} />
+          {t.brand}
+        </button>
+        <div className="dt-lp__nav-links">
+          <button type="button" onClick={() => scrollTo('section-problem')}>{t.navProblem}</button>
+          <button type="button" onClick={() => scrollTo('section-product')}>{t.navProduct}</button>
+          <button type="button" onClick={() => scrollTo('section-hitl')}>{t.navHitl}</button>
+          <button type="button" onClick={() => scrollTo('section-roles')}>{t.navRoles}</button>
+          <button type="button" onClick={() => scrollTo('section-proof')}>{t.navProof}</button>
         </div>
-
-        {/* Right: Launch OS Action Button */}
-        <motion.button
-          whileHover={{ scale: 1.03, backgroundColor: '#f0f0f4' }}
-          whileTap={{ scale: 0.97 }}
-          onMouseEnter={() => setDownloadHovered(true)}
-          onMouseLeave={() => setDownloadHovered(false)}
-          onClick={() => navigate('/dashboard')}
-          style={{
-            height: '44px',
-            padding: '0 20px',
-            backgroundColor: '#ffffff',
-            color: '#000000',
-            borderRadius: '9999px',
-            border: 'none',
-            fontFamily: '"Space Mono", monospace',
-            fontSize: '13px',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            cursor: 'pointer',
-            boxShadow: '0 4px 20px rgba(255, 255, 255, 0.25)',
-          }}
-        >
-          <Globe size={15} />
-          <ScrambleText text="Launch OS" isHovered={downloadHovered} />
-          <ArrowRight size={13} />
-        </motion.button>
-      </motion.nav>
-
-
-      {/* ========================================================================= */}
-      {/* SECTION 1: HERO (MOUSE-SCRUBBED VIDEO, FULL VIEWPORT HEIGHT) */}
-      {/* ========================================================================= */}
-      <section
-        id="section-overview"
-        onMouseMove={handleHeroMouseMove}
-        style={{
-          position: 'relative',
-          height: '100vh',
-          minHeight: '100dvh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          padding: '96px 32px 48px',
-          overflow: 'hidden',
-        }}
-      >
-
-        {/* Background Video (Mouse Scrubbed) */}
-        <video
-          ref={heroVideoRef}
-          onSeeked={handleHeroSeeked}
-          playsInline
-          muted
-          preload="auto"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: 0,
-            pointerEvents: 'none',
-          }}
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_083515_290e5a10-0b95-41af-a5e2-32b6389baa4d.mp4"
-        />
-
-        {/* 24x24 Dot Grid Overlay */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-            opacity: 0.05,
-            pointerEvents: 'none',
-            zIndex: 1,
-          }}
-        />
-
-        {/* Background Watermark: RELIABILITY in Anton SC */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(50% + 50px)',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            fontFamily: '"Anton SC", sans-serif',
-            fontSize: 'clamp(100px, 25vw, 480px)',
-            letterSpacing: '-4px',
-            textTransform: 'uppercase',
-            opacity: 0.12,
-            backgroundImage: 'radial-gradient(circle, rgba(142,127,148,0) 0%, #8E7F94 70%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            whiteSpace: 'nowrap',
-            pointerEvents: 'none',
-            zIndex: 2,
-            userSelect: 'none',
-          }}
-        >
-          RELIABILITY
+        <div className="dt-lp__nav-actions">
+          <button type="button" className="dt-lp__lang" onClick={toggleLang} aria-label="Language">
+            {lang === 'vi' ? 'EN' : 'VI'}
+          </button>
+          <a className="dt-lp__btn dt-lp__btn--ghost" href={LIVE_T086} target="_blank" rel="noreferrer">
+            {t.liveT086}
+            <ArrowUpRight size={14} />
+          </a>
+          <button type="button" className="dt-lp__btn dt-lp__btn--primary" onClick={openLogin}>
+            {isAuthenticated ? t.enter : t.login}
+          </button>
         </div>
+      </nav>
 
-        {/* Top spacer */}
-        <div style={{ zIndex: 10 }} />
-
-        {/* Bottom Content Row */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: entranceComplete ? 1 : 0 }}
-          transition={{ duration: 1 }}
-          style={{
-            zIndex: 10,
-            display: 'flex',
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            gap: '32px',
-            flexWrap: 'wrap',
-          }}
-        >
-          {/* Left Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '580px' }}>
-            <h1
-              style={{
-                color: '#ffffff',
-                fontWeight: 300,
-                lineHeight: 0.95,
-                letterSpacing: '-0.03em',
-                fontSize: 'clamp(36px, 7vw, 76px)',
-                margin: 0,
-              }}
-            >
-              <ScrambleIn text="Autonomous Data" delay={200} triggered={entranceComplete} />
-              <br />
-              <ScrambleIn text="Reliability OS" delay={500} triggered={entranceComplete} />
-            </h1>
-
-            <motion.p
-              initial={{ y: 25, opacity: 0 }}
-              animate={entranceComplete ? { y: 0, opacity: 1 } : {}}
-              transition={{ duration: 0.9, delay: 0.2, ease: [0.215, 0.61, 0.355, 1.0] }}
-              style={{
-                fontSize: '14px',
-                color: 'rgba(255, 255, 255, 0.65)',
-                lineHeight: 1.6,
-                margin: 0,
-              }}
-            >
-              Turn corrupt enterprise telemetry into deterministic operational truth. Multi-agent AI profiles raw tables,
-              synthesizes L1–L4 invariants, and quarantines anomalies with cryptographic SHA-256 lineage manifests.
-            </motion.p>
-
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={entranceComplete ? { y: 0, opacity: 1 } : {}}
-              transition={{ duration: 0.9, delay: 0.4 }}
-              style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}
-            >
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                style={{
-                  height: '42px',
-                  padding: '0 20px',
-                  backgroundColor: '#ffffff',
-                  color: '#000000',
-                  borderRadius: '9999px',
-                  border: 'none',
-                  fontFamily: '"Space Mono", monospace',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 20px rgba(255, 255, 255, 0.25)',
-                }}
-              >
-                <span>Launch OS</span>
-                <ArrowRight size={14} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => navigate('/workspace')}
-                style={{
-                  height: '42px',
-                  padding: '0 18px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  backdropFilter: 'blur(10px)',
-                  color: '#ffffff',
-                  borderRadius: '9999px',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  fontFamily: '"Space Mono", monospace',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <span>Open Agent Workspace</span>
-              </button>
-            </motion.div>
-          </div>
-
-          {/* Right Column */}
-          <div style={{ textAlign: 'right' }}>
-            <h1
-              style={{
-                color: '#ffffff',
-                fontWeight: 300,
-                lineHeight: 0.95,
-                letterSpacing: '-0.03em',
-                fontSize: 'clamp(36px, 7vw, 76px)',
-                margin: 0,
-              }}
-            >
-              <ScrambleIn text="Zero Data" delay={700} triggered={entranceComplete} />
-              <br />
-              <ScrambleIn text="Loss Fabric" delay={1000} triggered={entranceComplete} />
-            </h1>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ========================================================================= */}
-      {/* SECTION 2: CINEMATIC 3D SCROLL TEXT */}
-      {/* ========================================================================= */}
-      <section
-        id="section-vision"
-        ref={section2Ref}
-        style={{
-          position: 'relative',
-          height: '100vh',
-          minHeight: '100dvh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          backgroundColor: '#000000',
-        }}
+      <header
+        id="section-hero"
+        className="dt-lp__hero"
+        onPointerEnter={ensureVideo}
+        onMouseMove={onHeroMove}
       >
-
-        {/* Background Video #2 */}
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: 0,
-            opacity: 0.45,
-          }}
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_092455_089c54f8-3b03-4966-9df1-e9746063d0ef.mp4"
-        />
-
-        {/* Top Gradient Overlay */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '180px',
-            background: 'linear-gradient(to bottom, #010103, transparent)',
-            zIndex: 10,
-          }}
-        />
-
-        {/* 3D Perspective Paragraph */}
-        <motion.div
-          style={{
-            transform: transformStyle,
-            opacity: s2Opacity,
-            zIndex: 20,
-            maxWidth: '1000px',
-            padding: '0 32px',
-            textAlign: 'center',
-          }}
-        >
-          <p
-            style={{
-              fontSize: 'clamp(20px, 3.8vw, 36px)',
-              fontWeight: 400,
-              lineHeight: 1.45,
-              letterSpacing: '-0.02em',
-              color: '#ffffff',
-              userSelect: 'none',
-              margin: 0,
-            }}
-          >
-            An autonomous multi-agent operating system engineered for enterprise data stewards. DataTrust OS transforms
-            raw, corrupted telemetry into deterministic operational truth. Anomalies are instantly profiled, synthesized
-            into verifiable L1–L4 rules, isolated in quarantine stores, and certified with cryptographic SHA-256 manifests.
-          </p>
-        </motion.div>
-      </section>
-
-      {/* ========================================================================= */}
-      {/* SECTION 3: PERFORMANCE METRICS */}
-      {/* ========================================================================= */}
-      <section
-        id="section-metrics"
-        style={{
-          position: 'relative',
-          minHeight: '100vh',
-          padding: '120px 32px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          backgroundColor: '#000000',
-        }}
-      >
-
-        {/* Background Video #3 */}
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: 0,
-            opacity: 0.35,
-          }}
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_095810_ecea3dd2-fc5e-4e41-8696-4219290b6589.mp4"
-        />
-
-        <div style={{ position: 'relative', zIndex: 10, maxWidth: '1100px', width: '100%' }}>
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true, amount: 0.3 }}
-            transition={{ duration: 1.2 }}
-            style={{
-              textAlign: 'center',
-              fontSize: '13px',
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              color: 'rgba(255, 255, 255, 0.4)',
-              marginBottom: '72px',
-            }}
-          >
-            PERFORMANCE METRICS
-          </motion.div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '48px',
-              textAlign: 'center',
-            }}
-          >
-            {[
-              { val: '172', label: 'SoC < 0 on faulty BMS (data_new)' },
-              { val: '8', label: 'OPEN fused incidents' },
-              { val: '60 VIN', label: '15-day batch window, ends 2026-01-15' },
-            ].map((metric, i) => (
-              <motion.div
-                key={metric.label}
-                initial={{ y: 30, opacity: 0 }}
-                whileInView={{ y: 0, opacity: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.8, delay: i * 0.15 }}
-                style={{
-                  padding: '32px 24px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 'clamp(44px, 8vw, 84px)',
-                    fontWeight: 300,
-                    letterSpacing: '-0.04em',
-                    lineHeight: 1,
-                    color: '#ffffff',
-                  }}
-                >
-                  {metric.val}
-                </div>
-                <div
-                  style={{
-                    marginTop: '16px',
-                    fontSize: '14px',
-                    color: 'rgba(255, 255, 255, 0.5)',
-                    letterSpacing: '0.05em',
-                  }}
-                >
-                  {metric.label}
-                </div>
-              </motion.div>
-            ))}
-          </div>
+        <div className={`dt-lp__hero-media${videoReady && !staticHero ? ' is-video-ready' : ''}`}>
+          <img src={HERO_POSTER} alt="" width={1920} height={1080} decoding="async" fetchPriority="high" />
+          {!staticHero && (
+            <video ref={videoRef} muted playsInline preload="none" poster={HERO_POSTER} onSeeked={onSeeked} aria-hidden />
+          )}
         </div>
-      </section>
-
-      {/* ========================================================================= */}
-      {/* SECTION 4: ADAPTIVE INTELLIGENCE */}
-      {/* ========================================================================= */}
-      <section
-        id="section-intelligence"
-        style={{
-          position: 'relative',
-          height: '100vh',
-          minHeight: '100dvh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          padding: '64px 48px',
-          overflow: 'hidden',
-          backgroundColor: '#000000',
-        }}
-      >
-
-        {/* Background Video #4 */}
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: 0,
-            opacity: 0.35,
-          }}
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_095750_32a52ce0-2005-45c9-9093-41f03fde9530.mp4"
-        />
-
-        {/* Top area */}
-        <div
-          style={{
-            position: 'relative',
-            zIndex: 10,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            gap: '32px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <motion.h2
-            initial={{ y: 40, opacity: 0 }}
-            whileInView={{ y: 0, opacity: 1 }}
-            viewport={{ once: true, amount: 0.3 }}
-            transition={{ duration: 1 }}
-            style={{
-              fontSize: 'clamp(32px, 6vw, 64px)',
-              fontWeight: 300,
-              lineHeight: 0.95,
-              letterSpacing: '-0.03em',
-              margin: 0,
-              color: '#ffffff',
-            }}
-          >
-            Autonomous
+        <div className="dt-lp__hero-scrub" />
+        <div className="dt-lp__hero-copy">
+          <div className="dt-lp__eyebrow">{t.eyebrow}</div>
+          <h1 className="dt-lp__brand-hero">{t.brand}</h1>
+          <p className="dt-lp__headline">{t.headline}</p>
+          <p className="dt-lp__sub">
+            {t.sub}
             <br />
-            Governance
-          </motion.h2>
-
-          <motion.p
-            initial={{ y: 20, opacity: 0 }}
-            whileInView={{ y: 0, opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 1, delay: 0.2 }}
-            style={{
-              fontSize: '14px',
-              color: 'rgba(255, 255, 255, 0.5)',
-              lineHeight: 1.6,
-              maxWidth: '380px',
-              textAlign: 'right',
-              margin: 0,
-            }}
-          >
-            The system dynamically learns telemetry baselines across multi-domain fleets. Every fault state is analyzed,
-            predicted, and quarantined with human-in-the-loop audit gates.
-          </motion.p>
+            <em>{t.subEn}</em>
+          </p>
+          <div className="dt-lp__cta-row">
+            <button type="button" className="dt-lp__btn dt-lp__btn--primary dt-lp__btn--lg" onClick={openLogin}>
+              {isAuthenticated ? t.enter : t.login}
+              <ArrowRight size={16} />
+            </button>
+            <a className="dt-lp__btn dt-lp__btn--ghost dt-lp__btn--lg" href={LIVE_T086} target="_blank" rel="noreferrer">
+              {t.liveT086}
+              <ArrowUpRight size={16} />
+            </a>
+          </div>
+          <p className="dt-lp__cta-note">{t.stagingNote} · <a href={LIVE_D086}>{LIVE_D086.replace('https://', '')}</a></p>
         </div>
+      </header>
 
-        {/* Bottom feature cards grid */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 1, delay: 0.3 }}
-          style={{
-            position: 'relative',
-            zIndex: 10,
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '24px',
-          }}
-        >
-          {[
-            { title: 'Autonomous Profiler', desc: 'Fast distribution & null rate scan across 50,000+ sampled records.' },
-            { title: 'L1–L4 Rule Synthesis', desc: 'Synthesizes deterministic range, enum, and variance invariants.' },
-            { title: 'Zero-Loss Split-DB', desc: 'Isolates clean production tables from quarantined corrupt rows.' },
-            { title: 'HITL Policy Checkpoint', desc: 'Human-in-the-loop review, customize & approve before DuckDB compilation.' },
-          ].map((item, i) => (
-            <motion.div
-              key={item.title}
-              initial={{ y: 20, opacity: 0 }}
-              whileInView={{ y: 0, opacity: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.7, delay: i * 0.1 }}
-              style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                backdropFilter: 'blur(8px)',
-                padding: '20px',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
-              <div style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', marginBottom: '8px' }}>
-                {item.title}
-              </div>
-              <div style={{ fontSize: '12.5px', color: 'rgba(255, 255, 255, 0.5)', lineHeight: 1.5 }}>
-                {item.desc}
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
+      <section id="section-problem" className="dt-lp__section">
+        <div className="dt-lp__inner dt-lp__reveal">
+          <p className="dt-lp__kicker">{t.problemK}</p>
+          <h2 className="dt-lp__h2">{t.problemH}</h2>
+          <p className="dt-lp__lead">
+            {t.problemL}
+            <span className="en">{t.problemLEn}</span>
+          </p>
+          <div className="dt-lp__grid dt-lp__grid--3">
+            {t.problems.map((p) => (
+              <article key={p.t} className="dt-lp__tile">
+                <h3>{p.t}</h3>
+                <p>
+                  {p.d}
+                  <span className="en">{p.en}</span>
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
-      {/* ========================================================================= */}
-      {/* SECTION 5: ARCHITECTURE (PURE BLACK, NO VIDEO) */}
-      {/* ========================================================================= */}
-      <section
-        id="section-architecture"
-        style={{
-          position: 'relative',
-          minHeight: '100vh',
-          backgroundColor: '#000000',
-          padding: '120px 24px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <section id="section-product" className="dt-lp__section" style={{ backgroundImage: 'url(/landing/atmos.calm.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        <div className="dt-lp__inner dt-lp__reveal" style={{ background: 'rgba(7,11,16,0.88)', borderRadius: 16, padding: 24 }}>
+          <p className="dt-lp__kicker">{t.productK}</p>
+          <h2 className="dt-lp__h2">{t.productH}</h2>
+          <p className="dt-lp__lead">
+            {t.productL}
+            <span className="en">{t.productLEn}</span>
+          </p>
+          <div className="dt-lp__grid dt-lp__grid--3">
+            {t.products.map((p) => (
+              <article key={p.n} className="dt-lp__tile">
+                <div className="dt-lp__num">{p.n}</div>
+                <h3>{p.t}</h3>
+                <p>
+                  {p.d}
+                  <span className="en">{p.en}</span>
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-        <div style={{ maxWidth: '820px', width: '100%', textAlign: 'center' }}>
-          <motion.div
-            initial={{ y: 30, opacity: 0 }}
-            whileInView={{ y: 0, opacity: 1 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 1 }}
-          >
-            <div
-              style={{
-                fontSize: '13px',
-                letterSpacing: '0.2em',
-                textTransform: 'uppercase',
-                color: 'rgba(255, 255, 255, 0.4)',
-                marginBottom: '24px',
-              }}
-            >
-              ARCHITECTURE
-            </div>
-
-            <h2
-              style={{
-                fontSize: 'clamp(28px, 5vw, 54px)',
-                fontWeight: 300,
-                lineHeight: 1.15,
-                letterSpacing: '-0.02em',
-                color: '#ffffff',
-                marginBottom: '24px',
-              }}
-            >
-              Three layers. Zero friction.
-            </h2>
-
-            <p
-              style={{
-                fontSize: '15px',
-                color: 'rgba(255, 255, 255, 0.5)',
-                lineHeight: 1.7,
-                maxWidth: '640px',
-                margin: '0 auto 64px',
-              }}
-            >
-              Ingestion layer captures raw telemetry and schema. ReAct multi-agent layer diagnoses root causes and
-              synthesizes invariants. Governance layer delivers isolated quarantine storage and cryptographic verification.
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 1.2, delay: 0.3 }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}
-          >
-            {[
-              { layer: 'Layer 1', role: 'Telemetry Ingestion & Sub-Second Statistical Profiling' },
-              { layer: 'Layer 2', role: 'ReAct Multi-Agent Anomaly Diagnosis & Rule Synthesis' },
-              { layer: 'Layer 3', role: 'Split-DB Quarantine & Cryptographic SHA-256 Lineage Ledger' },
-            ].map((l) => (
-              <div
-                key={l.layer}
-                style={{
-                  width: '100%',
-                  maxWidth: '620px',
-                  height: '72px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '0 24px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '12px',
-                    letterSpacing: '0.15em',
-                    textTransform: 'uppercase',
-                    color: 'rgba(255, 255, 255, 0.35)',
-                    fontWeight: 600,
-                  }}
-                >
-                  {l.layer}
-                </span>
-                <span style={{ fontSize: '14.5px', fontWeight: 400, color: '#ffffff', textAlign: 'right' }}>{l.role}</span>
+      <section id="section-hitl" className="dt-lp__section">
+        <div className="dt-lp__inner dt-lp__reveal">
+          <p className="dt-lp__kicker">{t.hitlK}</p>
+          <h2 className="dt-lp__h2">{t.hitlH}</h2>
+          <p className="dt-lp__lead">
+            {t.hitlL}
+            <span className="en">{t.hitlLEn}</span>
+          </p>
+          <div className="dt-lp__flow">
+            {t.hitlSteps.map((s, i) => (
+              <div key={s.t} className="dt-lp__flow-step">
+                <div className="dt-lp__num">{String(i + 1).padStart(2, '0')}</div>
+                <strong>{s.t}</strong>
+                <p style={{ margin: 0, color: 'var(--lp-muted)', fontSize: '0.9rem' }}>{s.d}</p>
               </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       </section>
 
-      {/* ========================================================================= */}
-      {/* FOOTER */}
-      {/* ========================================================================= */}
-      <footer
-        style={{
-          backgroundColor: '#000000',
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          minHeight: '400px',
-        }}
-      >
-        {/* Left: Video #5 */}
-        <div style={{ flex: '1 1 400px', minHeight: '300px', position: 'relative' }}>
-          <video
-            autoPlay
-            muted
-            loop
-            playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_080203_fd7f4f85-3a86-4837-8192-85e7bfe68e75.mp4"
-          />
-        </div>
-
-        {/* Right: Info & Links */}
-        <div
-          style={{
-            flex: '1 1 400px',
-            padding: '48px',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
-              <DataTrustLogo size={20} className="text-white" />
-              <span style={{ fontSize: '16px', fontWeight: 600, color: '#ffffff' }}>DataTrustOS Labs</span>
-            </div>
-
-            <p style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.45)', lineHeight: 1.6, maxWidth: '420px' }}>
-              The next evolution of enterprise data reliability and telemetry governance.
-              Built for organizations that refuse to leave data quality to chance.
-            </p>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '16px',
-              marginTop: '48px',
-            }}
-          >
-            <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.3)' }}>
-              © 2026 DataTrust OS Labs. All rights reserved.
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => navigate('/workspace')}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontFamily: '"Space Mono", monospace',
-                }}
-              >
-                Agent Workspace →
-              </button>
-
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                style={{
-                  background: '#ffffff',
-                  border: 'none',
-                  color: '#000000',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontFamily: '"Space Mono", monospace',
-                }}
-              >
-                Open Console →
-              </button>
-            </div>
+      <section id="section-roles" className="dt-lp__section">
+        <div className="dt-lp__inner dt-lp__reveal">
+          <p className="dt-lp__kicker">{t.rolesK}</p>
+          <h2 className="dt-lp__h2">{t.rolesH}</h2>
+          <p className="dt-lp__lead">
+            {t.rolesL}
+            <span className="en">{t.rolesLEn}</span>
+          </p>
+          <div className="dt-lp__grid dt-lp__grid--4">
+            {t.roles.map((r) => (
+              <article key={r.t} className="dt-lp__tile">
+                <h3>{r.t}</h3>
+                <p>
+                  {r.d}
+                  <span className="en">{r.en}</span>
+                </p>
+              </article>
+            ))}
           </div>
         </div>
+      </section>
+
+      <section id="section-proof" className="dt-lp__section">
+        <div className="dt-lp__inner dt-lp__reveal">
+          <p className="dt-lp__kicker">{t.proofK}</p>
+          <h2 className="dt-lp__h2">{t.proofH}</h2>
+          <p className="dt-lp__lead">
+            {t.proofL}
+            <span className="en">{t.proofLEn}</span>
+          </p>
+          <div className="dt-lp__grid dt-lp__grid--4" style={{ marginBottom: 20 }}>
+            {t.kpis.map((k) => (
+              <div key={k.v} className="dt-lp__tile" style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-0.03em' }}>{k.v}</div>
+                <p>{k.l}</p>
+              </div>
+            ))}
+          </div>
+          <div className="dt-lp__shots">
+            {t.shots.map((s) => (
+              <figure key={s.src} className="dt-lp__shot">
+                <img src={s.src} alt={s.cap} loading="lazy" width={720} height={180} />
+                <figcaption>{s.cap}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="section-tech" className="dt-lp__section">
+        <div className="dt-lp__inner dt-lp__reveal">
+          <p className="dt-lp__kicker">{t.techK}</p>
+          <h2 className="dt-lp__h2">{t.techH}</h2>
+          <div className="dt-lp__stack">
+            {t.techChips.map((c) => (
+              <span key={c} className="dt-lp__chip">{c}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="dt-lp__footer-cta">
+        <h2>{t.footH}</h2>
+        <p>{t.footL}</p>
+        <div className="dt-lp__cta-row" style={{ justifyContent: 'center' }}>
+          <button type="button" className="dt-lp__btn dt-lp__btn--primary dt-lp__btn--lg" onClick={openLogin}>
+            {isAuthenticated ? t.enter : t.login}
+            <ArrowRight size={16} />
+          </button>
+          <a className="dt-lp__btn dt-lp__btn--ghost dt-lp__btn--lg" href={LIVE_T086} target="_blank" rel="noreferrer">
+            {t.liveT086}
+            <ArrowUpRight size={16} />
+          </a>
+        </div>
+      </section>
+
+      <footer className="dt-lp__legal">
+        <span>{t.footNote}</span>
+        <span>
+          <a href="/status-report.html">status-report</a> · <a href={LIVE_D086}>d086</a> · <a href={LIVE_T086}>t086</a>
+        </span>
       </footer>
+
+      <AuthModal />
     </div>
   );
 };
+
+export default LandingPage;

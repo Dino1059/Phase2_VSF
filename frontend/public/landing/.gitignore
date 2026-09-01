@@ -1,0 +1,4 @@
+# Blender intermediates (commit webp/jpg posters + proof only)
+_hero_render*.png
+_atmos_*.png
+*.blend1

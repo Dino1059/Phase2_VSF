@@ -420,7 +420,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
             <button
               type="button"
               className="hud-action-pill"
-              onClick={() => navigate('/landing')}
+              onClick={() => navigate('/')}
               title={isVi ? 'Xem Trang Giới Thiệu DataTrustOS' : 'View DataTrustOS Futuristic Landing Page'}
               style={{
                 display: 'inline-flex',
@@ -638,7 +638,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
                       e.preventDefault();
                       setUserDropdownOpen(false);
                       logout();
-                      navigate('/landing');
+                      navigate('/');
                     }}
                   >
                     <LogOut size={14} /> {t('signOut')}

@@ -213,3 +213,8 @@ Fixes on `fix/v5-qa-t086-ship-blockers` (PR into `v5`). Not applied on t086.
 - Playwright on **d086 only**: 16 PASS / 0 FAIL. t086 not deployed.
 
 
+
+## 2026-09-01 — Business LP 2026
+
+- Branch `feat/business-landing-2026`: `/` is B2B LandingPage (VI+EN, Blender poster + CSS motion, Login CTA).
+- d086 FE deployed; t086 deferred (grill 6B). Details: `.loop-state/V5_LANDING_PAGE_BUILD.md`.

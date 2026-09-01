@@ -10,19 +10,18 @@ import { DataIngestionPage } from './pages/DataIngestionPage';
 export const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard/ingestion" replace />} />
-      <Route path="/landing" element={<LandingPage />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/landing" element={<Navigate to="/" replace />} />
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<ExecutiveDashboard />} />
         <Route path="/dashboard/ingestion" element={<DataIngestionPage />} />
         <Route path="/workspace" element={<AgentChatWorkspace />} />
         <Route path="/chat/:id" element={<AgentChatWorkspace />} />
         <Route path="/operations/:view" element={<OperationsWorkspace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard/ingestion" replace />} />
       </Route>
     </Routes>
   );
 };
-
 
 export default App;

@@ -40,8 +40,8 @@ const resources = {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem('datatrust-lang') || 'en',
-  fallbackLng: 'en',
+  lng: localStorage.getItem('datatrust-lang') || 'vi',
+  fallbackLng: 'vi',
   defaultNS: 'common',
   ns: ['common', 'chat', 'agents', 'rules', 'profiler', 'audit', 'pipeline'],
   interpolation: { escapeValue: false },
