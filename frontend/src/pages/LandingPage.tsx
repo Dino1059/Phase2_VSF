@@ -31,188 +31,150 @@ const COPY = {
     navProblem: 'Vấn đề',
     navProduct: 'Sản phẩm',
     navHitl: 'HITL',
-    navRoles: 'Vai trò',
+    navRoles: 'Quyền hạn',
     navProof: 'Bằng chứng',
     login: 'Đăng nhập',
     enter: 'Vào hệ thống',
-    liveT086: 'Live t086',
-    eyebrowMentor: 'Mentor / Demo Day · câu chuyện 2 phút',
-    eyebrowSteward: 'Data steward · chất lượng theo ngày · warehouse tin cậy',
-    headline: 'Chất lượng dữ liệu vận hành — có người gác cổng.',
-    sub: 'Landing bẩn → warehouse tin cậy: ingest theo ngày, HITL trước khi ghi, ACL theo dataset. Tắt LLM vẫn dùng được.',
-    subEn: 'Day-scoped quality · preview ≠ execute · AI proposes, humans decide.',
-    audienceMentorT: 'Cho mentor / BTC',
-    audienceMentorD: 'Vấn đề → giải pháp → live proof → HITL khác biệt — đủ kể trong 2 phút.',
-    audienceStewardT: 'Cho data steward / DQE',
-    audienceStewardD: 'JTBD: day COUNT, sandbox preview, ACL A≠B, lineage SHA-256 — không “AI magic”.',
-    storyK: 'Nhịp Demo Day (≤2 phút)',
-    storyBeats: [
-      { t: '01 COUNT', d: 'Ngày đã vào warehouse — chứng minh số.' },
-      { t: '02 Promote', d: 'Landing → promote có kiểm soát.' },
-      { t: '03 HITL', d: 'Preview sandbox ≠ execute warehouse.' },
-      { t: '04 LLM OFF', d: 'Tắt LLM — HITL / ingest vẫn chạy.' },
-      { t: '05 ACL', d: 'Steward A không thấy dataset B.' },
-    ],
+    liveT086: 'Môi trường live',
+    eyebrow: 'Nền tảng chất lượng dữ liệu vận hành',
+    headline: 'Từ landing bẩn đến warehouse tin cậy — có người gác cổng.',
+    sub: 'Ingest theo ngày, HITL trước khi ghi, ACL theo dataset. LLM tắt vẫn vận hành được.',
+    subEn: 'Day-scoped quality · preview ≠ execute · humans decide.',
     problemK: 'Vấn đề',
-    problemH: 'Telemetry bẩn → quyết định mù.',
-    problemL: 'Không lineage theo ngày, hàng lỗi nuốt thầm, không cổng steward trước khi rule vào warehouse.',
+    problemH: 'Telemetry bẩn → quyết định sai.',
+    problemL: 'Thiếu lineage theo ngày, hàng lỗi biến mất thầm, không có cổng duyệt trước khi rule vào warehouse.',
     problemLEn: 'No day proof · silent drops · no human gate.',
     problems: [
-      { t: 'Không biết ngày nào sạch', d: 'Batch trôi, schema lệch — COUNT theo ngày mới chứng minh được.', en: 'Day-scoped COUNT is the proof' },
-      { t: 'Quarantine bị bỏ quên', d: 'Corrupt rows phải hash + tách clean/quarantine, không biến mất.', en: 'Hashed quarantine, not silent loss' },
-      { t: 'Propose ≠ được phép chạy', d: 'Không HITL thì compile rule = rủi ro vận hành.', en: 'Preview ≠ execute' },
+      { t: 'Không chứng minh được ngày sạch', d: 'Batch trôi và schema lệch — chỉ COUNT theo ngày mới là bằng chứng.', en: 'Day-scoped COUNT' },
+      { t: 'Quarantine bị bỏ quên', d: 'Corrupt rows cần tách clean/quarantine có hash, không được nuốt thầm.', en: 'Hashed quarantine' },
+      { t: 'Đề xuất ≠ được phép chạy', d: 'Compile rule không qua HITL là rủi ro vận hành.', en: 'Preview ≠ execute' },
     ],
     productK: 'Sản phẩm',
     productH: 'Ingest → Gate → Trust',
-    productL: 'Ba nhịp — đủ kể Demo Day, đủ làm việc steward mỗi ngày.',
+    productL: 'Ba lớp đủ để vận hành chất lượng dữ liệu mỗi ngày.',
     productLEn: 'Day-bound ingest · HITL gate · clean/quarantine lineage.',
     products: [
       { n: '01', t: 'Ingest theo ngày', d: 'Landing day-scoped; promote có kiểm soát vào warehouse.', en: 'Landing → promote' },
-      { n: '02', t: 'Agents đề xuất', d: 'Profile / anomaly / rule card — deterministic, không “tự ghi”.', en: 'Propose only' },
-      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 manifests — warehouse tin cậy.', en: 'Cryptographic split' },
+      { n: '02', t: 'Agents đề xuất', d: 'Profile / anomaly / rule card — deterministic, không tự ghi.', en: 'Propose only' },
+      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 — warehouse đáng tin.', en: 'Cryptographic split' },
     ],
     diagramIngest: 'Landing → Warehouse',
     diagramHitl: 'Preview ≠ Execute',
     diagramAcl: 'Steward A ≠ B',
     diagramLlm: 'LLM ON / OFF — HITL vẫn chạy',
     diagramCount: 'Day-scoped COUNT',
-    hitlK: 'HITL — khác biệt cốt lõi',
+    hitlK: 'HITL',
     hitlH: 'AI đề xuất. Steward quyết định.',
-    hitlL: 'Preview ≠ execute. Remember giữ causality — không promote lại mù. LLM OFF vẫn hữu dụng.',
+    hitlL: 'Preview sandbox ≠ execute warehouse. Remember giữ quyết định. Tắt LLM vẫn dùng HITL.',
     hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember · LLM-off useful.',
     hitlSteps: [
-      { t: 'Đề xuất', d: 'Agent đưa rule card + evidence.' },
+      { t: 'Đề xuất', d: 'Rule card + evidence từ agent.' },
       { t: 'Preview', d: 'Sandbox — không ghi warehouse.' },
-      { t: 'Steward gate', d: 'Accept / Edit / Reject.' },
-      { t: 'Remember', d: 'Giữ quyết định; tắt LLM vẫn dùng HITL.' },
+      { t: 'Duyệt', d: 'Accept / Edit / Reject.' },
+      { t: 'Remember', d: 'Giữ quyết định; LLM off vẫn dùng được.' },
     ],
-    rolesK: 'Vai trò & ACL',
-    rolesH: 'Đúng người thấy đúng dataset.',
-    rolesL: 'ACL dataset_key — steward_a không thấy B; Admin tên + aggregate, không drill hàng.',
+    rolesK: 'Quyền hạn',
+    rolesH: 'Đúng người, đúng dataset.',
+    rolesL: 'ACL theo dataset_key. Steward scoped; Admin xem catalog/aggregate — không execute warehouse.',
     rolesLEn: 'dataset_key ACL · Admin names-only · no cross-read.',
     roles: [
-      { t: 'Steward', d: 'Write: promote, HITL execute/Remember, ingest.', en: 'Write + HITL' },
-      { t: 'Analyst', d: 'Đọc + hỏi; không execute warehouse.', en: 'Read + ask' },
-      { t: 'Admin', d: 'Catalog names + aggregate; Reset/users — không execute.', en: 'Names + aggregate' },
-      { t: 'Viewer', d: 'Chỉ xem scoped — không ghi.', en: 'Read scoped' },
+      { t: 'Steward', d: 'Promote, HITL execute/Remember, ingest trên dataset được gán.', en: 'Write + HITL' },
+      { t: 'Analyst', d: 'Đọc và phân tích; không execute warehouse.', en: 'Read + ask' },
+      { t: 'Admin', d: 'Catalog + aggregate; quản user/reset — không execute.', en: 'Names + aggregate' },
+      { t: 'Viewer', d: 'Chỉ xem trong phạm vi được gán.', en: 'Read scoped' },
     ],
-    proofK: 'Bằng chứng live',
-    proofH: 'Staging thật + UI đã QA.',
-    proofL: 'd086 = sandbox. t086 = staging Demo Day. Không đụng cloudflared · không wipe warehouse.',
-    proofLEn: 'Live proof shots · marketing-honest KPIs · no fake metrics.',
+    proofK: 'Bằng chứng',
+    proofH: 'Môi trường live và UI đã kiểm chứng.',
+    proofL: 'Staging vận hành thật — không số liệu marketing giả.',
+    proofLEn: 'Live staging · QA’d UI · no vanity metrics.',
     shots: [
-      { src: '/landing/proof/ingestion.png', cap: 'Ingest / landing theo ngày' },
+      { src: '/landing/proof/ingestion.png', cap: 'Ingest theo ngày' },
       { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
-      { src: '/landing/proof/workspace.png', cap: 'Workspace chat + evidence' },
+      { src: '/landing/proof/workspace.png', cap: 'Workspace + evidence' },
       { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL vẫn chạy' },
     ],
-    kpis: [
-      { v: 'Day COUNT', l: 'Chất lượng scoped theo ngày' },
-      { v: 'HITL', l: 'Cổng trước warehouse' },
-      { v: 'ACL', l: 'dataset_key scoped' },
-      { v: 'LLM OFF', l: 'Vẫn hữu dụng' },
-    ],
-    techK: 'Tech — đủ tin, không tường jargon',
-    techH: 'Stack ngắn. Deterministic trước generative.',
+    techK: 'Nền tảng',
+    techH: 'Deterministic trước generative.',
     techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'dataset ACL'],
     footH: 'Sẵn sàng vào hệ thống?',
-    footL: 'Mentor: mở live proof. Steward: đăng nhập d086 — preview trước, execute sau.',
-    footNote: '© 2026 DataTrust OS · VinGroup data trust · AI20K Demo Day',
-    stagingNote: 't086 = staging live · d086 = sandbox',
+    footL: 'Đăng nhập để xem workspace. Preview trước — execute sau.',
+    footNote: '© 2026 DataTrust OS',
+    stagingNote: 't086 live · d086 sandbox',
   },
   en: {
     brand: 'DataTrust OS',
     navProblem: 'Problem',
     navProduct: 'Product',
     navHitl: 'HITL',
-    navRoles: 'Roles',
+    navRoles: 'Access',
     navProof: 'Proof',
     login: 'Log in',
     enter: 'Enter OS',
-    liveT086: 'Live t086',
-    eyebrowMentor: 'Mentors / Demo Day · 2-minute story',
-    eyebrowSteward: 'Data stewards · day-scoped quality · warehouse trust',
-    headline: 'Operational data quality — with a human gate.',
-    sub: 'Dirty landing → trusted warehouse: day-bound ingest, HITL before write, dataset ACL. LLM-off still useful.',
-    subEn: 'Day-scoped quality · preview ≠ execute · AI proposes, humans decide.',
-    audienceMentorT: 'For mentors / BTC',
-    audienceMentorD: 'Problem → solution → live proof → HITL differentiator — tellable in 2 minutes.',
-    audienceStewardT: 'For data stewards / DQE',
-    audienceStewardD: 'JTBD: day COUNT, sandbox preview, ACL A≠B, SHA-256 lineage — not “AI magic”.',
-    storyK: 'Demo Day beats (≤2 min)',
-    storyBeats: [
-      { t: '01 COUNT', d: 'Day in warehouse — show the number.' },
-      { t: '02 Promote', d: 'Landing → controlled promote.' },
-      { t: '03 HITL', d: 'Sandbox preview ≠ warehouse execute.' },
-      { t: '04 LLM OFF', d: 'LLM off — HITL / ingest still work.' },
-      { t: '05 ACL', d: 'Steward A cannot see dataset B.' },
-    ],
+    liveT086: 'Live environment',
+    eyebrow: 'Operational data-quality platform',
+    headline: 'Dirty landing to trusted warehouse — with a human gate.',
+    sub: 'Day-bound ingest, HITL before write, dataset ACL. Works with LLM off.',
+    subEn: 'Day-scoped quality · preview ≠ execute · humans decide.',
     problemK: 'Problem',
     problemH: 'Dirty telemetry → blind decisions.',
     problemL: 'No day-bound lineage, silent row loss, no steward gate before rules hit the warehouse.',
     problemLEn: 'No day proof · silent drops · no human gate.',
     problems: [
-      { t: 'Which day is clean?', d: 'Drifting batches need day-scoped COUNT as proof.', en: 'Day-scoped COUNT is the proof' },
-      { t: 'Forgotten quarantine', d: 'Corrupt rows need hashed clean/quarantine — not vanish.', en: 'Hashed quarantine, not silent loss' },
+      { t: 'Which day is clean?', d: 'Drifting batches need day-scoped COUNT as proof.', en: 'Day-scoped COUNT' },
+      { t: 'Forgotten quarantine', d: 'Corrupt rows need hashed clean/quarantine — not vanish.', en: 'Hashed quarantine' },
       { t: 'Propose ≠ allowed run', d: 'Without HITL, rule compile is operational risk.', en: 'Preview ≠ execute' },
     ],
     productK: 'Product',
     productH: 'Ingest → Gate → Trust',
-    productL: 'Three beats — Demo Day story and daily steward work.',
+    productL: 'Three layers for day-to-day data quality operations.',
     productLEn: 'Day-bound ingest · HITL gate · clean/quarantine lineage.',
     products: [
       { n: '01', t: 'Day-bound ingest', d: 'Landing tables by day; controlled promote into warehouse.', en: 'Landing → promote' },
       { n: '02', t: 'Agents propose', d: 'Profile / anomaly / rule card — deterministic, never auto-write.', en: 'Propose only' },
-      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 manifests — warehouse trust.', en: 'Cryptographic split' },
+      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 — trusted warehouse.', en: 'Cryptographic split' },
     ],
     diagramIngest: 'Landing → Warehouse',
     diagramHitl: 'Preview ≠ Execute',
     diagramAcl: 'Steward A ≠ B',
     diagramLlm: 'LLM ON / OFF — HITL still works',
     diagramCount: 'Day-scoped COUNT',
-    hitlK: 'HITL — core differentiator',
+    hitlK: 'HITL',
     hitlH: 'AI proposes. Steward decides.',
-    hitlL: 'Preview ≠ execute. Remember keeps causality — no blind re-promote. LLM-off still useful.',
+    hitlL: 'Sandbox preview ≠ warehouse execute. Remember keeps decisions. Useful with LLM off.',
     hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember · LLM-off useful.',
     hitlSteps: [
-      { t: 'Propose', d: 'Agent ships rule card + evidence.' },
+      { t: 'Propose', d: 'Rule card + evidence from the agent.' },
       { t: 'Preview', d: 'Sandbox — no warehouse write.' },
-      { t: 'Steward gate', d: 'Accept / Edit / Reject.' },
+      { t: 'Decide', d: 'Accept / Edit / Reject.' },
       { t: 'Remember', d: 'Keep the decision; LLM-off still useful.' },
     ],
-    rolesK: 'Roles & ACL',
+    rolesK: 'Access',
     rolesH: 'Right people, right datasets.',
-    rolesL: 'dataset_key ACL — steward_a cannot see B; Admin names + aggregate, no row drill.',
+    rolesL: 'dataset_key ACL. Stewards are scoped; Admin sees catalog/aggregate — never warehouse execute.',
     rolesLEn: 'dataset_key ACL · Admin names-only · no cross-read.',
     roles: [
-      { t: 'Steward', d: 'Write: promote, HITL execute/Remember, ingest.', en: 'Write + HITL' },
-      { t: 'Analyst', d: 'Read + ask; no warehouse execute.', en: 'Read + ask' },
-      { t: 'Admin', d: 'Catalog names + aggregate; Reset/users — no execute.', en: 'Names + aggregate' },
-      { t: 'Viewer', d: 'Scoped view only — no writes.', en: 'Read scoped' },
+      { t: 'Steward', d: 'Promote, HITL execute/Remember, ingest on assigned datasets.', en: 'Write + HITL' },
+      { t: 'Analyst', d: 'Read and analyze; no warehouse execute.', en: 'Read + ask' },
+      { t: 'Admin', d: 'Catalog + aggregate; users/reset — no execute.', en: 'Names + aggregate' },
+      { t: 'Viewer', d: 'Scoped view only.', en: 'Read scoped' },
     ],
-    proofK: 'Live proof',
-    proofH: 'Real staging + QA’d UI.',
-    proofL: 'd086 = sandbox. t086 = Demo Day staging. cloudflared untouched · no warehouse wipe.',
-    proofLEn: 'Live proof shots · marketing-honest KPIs · no fake metrics.',
+    proofK: 'Proof',
+    proofH: 'Live environments. QA’d UI.',
+    proofL: 'Real staging — no vanity metrics.',
+    proofLEn: 'Live staging · QA’d UI · no vanity metrics.',
     shots: [
-      { src: '/landing/proof/ingestion.png', cap: 'Day-bound ingest / landing' },
+      { src: '/landing/proof/ingestion.png', cap: 'Day-bound ingest' },
       { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
-      { src: '/landing/proof/workspace.png', cap: 'Workspace chat + evidence' },
+      { src: '/landing/proof/workspace.png', cap: 'Workspace + evidence' },
       { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL still works' },
     ],
-    kpis: [
-      { v: 'Day COUNT', l: 'Day-scoped quality proof' },
-      { v: 'HITL', l: 'Gate before warehouse' },
-      { v: 'ACL', l: 'dataset_key scoped' },
-      { v: 'LLM OFF', l: 'Still useful' },
-    ],
-    techK: 'Tech — credible, not a jargon wall',
-    techH: 'Short stack. Deterministic before generative.',
+    techK: 'Platform',
+    techH: 'Deterministic before generative.',
     techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'dataset ACL'],
-    footH: 'Ready to enter the OS?',
-    footL: 'Mentors: open live proof. Stewards: log in on d086 — preview first, execute later.',
-    footNote: '© 2026 DataTrust OS · VinGroup data trust · AI20K Demo Day',
-    stagingNote: 't086 = live staging · d086 = sandbox',
+    footH: 'Ready to enter?',
+    footL: 'Log in to the workspace. Preview first — execute later.',
+    footNote: '© 2026 DataTrust OS',
+    stagingNote: 't086 live · d086 sandbox',
   },
 } as const;
 
@@ -686,10 +648,7 @@ export const LandingPage: React.FC = () => {
         </div>
         <div className="dt-lp__hero-scrub dt-lp__hero-layer--near" />
         <div className="dt-lp__hero-copy">
-          <div className="dt-lp__eyebrow-dual" aria-label="Audiences">
-            <span className="dt-lp__eyebrow dt-lp__eyebrow--mentor">{t.eyebrowMentor}</span>
-            <span className="dt-lp__eyebrow dt-lp__eyebrow--steward">{t.eyebrowSteward}</span>
-          </div>
+          <p className="dt-lp__eyebrow">{t.eyebrow}</p>
           <h1 className="dt-lp__brand-hero">{t.brand}</h1>
           <p className="dt-lp__headline">{t.headline}</p>
           <p className="dt-lp__sub">
@@ -711,29 +670,6 @@ export const LandingPage: React.FC = () => {
         </div>
       </header>
 
-      <section id="section-story" className="dt-lp__section dt-lp__section--story">
-        <div className="dt-lp__inner dt-lp__reveal">
-          <div className="dt-lp__audience" role="group" aria-label="Dual audience">
-            <div className="dt-lp__audience-card">
-              <strong>{t.audienceMentorT}</strong>
-              <p>{t.audienceMentorD}</p>
-            </div>
-            <div className="dt-lp__audience-card">
-              <strong>{t.audienceStewardT}</strong>
-              <p>{t.audienceStewardD}</p>
-            </div>
-          </div>
-          <p className="dt-lp__kicker">{t.storyK}</p>
-          <div className="dt-lp__story">
-            {t.storyBeats.map((b) => (
-              <div key={b.t} className="dt-lp__story-beat">
-                <strong>{b.t}</strong>
-                <p>{b.d}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section id="section-problem" className="dt-lp__section">
         <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="36">
@@ -841,14 +777,6 @@ export const LandingPage: React.FC = () => {
             {t.proofL}
             <span className="en">{t.proofLEn}</span>
           </p>
-          <div className="dt-lp__grid dt-lp__grid--4" style={{ marginBottom: 20 }}>
-            {t.kpis.map((k) => (
-              <div key={k.v} className="dt-lp__tile" style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-0.03em' }}>{k.v}</div>
-                <p>{k.l}</p>
-              </div>
-            ))}
-          </div>
           <div className="dt-lp__shots">
             {t.shots.map((s) => (
               <figure key={s.src} className="dt-lp__shot">
@@ -890,7 +818,7 @@ export const LandingPage: React.FC = () => {
       <footer className="dt-lp__legal">
         <span>{t.footNote}</span>
         <span>
-          <a href="/status-report.html">status-report</a> · <a href={LIVE_D086}>d086</a> · <a href={LIVE_T086}>t086</a>
+          <a href={LIVE_D086}>d086</a> · <a href={LIVE_T086}>t086</a>
         </span>
       </footer>
 
