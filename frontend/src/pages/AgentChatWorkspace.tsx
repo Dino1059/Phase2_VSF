@@ -70,7 +70,10 @@ export function AgentChatWorkspace() {
   const isVi = i18n.language === 'vi';
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const datasetKey = searchParams.get('dataset_key') || undefined;
+  const datasetKey = searchParams.get('dataset_key') || searchParams.get('table') || undefined;
+  const canAccessDs = useAuthStore((s) => s.canAccessDataset(datasetKey));
+  const isAuthed = useAuthStore((s) => s.isAuthenticated);
+  const aclDenied = Boolean(isAuthed && datasetKey && !canAccessDs);
   const demoMode = searchParams.get('demo');
   const story = searchParams.get('story');
   const dayParam = searchParams.get('day') || searchParams.get('day_idx');
@@ -368,7 +371,7 @@ export function AgentChatWorkspace() {
 
   // Re-run when story/demo flips (Happy → Unhappy must start a real LLM profile).
   useEffect(() => {
-    if (isNewChat) return;
+    if (isNewChat || aclDenied) return;
     if (runStartedRef.current === bootToken) return;
     if (hitlBootsInFlight.has(bootToken)) {
       runStartedRef.current = bootToken;
@@ -413,7 +416,7 @@ export function AgentChatWorkspace() {
     void bootstrap();
     return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [domainId, datasetKey, isNewChat, isReplay, isHappy, bootToken]);
+  }, [domainId, datasetKey, isNewChat, isReplay, isHappy, bootToken, aclDenied]);
 
   // Auto-scroll stream
   useEffect(() => {
@@ -762,7 +765,17 @@ export function AgentChatWorkspace() {
           )}
 
           {/* Quick Action CTA for uploaded/selected dataset */}
-          {datasetKey && (
+          {aclDenied && (
+            <div className="pipeline-cta-card" data-testid="acl-denied" style={{ padding: '14px 18px', margin: '12px 0', border: '1px solid rgba(220,38,38,0.35)', borderRadius: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>
+                {isVi ? 'Không có quyền dataset' : 'ACL denied'} <code>{datasetKey}</code>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                {isVi ? 'Steward này không được mở dataset này.' : 'This steward cannot open this dataset.'}
+              </div>
+            </div>
+          )}
+          {datasetKey && !aclDenied && (
             <div
               className="pipeline-cta-card"
               style={{
