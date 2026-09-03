@@ -833,10 +833,11 @@ export function AgentChatWorkspace() {
           )}
         </div>
 
-        {/* Chat Input Bar */}
+        {!aclDenied && (
         <div className="chat-input-wrapper">
           <ChatInput datasetKey={datasetKey} onPipelineStarted={() => setRightTab('tab-traces')} />
         </div>
+        )}
       </div>
 
       {/* RIGHT PANEL: VISUAL CONTROL ROOM & INSPECTION (4 TABS) */}
@@ -881,6 +882,12 @@ export function AgentChatWorkspace() {
 
 
         <div className="panel-content-body">
+          {aclDenied ? (
+            <div style={{ padding: 16, fontSize: 13, color: 'var(--text-muted)' }}>
+              {isVi ? 'Inspector ẩn — không có quyền dataset.' : 'Inspector hidden — dataset not in ACL.'}
+            </div>
+          ) : (
+          <>
           <div hidden={rightTab !== 'tab-traces'}>
             <AgentTracesTab
               datasetKey={datasetKey}
@@ -915,6 +922,8 @@ export function AgentChatWorkspace() {
               runId={store.sourceIngestionRunId || store.runId || calendarDay}
             />
           </div>
+          </>
+          )}
         </div>
       </aside>
 
