@@ -85,20 +85,29 @@ class RuleProposerTool(BaseTool):
         return {"proposed_rules": rules, "proposals": rules, "rule_count": len(rules), "target_table": table}
 
     def _generate_llm_rules(self, table: str, policy: dict, profile: Any, anomalies: dict) -> List[dict]:
+        from src.reliability.models.rule_context import (
+            build_rule_proposal_context,
+            render_rule_proposal_prompt_block,
+        )
+        ctx = build_rule_proposal_context(
+            dataset_key=table,
+            target_table=table,
+            profile=profile,
+            anomalies=anomalies if isinstance(anomalies, dict) else {},
+            policy=policy,
+        )
+        context_block = render_rule_proposal_prompt_block(ctx)
         prompt = f"""
 You are an expert Data Quality Engineer & SQL Specialist for DataTrust OS.
-TASK: Analyze the provided Policy Manifest, Profiler Statistics, and Anomaly Findings for target table '{table}'.
+TASK: Analyze the provided Policy Manifest and typed Rule Proposal Context for target table '{table}'.
 Generate executable Data Quality Rules. Each rule MUST include BOTH a Validation Check SQL Expression (`rule_expression`) AND a Data Remediation SQL Expression (`remediation_sql_expr`).
 
 INPUT CONTEXT:
 1. Policy Manifest:
 {json.dumps(policy, indent=2)}
 
-2. Profiler Statistics:
-{json.dumps(profile) if isinstance(profile, (dict, list)) else str(profile)[:1000]}
-
-3. Anomaly Findings:
-{json.dumps(anomalies, indent=2)[:1000]}
+2. Typed Rule Proposal Context (profile findings, compact candidates, policy constraints):
+{context_block}
 
 REQUIREMENTS:
 Return JSON with key "rules" containing an array of objects. Schema for each object:

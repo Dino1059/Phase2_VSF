@@ -766,6 +766,7 @@ class DetectAnomaliesTool(BaseTool):
 class ProposeQualityRulesInput(BaseModel):
     dataset_key: str = Field(default="vinfast_ev_telemetry_dirty", description="Target dataset key to analyze for rule proposal")
     anomaly_findings: Optional[Dict[str, Any]] = Field(default=None, description="Optional structured anomaly findings from Stage 2")
+    profile_summary: Optional[Dict[str, Any]] = Field(default=None, description="Optional Stage 1 profile summary for typed rule context")
 
 
 class ProposeQualityRulesTool(BaseTool):
@@ -792,6 +793,7 @@ class ProposeQualityRulesTool(BaseTool):
                 try:
                     extra = RuleProposerTool().execute({
                         "target_table": canon,
+                        "profile_summary": input_data.get("profile_summary") or {},
                         "anomaly_findings": anomaly_findings,
                     })
                     for r in extra.get("proposed_rules") or extra.get("proposals") or []:
