@@ -23,6 +23,11 @@ export type WorkspaceTraceBeat = {
   model?: string | null;
   validation_status?: string | null;
   safe_summary?: string;
+  input_tokens_estimated?: number | null;
+  output_tokens?: number | null;
+  fallback_depth?: number | null;
+  context_items_included?: number | null;
+  context_items_dropped?: number | null;
   msgId?: string;
 };
 
