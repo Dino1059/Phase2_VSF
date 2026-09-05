@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 from src.canonical_policy import get_canonical_policy
 from src.services.llm import GemmaLLMAdapter
@@ -84,7 +84,7 @@ class RuleProposerTool(BaseTool):
 
         return {"proposed_rules": rules, "proposals": rules, "rule_count": len(rules), "target_table": table}
 
-    def _generate_llm_rules(self, table: str, policy: dict, profile: Any, anomalies: dict) -> List[dict]:
+    def _generate_llm_rules(self, table: str, policy: dict, profile: Any, anomalies: dict) -> list[dict]:
         from src.reliability.models.rule_context import (
             build_rule_proposal_context,
             render_rule_proposal_prompt_block,
@@ -193,9 +193,8 @@ Return JSON with key "rules" containing an array of objects. Schema for each obj
                 return cleaned
         return []
 
-    def _generate_heuristic_rules(self, table: str, policy: dict, anomalies: dict) -> List[dict]:
+    def _generate_heuristic_rules(self, table: str, policy: dict, anomalies: dict) -> list[dict]:
         rules = []
-        cols = policy.get("columns", {})
 
         if table == "ev_telemetry":
             rules.extend([
