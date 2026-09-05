@@ -55,13 +55,28 @@ class RuleProposerTool(BaseTool):
             # 2. Fallback to Heuristic Rules with Remediation SQL
             rules = self._generate_heuristic_rules(table, policy, anomalies)
 
-        # 3. Persist proposals into DuckDB quality_rules table for HITL review
+        # 3. Validate proposals then persist into DuckDB quality_rules for HITL review
         try:
             from src.tools.chat_tools import persist_hitl_proposals
+            from src.tools.validator import validate_proposed_rule
             d_key = table
+            columns = list((policy.get("columns") or {}).keys()) if isinstance(policy.get("columns"), dict) else []
+            sample_rows: list = []
+            # Prefer any sample rows the caller attached to anomaly/profile payloads
+            if isinstance(anomalies, dict) and isinstance(anomalies.get("sample_rows"), list):
+                sample_rows = [r for r in anomalies["sample_rows"] if isinstance(r, dict)]
+            approved: list = []
             proposals_to_persist = []
             for idx, r in enumerate(rules, 1):
                 rule_name = r.get("rule_name") or f"rule_{idx}"
+                validation = validate_proposed_rule(
+                    r,
+                    columns=columns,
+                    sample_rows=sample_rows,
+                    approved=approved,
+                )
+                r["validation_status"] = validation.status
+                r["validation_reasons"] = list(validation.reasons)
                 proposals_to_persist.append({
                     "id": f"{d_key}__{rule_name}",
                     "rule_name": rule_name,
@@ -76,7 +91,10 @@ class RuleProposerTool(BaseTool):
                     "proposed_by": "rule_proposer_agent",
                     "problem_discovered": r.get("problem_discovered") or r.get("rationale") or f"Discovered quality constraint on '{table}'.",
                     "why_proposed": r.get("why_proposed") or f"Rule generated during analysis of table '{table}'.",
-                    "quality_impact": r.get("quality_impact") or "Prevents invalid or corrupt data from entering clean warehouse."
+                    "quality_impact": r.get("quality_impact") or "Prevents invalid or corrupt data from entering clean warehouse.",
+                    "validation_status": validation.status,
+                    "validation_reasons": list(validation.reasons),
+                    "rationale": r.get("rationale") or r.get("why_proposed") or "",
                 })
             persist_hitl_proposals(d_key, proposals_to_persist)
         except Exception as e:

@@ -295,6 +295,8 @@ CREATE TABLE IF NOT EXISTS quality_rules (
     calendar_day VARCHAR,
     approved_by VARCHAR,
     approved_at VARCHAR,
+    validation_status VARCHAR,
+    validation_reasons VARCHAR,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

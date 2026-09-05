@@ -93,7 +93,15 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
             conf = float(p.get("confidence", 0.95) or 0.95)
         except (TypeError, ValueError):
             conf = 0.95
-        row = {**p, "id": rid, "rule_id": rid, "status": "proposed", "dataset_key": key}
+        v_status = p.get("validation_status") or ""
+        v_reasons = p.get("validation_reasons") or []
+        if isinstance(v_reasons, list):
+            import json as _json
+            v_reasons_s = _json.dumps(v_reasons)
+        else:
+            v_reasons_s = str(v_reasons)
+        row = {**p, "id": rid, "rule_id": rid, "status": "proposed", "dataset_key": key,
+               "validation_status": v_status, "validation_reasons": v_reasons}
         existing = []
         try:
             existing = db.execute("SELECT id, status FROM quality_rules WHERE id = ?", [rid])
@@ -101,15 +109,21 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
             existing = []
         if existing:
             try:
+                try:
+                    db.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS validation_status VARCHAR")
+                    db.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS validation_reasons VARCHAR")
+                except Exception:
+                    pass
                 db.execute(
                     "UPDATE quality_rules SET dataset_key = ?, target_table = ?, rule_name = ?, rule_type = ?, "
                     "rule_expression = ?, remediation_action = ?, remediation_sql_expr = ?, confidence = ?, "
                     "problem_discovered = ?, why_proposed = ?, quality_impact = ?, "
+                    "validation_status = ?, validation_reasons = ?, "
                     "status = CASE "
                     "WHEN lower(trim(cast(status AS VARCHAR))) IN ('approved', 'edited', 'rejected') "
                     "THEN status ELSE 'proposed' END, "
                     "proposed_by = COALESCE(proposed_by, 'dq_proposer') WHERE id = ?",
-                    [key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp, rid],
+                    [key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp, v_status or None, v_reasons_s, rid],
                 )
             except Exception:
                 try:
@@ -122,10 +136,15 @@ def persist_hitl_proposals(dataset_key: str, proposals: list, db=None) -> list:
                     pass
         else:
             try:
+                try:
+                    db.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS validation_status VARCHAR")
+                    db.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS validation_reasons VARCHAR")
+                except Exception:
+                    pass
                 db.execute(
-                    """INSERT INTO quality_rules (id, dataset_key, target_table, rule_name, rule_type, rule_expression, remediation_action, remediation_sql_expr, confidence, problem_discovered, why_proposed, quality_impact, status, proposed_by, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
-                    [rid, key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp],
+                    """INSERT INTO quality_rules (id, dataset_key, target_table, rule_name, rule_type, rule_expression, remediation_action, remediation_sql_expr, confidence, problem_discovered, why_proposed, quality_impact, validation_status, validation_reasons, status, proposed_by, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', 'dq_proposer', CURRENT_TIMESTAMP)""",
+                    [rid, key or None, target_tbl, name, rtype, expr, remed_act, remed_sql, conf, prob_disc, why_prop, qual_imp, v_status or None, v_reasons_s],
                 )
             except Exception:
                 try:
