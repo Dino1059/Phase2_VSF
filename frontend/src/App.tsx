@@ -18,7 +18,7 @@ export const App: React.FC = () => {
         <Route path="/workspace" element={<AgentChatWorkspace />} />
         <Route path="/chat/:id" element={<AgentChatWorkspace />} />
         <Route path="/operations/:view" element={<OperationsWorkspace />} />
-        <Route path="*" element={<Navigate to="/dashboard/ingestion" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

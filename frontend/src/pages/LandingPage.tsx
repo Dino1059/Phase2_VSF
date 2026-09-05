@@ -1,188 +1,126 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, useScroll, useTransform, useSpring, useMotionTemplate } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight } from 'lucide-react';
-import { AuthModal } from '../components/auth/AuthModal';
-import { useAuthStore } from '../stores/authStore';
-import { changeLanguage, i18n } from '../i18n';
-import '../assets/landing.css';
+import { ArrowRight, Globe } from 'lucide-react';
 
-const HERO_POSTER = '/landing/hero.poster.webp';
-const MOTIF_TELE = '/landing/motif.telemetry.webp';
-const MOTIF_VIN = '/landing/motif.vin-fabric.webp';
-const HERO_BASE = (import.meta.env.VITE_LANDING_HERO_BASE as string | undefined)?.replace(/\/$/, '') || 'https://t086-cdn.w9.nu';
-const HERO_WEBM = `${HERO_BASE}/P-086/landing/hero.webm`;
-const HERO_MP4 = `${HERO_BASE}/P-086/landing/hero.mp4`;
-const LIVE_T086 = 'https://t086.w9.nu/';
-const LIVE_D086 = 'https://d086.w9.nu/';
 
-/** Bold Q1=C: layered pointer follow ranges (Awwwards intensity) */
-const PTR = {
-  far: { t: 40, r: 10 },
-  mid: { t: 32, r: 8 },
-  near: { t: 22, r: 6 },
-  copy: { t: 14, r: 4 },
-} as const;
+const CHAR_SET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+~|}{[]:;?><';
 
-type Lang = 'vi' | 'en';
+/* --- ScrambleIn Component --- */
+export const ScrambleIn: React.FC<{ text: string; delay?: number; triggered?: boolean; className?: string }> = ({
+  text,
+  delay = 0,
+  triggered = true,
+  className = '',
+}) => {
+  const [displayed, setDisplayed] = useState<string>(text);
+  const [started, setStarted] = useState<boolean>(false);
 
-const COPY = {
-  vi: {
-    brand: 'DataTrust OS',
-    navProblem: 'Vấn đề',
-    navProduct: 'Sản phẩm',
-    navHitl: 'HITL',
-    navRoles: 'Quyền hạn',
-    navProof: 'Bằng chứng',
-    login: 'Đăng nhập',
-    enter: 'Vào hệ thống',
-    liveT086: 'Môi trường live',
-    eyebrow: 'Nền tảng chất lượng dữ liệu vận hành',
-    headline: 'Từ landing bẩn đến warehouse tin cậy — có người gác cổng.',
-    sub: 'Ingest theo ngày, HITL trước khi ghi, ACL theo dataset. LLM tắt vẫn vận hành được.',
-    subEn: 'Day-scoped quality · preview ≠ execute · humans decide.',
-    problemK: 'Vấn đề',
-    problemH: 'Telemetry bẩn → quyết định sai.',
-    problemL: 'Thiếu lineage theo ngày, hàng lỗi biến mất thầm, không có cổng duyệt trước khi rule vào warehouse.',
-    problemLEn: 'No day proof · silent drops · no human gate.',
-    problems: [
-      { t: 'Không chứng minh được ngày sạch', d: 'Batch trôi và schema lệch — chỉ COUNT theo ngày mới là bằng chứng.', en: 'Day-scoped COUNT' },
-      { t: 'Quarantine bị bỏ quên', d: 'Corrupt rows cần tách clean/quarantine có hash, không được nuốt thầm.', en: 'Hashed quarantine' },
-      { t: 'Đề xuất ≠ được phép chạy', d: 'Compile rule không qua HITL là rủi ro vận hành.', en: 'Preview ≠ execute' },
-    ],
-    productK: 'Sản phẩm',
-    productH: 'Ingest → Gate → Trust',
-    productL: 'Ba lớp đủ để vận hành chất lượng dữ liệu mỗi ngày.',
-    productLEn: 'Day-bound ingest · HITL gate · clean/quarantine lineage.',
-    products: [
-      { n: '01', t: 'Ingest theo ngày', d: 'Landing day-scoped; promote có kiểm soát vào warehouse.', en: 'Landing → promote' },
-      { n: '02', t: 'Agents đề xuất', d: 'Profile / anomaly / rule card — deterministic, không tự ghi.', en: 'Propose only' },
-      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 — warehouse đáng tin.', en: 'Cryptographic split' },
-    ],
-    diagramIngest: 'Landing → Warehouse',
-    diagramHitl: 'Preview ≠ Execute',
-    diagramAcl: 'Steward A ≠ B',
-    diagramLlm: 'LLM ON / OFF — HITL vẫn chạy',
-    diagramCount: 'Day-scoped COUNT',
-    hitlK: 'HITL',
-    hitlH: 'AI đề xuất. Steward quyết định.',
-    hitlL: 'Preview sandbox ≠ execute warehouse. Remember giữ quyết định. Tắt LLM vẫn dùng HITL.',
-    hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember · LLM-off useful.',
-    hitlSteps: [
-      { t: 'Đề xuất', d: 'Rule card + evidence từ agent.' },
-      { t: 'Preview', d: 'Sandbox — không ghi warehouse.' },
-      { t: 'Duyệt', d: 'Accept / Edit / Reject.' },
-      { t: 'Remember', d: 'Giữ quyết định; LLM off vẫn dùng được.' },
-    ],
-    rolesK: 'Quyền hạn',
-    rolesH: 'Đúng người, đúng dataset.',
-    rolesL: 'ACL theo dataset_key. Steward scoped; Admin xem catalog/aggregate — không execute warehouse.',
-    rolesLEn: 'dataset_key ACL · Admin names-only · no cross-read.',
-    roles: [
-      { t: 'Steward', d: 'Promote, HITL execute/Remember, ingest trên dataset được gán.', en: 'Write + HITL' },
-      { t: 'Analyst', d: 'Đọc và phân tích; không execute warehouse.', en: 'Read + ask' },
-      { t: 'Admin', d: 'Catalog + aggregate; quản user/reset — không execute.', en: 'Names + aggregate' },
-      { t: 'Viewer', d: 'Chỉ xem trong phạm vi được gán.', en: 'Read scoped' },
-    ],
-    proofK: 'Bằng chứng',
-    proofH: 'Môi trường live và UI đã kiểm chứng.',
-    proofL: 'Staging vận hành thật — không số liệu marketing giả.',
-    proofLEn: 'Live staging · QA’d UI · no vanity metrics.',
-    shots: [
-      { src: '/landing/proof/ingestion.png', cap: 'Ingest theo ngày' },
-      { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
-      { src: '/landing/proof/workspace.png', cap: 'Workspace + evidence' },
-      { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL vẫn chạy' },
-    ],
-    techK: 'Nền tảng',
-    techH: 'Deterministic trước generative.',
-    techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'dataset ACL'],
-    footH: 'Sẵn sàng vào hệ thống?',
-    footL: 'Đăng nhập để xem workspace. Preview trước — execute sau.',
-    footNote: '© 2026 DataTrust OS',
-    stagingNote: 't086 live · d086 sandbox',
-  },
-  en: {
-    brand: 'DataTrust OS',
-    navProblem: 'Problem',
-    navProduct: 'Product',
-    navHitl: 'HITL',
-    navRoles: 'Access',
-    navProof: 'Proof',
-    login: 'Log in',
-    enter: 'Enter OS',
-    liveT086: 'Live environment',
-    eyebrow: 'Operational data-quality platform',
-    headline: 'Dirty landing to trusted warehouse — with a human gate.',
-    sub: 'Day-bound ingest, HITL before write, dataset ACL. Works with LLM off.',
-    subEn: 'Day-scoped quality · preview ≠ execute · humans decide.',
-    problemK: 'Problem',
-    problemH: 'Dirty telemetry → blind decisions.',
-    problemL: 'No day-bound lineage, silent row loss, no steward gate before rules hit the warehouse.',
-    problemLEn: 'No day proof · silent drops · no human gate.',
-    problems: [
-      { t: 'Which day is clean?', d: 'Drifting batches need day-scoped COUNT as proof.', en: 'Day-scoped COUNT' },
-      { t: 'Forgotten quarantine', d: 'Corrupt rows need hashed clean/quarantine — not vanish.', en: 'Hashed quarantine' },
-      { t: 'Propose ≠ allowed run', d: 'Without HITL, rule compile is operational risk.', en: 'Preview ≠ execute' },
-    ],
-    productK: 'Product',
-    productH: 'Ingest → Gate → Trust',
-    productL: 'Three layers for day-to-day data quality operations.',
-    productLEn: 'Day-bound ingest · HITL gate · clean/quarantine lineage.',
-    products: [
-      { n: '01', t: 'Day-bound ingest', d: 'Landing tables by day; controlled promote into warehouse.', en: 'Landing → promote' },
-      { n: '02', t: 'Agents propose', d: 'Profile / anomaly / rule card — deterministic, never auto-write.', en: 'Propose only' },
-      { n: '03', t: 'Govern + lineage', d: 'Clean / quarantine + SHA-256 — trusted warehouse.', en: 'Cryptographic split' },
-    ],
-    diagramIngest: 'Landing → Warehouse',
-    diagramHitl: 'Preview ≠ Execute',
-    diagramAcl: 'Steward A ≠ B',
-    diagramLlm: 'LLM ON / OFF — HITL still works',
-    diagramCount: 'Day-scoped COUNT',
-    hitlK: 'HITL',
-    hitlH: 'AI proposes. Steward decides.',
-    hitlL: 'Sandbox preview ≠ warehouse execute. Remember keeps decisions. Useful with LLM off.',
-    hitlLEn: 'Sandbox preview · Accept / Edit / Reject · Remember · LLM-off useful.',
-    hitlSteps: [
-      { t: 'Propose', d: 'Rule card + evidence from the agent.' },
-      { t: 'Preview', d: 'Sandbox — no warehouse write.' },
-      { t: 'Decide', d: 'Accept / Edit / Reject.' },
-      { t: 'Remember', d: 'Keep the decision; LLM-off still useful.' },
-    ],
-    rolesK: 'Access',
-    rolesH: 'Right people, right datasets.',
-    rolesL: 'dataset_key ACL. Stewards are scoped; Admin sees catalog/aggregate — never warehouse execute.',
-    rolesLEn: 'dataset_key ACL · Admin names-only · no cross-read.',
-    roles: [
-      { t: 'Steward', d: 'Promote, HITL execute/Remember, ingest on assigned datasets.', en: 'Write + HITL' },
-      { t: 'Analyst', d: 'Read and analyze; no warehouse execute.', en: 'Read + ask' },
-      { t: 'Admin', d: 'Catalog + aggregate; users/reset — no execute.', en: 'Names + aggregate' },
-      { t: 'Viewer', d: 'Scoped view only.', en: 'Read scoped' },
-    ],
-    proofK: 'Proof',
-    proofH: 'Live environments. QA’d UI.',
-    proofL: 'Real staging — no vanity metrics.',
-    proofLEn: 'Live staging · QA’d UI · no vanity metrics.',
-    shots: [
-      { src: '/landing/proof/ingestion.png', cap: 'Day-bound ingest' },
-      { src: '/landing/proof/hitl.png', cap: 'Rules & HITL' },
-      { src: '/landing/proof/workspace.png', cap: 'Workspace + evidence' },
-      { src: '/landing/proof/llm-off.png', cap: 'LLM OFF — HITL still works' },
-    ],
-    techK: 'Platform',
-    techH: 'Deterministic before generative.',
-    techChips: ['React + Vite', 'FastAPI', 'DuckDB', 'HITL sandbox', 'LLM on/off', 'dataset ACL'],
-    footH: 'Ready to enter?',
-    footL: 'Log in to the workspace. Preview first — execute later.',
-    footNote: '© 2026 DataTrust OS',
-    stagingNote: 't086 live · d086 sandbox',
-  },
-} as const;
+  useEffect(() => {
+    if (!triggered) {
+      setDisplayed('');
+      setStarted(false);
+      return;
+    }
 
-export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({ size = 22, className = '' }) => {
-  const path =
-    'M 1.5,23 L 1.5,33 C 1.5,38.5 6,43 11.5,43 L 16.5,43 C 22,43 26.5,38.5 26.5,33 Q 28,28 33,26.5 C 38.5,26.5 43,22 43,16.5 L 43,11.5 C 43,6 38.5,1.5 33,1.5 L 23,1.5 Q 12,12 1.5,23 Z';
+    const timer = setTimeout(() => {
+      setStarted(true);
+      let frame = 0;
+
+      const interval = setInterval(() => {
+        frame++;
+        const revealedCount = Math.floor(frame * 0.5);
+
+
+        if (revealedCount >= text.length) {
+          setDisplayed(text);
+          clearInterval(interval);
+          return;
+        }
+
+        let output = '';
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] === ' ') {
+            output += ' ';
+          } else if (i < revealedCount) {
+            output += text[i];
+          } else if (i < revealedCount + 3) {
+            output += CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
+          }
+        }
+        setDisplayed(output);
+      }, 25);
+
+      return () => clearInterval(interval);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [text, delay, triggered]);
+
+  if (!triggered || !started) {
+    return <span className={className}>&nbsp;</span>;
+  }
+
+  return <span className={className}>{displayed || '\u00A0'}</span>;
+};
+
+/* --- ScrambleText Component (Hover-Driven) --- */
+export const ScrambleText: React.FC<{ text: string; isHovered: boolean; className?: string }> = ({
+  text,
+  isHovered,
+  className = '',
+}) => {
+  const [displayed, setDisplayed] = useState<string>(text);
+
+  useEffect(() => {
+    if (!isHovered) {
+      setDisplayed(text);
+      return;
+    }
+
+    let frame = 0;
+    const interval = setInterval(() => {
+      frame++;
+      const revealedCount = Math.floor(frame / 4);
+
+      if (revealedCount >= text.length) {
+        setDisplayed(text);
+        clearInterval(interval);
+        return;
+      }
+
+      let output = '';
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === ' ') {
+          output += ' ';
+        } else if (i < revealedCount) {
+          output += text[i];
+        } else {
+          output += CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)];
+        }
+      }
+      setDisplayed(output);
+    }, 25);
+
+    return () => clearInterval(interval);
+  }, [isHovered, text]);
+
+  return <span className={className}>{displayed}</span>;
+};
+
+/* --- 4-Fold Rotation Abstract Logo --- */
+export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = '' }) => {
+  const path = 'M 1.5,23 L 1.5,33 C 1.5,38.5 6,43 11.5,43 L 16.5,43 C 22,43 26.5,38.5 26.5,33 Q 28,28 33,26.5 C 38.5,26.5 43,22 43,16.5 L 43,11.5 C 43,6 38.5,1.5 33,1.5 L 23,1.5 Q 12,12 1.5,23 Z';
+
   return (
-    <svg width={size} height={size} viewBox="-50 -50 100 100" className={className} fill="currentColor" aria-hidden>
+    <svg
+      width={size}
+      height={size}
+      viewBox="-50 -50 100 100"
+      className={className}
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <path d={path} transform="rotate(0)" />
       <path d={path} transform="rotate(90)" />
       <path d={path} transform="rotate(180)" />
@@ -191,640 +129,986 @@ export const DataTrustLogo: React.FC<{ size?: number; className?: string }> = ({
   );
 };
 
-/* --- Project-relevant SVG diagrams (DataTrust OS, not generic AI) --- */
-
-const DiagramIngest: React.FC<{ label: string }> = ({ label }) => (
-  <figure className="dt-lp__diagram" aria-label={label}>
-    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
-      <rect className="dg-node" x="8" y="22" width="88" height="44" rx="8" />
-      <text x="52" y="48" textAnchor="middle" className="dg-label">Landing</text>
-      <path className="dg-flow" d="M104 44 H148" markerEnd="url(#dg-arrow)" />
-      <rect className="dg-node dg-node--warn" x="152" y="22" width="72" height="44" rx="8" />
-      <text x="188" y="42" textAnchor="middle" className="dg-label">HITL</text>
-      <text x="188" y="56" textAnchor="middle" className="dg-sub">gate</text>
-      <path className="dg-flow" d="M232 44 H276" markerEnd="url(#dg-arrow)" />
-      <rect className="dg-node dg-node--ok" x="280" y="22" width="72" height="44" rx="8" />
-      <text x="316" y="48" textAnchor="middle" className="dg-label">WH</text>
-      <defs>
-        <marker id="dg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-          <path d="M0 0 L6 3 L0 6 Z" fill="currentColor" opacity="0.55" />
-        </marker>
-      </defs>
-    </svg>
-    <figcaption>{label}</figcaption>
-  </figure>
-);
-
-const DiagramHitl: React.FC<{ label: string }> = ({ label }) => (
-  <figure className="dt-lp__diagram" aria-label={label}>
-    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
-      <rect className="dg-node" x="12" y="18" width="100" height="52" rx="8" />
-      <text x="62" y="40" textAnchor="middle" className="dg-label">Preview</text>
-      <text x="62" y="56" textAnchor="middle" className="dg-sub">sandbox</text>
-      <text x="180" y="48" textAnchor="middle" className="dg-neq">≠</text>
-      <rect className="dg-node dg-node--warn" x="248" y="18" width="100" height="52" rx="8" />
-      <text x="298" y="40" textAnchor="middle" className="dg-label">Execute</text>
-      <text x="298" y="56" textAnchor="middle" className="dg-sub">warehouse</text>
-    </svg>
-    <figcaption>{label}</figcaption>
-  </figure>
-);
-
-const DiagramAcl: React.FC<{ label: string }> = ({ label }) => (
-  <figure className="dt-lp__diagram" aria-label={label}>
-    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
-      <rect className="dg-node dg-node--ok" x="20" y="14" width="120" height="60" rx="8" />
-      <text x="80" y="38" textAnchor="middle" className="dg-label">Steward A</text>
-      <text x="80" y="54" textAnchor="middle" className="dg-sub">dataset_a ✓</text>
-      <text x="180" y="48" textAnchor="middle" className="dg-neq">≠</text>
-      <rect className="dg-node" x="220" y="14" width="120" height="60" rx="8" />
-      <text x="280" y="38" textAnchor="middle" className="dg-label">Steward B</text>
-      <text x="280" y="54" textAnchor="middle" className="dg-sub">dataset_b ✓</text>
-      <line className="dg-block" x1="140" y1="70" x2="220" y2="70" />
-      <text x="180" y="82" textAnchor="middle" className="dg-sub">ACL block cross-read</text>
-    </svg>
-    <figcaption>{label}</figcaption>
-  </figure>
-);
-
-const DiagramLlmChip: React.FC<{ label: string }> = ({ label }) => (
-  <figure className="dt-lp__diagram dt-lp__diagram--chips" aria-label={label}>
-    <div className="dt-lp__llm-row">
-      <span className="dt-lp__llm-chip dt-lp__llm-chip--on">LLM ON</span>
-      <span className="dt-lp__llm-chip dt-lp__llm-chip--off">LLM OFF</span>
-      <span className="dt-lp__llm-chip dt-lp__llm-chip--hitl">HITL still works</span>
-    </div>
-    <figcaption>{label}</figcaption>
-  </figure>
-);
-
-const DiagramDayCount: React.FC<{ label: string }> = ({ label }) => (
-  <figure className="dt-lp__diagram" aria-label={label}>
-    <svg viewBox="0 0 360 88" className="dt-lp__diagram-svg" role="img">
-      {[0, 1, 2, 3, 4, 5, 6].map((i) => {
-        const h = 18 + ((i * 11) % 37);
-        const active = i === 4;
-        return (
-          <g key={i}>
-            <rect
-              className={active ? 'dg-bar dg-bar--active' : 'dg-bar'}
-              x={28 + i * 46}
-              y={72 - h}
-              width="28"
-              height={h}
-              rx="4"
-            />
-            <text x={42 + i * 46} y="84" textAnchor="middle" className="dg-sub">
-              D{i + 9}
-            </text>
-          </g>
-        );
-      })}
-      <text x="212" y="28" textAnchor="middle" className="dg-label dg-count">
-        COUNT 30 528
-      </text>
-    </svg>
-    <figcaption>{label}</figcaption>
-  </figure>
-);
-
-function useMotionAllowed(): boolean {
-  const [ok, setOk] = useState(true);
-  useEffect(() => {
-    const q = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const sync = () => setOk(!q.matches);
-    sync();
-    q.addEventListener('change', sync);
-    return () => q.removeEventListener('change', sync);
-  }, []);
-  return ok;
-}
-
-function useStaticHeroPreferred(): boolean {
-  const [staticHero, setStaticHero] = useState(true);
-  useEffect(() => {
-    const motionQ = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const coarseQ = window.matchMedia('(pointer: coarse)');
-    const sync = () => setStaticHero(motionQ.matches || coarseQ.matches);
-    sync();
-    motionQ.addEventListener('change', sync);
-    coarseQ.addEventListener('change', sync);
-    return () => {
-      motionQ.removeEventListener('change', sync);
-      coarseQ.removeEventListener('change', sync);
-    };
-  }, []);
-  return staticHero;
-}
+const NAV_ITEMS = [
+  { id: 'section-overview', label: 'Overview' },
+  { id: 'section-vision', label: 'Vision' },
+  { id: 'section-metrics', label: 'Metrics' },
+  { id: 'section-intelligence', label: 'Intelligence' },
+  { id: 'section-architecture', label: 'Architecture' },
+];
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, setAuthModalOpen } = useAuthStore();
-  const [lang, setLang] = useState<Lang>(() => ((i18n.language || 'vi').startsWith('vi') ? 'vi' : 'en'));
-  const t = COPY[lang];
-  const motionOk = useMotionAllowed();
-  const staticHero = useStaticHeroPreferred();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const pendingSeek = useRef<number | null>(null);
-  const [videoReady, setVideoReady] = useState(false);
-  const [heavyReady, setHeavyReady] = useState(false);
+  const [entranceComplete, setEntranceComplete] = useState<boolean>(false);
+  const [activeSection, setActiveSection] = useState<string>('section-overview');
+  const [navHovered, setNavHovered] = useState<string | null>(null);
+  const [downloadHovered, setDownloadHovered] = useState<boolean>(false);
 
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const heroRef = useRef<HTMLElement | null>(null);
-  const ptrTarget = useRef({ x: 0, y: 0 });
-  const ptrCurrent = useRef({ x: 0, y: 0 });
-  const scrollProgress = useRef(0);
-  const heroOnScreen = useRef(true);
-  const rafPtr = useRef(0);
-  const rafScroll = useRef(0);
+  const heroVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
 
+  // Entrance trigger
   useEffect(() => {
-    const onLang = (lng: string) => setLang(lng.startsWith('vi') ? 'vi' : 'en');
-    i18n.on('languageChanged', onLang);
-    return () => {
-      i18n.off('languageChanged', onLang);
-    };
+    const t = setTimeout(() => setEntranceComplete(true), 800);
+    return () => clearTimeout(t);
   }, []);
 
+  // Scroll spy tracking for active section highlighting
   useEffect(() => {
-    if (!isAuthenticated) return;
-    navigate('/dashboard/ingestion', { replace: true });
-  }, [isAuthenticated, navigate]);
-
-  /* Defer heavy motif layers until after first paint / LCP poster */
-  useEffect(() => {
-    if (!motionOk) return;
-    let cancelled = false;
-    const arm = () => {
-      if (!cancelled) setHeavyReady(true);
-    };
-    const w = window as Window & {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
-    let idleId: number | null = null;
-    let timeoutId: number | null = null;
-    if (w.requestIdleCallback) {
-      idleId = w.requestIdleCallback(arm, { timeout: 1200 });
-    } else {
-      timeoutId = window.setTimeout(arm, 400);
-    }
-    return () => {
-      cancelled = true;
-      if (idleId != null && w.cancelIdleCallback) w.cancelIdleCallback(idleId);
-      if (timeoutId != null) window.clearTimeout(timeoutId);
-    };
-  }, [motionOk]);
-
-  /* IO reveals */
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const nodes = Array.from(root.querySelectorAll<HTMLElement>('.dt-lp__reveal'));
-    if (!nodes.length) return;
-
-    if (!motionOk) {
-      nodes.forEach((el) => el.classList.add('in-view'));
-      return;
-    }
-
-    if (typeof IntersectionObserver === 'undefined') {
-      nodes.forEach((el) => el.classList.add('in-view'));
-      return;
-    }
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          entry.target.classList.add('in-view');
-          io.unobserve(entry.target);
+    const handleScroll = () => {
+      const scrollPosition = window.scrollY + 180;
+      for (let i = NAV_ITEMS.length - 1; i >= 0; i--) {
+        const el = document.getElementById(NAV_ITEMS[i].id);
+        if (el) {
+          if (scrollPosition >= el.offsetTop) {
+            setActiveSection(NAV_ITEMS[i].id);
+            break;
+          }
         }
-      },
-      { root: null, rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
-    );
-    nodes.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, [lang, motionOk]);
-
-  /* Pause pointer when hero off-screen */
-  useEffect(() => {
-    const hero = heroRef.current;
-    if (!hero || !motionOk) return;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        heroOnScreen.current = e.isIntersecting;
-        if (!e.isIntersecting) {
-          ptrTarget.current = { x: 0, y: 0 };
-        }
-      },
-      { threshold: 0.05 },
-    );
-    io.observe(hero);
-    return () => io.disconnect();
-  }, [motionOk]);
-
-  /* Pointer parallax rAF loop — bold layered follow */
-  useEffect(() => {
-    if (!motionOk) return;
-    const root = rootRef.current;
-    if (!root) return;
-
-    const tick = () => {
-      const cur = ptrCurrent.current;
-      const tgt = ptrTarget.current;
-      cur.x += (tgt.x - cur.x) * 0.12;
-      cur.y += (tgt.y - cur.y) * 0.12;
-
-      const x = cur.x;
-      const y = cur.y;
-      const s = scrollProgress.current;
-
-      root.style.setProperty('--ptr-x', x.toFixed(4));
-      root.style.setProperty('--ptr-y', y.toFixed(4));
-      root.style.setProperty(
-        '--ptr-far',
-        `translate3d(${(x * PTR.far.t).toFixed(2)}px, ${(y * PTR.far.t * 0.7).toFixed(2)}px, 0) rotateX(${(-y * PTR.far.r).toFixed(2)}deg) rotateY(${(x * PTR.far.r).toFixed(2)}deg)`,
-      );
-      root.style.setProperty(
-        '--ptr-mid',
-        `translate3d(${(x * PTR.mid.t).toFixed(2)}px, ${(y * PTR.mid.t * 0.65).toFixed(2)}px, 0) rotateX(${(-y * PTR.mid.r).toFixed(2)}deg) rotateY(${(x * PTR.mid.r).toFixed(2)}deg)`,
-      );
-      root.style.setProperty(
-        '--ptr-near',
-        `translate3d(${(x * PTR.near.t).toFixed(2)}px, ${(y * PTR.near.t * 0.6).toFixed(2)}px, 0) rotateX(${(-y * PTR.near.r).toFixed(2)}deg) rotateY(${(x * PTR.near.r).toFixed(2)}deg)`,
-      );
-      root.style.setProperty(
-        '--ptr-copy',
-        `translate3d(${(x * PTR.copy.t).toFixed(2)}px, ${(y * PTR.copy.t * 0.5).toFixed(2)}px, 0) rotateX(${(-y * PTR.copy.r).toFixed(2)}deg) rotateY(${(x * PTR.copy.r).toFixed(2)}deg)`,
-      );
-      /* Scroll-linked hero depth (scale + Y) — scrub feel without video seek thrash */
-      const depthScale = 1.02 + s * 0.1;
-      const depthY = s * -48;
-      root.style.setProperty('--scroll-depth', `translate3d(0, ${depthY.toFixed(1)}px, 0) scale(${depthScale.toFixed(4)})`);
-      root.style.setProperty('--scroll-p', s.toFixed(4));
-
-      rafPtr.current = requestAnimationFrame(tick);
-    };
-    rafPtr.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafPtr.current);
-  }, [motionOk]);
-
-  /* Scroll progress + section parallax (rAF throttled) */
-  useEffect(() => {
-    if (!motionOk) return;
-    const root = rootRef.current;
-    if (!root) return;
-    let pending = false;
-
-    const apply = () => {
-      pending = false;
-      const doc = document.documentElement;
-      const max = Math.max(1, doc.scrollHeight - window.innerHeight);
-      const p = Math.min(1, Math.max(0, window.scrollY / max));
-      scrollProgress.current = p;
-      root.style.setProperty('--scroll-p', p.toFixed(4));
-
-      root.querySelectorAll<HTMLElement>('.dt-lp__parallax').forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        const vh = window.innerHeight;
-        const mid = rect.top + rect.height * 0.5;
-        const norm = (mid - vh * 0.5) / vh; // -1..1-ish
-        const speed = Number(el.dataset.speed || 24);
-        const ty = Math.max(-56, Math.min(56, -norm * speed));
-        const op = Math.max(0.55, Math.min(1, 1 - Math.abs(norm) * 0.25));
-        el.style.transform = `translate3d(0, ${ty.toFixed(1)}px, 0)`;
-        el.style.opacity = op.toFixed(3);
-      });
+      }
     };
 
-    const onScroll = () => {
-      if (pending) return;
-      pending = true;
-      rafScroll.current = requestAnimationFrame(apply);
-    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-    apply();
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      cancelAnimationFrame(rafScroll.current);
-    };
-  }, [motionOk, lang]);
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
-  const onHeroPointer = (e: React.PointerEvent<HTMLElement>) => {
-    if (!motionOk || !heroOnScreen.current) return;
+  // Section 2 scroll-driven 3D text
+  const section2Ref = useRef<HTMLDivElement | null>(null);
+  const { scrollYProgress: s2Progress } = useScroll({
+    target: section2Ref,
+    offset: ['start end', 'end start'],
+  });
+
+  const rawY = useTransform(s2Progress, [0.1, 0.9], [60, -120]);
+  const smoothY = useSpring(rawY, { stiffness: 15, damping: 32, mass: 1.8 });
+  const s2Opacity = useTransform(s2Progress, [0.2, 0.45, 0.75, 0.95], [0, 1, 1, 0]);
+  const transformStyle = useMotionTemplate`perspective(400px) rotateX(24deg) translateY(${smoothY}px) translateZ(15px)`;
+
+  // Hero Video Mouse Scrubbing (delta horizontal movement)
+  const handleHeroMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const video = heroVideoRef.current;
+    if (!video || !video.duration) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
-    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
-    ptrTarget.current = {
-      x: Math.max(-1, Math.min(1, nx)),
-      y: Math.max(-1, Math.min(1, ny)),
+    const normalizedX = (e.clientX - rect.left) / rect.width; // 0 to 1
+    const targetTime = normalizedX * video.duration * 0.8;
+
+    const performSeek = (time: number) => {
+      if (video.seeking) {
+        pendingSeekRef.current = time;
+        return;
+      }
+      try {
+        video.currentTime = Math.max(0, Math.min(video.duration, time));
+      } catch (err) {
+        // Ignore seek error
+      }
     };
+
+    performSeek(targetTime);
   };
 
-  const onHeroLeave = () => {
-    ptrTarget.current = { x: 0, y: 0 };
-  };
-
-  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-
-  const toggleLang = () => {
-    const next: Lang = lang === 'vi' ? 'en' : 'vi';
-    void changeLanguage(next);
-    setLang(next);
-  };
-
-  const openLogin = () => {
-    if (isAuthenticated) {
-      navigate('/dashboard/ingestion');
-      return;
-    }
-    setAuthModalOpen(true);
-  };
-
-  const ensureVideo = useCallback(() => {
-    if (staticHero || videoReady || !motionOk) return;
-    const video = videoRef.current;
-    if (!video) return;
-    if (!video.querySelector('source')) {
-      const webm = document.createElement('source');
-      webm.src = HERO_WEBM;
-      webm.type = 'video/webm';
-      const mp4 = document.createElement('source');
-      mp4.src = HERO_MP4;
-      mp4.type = 'video/mp4';
-      video.appendChild(webm);
-      video.appendChild(mp4);
-      video.load();
-    }
-    setVideoReady(true);
-  }, [staticHero, videoReady, motionOk]);
-
-  const onHeroMove = (e: React.MouseEvent<HTMLElement>) => {
-    if (staticHero || !motionOk) return;
-    ensureVideo();
-    const video = videoRef.current;
-    if (!video || !video.duration || Number.isNaN(video.duration)) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    /* Mix pointer X with scroll progress for pronounced scrub */
-    const mix = Math.min(1, Math.max(0, x * 0.75 + scrollProgress.current * 0.25));
-    const target = mix * video.duration;
-    if (video.seeking) {
-      pendingSeek.current = target;
-      return;
-    }
-    try {
-      video.currentTime = target;
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const onSeeked = () => {
-    if (pendingSeek.current !== null && videoRef.current) {
-      const next = pendingSeek.current;
-      pendingSeek.current = null;
-      videoRef.current.currentTime = next;
+  const handleHeroSeeked = () => {
+    if (pendingSeekRef.current !== null && heroVideoRef.current) {
+      const nextTime = pendingSeekRef.current;
+      pendingSeekRef.current = null;
+      heroVideoRef.current.currentTime = nextTime;
     }
   };
 
   return (
-    <div className={`dt-lp${motionOk ? ' dt-lp--motion' : ' dt-lp--reduced'}`} ref={rootRef}>
-      <div className="dt-lp__progress" aria-hidden>
-        <div className="dt-lp__progress-bar" />
-      </div>
-
-      <nav className="dt-lp__nav" aria-label="Primary">
-        <button type="button" className="dt-lp__brand" onClick={() => scrollTo('section-hero')}>
-          <DataTrustLogo size={18} />
-          {t.brand}
-        </button>
-        <div className="dt-lp__nav-links">
-          <button type="button" onClick={() => scrollTo('section-problem')}>{t.navProblem}</button>
-          <button type="button" onClick={() => scrollTo('section-product')}>{t.navProduct}</button>
-          <button type="button" onClick={() => scrollTo('section-hitl')}>{t.navHitl}</button>
-          <button type="button" onClick={() => scrollTo('section-roles')}>{t.navRoles}</button>
-          <button type="button" onClick={() => scrollTo('section-proof')}>{t.navProof}</button>
-        </div>
-        <div className="dt-lp__nav-actions">
-          <button type="button" className="dt-lp__lang" onClick={toggleLang} aria-label="Language">
-            {lang === 'vi' ? 'EN' : 'VI'}
-          </button>
-          <a className="dt-lp__btn dt-lp__btn--ghost" href={LIVE_T086} target="_blank" rel="noreferrer">
-            {t.liveT086}
-            <ArrowUpRight size={14} />
-          </a>
-          <button type="button" className="dt-lp__btn dt-lp__btn--primary" onClick={openLogin}>
-            {isAuthenticated ? t.enter : t.login}
-          </button>
-        </div>
-      </nav>
-
-      <header
-        id="section-hero"
-        ref={heroRef}
-        className="dt-lp__hero"
-        onPointerEnter={ensureVideo}
-        onPointerMove={onHeroPointer}
-        onPointerLeave={onHeroLeave}
-        onMouseMove={onHeroMove}
+    <div
+      style={{
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        fontFamily: '"Space Mono", monospace',
+        minHeight: '100vh',
+        overflowX: 'hidden',
+        position: 'relative',
+      }}
+    >
+      {/* FULL TOP BAR WITH GLASS EFFECT & ACTIVE SECTION HIGHLIGHT */}
+      <motion.nav
+        initial={{ opacity: 0, y: -15 }}
+        animate={{ opacity: entranceComplete ? 1 : 0, y: entranceComplete ? 0 : -15 }}
+        transition={{ duration: 0.8 }}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '72px',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 28px',
+          backgroundColor: 'rgba(8, 8, 12, 0.72)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)',
+          pointerEvents: 'auto',
+        }}
       >
-        <div className={`dt-lp__hero-media${videoReady && !staticHero ? ' is-video-ready' : ''}`}>
-          <div className="dt-lp__hero-layer dt-lp__hero-layer--far" aria-hidden>
-            <img src={HERO_POSTER} alt="" width={1920} height={1080} decoding="async" fetchPriority="high" />
-          </div>
-          {!staticHero && (
-            <div className="dt-lp__hero-layer dt-lp__hero-layer--mid" aria-hidden>
-              <video ref={videoRef} muted playsInline preload="none" poster={HERO_POSTER} onSeeked={onSeeked} />
-            </div>
-          )}
-          {heavyReady && motionOk && (
-            <div className="dt-lp__hero-layer dt-lp__hero-layer--motif" aria-hidden>
-              <img src={MOTIF_TELE} alt="" width={1280} height={720} loading="lazy" decoding="async" />
-            </div>
-          )}
+        {/* Left: Logo Capsule */}
+        <motion.div
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => scrollToSection('section-overview')}
+          style={{
+            height: '44px',
+            padding: '0 18px',
+            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            cursor: 'pointer',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+          }}
+        >
+          <DataTrustLogo size={18} className="text-white" />
+          <span style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', color: '#ffffff' }}>
+            DataTrustOS
+          </span>
+        </motion.div>
+
+        {/* Center: Glass Navigation Track with Active Highlight */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            backgroundColor: 'rgba(255, 255, 255, 0.06)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            borderRadius: '9999px',
+            padding: '4px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeSection === item.id;
+            const isHovered = navHovered === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => scrollToSection(item.id)}
+                onMouseEnter={() => setNavHovered(item.id)}
+                onMouseLeave={() => setNavHovered(null)}
+                style={{
+                  position: 'relative',
+                  padding: '6px 16px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: isActive ? '#ffffff' : isHovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.55)',
+                  fontSize: '13px',
+                  fontFamily: '"Space Mono", monospace',
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: 'pointer',
+                  transition: 'color 0.2s ease',
+                  outline: 'none',
+                }}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="activeNavIndicator"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      backgroundColor: 'rgba(255, 255, 255, 0.18)',
+                      borderRadius: '9999px',
+                      border: '1px solid rgba(255, 255, 255, 0.28)',
+                      boxShadow: '0 2px 12px rgba(255, 255, 255, 0.15)',
+                      zIndex: -1,
+                    }}
+                  />
+                )}
+                {item.label}
+              </button>
+            );
+          })}
         </div>
-        <div className="dt-lp__hero-scrub dt-lp__hero-layer--near" />
-        <div className="dt-lp__hero-copy">
-          <p className="dt-lp__eyebrow">{t.eyebrow}</p>
-          <h1 className="dt-lp__brand-hero">{t.brand}</h1>
-          <p className="dt-lp__headline">{t.headline}</p>
-          <p className="dt-lp__sub">
-            {t.sub}
-            <br />
-            <em>{t.subEn}</em>
-          </p>
-          <div className="dt-lp__cta-row">
-            <button type="button" className="dt-lp__btn dt-lp__btn--primary dt-lp__btn--lg" onClick={openLogin}>
-              {isAuthenticated ? t.enter : t.login}
-              <ArrowRight size={16} />
-            </button>
-            <a className="dt-lp__btn dt-lp__btn--ghost dt-lp__btn--lg" href={LIVE_T086} target="_blank" rel="noreferrer">
-              {t.liveT086}
-              <ArrowUpRight size={16} />
-            </a>
-          </div>
-          <p className="dt-lp__cta-note">{t.stagingNote} · <a href={LIVE_D086}>{LIVE_D086.replace('https://', '')}</a></p>
-        </div>
-      </header>
+
+        {/* Right: Launch OS Action Button */}
+        <motion.button
+          whileHover={{ scale: 1.03, backgroundColor: '#f0f0f4' }}
+          whileTap={{ scale: 0.97 }}
+          onMouseEnter={() => setDownloadHovered(true)}
+          onMouseLeave={() => setDownloadHovered(false)}
+          onClick={() => navigate('/dashboard')}
+          style={{
+            height: '44px',
+            padding: '0 20px',
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            borderRadius: '9999px',
+            border: 'none',
+            fontFamily: '"Space Mono", monospace',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 20px rgba(255, 255, 255, 0.25)',
+          }}
+        >
+          <Globe size={15} />
+          <ScrambleText text="Launch OS" isHovered={downloadHovered} />
+          <ArrowRight size={13} />
+        </motion.button>
+      </motion.nav>
 
 
-      <section id="section-problem" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="36">
-          <p className="dt-lp__kicker">{t.problemK}</p>
-          <h2 className="dt-lp__h2">{t.problemH}</h2>
-          <p className="dt-lp__lead">
-            {t.problemL}
-            <span className="en">{t.problemLEn}</span>
-          </p>
-          <div className="dt-lp__grid dt-lp__grid--3">
-            {t.problems.map((p) => (
-              <article key={p.t} className="dt-lp__tile">
-                <h3>{p.t}</h3>
-                <p>
-                  {p.d}
-                  <span className="en">{p.en}</span>
-                </p>
-              </article>
-            ))}
-          </div>
-          <div className="dt-lp__diagram-row">
-            <DiagramDayCount label={t.diagramCount} />
-          </div>
-        </div>
-      </section>
-
+      {/* ========================================================================= */}
+      {/* SECTION 1: HERO (MOUSE-SCRUBBED VIDEO, FULL VIEWPORT HEIGHT) */}
+      {/* ========================================================================= */}
       <section
-        id="section-product"
-        className="dt-lp__section dt-lp__section--motif"
-        style={heavyReady ? { backgroundImage: `url(${MOTIF_VIN})` } : { backgroundImage: 'url(/landing/atmos.calm.webp)' }}
+        id="section-overview"
+        onMouseMove={handleHeroMouseMove}
+        style={{
+          position: 'relative',
+          height: '100vh',
+          minHeight: '100dvh',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          padding: '96px 32px 48px',
+          overflow: 'hidden',
+        }}
       >
-        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax dt-lp__inner--glass" data-speed="32">
-          <p className="dt-lp__kicker">{t.productK}</p>
-          <h2 className="dt-lp__h2">{t.productH}</h2>
-          <p className="dt-lp__lead">
-            {t.productL}
-            <span className="en">{t.productLEn}</span>
+
+        {/* Background Video (Mouse Scrubbed) */}
+        <video
+          ref={heroVideoRef}
+          onSeeked={handleHeroSeeked}
+          playsInline
+          muted
+          preload="auto"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_083515_290e5a10-0b95-41af-a5e2-32b6389baa4d.mp4"
+        />
+
+        {/* 24x24 Dot Grid Overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+            opacity: 0.05,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+
+        {/* Background Watermark: RELIABILITY in Anton SC */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(50% + 50px)',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            fontFamily: '"Anton SC", sans-serif',
+            fontSize: 'clamp(100px, 25vw, 480px)',
+            letterSpacing: '-4px',
+            textTransform: 'uppercase',
+            opacity: 0.12,
+            backgroundImage: 'radial-gradient(circle, rgba(142,127,148,0) 0%, #8E7F94 70%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            zIndex: 2,
+            userSelect: 'none',
+          }}
+        >
+          RELIABILITY
+        </div>
+
+        {/* Top spacer */}
+        <div style={{ zIndex: 10 }} />
+
+        {/* Bottom Content Row */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: entranceComplete ? 1 : 0 }}
+          transition={{ duration: 1 }}
+          style={{
+            zIndex: 10,
+            display: 'flex',
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            gap: '32px',
+            flexWrap: 'wrap',
+          }}
+        >
+          {/* Left Column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '580px' }}>
+            <h1
+              style={{
+                color: '#ffffff',
+                fontWeight: 300,
+                lineHeight: 0.95,
+                letterSpacing: '-0.03em',
+                fontSize: 'clamp(36px, 7vw, 76px)',
+                margin: 0,
+              }}
+            >
+              <ScrambleIn text="Autonomous Data" delay={200} triggered={entranceComplete} />
+              <br />
+              <ScrambleIn text="Reliability OS" delay={500} triggered={entranceComplete} />
+            </h1>
+
+            <motion.p
+              initial={{ y: 25, opacity: 0 }}
+              animate={entranceComplete ? { y: 0, opacity: 1 } : {}}
+              transition={{ duration: 0.9, delay: 0.2, ease: [0.215, 0.61, 0.355, 1.0] }}
+              style={{
+                fontSize: '14px',
+                color: 'rgba(255, 255, 255, 0.65)',
+                lineHeight: 1.6,
+                margin: 0,
+              }}
+            >
+              Turn corrupt enterprise telemetry into deterministic operational truth. Multi-agent AI profiles raw tables,
+              synthesizes L1–L4 invariants, and quarantines anomalies with cryptographic SHA-256 lineage manifests.
+            </motion.p>
+
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={entranceComplete ? { y: 0, opacity: 1 } : {}}
+              transition={{ duration: 0.9, delay: 0.4 }}
+              style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}
+            >
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                style={{
+                  height: '42px',
+                  padding: '0 20px',
+                  backgroundColor: '#ffffff',
+                  color: '#000000',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  fontFamily: '"Space Mono", monospace',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 20px rgba(255, 255, 255, 0.25)',
+                }}
+              >
+                <span>Launch OS</span>
+                <ArrowRight size={14} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                style={{
+                  height: '42px',
+                  padding: '0 18px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  backdropFilter: 'blur(10px)',
+                  color: '#ffffff',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  fontFamily: '"Space Mono", monospace',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <span>Open Agent Workspace</span>
+              </button>
+            </motion.div>
+          </div>
+
+          {/* Right Column */}
+          <div style={{ textAlign: 'right' }}>
+            <h1
+              style={{
+                color: '#ffffff',
+                fontWeight: 300,
+                lineHeight: 0.95,
+                letterSpacing: '-0.03em',
+                fontSize: 'clamp(36px, 7vw, 76px)',
+                margin: 0,
+              }}
+            >
+              <ScrambleIn text="Zero Data" delay={700} triggered={entranceComplete} />
+              <br />
+              <ScrambleIn text="Loss Fabric" delay={1000} triggered={entranceComplete} />
+            </h1>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* SECTION 2: CINEMATIC 3D SCROLL TEXT */}
+      {/* ========================================================================= */}
+      <section
+        id="section-vision"
+        ref={section2Ref}
+        style={{
+          position: 'relative',
+          height: '100vh',
+          minHeight: '100dvh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          backgroundColor: '#000000',
+        }}
+      >
+
+        {/* Background Video #2 */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            opacity: 0.45,
+          }}
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_092455_089c54f8-3b03-4966-9df1-e9746063d0ef.mp4"
+        />
+
+        {/* Top Gradient Overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '180px',
+            background: 'linear-gradient(to bottom, #010103, transparent)',
+            zIndex: 10,
+          }}
+        />
+
+        {/* 3D Perspective Paragraph */}
+        <motion.div
+          style={{
+            transform: transformStyle,
+            opacity: s2Opacity,
+            zIndex: 20,
+            maxWidth: '1000px',
+            padding: '0 32px',
+            textAlign: 'center',
+          }}
+        >
+          <p
+            style={{
+              fontSize: 'clamp(20px, 3.8vw, 36px)',
+              fontWeight: 400,
+              lineHeight: 1.45,
+              letterSpacing: '-0.02em',
+              color: '#ffffff',
+              userSelect: 'none',
+              margin: 0,
+            }}
+          >
+            An autonomous multi-agent operating system engineered for enterprise data stewards. DataTrust OS transforms
+            raw, corrupted telemetry into deterministic operational truth. Anomalies are instantly profiled, synthesized
+            into verifiable L1–L4 rules, isolated in quarantine stores, and certified with cryptographic SHA-256 manifests.
           </p>
-          <DiagramIngest label={t.diagramIngest} />
-          <div className="dt-lp__grid dt-lp__grid--3">
-            {t.products.map((p) => (
-              <article key={p.n} className="dt-lp__tile">
-                <div className="dt-lp__num">{p.n}</div>
-                <h3>{p.t}</h3>
-                <p>
-                  {p.d}
-                  <span className="en">{p.en}</span>
-                </p>
-              </article>
+        </motion.div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* SECTION 3: PERFORMANCE METRICS */}
+      {/* ========================================================================= */}
+      <section
+        id="section-metrics"
+        style={{
+          position: 'relative',
+          minHeight: '100vh',
+          padding: '120px 32px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          backgroundColor: '#000000',
+        }}
+      >
+
+        {/* Background Video #3 */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            opacity: 0.35,
+          }}
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_095810_ecea3dd2-fc5e-4e41-8696-4219290b6589.mp4"
+        />
+
+        <div style={{ position: 'relative', zIndex: 10, maxWidth: '1100px', width: '100%' }}>
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 1.2 }}
+            style={{
+              textAlign: 'center',
+              fontSize: '13px',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              color: 'rgba(255, 255, 255, 0.4)',
+              marginBottom: '72px',
+            }}
+          >
+            PERFORMANCE METRICS
+          </motion.div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: '48px',
+              textAlign: 'center',
+            }}
+          >
+            {[
+              { val: '172', label: 'SoC < 0 on faulty BMS (data_new)' },
+              { val: '8', label: 'OPEN fused incidents' },
+              { val: '60 VIN', label: '15-day batch window, ends 2026-01-15' },
+            ].map((metric, i) => (
+              <motion.div
+                key={metric.label}
+                initial={{ y: 30, opacity: 0 }}
+                whileInView={{ y: 0, opacity: 1 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.8, delay: i * 0.15 }}
+                style={{
+                  padding: '32px 24px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 'clamp(44px, 8vw, 84px)',
+                    fontWeight: 300,
+                    letterSpacing: '-0.04em',
+                    lineHeight: 1,
+                    color: '#ffffff',
+                  }}
+                >
+                  {metric.val}
+                </div>
+                <div
+                  style={{
+                    marginTop: '16px',
+                    fontSize: '14px',
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  {metric.label}
+                </div>
+              </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="section-hitl" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="34">
-          <p className="dt-lp__kicker">{t.hitlK}</p>
-          <h2 className="dt-lp__h2">{t.hitlH}</h2>
-          <p className="dt-lp__lead">
-            {t.hitlL}
-            <span className="en">{t.hitlLEn}</span>
-          </p>
-          <DiagramHitl label={t.diagramHitl} />
-          <div className="dt-lp__flow">
-            {t.hitlSteps.map((s, i) => (
-              <div key={s.t} className="dt-lp__flow-step">
-                <div className="dt-lp__num">{String(i + 1).padStart(2, '0')}</div>
-                <strong>{s.t}</strong>
-                <p style={{ margin: 0, color: 'var(--lp-muted)', fontSize: '0.9rem' }}>{s.d}</p>
+      {/* ========================================================================= */}
+      {/* SECTION 4: ADAPTIVE INTELLIGENCE */}
+      {/* ========================================================================= */}
+      <section
+        id="section-intelligence"
+        style={{
+          position: 'relative',
+          height: '100vh',
+          minHeight: '100dvh',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          padding: '64px 48px',
+          overflow: 'hidden',
+          backgroundColor: '#000000',
+        }}
+      >
+
+        {/* Background Video #4 */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            opacity: 0.35,
+          }}
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_095750_32a52ce0-2005-45c9-9093-41f03fde9530.mp4"
+        />
+
+        {/* Top area */}
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: '32px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <motion.h2
+            initial={{ y: 40, opacity: 0 }}
+            whileInView={{ y: 0, opacity: 1 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 1 }}
+            style={{
+              fontSize: 'clamp(32px, 6vw, 64px)',
+              fontWeight: 300,
+              lineHeight: 0.95,
+              letterSpacing: '-0.03em',
+              margin: 0,
+              color: '#ffffff',
+            }}
+          >
+            Autonomous
+            <br />
+            Governance
+          </motion.h2>
+
+          <motion.p
+            initial={{ y: 20, opacity: 0 }}
+            whileInView={{ y: 0, opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 1, delay: 0.2 }}
+            style={{
+              fontSize: '14px',
+              color: 'rgba(255, 255, 255, 0.5)',
+              lineHeight: 1.6,
+              maxWidth: '380px',
+              textAlign: 'right',
+              margin: 0,
+            }}
+          >
+            The system dynamically learns telemetry baselines across multi-domain fleets. Every fault state is analyzed,
+            predicted, and quarantined with human-in-the-loop audit gates.
+          </motion.p>
+        </div>
+
+        {/* Bottom feature cards grid */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 1, delay: 0.3 }}
+          style={{
+            position: 'relative',
+            zIndex: 10,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: '24px',
+          }}
+        >
+          {[
+            { title: 'Autonomous Profiler', desc: 'Fast distribution & null rate scan across 50,000+ sampled records.' },
+            { title: 'L1–L4 Rule Synthesis', desc: 'Synthesizes deterministic range, enum, and variance invariants.' },
+            { title: 'Zero-Loss Split-DB', desc: 'Isolates clean production tables from quarantined corrupt rows.' },
+            { title: 'HITL Policy Checkpoint', desc: 'Human-in-the-loop review, customize & approve before DuckDB compilation.' },
+          ].map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ y: 20, opacity: 0 }}
+              whileInView={{ y: 0, opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7, delay: i * 0.1 }}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(8px)',
+                padding: '20px',
+                borderRadius: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              <div style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', marginBottom: '8px' }}>
+                {item.title}
+              </div>
+              <div style={{ fontSize: '12.5px', color: 'rgba(255, 255, 255, 0.5)', lineHeight: 1.5 }}>
+                {item.desc}
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* SECTION 5: ARCHITECTURE (PURE BLACK, NO VIDEO) */}
+      {/* ========================================================================= */}
+      <section
+        id="section-architecture"
+        style={{
+          position: 'relative',
+          minHeight: '100vh',
+          backgroundColor: '#000000',
+          padding: '120px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+
+        <div style={{ maxWidth: '820px', width: '100%', textAlign: 'center' }}>
+          <motion.div
+            initial={{ y: 30, opacity: 0 }}
+            whileInView={{ y: 0, opacity: 1 }}
+            viewport={{ once: true, amount: 0.4 }}
+            transition={{ duration: 1 }}
+          >
+            <div
+              style={{
+                fontSize: '13px',
+                letterSpacing: '0.2em',
+                textTransform: 'uppercase',
+                color: 'rgba(255, 255, 255, 0.4)',
+                marginBottom: '24px',
+              }}
+            >
+              ARCHITECTURE
+            </div>
+
+            <h2
+              style={{
+                fontSize: 'clamp(28px, 5vw, 54px)',
+                fontWeight: 300,
+                lineHeight: 1.15,
+                letterSpacing: '-0.02em',
+                color: '#ffffff',
+                marginBottom: '24px',
+              }}
+            >
+              Three layers. Zero friction.
+            </h2>
+
+            <p
+              style={{
+                fontSize: '15px',
+                color: 'rgba(255, 255, 255, 0.5)',
+                lineHeight: 1.7,
+                maxWidth: '640px',
+                margin: '0 auto 64px',
+              }}
+            >
+              Ingestion layer captures raw telemetry and schema. ReAct multi-agent layer diagnoses root causes and
+              synthesizes invariants. Governance layer delivers isolated quarantine storage and cryptographic verification.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true, amount: 0.4 }}
+            transition={{ duration: 1.2, delay: 0.3 }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}
+          >
+            {[
+              { layer: 'Layer 1', role: 'Telemetry Ingestion & Sub-Second Statistical Profiling' },
+              { layer: 'Layer 2', role: 'ReAct Multi-Agent Anomaly Diagnosis & Rule Synthesis' },
+              { layer: 'Layer 3', role: 'Split-DB Quarantine & Cryptographic SHA-256 Lineage Ledger' },
+            ].map((l) => (
+              <div
+                key={l.layer}
+                style={{
+                  width: '100%',
+                  maxWidth: '620px',
+                  height: '72px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 24px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '12px',
+                    letterSpacing: '0.15em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255, 255, 255, 0.35)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {l.layer}
+                </span>
+                <span style={{ fontSize: '14.5px', fontWeight: 400, color: '#ffffff', textAlign: 'right' }}>{l.role}</span>
               </div>
             ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* FOOTER */}
+      {/* ========================================================================= */}
+      <footer
+        style={{
+          backgroundColor: '#000000',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          display: 'flex',
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          minHeight: '400px',
+        }}
+      >
+        {/* Left: Video #5 */}
+        <div style={{ flex: '1 1 400px', minHeight: '300px', position: 'relative' }}>
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260622_080203_fd7f4f85-3a86-4837-8192-85e7bfe68e75.mp4"
+          />
+        </div>
+
+        {/* Right: Info & Links */}
+        <div
+          style={{
+            flex: '1 1 400px',
+            padding: '48px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+              <DataTrustLogo size={20} className="text-white" />
+              <span style={{ fontSize: '16px', fontWeight: 600, color: '#ffffff' }}>DataTrustOS Labs</span>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.45)', lineHeight: 1.6, maxWidth: '420px' }}>
+              The next evolution of enterprise data reliability and telemetry governance.
+              Built for organizations that refuse to leave data quality to chance.
+            </p>
           </div>
-          <DiagramLlmChip label={t.diagramLlm} />
-        </div>
-      </section>
 
-      <section id="section-roles" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="28">
-          <p className="dt-lp__kicker">{t.rolesK}</p>
-          <h2 className="dt-lp__h2">{t.rolesH}</h2>
-          <p className="dt-lp__lead">
-            {t.rolesL}
-            <span className="en">{t.rolesLEn}</span>
-          </p>
-          <DiagramAcl label={t.diagramAcl} />
-          <div className="dt-lp__grid dt-lp__grid--4">
-            {t.roles.map((r) => (
-              <article key={r.t} className="dt-lp__tile">
-                <h3>{r.t}</h3>
-                <p>
-                  {r.d}
-                  <span className="en">{r.en}</span>
-                </p>
-              </article>
-            ))}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px',
+              marginTop: '48px',
+            }}
+          >
+            <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.3)' }}>
+              © 2026 DataTrust OS Labs. All rights reserved.
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: '"Space Mono", monospace',
+                }}
+              >
+                Agent Workspace →
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                style={{
+                  background: '#ffffff',
+                  border: 'none',
+                  color: '#000000',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: '"Space Mono", monospace',
+                }}
+              >
+                Open Console →
+              </button>
+            </div>
           </div>
         </div>
-      </section>
-
-      <section id="section-proof" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal dt-lp__parallax" data-speed="24">
-          <p className="dt-lp__kicker">{t.proofK}</p>
-          <h2 className="dt-lp__h2">{t.proofH}</h2>
-          <p className="dt-lp__lead">
-            {t.proofL}
-            <span className="en">{t.proofLEn}</span>
-          </p>
-          <div className="dt-lp__shots">
-            {t.shots.map((s) => (
-              <figure key={s.src} className="dt-lp__shot">
-                <img src={s.src} alt={s.cap} loading="lazy" width={720} height={180} />
-                <figcaption>{s.cap}</figcaption>
-              </figure>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="section-tech" className="dt-lp__section">
-        <div className="dt-lp__inner dt-lp__reveal">
-          <p className="dt-lp__kicker">{t.techK}</p>
-          <h2 className="dt-lp__h2">{t.techH}</h2>
-          <div className="dt-lp__stack">
-            {t.techChips.map((c) => (
-              <span key={c} className="dt-lp__chip">{c}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="dt-lp__footer-cta">
-        <h2>{t.footH}</h2>
-        <p>{t.footL}</p>
-        <div className="dt-lp__cta-row" style={{ justifyContent: 'center' }}>
-          <button type="button" className="dt-lp__btn dt-lp__btn--primary dt-lp__btn--lg" onClick={openLogin}>
-            {isAuthenticated ? t.enter : t.login}
-            <ArrowRight size={16} />
-          </button>
-          <a className="dt-lp__btn dt-lp__btn--ghost dt-lp__btn--lg" href={LIVE_T086} target="_blank" rel="noreferrer">
-            {t.liveT086}
-            <ArrowUpRight size={16} />
-          </a>
-        </div>
-      </section>
-
-      <footer className="dt-lp__legal">
-        <span>{t.footNote}</span>
-        <span>
-          <a href={LIVE_D086}>d086</a> · <a href={LIVE_T086}>t086</a>
-        </span>
       </footer>
-
-      <AuthModal />
     </div>
   );
 };
-
-export default LandingPage;
