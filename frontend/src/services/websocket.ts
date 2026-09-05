@@ -6,7 +6,7 @@ export function parseDecisionRecord(event: AgentEvent | any): DecisionRecord {
 
   if (data && typeof data === 'object') {
     const action = data.action || data.next_action || data.selected_action || data.tool || event.agent || 'Agent Step';
-    const rawEvidence = data.evidence || data.evidence_refs || data.observation || data.thought || data.delta || [];
+    const rawEvidence = data.evidence || data.evidence_refs || data.observation || data.safe_summary || data.thought || data.delta || [];
     const evidence = Array.isArray(rawEvidence)
       ? rawEvidence.map(String).filter(Boolean)
       : rawEvidence

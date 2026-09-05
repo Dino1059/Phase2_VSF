@@ -64,7 +64,7 @@ def test_workflow_trace_event_model_requires_safe_summary():
 def test_normalize_maps_legacy_thought_to_safe_summary():
     card = normalize_trace_step(_base_row())
     assert card["safe_summary"] == "legacy thought text"
-    assert card.get("thought") == card.get("safe_summary")
+    assert "thought" not in card
     assert card["provider"] == "openrouter"
     assert card["model"] == "gpt-4o-mini"
     assert card["fallback_depth"] == 1

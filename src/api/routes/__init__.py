@@ -819,7 +819,6 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "data": {
                 "agentId": "orchestrator",
                 "safe_summary": _s1,
-                "thought": _s1,
                 "action": "profile_dataset",
             }
         }, session_id=session_id)
@@ -838,7 +837,6 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "data": {
                 "agentId": "orchestrator",
                 "safe_summary": _s2,
-                "thought": _s2,
                 "action": "detect_anomalies",
             }
         }, session_id=session_id)
@@ -857,7 +855,6 @@ async def send_chat_message(request: ChatRequest, http: Request):
             "data": {
                 "agentId": "orchestrator",
                 "safe_summary": _s3,
-                "thought": _s3,
                 "action": "propose_quality_rules",
             }
         }, session_id=session_id)

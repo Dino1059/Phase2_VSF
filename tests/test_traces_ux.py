@@ -72,7 +72,7 @@ def _about_ok(about: object, tool_cls) -> None:
 def test_normalize_passes_through_real_thought():
     thought = "Need a column profile before proposing rules."
     card = normalize_trace_step(_row(thought=thought))
-    assert card.get("thought") == thought
+    assert card.get("safe_summary") == thought
     assert thought not in (card.get("summary_done") or "")
 
 
@@ -96,8 +96,8 @@ def test_normalize_includes_tool_name_and_tool_about_from_description():
 
 def test_missing_thought_is_left_absent():
     card = normalize_trace_step(_row(thought=None))
-    assert card.get("thought") in (None, "")
-    assert "I will now" not in str(card.get("thought") or "")
+    assert card.get("safe_summary") in (None, "")
+    assert "I will now" not in str(card.get("safe_summary") or "")
     assert "step 1" not in (card.get("summary_done") or "").lower()
 
 
@@ -123,8 +123,8 @@ def test_done_summary_does_not_say_completed():
 def test_trace_thought_redacts_secrets_without_nulling():
     raw = f"Checking dataset with key {_FAKE_SK}"
     card = normalize_trace_step(_row(thought=raw))
-    thought = card.get("thought")
-    assert thought not in (None, ""), "thought must not be hard-nulled"
+    thought = card.get("safe_summary")
+    assert thought not in (None, ""), "safe_summary must not be hard-nulled"
     assert _FAKE_SK not in str(thought)
     assert "[REDACTED" in str(thought)
 
@@ -175,7 +175,7 @@ def test_traces_api_returns_tool_about_and_thought():
     card = steps[0]
     assert card.get("tool_name") == "profile_dataset" or card.get("tool") == "profile_dataset"
     _about_ok(card.get("tool_about"), ProfileDatasetTool)
-    assert card.get("thought") == thought
+    assert card.get("safe_summary") == thought
     assert "completed" not in (card.get("summary_done") or "").lower()
 
 
@@ -443,8 +443,8 @@ def test_propose_quality_rules_real_run_has_traces_beat_not_just_chip(monkeypatc
     )
     card = propose[0]
     _about_ok(card.get("tool_about"), ProposeQualityRulesTool)
-    assert card.get("thought") in (None, "")
-    assert "I will now" not in str(card.get("thought") or "")
+    assert card.get("safe_summary") in (None, "")
+    assert "I will now" not in str(card.get("safe_summary") or "")
     assert "completed" not in (card.get("summary_done") or "").lower() or "rule" in (card.get("summary_done") or "").lower()
 
 def test_force_log_does_not_duplicate_propose_when_already_ran(monkeypatch):
@@ -540,8 +540,8 @@ def test_force_log_does_not_duplicate_propose_when_already_ran(monkeypatch):
         f"when Propose already ran; got {names}"
     )
     for card in steps:
-        assert card.get("thought") in (None, "")
-        assert "I will now" not in str(card.get("thought") or "")
+        assert card.get("safe_summary") in (None, "")
+        assert "I will now" not in str(card.get("safe_summary") or "")
 
 def test_engine_skips_second_propose_execute_and_log(monkeypatch):
     """Tab remount / second HITL send must not re-run Propose (live STEPS 2→3)."""

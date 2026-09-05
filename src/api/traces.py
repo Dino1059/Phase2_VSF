@@ -386,8 +386,6 @@ def normalize_trace_step(row: tuple, agent_type: str | None = None) -> dict:
         "agent_type": extra_agent,
         "summary_done": _measured_summary(action, observation, output, title),
         "safe_summary": safe_summary,
-        # Legacy alias for instructor/read compat; product UI must use safe_summary
-        "thought": safe_summary or None,
         "provider": provider,
         "model": model,
         "fallback_depth": int(fallback_depth or 0),
