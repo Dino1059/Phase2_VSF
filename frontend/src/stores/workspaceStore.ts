@@ -18,6 +18,11 @@ export type WorkspaceTraceBeat = {
   actor_kind?: string;
   status?: string;
   thought?: string;
+  stage?: string;
+  provider?: string | null;
+  model?: string | null;
+  validation_status?: string | null;
+  safe_summary?: string;
   msgId?: string;
 };
 
