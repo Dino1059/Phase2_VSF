@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import logging
 import os
 import urllib.request
 import urllib.error
@@ -12,6 +13,60 @@ from dotenv import load_dotenv
 
 # Ensure .env is loaded
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# Module-level provider circuit breaker (30–60s OPEN window)
+_CIRCUIT_LOCK = threading.Lock()
+_PROVIDER_CIRCUIT: dict[str, dict] = {}
+_DEFAULT_OPEN_SECONDS = 45.0
+_RATE_LIMIT_OPEN_SECONDS = 30.0
+
+
+def _now() -> float:
+    return time.time()
+
+
+def reset_provider_circuits() -> None:
+    """Test helper: clear OPEN/CLOSED state."""
+    with _CIRCUIT_LOCK:
+        _PROVIDER_CIRCUIT.clear()
+
+
+def _circuit_is_open(provider: str, now: float | None = None) -> bool:
+    ts = _now() if now is None else now
+    with _CIRCUIT_LOCK:
+        st = _PROVIDER_CIRCUIT.get(provider) or {}
+        if st.get("state") != "OPEN":
+            return False
+        until = float(st.get("open_until") or 0.0)
+        if ts >= until:
+            _PROVIDER_CIRCUIT[provider] = {"state": "CLOSED", "open_until": 0.0}
+            return False
+        return True
+
+
+def _circuit_record_success(provider: str) -> None:
+    with _CIRCUIT_LOCK:
+        _PROVIDER_CIRCUIT[provider] = {"state": "CLOSED", "open_until": 0.0}
+
+
+def _circuit_record_failure(
+    provider: str,
+    *,
+    status_code: int | None = None,
+    retry_after: float | None = None,
+    is_timeout: bool = False,
+    now: float | None = None,
+) -> None:
+    ts = _now() if now is None else now
+    open_for = _DEFAULT_OPEN_SECONDS
+    if status_code == 429:
+        open_for = float(retry_after) if retry_after is not None else _RATE_LIMIT_OPEN_SECONDS
+    elif is_timeout or (status_code is not None and status_code >= 500):
+        open_for = _DEFAULT_OPEN_SECONDS
+    with _CIRCUIT_LOCK:
+        _PROVIDER_CIRCUIT[provider] = {"state": "OPEN", "open_until": ts + open_for}
 
 
 class LLMUnavailableException(Exception):
@@ -31,6 +86,11 @@ class LLMResponse:
     finish_reason: str = ""
     tokens_used: int = 0
     model_used: str = ""
+    provider: str = ""
+    reasoning_mode: str = "llm"  # llm | heuristic | abstain
+    fallback_depth: int = 0
+    provider_attempts: list[dict] = field(default_factory=list)
+    structured_validation: str = ""  # pass | fail | ""
 
 
 class KeyRotator:
@@ -291,19 +351,49 @@ class UnifiedLLMAdapter:
             "description": f"Active LLM: {active_prov} ({active_mdl})" if has_key else "LLM Fallback (No active provider key)",
         }
 
-    def chat(self, messages: list[dict], tools: list[dict] | None = None, raise_on_error: bool = False) -> LLMResponse:
+    def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        raise_on_error: bool = False,
+        purpose: str = "chat",
+    ) -> LLMResponse:
         """
         Send chat messages using multi-provider fallback order. Primary: openrouter (openai/gpt-4o-mini).
+        Records provider_attempts telemetry and skips OPEN circuit-breaker providers.
         """
-        if not self.use_llm or _llm_killed():
-            self.use_llm = False
-            return self._heuristic_fallback(messages)
+        request_id = str(uuid.uuid4())
+        attempts: list[dict] = []
+        input_tokens_estimated = sum(max(1, len(str(m.get("content") or "")) // 4) for m in (messages or []))
 
-        def _track(resp: LLMResponse) -> LLMResponse:
+        def _finalize(resp: LLMResponse, *, mode: str, provider: str = "", depth: int = 0) -> LLMResponse:
             _record_spend(int(resp.tokens_used or 0))
             if _llm_killed():
                 self.use_llm = False
+            resp.provider = provider or resp.provider
+            resp.reasoning_mode = mode
+            resp.fallback_depth = depth
+            resp.provider_attempts = list(attempts)
+            telemetry = {
+                "request_id": request_id,
+                "purpose": purpose,
+                "provider_attempts": list(attempts),
+                "selected_provider": resp.provider or provider or mode,
+                "selected_model": resp.model_used,
+                "fallback_depth": depth,
+                "reasoning_mode": mode,
+                "input_tokens_estimated": input_tokens_estimated,
+                "output_tokens": int(resp.tokens_used or 0),
+                "structured_validation": resp.structured_validation or "",
+            }
+            self.last_telemetry = telemetry
+            logger.info("llm_attempt_telemetry %s", telemetry)
             return resp
+
+        if not self.use_llm or _llm_killed():
+            self.use_llm = False
+            resp = self._heuristic_fallback(messages)
+            return _finalize(resp, mode="heuristic", provider="heuristic", depth=0)
 
         if self._explicit_key == "invalid-key":
             raise LLMUnavailableException("Invalid API key provided.")
@@ -317,65 +407,141 @@ class UnifiedLLMAdapter:
         else:
             provider_order = ["openrouter", "gemini", "openai", "groq", "ollama"]
 
-        for provider in provider_order:
-            if provider == "groq" and self.groq_key and not self.groq_key.startswith("gsk_your-"):
-                try:
-                    return _track(self._call_groq(messages, tools))
-                except Exception as e:
-                    if raise_on_error:
-                        raise LLMUnavailableException(f"Groq call failed: {e}") from e
-                    print(f"[LLM] Groq call failed: {e}. Falling back to next provider...")
-
-            elif provider == "openai" and self.openai_key and not self.openai_key.startswith("sk-your-"):
-                try:
-                    return _track(self._call_openai(messages, tools))
-                except Exception as e:
-                    if raise_on_error:
-                        raise LLMUnavailableException(f"OpenAI call failed: {e}") from e
-                    print(f"[LLM] OpenAI call failed: {e}. Falling back to next provider...")
-
-            elif provider == "openrouter" and self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"):
-                try:
-                    return _track(self._call_openrouter(messages, tools))
-                except Exception as e:
-                    if raise_on_error:
-                        raise LLMUnavailableException(f"OpenRouter call failed: {e}") from e
-                    print(f"[LLM] OpenRouter call failed: {e}. Falling back to next provider...")
-
-            elif provider == "gemini" and self._google_keys.has_keys:
-                total_attempts = max(1, self._google_keys.total_keys)
-                for attempt in range(total_attempts):
-                    key = self._google_keys.get_next()
-                    if not key:
-                        break
+        def _classify_failure(exc: Exception) -> tuple[int | None, float | None, bool]:
+            status_code = None
+            retry_after = None
+            is_timeout = isinstance(exc, TimeoutError) or "timeout" in str(exc).lower()
+            if isinstance(exc, urllib.error.HTTPError):
+                status_code = int(exc.code)
+                if status_code == 429:
                     try:
-                        return _track(self._call_gemini(messages, tools, key, self.gemini_model))
-                    except urllib.error.HTTPError as http_err:
-                        key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
-                        if http_err.code in (429, 503, 500):
-                            self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
-                            print(f"[LLM] Gemini key {key_mask} hit HTTP {http_err.code} rate limit (attempt {attempt + 1}/{total_attempts}). Rotating to next key...")
-                        else:
-                            print(f"[LLM] Gemini key {key_mask} HTTP {http_err.code} error (attempt {attempt + 1}/{total_attempts}). Trying next key...")
-                        if attempt == total_attempts - 1 and raise_on_error:
-                            raise LLMUnavailableException(f"All Gemini keys failed: {http_err}") from http_err
-                    except Exception as e:
-                        key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
-                        err_str = str(e).lower()
-                        if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "rate limit" in err_str:
-                            self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
-                        print(f"[LLM] Gemini key {key_mask} rotation attempt {attempt + 1}/{total_attempts} failed: {e}. Trying next key...")
-                        if attempt == total_attempts - 1 and raise_on_error:
-                            raise LLMUnavailableException(f"All Gemini keys failed: {e}") from e
+                        retry_after = float(exc.headers.get("Retry-After") or _RATE_LIMIT_OPEN_SECONDS)
+                    except (TypeError, ValueError, AttributeError):
+                        retry_after = _RATE_LIMIT_OPEN_SECONDS
+            return status_code, retry_after, is_timeout
 
-            elif provider == "ollama" and self._check_ollama():
-                try:
-                    return _track(self._call_ollama(messages, tools))
-                except Exception as e:
-                    print(f"[LLM] Ollama/Gemma call failed: {e}.")
+        def _provider_eligible(name: str) -> bool:
+            if name == "groq":
+                return bool(self.groq_key and not self.groq_key.startswith("gsk_your-"))
+            if name == "openai":
+                return bool(self.openai_key and not self.openai_key.startswith("sk-your-"))
+            if name == "openrouter":
+                return bool(self.openrouter_key and not self.openrouter_key.startswith("sk-or-your-"))
+            if name == "gemini":
+                return bool(self._google_keys.has_keys)
+            if name == "ollama":
+                return bool(self._check_ollama())
+            return False
+
+        def _invoke(name: str) -> LLMResponse:
+            if name == "groq":
+                return self._call_groq(messages, tools)
+            if name == "openai":
+                return self._call_openai(messages, tools)
+            if name == "openrouter":
+                return self._call_openrouter(messages, tools)
+            if name == "gemini":
+                key = self._google_keys.get_next()
+                if not key:
+                    raise LLMUnavailableException("No Gemini key available")
+                return self._call_gemini(messages, tools, key, self.gemini_model)
+            if name == "ollama":
+                return self._call_ollama(messages, tools)
+            raise LLMUnavailableException(f"Unknown provider {name}")
+
+        fallback_depth = 0
+        for provider in provider_order:
+            if not _provider_eligible(provider):
+                continue
+            if _circuit_is_open(provider):
+                attempts.append({"provider": provider, "result": "skipped_open"})
+                logger.warning("[LLM] Skipping OPEN provider %s (circuit breaker)", provider)
+                continue
+            try:
+                if provider == "gemini":
+                    # Preserve multi-key rotation for Gemini
+                    total_attempts = max(1, self._google_keys.total_keys)
+                    last_exc: Exception | None = None
+                    for attempt in range(total_attempts):
+                        key = self._google_keys.get_next()
+                        if not key:
+                            break
+                        try:
+                            resp = self._call_gemini(messages, tools, key, self.gemini_model)
+                            _circuit_record_success(provider)
+                            attempts.append({"provider": provider, "result": "ok", "attempt": attempt + 1})
+                            resp.provider = provider
+                            return _finalize(resp, mode="llm", provider=provider, depth=fallback_depth)
+                        except urllib.error.HTTPError as http_err:
+                            last_exc = http_err
+                            key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
+                            status_code, retry_after, is_timeout = _classify_failure(http_err)
+                            if http_err.code in (429, 503, 500):
+                                self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
+                                logger.warning(
+                                    "[LLM] Gemini key %s hit HTTP %s rate limit (attempt %s/%s). Rotating to next key...",
+                                    key_mask, http_err.code, attempt + 1, total_attempts,
+                                )
+                            else:
+                                logger.warning(
+                                    "[LLM] Gemini key %s HTTP %s error (attempt %s/%s). Trying next key...",
+                                    key_mask, http_err.code, attempt + 1, total_attempts,
+                                )
+                            attempts.append({
+                                "provider": provider, "result": "error",
+                                "status_code": status_code, "attempt": attempt + 1,
+                            })
+                            if attempt == total_attempts - 1:
+                                _circuit_record_failure(
+                                    provider, status_code=status_code,
+                                    retry_after=retry_after, is_timeout=is_timeout,
+                                )
+                                if raise_on_error:
+                                    raise LLMUnavailableException(f"All Gemini keys failed: {http_err}") from http_err
+                        except Exception as e:
+                            last_exc = e
+                            key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
+                            err_str = str(e).lower()
+                            if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "rate limit" in err_str:
+                                self._google_keys.mark_rate_limited(key, cooldown_seconds=60.0)
+                            logger.warning(
+                                "[LLM] Gemini key %s rotation attempt %s/%s failed: %s. Trying next key...",
+                                key_mask, attempt + 1, total_attempts, e,
+                            )
+                            status_code, retry_after, is_timeout = _classify_failure(e)
+                            attempts.append({"provider": provider, "result": "error", "error": str(e), "attempt": attempt + 1})
+                            if attempt == total_attempts - 1:
+                                _circuit_record_failure(
+                                    provider, status_code=status_code,
+                                    retry_after=retry_after, is_timeout=is_timeout,
+                                )
+                                if raise_on_error:
+                                    raise LLMUnavailableException(f"All Gemini keys failed: {e}") from e
+                    fallback_depth += 1
+                    continue
+
+                resp = _invoke(provider)
+                _circuit_record_success(provider)
+                attempts.append({"provider": provider, "result": "ok"})
+                resp.provider = provider
+                return _finalize(resp, mode="llm", provider=provider, depth=fallback_depth)
+            except Exception as e:
+                status_code, retry_after, is_timeout = _classify_failure(e)
+                _circuit_record_failure(
+                    provider, status_code=status_code, retry_after=retry_after, is_timeout=is_timeout,
+                )
+                attempts.append({
+                    "provider": provider, "result": "error",
+                    "status_code": status_code, "error": str(e),
+                })
+                logger.warning("[LLM] %s call failed: %s. Falling back to next provider...", provider, e)
+                if raise_on_error:
+                    raise LLMUnavailableException(f"{provider} call failed: {e}") from e
+                fallback_depth += 1
 
         # Final heuristic fallback
-        return self._heuristic_fallback(messages)
+        resp = self._heuristic_fallback(messages)
+        return _finalize(resp, mode="heuristic", provider="heuristic", depth=fallback_depth)
 
     def _call_openrouter(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         payload: dict[str, Any] = {
@@ -452,7 +618,7 @@ class UnifiedLLMAdapter:
             except urllib.error.HTTPError as e:
                 if e.code == 429 and attempt < max_attempts - 1:
                     backoff = (attempt + 1) * 3.0
-                    print(f"[LLM] Groq 429 rate limit reached. Waiting {backoff}s before retry (attempt {attempt+1}/{max_attempts})...")
+                    logger.warning("[LLM] Groq 429 rate limit reached. Waiting %ss before retry (attempt %s/%s)...", backoff, attempt+1, max_attempts)
                     time.sleep(backoff)
                     continue
                 raise
