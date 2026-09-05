@@ -4,6 +4,7 @@ import { useAuthStore, UserRole } from '../../stores/authStore';
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, setAuthModalOpen, user, isAuthenticated, quickSwitchRole, login } = useAuthStore();
+  const required = !isAuthenticated;
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
@@ -91,7 +92,7 @@ export const AuthModal: React.FC = () => {
         justifyContent: 'center',
         padding: '16px',
       }}
-      onClick={() => setAuthModalOpen(false)}
+      onClick={() => { if (!required) setAuthModalOpen(false); }}
     >
       <div
         className="auth-modal-card"
@@ -135,6 +136,7 @@ export const AuthModal: React.FC = () => {
             </div>
           </div>
 
+          {!required && (
           <button
             type="button"
             onClick={() => setAuthModalOpen(false)}
@@ -149,6 +151,7 @@ export const AuthModal: React.FC = () => {
           >
             <X size={18} />
           </button>
+          )}
         </div>
 
         {error && (

@@ -1,0 +1,58 @@
+{
+  "case_id": "RCAC-005",
+  "suite": "golden/dev",
+  "held_out": false,
+  "incident": {
+    "incident_id": "inc-rca-005",
+    "project_id": "proj-eval",
+    "status": "OPEN",
+    "entity_ids": [
+      "STATION-102"
+    ],
+    "signal_ids": [
+      "sig-type-01"
+    ],
+    "admission_reason": "Non-numeric string in power measurement field",
+    "supporting_layers": [],
+    "severity": "CRITICAL",
+    "time_window": {},
+    "confirmed_facts": [],
+    "evidence_refs": [],
+    "correlation_key": null,
+    "occurrence_count": 1,
+    "representative_signal_ids": [],
+    "owner": null,
+    "feedback_type": null,
+    "feedback_reason": null,
+    "feedback_by": null,
+    "feedback_at": null,
+    "created_at": "2026-09-05T11:35:04.416158Z",
+    "updated_at": "2026-09-05T11:35:04.416160Z"
+  },
+  "available_evidence": [
+    {
+      "evidence_id": "ev-rca-005",
+      "project_id": null,
+      "incident_id": null,
+      "source_type": "pipeline",
+      "source_id": "ingest-01",
+      "time_range": {},
+      "entity_ids": [
+        "STATION-102"
+      ],
+      "content_hash": "hash06",
+      "summary": "Type casting failure string value injected into null column",
+      "provenance": "SEMI_SYNTHETIC"
+    }
+  ],
+  "expected_classification": "DATA",
+  "expected_top_causes": [
+    "DATA"
+  ],
+  "ground_truth_evidence_ids": [
+    "ev-rca-005"
+  ],
+  "is_abstention_case": false,
+  "source": "eval/eval_rca.py::get_hidden_rca_ground_truth_cases",
+  "note": "Golden/dev only. Do not tune prompts or heuristics against these as if held-out."
+}

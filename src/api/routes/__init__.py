@@ -808,16 +808,17 @@ async def send_chat_message(request: ChatRequest, http: Request):
         ]
     )
 
-    # Deterministic 4-Stage Sequential Execution for Full Pipeline Requests
+    # Deterministic analysis pipeline (stops at HITL; no auto-clean)
     if is_full_pipeline_req and not edit_rule:
         steps_executed = []
         
         # Step 1: Profiling
+        _s1 = "Stage 1/3: Quét cấu trúc schema và phân phối dữ liệu (Profile Dataset)..." if lang_pref == "vi" else "Stage 1/3: Ingesting catalog schema and profiling baseline distribution..."
         await ws_manager.broadcast({
             "type": "agent.trace",
             "data": {
                 "agentId": "orchestrator",
-                "thought": "Stage 1/4: Quét cấu trúc schema và phân phối dữ liệu (Profile Dataset)..." if lang_pref == "vi" else "Stage 1/4: Ingesting catalog schema and profiling baseline distribution...",
+                "safe_summary": _s1,
                 "action": "profile_dataset",
             }
         }, session_id=session_id)
@@ -830,11 +831,12 @@ async def send_chat_message(request: ChatRequest, http: Request):
         steps_executed.append("profile_dataset")
 
         # Step 2: Anomaly Detection L1-L4
+        _s2 = "Stage 2/3: Kích hoạt bộ phát hiện dị thường đa tầng L1 (Range) -> L2 (Drift) -> L3 (Relational) -> L4 (Semantic) & Fusion Engine..." if lang_pref == "vi" else "Stage 2/3: Activating multi-layer anomaly detectors L1 (Range) -> L2 (Drift) -> L3 (Relational) -> L4 (Semantic) & Fusion..."
         await ws_manager.broadcast({
             "type": "agent.trace",
             "data": {
                 "agentId": "orchestrator",
-                "thought": "Stage 2/4: Kích hoạt bộ phát hiện dị thường đa tầng L1 (Range) -> L2 (Drift) -> L3 (Relational) -> L4 (Semantic) & Fusion Engine..." if lang_pref == "vi" else "Stage 2/4: Activating multi-layer anomaly detectors L1 (Range) -> L2 (Drift) -> L3 (Relational) -> L4 (Semantic) & Fusion...",
+                "safe_summary": _s2,
                 "action": "detect_anomalies",
             }
         }, session_id=session_id)
@@ -847,36 +849,25 @@ async def send_chat_message(request: ChatRequest, http: Request):
         steps_executed.append("detect_anomalies")
 
         # Step 3: Rule Proposal (strictly fed with Profile + Anomaly Findings)
+        _s3 = "Stage 3/3: Tổng hợp các quy tắc chất lượng dữ liệu dựa trên kết quả Profile và các dị thường L1–L4 vừa phát hiện..." if lang_pref == "vi" else "Stage 3/3: Synthesizing targeted data quality constraints grounded in Profile metrics and L1–L4 Anomaly Findings..."
         await ws_manager.broadcast({
             "type": "agent.trace",
             "data": {
                 "agentId": "orchestrator",
-                "thought": "Stage 3/4: Tổng hợp các quy tắc chất lượng dữ liệu dựa trên kết quả Profile và các dị thường L1–L4 vừa phát hiện..." if lang_pref == "vi" else "Stage 3/4: Synthesizing targeted data quality constraints grounded in Profile metrics and L1–L4 Anomaly Findings...",
+                "safe_summary": _s3,
                 "action": "propose_quality_rules",
             }
         }, session_id=session_id)
         rules_tool = ProposeQualityRulesTool()
-        rules_res = await asyncio.to_thread(rules_tool.execute, {"dataset_key": target_dataset, "anomaly_findings": anom_data})
+        rules_res = await asyncio.to_thread(rules_tool.execute, {
+            "dataset_key": target_dataset,
+            "profile_summary": prof_data,
+            "anomaly_findings": anom_data,
+        })
         rules_obs = format_friendly_observation("propose_quality_rules", rules_res.output_data if rules_res.status == "success" else {}, lang=lang_pref)
         m3 = conversation_store.save_message({"type": "agent", "agentId": "propose_quality_rules", "content": rules_obs}, session_id=session_id)
         await ws_manager.broadcast({"type": "chat.message", "data": m3}, session_id=session_id)
         steps_executed.append("propose_quality_rules")
-
-        # Step 4: Clean Database & Quarantine
-        await ws_manager.broadcast({
-            "type": "agent.trace",
-            "data": {
-                "agentId": "orchestrator",
-                "thought": "Stage 4/4: Áp dụng bộ quy tắc để tạo kho dữ liệu sạch, cô lập dữ liệu hỏng vào Quarantine và tạo bản kê mật mã SHA-256..." if lang_pref == "vi" else "Stage 4/4: Applying compiled constraints to partition clean warehouse, isolate quarantine rows, and generate SHA-256 manifest...",
-                "action": "clean_database",
-            }
-        }, session_id=session_id)
-        clean_tool = CleanDatabaseTool()
-        clean_res = await asyncio.to_thread(clean_tool.execute, {"dataset_key": target_dataset})
-        clean_obs = format_friendly_observation("clean_database", clean_res.output_data if clean_res.status == "success" else {}, lang=lang_pref)
-        m4 = conversation_store.save_message({"type": "agent", "agentId": "clean_database", "content": clean_obs}, session_id=session_id)
-        await ws_manager.broadcast({"type": "chat.message", "data": m4}, session_id=session_id)
-        steps_executed.append("clean_database")
 
         # Background sync with DataTrustOrchestrator for right-panel tabs (using preceding tool results)
         try:
@@ -888,7 +879,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
             db = get_db()
             db.execute(
                 "INSERT INTO pipeline_runs (run_id, project_id, dataset_key, status) VALUES (?, ?, ?, ?)",
-                [run_id, "proj-vingroup-pilot", target_dataset, "running"],
+                [run_id, "proj-vingroup-pilot", target_dataset, "awaiting_hitl"],
             )
 
             # Map the incidents to the structure expected by _build_pipeline_result
@@ -971,7 +962,7 @@ async def send_chat_message(request: ChatRequest, http: Request):
 
             mock_orch_res = MockOrchestratorResult(
                 stages=[stage1, stage2, stage4],
-                status="completed"
+                status="awaiting_hitl"
             )
 
             payload = _build_pipeline_result(run_id, target_dataset, mock_orch_res)
@@ -979,21 +970,19 @@ async def send_chat_message(request: ChatRequest, http: Request):
         except Exception as oe:
             print(f"[WARN] Failed background orchestrator sync: {oe}")
 
-        state_machine.current_state = WorkflowState.COMPLETED
+        state_machine.current_state = WorkflowState.RULES_PROPOSED
         final_summary = (
-            "🎉 **Quy trình 4 Giai Đoạn đã hoàn thành xuất sắc:**\n\n"
-            "1. 📊 **Khảo sát dữ liệu (Profile):** Đã ánh xạ toàn bộ schema và chỉ số phân phối baseline.\n"
-            "2. 🔍 **Phát hiện dị thường (L1–L4 Anomaly Detection):** Đã quét vi phạm ngưỡng L1, biến thiên L2, quan hệ L3, ngữ nghĩa L4 và thu nạp các sự cố RCA.\n"
-            "3. 🛡️ **Đề xuất quy tắc (Rule Synthesis):** Đã tự động sinh các luật chất lượng dựa trên cả hồ sơ dữ liệu và các phát hiện dị thường.\n"
-            "4. 🧹 **Làm sạch & Cách ly (Clean & Quarantine):** Đã phân chia kho dữ liệu sạch, cách ly bản ghi lỗi và đóng gói bản kê SHA-256 Lineage Manifest.\n\n"
-            "> ✅ *Tất cả các panel phân tích (Data Profiler, Rules & HITL, Split DB, Telemetry, RCA Graph) đã được đồng bộ đầy đủ.*"
+            "⏸️ **Phân tích hoàn tất — đang chờ steward duyệt HITL:**\n\n"
+            "1. 📊 **Khảo sát dữ liệu (Profile):** Đã ánh xạ schema và phân phối baseline.\n"
+            "2. 🔍 **Phát hiện dị thường (L1–L4):** Đã thu nạp các sự cố để RCA/HITL.\n"
+            "3. 🛡️ **Đề xuất quy tắc:** Đã sinh đề xuất chất lượng — chưa áp dụng clean/quarantine.\n\n"
+            "> ⏳ *Clean Database chỉ chạy sau khi quy tắc được phê duyệt.*"
             if lang_pref == "vi" else
-            "🎉 **4-Stage Pipeline Execution Completed Successfully:**\n\n"
-            "1. 📊 **Profile Dataset:** Analyzed schema metrics, column types, and baseline distribution.\n"
-            "2. 🔍 **L1–L4 Anomaly Detection:** Identified range, temporal drift, relational, and semantic incidents with RCA.\n"
-            "3. 🛡️ **Rule Proposal:** Synthesized targeted data quality constraints grounded in Profile + Anomaly Findings.\n"
-            "4. 🧹 **Clean & Quarantine:** Partitioned clean warehouse, isolated quarantine store, and generated SHA-256 Lineage Manifest.\n\n"
-            "> ✅ *All analytics panels (Data Profiler, Rules & HITL, Split DB, Telemetry, RCA Graph) are fully synchronized.*"
+            "⏸️ **Analysis complete — awaiting steward HITL review:**\n\n"
+            "1. 📊 **Profile Dataset:** Schema metrics and baseline distribution ready.\n"
+            "2. 🔍 **L1–L4 Anomaly Detection:** Incidents captured for RCA/HITL.\n"
+            "3. 🛡️ **Rule Proposal:** Quality proposals synthesized — clean/quarantine not applied.\n\n"
+            "> ⏳ *Clean Database runs only after rules are approved.*"
         )
 
         agent_msg = conversation_store.save_message(
@@ -1011,11 +1000,11 @@ async def send_chat_message(request: ChatRequest, http: Request):
         )
 
         return {
-            "status": "completed",
+            "status": "awaiting_hitl",
             "session_id": session_id,
             "response": final_summary,
-            "analysis": f"4-Stage Sequential Pipeline Completed: [{', '.join(steps_executed)}]. State: {state_machine.current_state.value}.",
-            "steps_count": 4,
+            "analysis": f"Analysis pipeline stopped at HITL: [{', '.join(steps_executed)}]. State: {state_machine.current_state.value}.",
+            "steps_count": len(steps_executed),
             "total_tokens": 0,
             "tokens": {"total_tokens": 0, "tokens_used": 0},
         }

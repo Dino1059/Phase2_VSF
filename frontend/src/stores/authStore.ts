@@ -114,8 +114,8 @@ const TOKEN_KEY = 'datatrust_jwt_token';
 const USER_KEY = 'datatrust_user_profile';
 
 const initialToken = readAuthToken();
-const STEWARD_USER: UserProfile = { user_id: 'usr_steward_01', username: 'steward', role: 'Steward', is_global: true, datasets: ['*'] };
-const initialUser: UserProfile = (() => {
+const initialUser: UserProfile | null = (() => {
+  if (!initialToken) return null;
   try {
     const raw = localStorage.getItem(USER_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
@@ -127,9 +127,9 @@ const initialUser: UserProfile = (() => {
     if (storedRole === 'admin' || storedRole === 'administrator') {
       return { user_id: 'usr_admin_01', username: 'admin', role: 'Admin', is_global: true, datasets: ['*'] };
     }
-    return STEWARD_USER;
+    return null;
   } catch {
-    return STEWARD_USER;
+    return null;
   }
 })();
 
@@ -220,11 +220,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return role === 'Admin' || role === 'Steward' || role === ('admin' as any) || role === ('steward' as any);
   },
 
-  hasPermission: (action) => roleCan(get().user?.role, action),
+  hasPermission: (action) => get().isAuthenticated && roleCan(get().user?.role, action),
 
   canReviewRules: () => get().hasPermission('review_rules'),
   canHitlWrite: () => get().hasPermission('hitl_write'),
   canPropose: () => get().hasPermission('propose_rules'),
   canExecute: () => get().hasPermission('execute_transform'),
-  canAccessDataset: (datasetKey) => userCanAccessDataset(get().user, datasetKey),
+  canAccessDataset: (datasetKey) => get().isAuthenticated && userCanAccessDataset(get().user, datasetKey),
 }));

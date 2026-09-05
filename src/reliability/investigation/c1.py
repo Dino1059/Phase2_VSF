@@ -40,6 +40,9 @@ class C1EvidenceBundle:
     rule_violations: List[Evidence] = field(default_factory=list)
     all_evidence: List[Evidence] = field(default_factory=list)
     evidence_by_id: Dict[str, Evidence] = field(default_factory=dict)
+    input_tokens_estimated: int = 0
+    evidence_ids_dropped: List[str] = field(default_factory=list)
+    truncation_applied: bool = False
 
     @property
     def retrievable_evidence_ids(self) -> Set[str]:
@@ -116,6 +119,48 @@ class C1FixedContextBuilder:
             else:
                 bundle.signals.append(norm_ev)
 
+        return self._apply_context_budget(bundle)
+
+    def _apply_context_budget(self, bundle: C1EvidenceBundle) -> C1EvidenceBundle:
+        """Cap evidence lists via ContextBudgetManager before LLM context render."""
+        from src.services.context_budget import select_evidence, DEFAULT_LIMITS
+
+        def _rank_for(ev: Evidence, category: str, bucket: int) -> dict:
+            return {
+                "evidence_id": ev.evidence_id,
+                "rank_bucket": bucket,
+                "category": category,
+                "text": f"[{ev.evidence_id}] {ev.source_type}: {ev.summary}",
+                "contradictory": False,
+                "_ev": ev,
+            }
+
+        items: list = []
+        for ev in bundle.signals:
+            items.append(_rank_for(ev, "signals", 1))
+        for ev in bundle.rule_violations:
+            items.append(_rank_for(ev, "violations", 3))
+        for ev in bundle.recent_changes:
+            items.append(_rank_for(ev, "recent_changes", 4))
+        for ev in bundle.profile:
+            items.append(_rank_for(ev, "profile", 6))
+        for ev in bundle.entity_history:
+            items.append(_rank_for(ev, "historical", 7))
+
+        env = select_evidence(items, task_type="rca_c1", hard_limit_tokens=DEFAULT_LIMITS["rca_c1"])
+        keep = set(env.evidence_ids_included)
+        by_id = {it["evidence_id"]: it["_ev"] for it in items}
+
+        bundle.signals = [e for e in bundle.signals if e.evidence_id in keep]
+        bundle.rule_violations = [e for e in bundle.rule_violations if e.evidence_id in keep]
+        bundle.recent_changes = [e for e in bundle.recent_changes if e.evidence_id in keep]
+        bundle.profile = [e for e in bundle.profile if e.evidence_id in keep]
+        bundle.entity_history = [e for e in bundle.entity_history if e.evidence_id in keep]
+        bundle.all_evidence = [by_id[i] for i in env.evidence_ids_included if i in by_id]
+        bundle.evidence_by_id = {e.evidence_id: e for e in bundle.all_evidence}
+        bundle.input_tokens_estimated = env.estimated_input_tokens
+        bundle.evidence_ids_dropped = list(env.evidence_ids_dropped)
+        bundle.truncation_applied = bool(env.truncation_applied)
         return bundle
 
     def _normalize_evidence_id(self, ev: Evidence) -> Evidence:
@@ -377,11 +422,16 @@ class C1FixedInvestigator:
         """
         Executes C1 fixed workflow for an incident.
         """
-        # Step 1: Compile fixed evidence bundle
+        # Step 1: Compile fixed evidence bundle (token-bounded)
         bundle = self.context_builder.compile_evidence_bundle(incident, available_evidence)
 
         # Step 2: Build LLM prompt context ensuring NO hidden ground truth
         _ = self.context_builder.build_llm_context(bundle, incident=incident)
+        self.last_context_budget = {
+            "input_tokens_estimated": bundle.input_tokens_estimated,
+            "evidence_ids_dropped": list(bundle.evidence_ids_dropped),
+            "truncation_applied": bool(bundle.truncation_applied),
+        }
 
         # Step 3: Perform structured LLM analysis with strict schema validation
         analysis = self.analyze_with_llm(incident, bundle.all_evidence, raw_llm_response=raw_llm_response)

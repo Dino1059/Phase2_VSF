@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 from src.canonical_policy import get_canonical_policy
 from src.services.llm import GemmaLLMAdapter
@@ -55,13 +55,28 @@ class RuleProposerTool(BaseTool):
             # 2. Fallback to Heuristic Rules with Remediation SQL
             rules = self._generate_heuristic_rules(table, policy, anomalies)
 
-        # 3. Persist proposals into DuckDB quality_rules table for HITL review
+        # 3. Validate proposals then persist into DuckDB quality_rules for HITL review
         try:
             from src.tools.chat_tools import persist_hitl_proposals
+            from src.tools.validator import validate_proposed_rule
             d_key = table
+            columns = list((policy.get("columns") or {}).keys()) if isinstance(policy.get("columns"), dict) else []
+            sample_rows: list = []
+            # Prefer any sample rows the caller attached to anomaly/profile payloads
+            if isinstance(anomalies, dict) and isinstance(anomalies.get("sample_rows"), list):
+                sample_rows = [r for r in anomalies["sample_rows"] if isinstance(r, dict)]
+            approved: list = []
             proposals_to_persist = []
             for idx, r in enumerate(rules, 1):
                 rule_name = r.get("rule_name") or f"rule_{idx}"
+                validation = validate_proposed_rule(
+                    r,
+                    columns=columns,
+                    sample_rows=sample_rows,
+                    approved=approved,
+                )
+                r["validation_status"] = validation.status
+                r["validation_reasons"] = list(validation.reasons)
                 proposals_to_persist.append({
                     "id": f"{d_key}__{rule_name}",
                     "rule_name": rule_name,
@@ -76,7 +91,10 @@ class RuleProposerTool(BaseTool):
                     "proposed_by": "rule_proposer_agent",
                     "problem_discovered": r.get("problem_discovered") or r.get("rationale") or f"Discovered quality constraint on '{table}'.",
                     "why_proposed": r.get("why_proposed") or f"Rule generated during analysis of table '{table}'.",
-                    "quality_impact": r.get("quality_impact") or "Prevents invalid or corrupt data from entering clean warehouse."
+                    "quality_impact": r.get("quality_impact") or "Prevents invalid or corrupt data from entering clean warehouse.",
+                    "validation_status": validation.status,
+                    "validation_reasons": list(validation.reasons),
+                    "rationale": r.get("rationale") or r.get("why_proposed") or "",
                 })
             persist_hitl_proposals(d_key, proposals_to_persist)
         except Exception as e:
@@ -84,21 +102,30 @@ class RuleProposerTool(BaseTool):
 
         return {"proposed_rules": rules, "proposals": rules, "rule_count": len(rules), "target_table": table}
 
-    def _generate_llm_rules(self, table: str, policy: dict, profile: Any, anomalies: dict) -> List[dict]:
+    def _generate_llm_rules(self, table: str, policy: dict, profile: Any, anomalies: dict) -> list[dict]:
+        from src.reliability.models.rule_context import (
+            build_rule_proposal_context,
+            render_rule_proposal_prompt_block,
+        )
+        ctx = build_rule_proposal_context(
+            dataset_key=table,
+            target_table=table,
+            profile=profile,
+            anomalies=anomalies if isinstance(anomalies, dict) else {},
+            policy=policy,
+        )
+        context_block = render_rule_proposal_prompt_block(ctx)
         prompt = f"""
 You are an expert Data Quality Engineer & SQL Specialist for DataTrust OS.
-TASK: Analyze the provided Policy Manifest, Profiler Statistics, and Anomaly Findings for target table '{table}'.
+TASK: Analyze the provided Policy Manifest and typed Rule Proposal Context for target table '{table}'.
 Generate executable Data Quality Rules. Each rule MUST include BOTH a Validation Check SQL Expression (`rule_expression`) AND a Data Remediation SQL Expression (`remediation_sql_expr`).
 
 INPUT CONTEXT:
 1. Policy Manifest:
 {json.dumps(policy, indent=2)}
 
-2. Profiler Statistics:
-{json.dumps(profile) if isinstance(profile, (dict, list)) else str(profile)[:1000]}
-
-3. Anomaly Findings:
-{json.dumps(anomalies, indent=2)[:1000]}
+2. Typed Rule Proposal Context (profile findings, compact candidates, policy constraints):
+{context_block}
 
 REQUIREMENTS:
 Return JSON with key "rules" containing an array of objects. Schema for each object:
@@ -184,9 +211,8 @@ Return JSON with key "rules" containing an array of objects. Schema for each obj
                 return cleaned
         return []
 
-    def _generate_heuristic_rules(self, table: str, policy: dict, anomalies: dict) -> List[dict]:
+    def _generate_heuristic_rules(self, table: str, policy: dict, anomalies: dict) -> list[dict]:
         rules = []
-        cols = policy.get("columns", {})
 
         if table == "ev_telemetry":
             rules.extend([

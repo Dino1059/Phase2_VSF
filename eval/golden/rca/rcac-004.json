@@ -1,0 +1,72 @@
+{
+  "case_id": "RCAC-004",
+  "suite": "golden/dev",
+  "held_out": false,
+  "incident": {
+    "incident_id": "inc-rca-004",
+    "project_id": "proj-eval",
+    "status": "OPEN",
+    "entity_ids": [
+      "VIN-040"
+    ],
+    "signal_ids": [
+      "sig-voltage-01"
+    ],
+    "admission_reason": "Rapid voltage drop under load",
+    "supporting_layers": [],
+    "severity": "HIGH",
+    "time_window": {},
+    "confirmed_facts": [],
+    "evidence_refs": [],
+    "correlation_key": null,
+    "occurrence_count": 1,
+    "representative_signal_ids": [],
+    "owner": null,
+    "feedback_type": null,
+    "feedback_reason": null,
+    "feedback_by": null,
+    "feedback_at": null,
+    "created_at": "2026-09-05T11:35:04.416147Z",
+    "updated_at": "2026-09-05T11:35:04.416149Z"
+  },
+  "available_evidence": [
+    {
+      "evidence_id": "ev-rca-004a",
+      "project_id": null,
+      "incident_id": null,
+      "source_type": "telemetry",
+      "source_id": "bms-40",
+      "time_range": {},
+      "entity_ids": [
+        "VIN-040"
+      ],
+      "content_hash": "hash04",
+      "summary": "Battery SOC voltage collapse under peak load",
+      "provenance": "SEMI_SYNTHETIC"
+    },
+    {
+      "evidence_id": "ev-rca-004b",
+      "project_id": null,
+      "incident_id": null,
+      "source_type": "logs",
+      "source_id": "sys-40",
+      "time_range": {},
+      "entity_ids": [
+        "VIN-040"
+      ],
+      "content_hash": "hash05",
+      "summary": "Routine maintenance inspection logged",
+      "provenance": "SEMI_SYNTHETIC"
+    }
+  ],
+  "expected_classification": "OPERATIONAL",
+  "expected_top_causes": [
+    "OPERATIONAL"
+  ],
+  "ground_truth_evidence_ids": [
+    "ev-rca-004a"
+  ],
+  "is_abstention_case": false,
+  "source": "eval/eval_rca.py::get_hidden_rca_ground_truth_cases",
+  "note": "Golden/dev only. Do not tune prompts or heuristics against these as if held-out."
+}

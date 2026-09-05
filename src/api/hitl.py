@@ -27,7 +27,7 @@ def check_rule_approved(rule_id: str):
 
 
 def _ensure_hitl_columns(db):
-    for col in ["layer", "problem_discovered", "why_proposed", "quality_impact", "source_ingestion_run_id", "calendar_day", "approved_by", "approved_at"]:
+    for col in ["layer", "problem_discovered", "why_proposed", "quality_impact", "source_ingestion_run_id", "calendar_day", "approved_by", "approved_at", "validation_status", "validation_reasons"]:
         try:
             db.execute(f"ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS {col} VARCHAR")
         except Exception:
@@ -115,7 +115,7 @@ def _fetch_queue_rows(db, where_status: str, dataset_key: Optional[str]):
     select_sql = (
         "SELECT id, rule_name, rule_type, rule_expression, confidence, status, proposed_by, created_at, "
         "layer, problem_discovered, why_proposed, quality_impact, reject_reason, feedback_by, feedback_at, "
-        "source_ingestion_run_id, calendar_day "
+        "source_ingestion_run_id, calendar_day, validation_status, validation_reasons "
         f"FROM quality_rules WHERE {where_status} "
     )
     if not dataset_key:
@@ -202,6 +202,8 @@ async def get_queue(
             "feedback_at": str(r[14]) if len(r) > 14 and r[14] else None,
             "source_ingestion_run_id": r[15] if len(r) > 15 else None,
             "calendar_day": r[16] if len(r) > 16 else None,
+            "validation_status": r[17] if len(r) > 17 else None,
+            "validation_reasons": _parse_json_blob(r[18]) if len(r) > 18 else None,
         }
         for r in rows
     ]}

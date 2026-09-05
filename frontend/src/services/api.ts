@@ -118,8 +118,8 @@ export async function ensureDemoAuth(): Promise<void> {
     profileRole = '';
   }
   const actor = role || profileRole;
-  // Keep an existing steward OR admin JWT. Re-login as steward would clobber Reset DB.
-  if (readAuthToken() && (role === 'steward' || role === 'admin' || actor === 'admin' || actor === 'administrator')) return;
+  // Keep any existing JWT. Re-login as steward would clobber Viewer / steward_a / Analyst.
+  if (readAuthToken()) return;
   if (actor === 'admin' || actor === 'administrator') return;
   const res = await authApi.login({ username: 'steward', role: 'steward' });
   if (res?.access_token) {

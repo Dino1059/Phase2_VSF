@@ -114,3 +114,22 @@ class Compiler:
 
     compile = compile_plan
 
+
+def try_compile_rule_expression(expression: str):
+    """Compile a SQL-like rule_expression using the existing rule_executor dialect.
+
+    Does not invent a second parser or change dialect. Returns
+    (ok: bool, spec_or_none, error_message_or_none).
+    """
+    from src.tools.rule_executor import RuleExecutorTool, compile_rule_spec
+
+    expr = (expression or "").strip()
+    if not expr:
+        return False, None, "empty rule_expression"
+    tool = RuleExecutorTool()
+    try:
+        spec = tool._parse_rule_spec(expr)
+        compile_rule_spec(spec)
+        return True, spec, None
+    except Exception as exc:
+        return False, None, str(exc)

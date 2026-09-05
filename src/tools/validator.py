@@ -1,6 +1,8 @@
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
+
 import pandas as pd
+from pydantic import BaseModel
 
 from src.models.schemas import Proposal, RuleFamily, RuleSpec, ValidationResult
 
@@ -150,3 +152,184 @@ class Validator:
 
         valid = len(all_errors) == 0
         return ValidationResult(is_valid=valid, valid=valid, errors=all_errors, warnings=all_warnings)
+
+
+# ---------------------------------------------------------------------------
+# Proposal gate (Wave 2 Task 2.1) — validate before HITL queue
+# ---------------------------------------------------------------------------
+
+
+class RuleValidation(BaseModel):
+    status: Literal["VALIDATED", "NEEDS_REVIEW"]
+    reasons: list[str]
+    sql_compiles: bool
+    column_exists: bool
+    sandbox_ran: bool
+    always_true: bool | None = None
+    always_false: bool | None = None
+    duplicate_of: str | None = None
+    quarantine_rate_preview: float | None = None
+
+
+_IDENT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
+_SQL_KEYWORDS = {
+    "and", "or", "not", "between", "in", "is", "null", "like", "case", "when",
+    "then", "else", "end", "true", "false", "as", "cast", "coalesce", "abs",
+    "lower", "upper", "trim", "length", "round", "where", "select", "from",
+}
+
+
+def _extract_idents(expr: str) -> list[str]:
+    out: list[str] = []
+    for m in _IDENT_RE.finditer(expr or ""):
+        tok = m.group(1)
+        if tok.lower() in _SQL_KEYWORDS:
+            continue
+        if tok.replace(".", "", 1).isdigit():
+            continue
+        out.append(tok)
+    return out
+
+
+def _row_satisfies(spec, row: dict) -> bool | None:
+    """Evaluate a compiled RuleSpec against one sample row. None if unevaluable."""
+    col = getattr(spec, "column", None)
+    if not col:
+        return None
+    if col not in row:
+        return None
+    val = row.get(col)
+    op = getattr(spec, "operator", None)
+    args = list(getattr(spec, "arguments", []) or [])
+    try:
+        if op == "not_null":
+            return val is not None and str(val).strip() != ""
+        if val is None:
+            return False
+        num = float(val) if not isinstance(val, (int, float)) else float(val)
+        if op == "gt":
+            return num > float(args[0])
+        if op == "lt":
+            return num < float(args[0])
+        if op == "gte":
+            return num >= float(args[0])
+        if op == "lte":
+            return num <= float(args[0])
+        if op == "eq":
+            return val == args[0] or num == float(args[0])
+        if op == "neq":
+            return val != args[0]
+        if op == "between":
+            return float(args[0]) <= num <= float(args[1])
+        if op == "in":
+            return val in args or num in [float(a) for a in args if isinstance(a, (int, float))]
+    except (TypeError, ValueError, IndexError):
+        return None
+    return None
+
+
+def validate_proposed_rule(
+    rule: dict,
+    *,
+    columns: list[str],
+    sample_rows: list[dict],
+    approved: list[dict],
+) -> RuleValidation:
+    """Gate proposed rules before HITL. Marks NEEDS_REVIEW on soft failures."""
+    reasons: list[str] = []
+    expr = str(rule.get("rule_expression") or rule.get("expression") or "").strip()
+    col_set = {c.lower(): c for c in (columns or [])}
+
+    # --- column existence for rule_expression ---
+    idents = _extract_idents(expr)
+    missing_cols = [i for i in idents if i.lower() not in col_set]
+    # Prefer primary target (first ident) when present
+    column_exists = len(missing_cols) == 0 and bool(idents) if columns else True
+    if columns and missing_cols:
+        column_exists = False
+        reasons.append(f"referenced column(s) not in schema: {', '.join(missing_cols)}")
+    elif columns and not idents and expr:
+        column_exists = False
+        reasons.append("no column identifier found in rule_expression")
+
+    # --- compile via compiler.py → rule_executor dialect ---
+    from src.tools.compiler import try_compile_rule_expression
+
+    sql_compiles, spec, compile_err = try_compile_rule_expression(expr)
+    if not sql_compiles:
+        reasons.append(f"expression does not compile: {compile_err or 'unknown'}")
+
+    # --- remediation column ---
+    remed = str(rule.get("remediation_sql_expr") or "").strip()
+    remed_action = str(rule.get("remediation_action") or "NO_OP").strip().upper()
+    if remed and columns:
+        remed_idents = _extract_idents(remed)
+        remed_missing = [i for i in remed_idents if i.lower() not in col_set]
+        if remed_missing:
+            reasons.append(f"remediation column missing: {', '.join(remed_missing)}")
+    elif remed_action and remed_action not in ("NO_OP", "", "NONE") and not remed:
+        reasons.append("remediation column missing: remediation_sql_expr empty")
+
+    # --- duplicate of approved expression ---
+    duplicate_of = None
+    expr_norm = " ".join(expr.lower().split())
+    for a in approved or []:
+        a_expr = str(a.get("rule_expression") or a.get("expression") or "").strip()
+        if a_expr and " ".join(a_expr.lower().split()) == expr_norm:
+            duplicate_of = str(a.get("id") or a.get("rule_id") or a.get("rule_name") or a_expr)
+            reasons.append(f"duplicate of approved expression: {duplicate_of}")
+            break
+
+    # --- sandbox on sample_rows ---
+    always_true = None
+    always_false = None
+    quarantine_rate_preview = None
+    sandbox_ran = False
+    if sample_rows and sql_compiles and spec is not None:
+        results = []
+        for row in sample_rows:
+            sat = _row_satisfies(spec, row)
+            if sat is not None:
+                results.append(sat)
+        if results:
+            sandbox_ran = True
+            always_true = all(results)
+            always_false = not any(results)
+            fail_count = sum(1 for r in results if not r)
+            quarantine_rate_preview = fail_count / len(results)
+            if always_true:
+                reasons.append("expression always true on sample_rows")
+            if always_false:
+                reasons.append("expression always false on sample_rows")
+
+    # explicit quarantine_rate_preview on rule dict wins if provided
+    if rule.get("quarantine_rate_preview") is not None:
+        try:
+            quarantine_rate_preview = float(rule["quarantine_rate_preview"])
+        except (TypeError, ValueError):
+            pass
+
+    rationale = str(
+        rule.get("rationale")
+        or rule.get("why_proposed")
+        or rule.get("problem_discovered")
+        or ""
+    ).strip()
+    if quarantine_rate_preview is not None and quarantine_rate_preview > 0.35 and not rationale:
+        reasons.append(
+            f"quarantine_rate_preview {quarantine_rate_preview:.2f} > 0.35 without rationale"
+        )
+
+    status = "NEEDS_REVIEW" if reasons else "VALIDATED"
+    return RuleValidation(
+        status=status,
+        reasons=reasons,
+        sql_compiles=sql_compiles,
+        column_exists=column_exists,
+        sandbox_ran=sandbox_ran,
+        always_true=always_true,
+        always_false=always_false,
+        duplicate_of=duplicate_of,
+        quarantine_rate_preview=quarantine_rate_preview,
+    )
+

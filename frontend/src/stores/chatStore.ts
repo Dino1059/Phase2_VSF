@@ -88,6 +88,11 @@ function saveActiveSessionId(id: string | null): void {
 
 const initialActiveId = getSavedSessionId() || 'default';
 
+
+export function resolveSafeSummary(data: { safe_summary?: string; thought?: string; content?: string } | null | undefined): string {
+  if (!data) return '';
+  return String(data.safe_summary || data.thought || data.content || '');
+}
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   sessions: initialActiveId === 'default'
