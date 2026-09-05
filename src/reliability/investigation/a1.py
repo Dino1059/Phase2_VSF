@@ -6,6 +6,7 @@ from src.reliability.models.evidence import Evidence
 from src.reliability.models.hypothesis import Hypothesis, CauseClassification
 from src.reliability.investigation.tools import InvestigationToolRegistry, InvestigationToolResult
 from src.reliability.governance.recommendations import RecommendationRouter, Recommendation
+from src.services.context_budget import compact_a1_messages, DEFAULT_LIMITS
 
 
 # Target Entity Domains
@@ -268,6 +269,13 @@ class A1BoundedInvestigator:
 
         final_parsed_hypothesis: Optional[Dict[str, Any]] = None
         stop_reason = "completed"
+        compaction_count = 0
+        last_envelope_tokens = 0
+        incident_capsule = (
+            f"Incident ID: {incident.incident_id}\n"
+            f"Entity ID: {entity_id}\n"
+            f"Admission Observation: {incident.admission_reason}"
+        )
 
         while tool_calls_made < self.max_tool_calls:
             elapsed = time.perf_counter() - start_time
@@ -278,12 +286,40 @@ class A1BoundedInvestigator:
                 stop_reason = "max_tokens_budget_exceeded"
                 break
 
+            hyp_state = json.dumps(final_parsed_hypothesis or {}, ensure_ascii=False, default=str)[:2000]
+            ev_ids = [e.evidence_id for e in gathered_evidence]
+            envelope = compact_a1_messages(
+                messages,
+                incident_capsule=incident_capsule,
+                hypothesis_state=hyp_state,
+                evidence_ids=ev_ids,
+                hard_limit_tokens=DEFAULT_LIMITS["rca_a1"],
+            )
+            compaction_count += 1
+            last_envelope_tokens = envelope.estimated_input_tokens
+            if envelope.truncation_reason == "insufficient_evidence_after_compaction":
+                stop_reason = "insufficient_evidence_after_compaction"
+                break
+            if envelope.estimated_input_tokens > DEFAULT_LIMITS["rca_a1"]:
+                stop_reason = "context_budget_exceeded"
+                break
+            # Replace oversized message bodies with compacted render for the next call
+            if envelope.truncation_applied:
+                messages = [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": envelope.rendered_context},
+                ]
+
             try:
                 resp = self.llm.chat(messages)
                 content = resp.content.strip()
                 tokens_spent += resp.tokens_used or 150
             except Exception as e:
-                stop_reason = f"llm_error: {str(e)[:50]}"
+                err = str(e).lower()
+                if any(k in err for k in ("context length", "context_length", "maximum context", "token limit", "too many tokens")):
+                    stop_reason = "provider_context_limit"
+                else:
+                    stop_reason = f"llm_error: {str(e)[:50]}"
                 break
 
             # Check if final hypothesis is present
@@ -394,7 +430,10 @@ class A1BoundedInvestigator:
                 synth_resp = self.llm.chat(messages)
                 tokens_spent += synth_resp.tokens_used or 100
                 final_parsed_hypothesis = extract_json(synth_resp.content)
-            except Exception:
+            except Exception as e:
+                err = str(e).lower()
+                if any(k in err for k in ("context length", "context_length", "maximum context", "token limit", "too many tokens")):
+                    stop_reason = "provider_context_limit"
                 pass
 
         valid_ev_ids = {e.evidence_id for e in gathered_evidence}
@@ -449,6 +488,9 @@ class A1BoundedInvestigator:
 
         execution_meta = {
             "tokens_spent": tokens_spent,
+            "output_tokens": tokens_spent,
+            "input_tokens_estimated": last_envelope_tokens,
+            "context_compactions": compaction_count,
             "tool_calls_made": tool_calls_made,
             "tool_execution_trace": tool_execution_trace,
             "hypothesis_revisions": hypothesis_revisions,
