@@ -1015,57 +1015,12 @@ class CleanDatabaseTool(BaseTool):
 
         target_tables: List[Optional[str]] = [table_name] if table_name else (user_tables if user_tables else [None])
 
-        # Load rules from DB or fallback to synthesized rules (per table)
-        approved_rules: List[Dict[str, Any]] = []
-        try:
-            rows = db.execute("SELECT id, rule_name, rule_type, rule_expression, status FROM quality_rules")
-            if rows:
-                for row in rows:
-                    if row[4] in ("approved", "edit"):
-                        approved_rules.append({
-                            "rule_id": row[0],
-                            "name": row[1],
-                            "rule_type": row[2],
-                            "expression": row[3],
-                            "decision": row[4],
-                        })
-        except Exception:
-            pass
-
-        if not approved_rules:
-            for tbl in target_tables:
-                effective_key = f"{base_key}::{tbl}" if tbl else base_key
-                try:
-                    df = load_dataset(dataset_key=effective_key)
-                    profile_data = profile_rows(df.to_dict("records"))
-                    rules, _ = generate_rules_for_baseline("A1", profile_data)
-                except Exception:
-                    continue
-                for i, r in enumerate(rules):
-                    if isinstance(r, dict):
-                        rid = r.get("rule_id", f"rule_{(tbl or base_key)}_{i+1}")
-                        name = r.get("name", "Range Check")
-                        rtype = r.get("rule_type", "range_check")
-                        expr = r.get("expression", "val != null")
-                    else:
-                        rid = r.rule_id
-                        name = r.rule_name if hasattr(r, "rule_name") else "Range Check"
-                        rtype = r.rule_family.value if hasattr(r.rule_family, "value") else str(r.rule_family)
-                        expr = r.expression
-
-                    approved_rules.append({
-                        "rule_id": rid,
-                        "name": name,
-                        "rule_type": rtype,
-                        "expression": expr,
-                        "decision": "approved",
-                        "table_name": tbl,
-                    })
-
+        approved_rules = approved_rules_for_clean(db, base_key or dataset_key)
         if not approved_rules:
             return ToolResult(
                 status="error",
-                error_message="Rule execution denied: No rules are approved by HITL"
+                error_message="Rule execution denied: No rules are approved by HITL",
+                output_data={"status": "awaiting_hitl", "writes": 0},
             )
 
         per_table_results: List[Dict[str, Any]] = []
@@ -1124,9 +1079,9 @@ class RunFullPipelineInput(BaseModel):
 
 class RunFullPipelineTool(BaseTool):
     name = "run_full_pipeline"
-    description = "Executes the strict sequential 4-stage DataTrust pipeline: Stage 1 (Profile) -> Stage 2 (L1-L4 Anomaly Detection) -> Stage 3 (Rule Synthesis from Profile & Anomalies) -> Stage 4 (Clean Database & Quarantine)."
+    description = "Executes the analysis pipeline through HITL: Stage 1 (Profile) -> Stage 2 (L1-L4 Anomaly Detection) -> Stage 3 (Rule Proposal). Stops before clean; Stage 4 runs only after steward approval."
     input_schema = RunFullPipelineInput
-    target_workflow_state = WorkflowState.COMPLETED
+    target_workflow_state = WorkflowState.RULES_PROPOSED
 
     def execute(self, input_data: dict) -> ToolResult:
         dataset_key = input_data.get("dataset_key", "vinfast_ev_telemetry_dirty")
@@ -1141,46 +1096,24 @@ class RunFullPipelineTool(BaseTool):
         anom_res = anom_tool.execute({"dataset_key": dataset_key})
         anom_data = anom_res.output_data if anom_res.status == "success" else {}
 
-        # Step 3: Propose Rules based on Profile + Anomalies
+        # Step 3: Propose Rules based on Profile + Anomalies; stop at HITL
         rules_tool = ProposeQualityRulesTool()
-        rules_res = rules_tool.execute({"dataset_key": dataset_key, "anomaly_findings": anom_data})
+        rules_res = rules_tool.execute({
+            "dataset_key": dataset_key,
+            "profile_summary": prof_data,
+            "anomaly_findings": anom_data,
+        })
         rules_data = rules_res.output_data if rules_res.status == "success" else {}
-
-        # Step 4: Clean & Quarantine
-        clean_tool = CleanDatabaseTool()
-        clean_res = clean_tool.execute({"dataset_key": dataset_key})
-        clean_data = clean_res.output_data if clean_res.status == "success" else {}
-
-        # Background sync with DataTrustOrchestrator for run_id
-        run_id = None
-        try:
-            from src.orchestrator.orchestrator import DataTrustOrchestrator
-            from src.services.llm import GemmaLLMAdapter
-            from src.api.pipeline import _build_pipeline_result, _update_pipeline_run
-            from src.db.connection import get_db
-
-            run_id = str(uuid.uuid4())[:8]
-            db = get_db()
-            db.execute(
-                "INSERT INTO pipeline_runs (run_id, project_id, dataset_key, status) VALUES (?, ?, ?, ?)",
-                [run_id, "proj-vingroup-pilot", dataset_key, "running"],
-            )
-            orch = DataTrustOrchestrator(llm=GemmaLLMAdapter(), project_id="proj-vingroup-pilot")
-            orch_res = orch.run_analysis(dataset_key)
-            payload = _build_pipeline_result(run_id, dataset_key, orch_res)
-            _update_pipeline_run(run_id, payload["status"], payload)
-        except Exception as oe:
-            print(f"[WARN] Failed background orchestrator sync: {oe}")
 
         return ToolResult(
             status="success",
             output_data={
+                "status": "awaiting_hitl",
                 "dataset_key": dataset_key,
-                "run_id": run_id,
-                "stage_1_profile": prof_data,
-                "stage_2_anomalies": anom_data,
-                "stage_3_rules": rules_data,
-                "stage_4_clean": clean_data,
-            }
+                "profile": prof_data,
+                "anomalies": anom_data,
+                "proposals": rules_data,
+                "steps_executed": ["profile_dataset", "detect_anomalies", "propose_quality_rules"],
+            },
         )
 
