@@ -279,6 +279,22 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     ? (raw as any).safe_summary.trim()
     : (typeof raw.thought === 'string' ? raw.thought.trim() : '');
   const status = normalizeStatus(raw.status) || (output == null && !summary_done ? 'running' : 'done');
+  const outObj = output && typeof output === 'object' && !Array.isArray(output)
+    ? (output as Record<string, unknown>)
+    : {};
+  const pickStr = (...vals: unknown[]) => {
+    for (const v of vals) {
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return null;
+  };
+  const pickNum = (...vals: unknown[]) => {
+    for (const v of vals) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
   return {
     step: raw.step ?? raw.step_index ?? index + 1,
     action: raw.action || tool_name,
@@ -298,6 +314,14 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     safe_summary: thoughtRaw || undefined,
     thought: thoughtRaw || undefined,
     msgId: raw.msgId || raw.msg_id || raw.message_id || undefined,
+    // TraceBeat chip fields — AgentTracesTab gates provider/model/validation on these
+    stage: pickStr(raw.stage, outObj.stage) || undefined,
+    provider: pickStr(raw.provider, outObj.provider),
+    model: pickStr(raw.model, outObj.model),
+    validation_status: pickStr(raw.validation_status, outObj.validation_status),
+    input_tokens_estimated: pickNum(raw.input_tokens_estimated, outObj.input_tokens_estimated),
+    output_tokens: pickNum(raw.output_tokens, outObj.output_tokens),
+    fallback_depth: pickNum(raw.fallback_depth, outObj.fallback_depth),
   };
 }
 
