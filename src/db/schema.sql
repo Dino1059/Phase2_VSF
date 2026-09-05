@@ -139,18 +139,30 @@ CREATE TABLE IF NOT EXISTS agent_traces (
     agent_type VARCHAR,
     step_index INT,
     thought VARCHAR,
+    safe_summary VARCHAR,
     action VARCHAR,
     tool_name VARCHAR,
     tool_input JSON,
     tool_output JSON,
     observation VARCHAR,
     tokens_used INT,
+    input_tokens_estimated INT,
+    output_tokens INT,
     cost_usd FLOAT,
     duration_ms INT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR,
     tool_title VARCHAR,
-    tool_about VARCHAR
+    tool_about VARCHAR,
+    provider VARCHAR,
+    model VARCHAR,
+    fallback_depth INT,
+    context_items_included INT,
+    context_items_dropped INT,
+    validation_status VARCHAR,
+    stage VARCHAR,
+    actor VARCHAR,
+    error_code VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS schedules (

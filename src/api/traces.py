@@ -3,10 +3,41 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from src.db.connection import get_db
 
+
 traces_router = APIRouter(prefix="/traces", tags=["Traces"])
+
+
+class WorkflowTraceEvent(BaseModel):
+    trace_id: str
+    run_id: str | None = None
+    session_id: str | None = None
+    dataset_key: str | None = None
+    incident_id: str | None = None
+    stage: str
+    actor: str
+    action: str
+    tool_name: str | None = None
+    status: str
+    started_at: str
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    input_ref_ids: list[str] = Field(default_factory=list)
+    output_ref_ids: list[str] = Field(default_factory=list)
+    input_tokens_estimated: int | None = None
+    output_tokens: int | None = None
+    provider: str | None = None
+    model: str | None = None
+    fallback_depth: int = 0
+    context_items_included: int | None = None
+    context_items_dropped: int | None = None
+    validation_status: str | None = None
+    error_code: str | None = None
+    safe_summary: str
+
 
 _ACTOR_BY_ACTION = (
     ("profile", "PROFILER"),
@@ -257,27 +288,86 @@ def _in_range(ts: Any, since: datetime | None) -> bool:
 
 
 def ensure_steward_trace_columns(db) -> None:
-    for col, typ in (("status", "VARCHAR"), ("tool_title", "VARCHAR"), ("tool_about", "VARCHAR")):
+    for col, typ in (
+        ("status", "VARCHAR"),
+        ("tool_title", "VARCHAR"),
+        ("tool_about", "VARCHAR"),
+        ("safe_summary", "VARCHAR"),
+        ("provider", "VARCHAR"),
+        ("model", "VARCHAR"),
+        ("fallback_depth", "INT"),
+        ("input_tokens_estimated", "INT"),
+        ("output_tokens", "INT"),
+        ("context_items_included", "INT"),
+        ("context_items_dropped", "INT"),
+        ("validation_status", "VARCHAR"),
+        ("stage", "VARCHAR"),
+        ("actor", "VARCHAR"),
+        ("error_code", "VARCHAR"),
+    ):
         try:
             db.execute(f"ALTER TABLE agent_traces ADD COLUMN {col} {typ}")
         except Exception:
             pass
 
 
+def _row_get(row: tuple, idx: int, default=None):
+    return row[idx] if len(row) > idx else default
+
+
 def normalize_trace_step(row: tuple, agent_type: str | None = None) -> dict:
     """Map agent_traces row → steward card fields (aliases + honest measured Done)."""
-    step_index, thought, action, tool_name, tool_input, tool_output, observation, tokens, duration_ms, timestamp = row[:10]
-    extra_agent = row[10] if len(row) > 10 else agent_type
-    stored_status = row[11] if len(row) > 11 else None
-    stored_title = row[12] if len(row) > 12 else None
-    stored_about = row[13] if len(row) > 13 else None
+    # Flexible: base cols then optional steward/workflow cols
+    step_index = _row_get(row, 0)
+    thought = _row_get(row, 1)
+    action = _row_get(row, 2)
+    tool_name = _row_get(row, 3)
+    tool_input = _row_get(row, 4)
+    tool_output = _row_get(row, 5)
+    observation = _row_get(row, 6)
+    tokens = _row_get(row, 7)
+    duration_ms = _row_get(row, 8)
+    timestamp = _row_get(row, 9)
+    extra_agent = _row_get(row, 10, agent_type)
+    stored_status = _row_get(row, 11)
+    stored_title = _row_get(row, 12)
+    stored_about = _row_get(row, 13)
+    safe_summary_col = _row_get(row, 14)
+    provider = _row_get(row, 15)
+    model = _row_get(row, 16)
+    fallback_depth = _row_get(row, 17) or 0
+    input_tokens_estimated = _row_get(row, 18)
+    output_tokens = _row_get(row, 19)
+    context_items_included = _row_get(row, 20)
+    context_items_dropped = _row_get(row, 21)
+    validation_status = _row_get(row, 22)
+    stage = _row_get(row, 23)
+    actor = _row_get(row, 24)
+    error_code = _row_get(row, 25)
+
     output = _parse_json(tool_output)
     tool = tool_name or action
     title, about = _tool_title_about(tool, stored_title, stored_about)
     status = _infer_status(stored_status, output, observation)
+    # Map legacy thought → safe_summary when new column is null
+    legacy = _pass_through_thought(thought)
+    safe_summary = _pass_through_thought(safe_summary_col) or legacy or ""
+    if isinstance(output, dict):
+        provider = provider or output.get("provider")
+        model = model or output.get("model") or output.get("model_used")
+        if output.get("fallback_depth") is not None and not fallback_depth:
+            fallback_depth = output.get("fallback_depth") or 0
+        validation_status = validation_status or output.get("validation_status")
+        context_items_included = context_items_included if context_items_included is not None else output.get("context_items_included")
+        context_items_dropped = context_items_dropped if context_items_dropped is not None else output.get("context_items_dropped")
+        input_tokens_estimated = input_tokens_estimated if input_tokens_estimated is not None else output.get("input_tokens_estimated")
+        output_tokens = output_tokens if output_tokens is not None else output.get("output_tokens")
+    actor_kind = actor or _prefer_actor(action, tool, extra_agent)
+    stage_val = stage or (action or tool or "workflow")
     return {
         "step": step_index,
         "action": action,
+        "stage": stage_val,
         "tool": tool,
         "tool_name": tool_name or action,
         "tool_title": title,
@@ -287,14 +377,58 @@ def normalize_trace_step(row: tuple, agent_type: str | None = None) -> dict:
         "observation": observation,
         "tokens": tokens,
         "tokens_used": tokens,
+        "input_tokens_estimated": input_tokens_estimated,
+        "output_tokens": output_tokens if output_tokens is not None else tokens,
         "duration_ms": duration_ms,
         "timestamp": str(timestamp) if timestamp else None,
-        "actor_kind": _prefer_actor(action, tool, extra_agent),
+        "actor_kind": actor_kind,
+        "actor": actor_kind,
         "agent_type": extra_agent,
         "summary_done": _measured_summary(action, observation, output, title),
-        "thought": _pass_through_thought(thought),
+        "safe_summary": safe_summary,
+        # Legacy alias for instructor/read compat; product UI must use safe_summary
+        "thought": safe_summary or None,
+        "provider": provider,
+        "model": model,
+        "fallback_depth": int(fallback_depth or 0),
+        "context_items_included": context_items_included,
+        "context_items_dropped": context_items_dropped,
+        "validation_status": validation_status,
+        "error_code": error_code,
         "status": status,
     }
+
+
+def to_workflow_trace_event(card: dict, *, trace_id: str | None = None, session_id: str | None = None) -> WorkflowTraceEvent:
+    """Build a WorkflowTraceEvent from a normalized steward card."""
+    started = str(card.get("timestamp") or datetime.utcnow().isoformat())
+    return WorkflowTraceEvent(
+        trace_id=trace_id or f"tr_{card.get('step')}_{started}",
+        run_id=card.get("run_id"),
+        session_id=session_id or card.get("session_id"),
+        dataset_key=card.get("dataset_key"),
+        incident_id=card.get("incident_id"),
+        stage=str(card.get("stage") or card.get("action") or "workflow"),
+        actor=str(card.get("actor") or card.get("actor_kind") or "ORCHESTRATOR"),
+        action=str(card.get("action") or card.get("tool_name") or ""),
+        tool_name=card.get("tool_name") or card.get("tool"),
+        status=str(card.get("status") or "done"),
+        started_at=started,
+        ended_at=card.get("ended_at"),
+        duration_ms=card.get("duration_ms"),
+        input_ref_ids=list(card.get("input_ref_ids") or []),
+        output_ref_ids=list(card.get("output_ref_ids") or []),
+        input_tokens_estimated=card.get("input_tokens_estimated"),
+        output_tokens=card.get("output_tokens") if card.get("output_tokens") is not None else card.get("tokens"),
+        provider=card.get("provider"),
+        model=card.get("model"),
+        fallback_depth=int(card.get("fallback_depth") or 0),
+        context_items_included=card.get("context_items_included"),
+        context_items_dropped=card.get("context_items_dropped"),
+        validation_status=card.get("validation_status"),
+        error_code=card.get("error_code"),
+        safe_summary=str(card.get("safe_summary") or ""),
+    )
 
 
 @traces_router.get("/")
@@ -316,6 +450,12 @@ async def list_sessions(limit: int = 20):
 _TRACE_BASE_COLS = (
     "step_index, thought, action, tool_name, tool_input, tool_output, "
     "observation, tokens_used, duration_ms, timestamp, agent_type"
+)
+
+_TRACE_EXTRA_COLS = (
+    "status, tool_title, tool_about, safe_summary, provider, model, fallback_depth, "
+    "input_tokens_estimated, output_tokens, context_items_included, context_items_dropped, "
+    "validation_status, stage, actor, error_code"
 )
 
 
@@ -349,15 +489,22 @@ def _fetch_trace_rows(db, session_id: str):
     ensure_steward_trace_columns(db)
     try:
         return db.execute(
-            f"SELECT {_TRACE_BASE_COLS}, status, tool_title, tool_about "
+            f"SELECT {_TRACE_BASE_COLS}, {_TRACE_EXTRA_COLS} "
             "FROM agent_traces WHERE session_id = ? ORDER BY step_index",
             [session_id],
         )
     except Exception:
-        return db.execute(
-            f"SELECT {_TRACE_BASE_COLS} FROM agent_traces WHERE session_id = ? ORDER BY step_index",
-            [session_id],
-        )
+        try:
+            return db.execute(
+                f"SELECT {_TRACE_BASE_COLS}, status, tool_title, tool_about "
+                "FROM agent_traces WHERE session_id = ? ORDER BY step_index",
+                [session_id],
+            )
+        except Exception:
+            return db.execute(
+                f"SELECT {_TRACE_BASE_COLS} FROM agent_traces WHERE session_id = ? ORDER BY step_index",
+                [session_id],
+            )
 
 
 def _latest_session_for_dataset(db, dataset_key: str) -> str | None:
@@ -507,7 +654,7 @@ async def session_timeline(
                 "summary": card.get("summary_done") or card.get("summary") or card.get("observation"),
                 "status": card.get("status"),
                 "timestamp": card.get("timestamp"),
-                "thought": _pass_through_thought(card.get("thought")),
+                "safe_summary": card.get("safe_summary") or _pass_through_thought(card.get("thought")),
             }
         )
     return {

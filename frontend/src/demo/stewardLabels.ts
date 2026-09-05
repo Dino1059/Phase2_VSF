@@ -275,7 +275,9 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
   const storedHasSampleHealth = /health\s+\d/.test(storedSummary);
   const reuseStored = !theater && !!storedSummary && !(storedHasSampleHealth && liveFaults);
   const summary_done = reuseStored ? storedSummary : measuredFromOutput(tool_name, output, tool_title);
-  const thoughtRaw = typeof raw.thought === 'string' ? raw.thought.trim() : '';
+  const thoughtRaw = typeof (raw as any).safe_summary === 'string' && (raw as any).safe_summary.trim()
+    ? (raw as any).safe_summary.trim()
+    : (typeof raw.thought === 'string' ? raw.thought.trim() : '');
   const status = normalizeStatus(raw.status) || (output == null && !summary_done ? 'running' : 'done');
   return {
     step: raw.step ?? raw.step_index ?? index + 1,
@@ -293,6 +295,7 @@ export function mapTraceStep(raw: Record<string, any>, index: number) {
     timestamp: raw.timestamp || null,
     actor_kind: preferActorKind(raw),
     status,
+    safe_summary: thoughtRaw || undefined,
     thought: thoughtRaw || undefined,
     msgId: raw.msgId || raw.msg_id || raw.message_id || undefined,
   };

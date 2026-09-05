@@ -22,6 +22,7 @@ import { datasetStoreKey, useWorkspaceStore, type WorkspaceTraceBeat } from '../
 export interface TraceStep {
   step: number;
   action: string;
+  stage?: string;
   tool?: string;
   tool_name?: string;
   tool_title?: string;
@@ -30,12 +31,20 @@ export interface TraceStep {
   output?: unknown;
   observation?: string;
   summary_done?: string;
+  safe_summary?: string;
   tokens?: number | null;
+  input_tokens_estimated?: number | null;
+  output_tokens?: number | null;
   duration_ms?: number | null;
   timestamp?: string | null;
   actor_kind?: string;
   status?: string;
-  thought?: string;
+  provider?: string | null;
+  model?: string | null;
+  fallback_depth?: number | null;
+  context_items_included?: number | null;
+  context_items_dropped?: number | null;
+  validation_status?: string | null;
   msgId?: string;
 }
 
@@ -122,7 +131,7 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
   const [loading, setLoading] = useState(false);
   const [hashTrail, setHashTrail] = useState<{ latest: string; count: number } | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
-  const [showThought, setShowThought] = useState(false);
+  const [showSafeSummary, setShowSafeSummary] = useState(false);
   const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const resolvedSessionRef = useRef<string | null>(null);
@@ -319,8 +328,8 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
           <span style={{ fontSize: 15, fontWeight: 700 }}>{measuredTokens || '—'}</span>
         </div>
         <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input type="checkbox" checked={showThought} onChange={(e) => setShowThought(e.target.checked)} />
-          {isVi ? 'Chi tiết kỹ thuật' : 'Technical detail'}
+          <input type="checkbox" checked={showSafeSummary} onChange={(e) => setShowSafeSummary(e.target.checked)} />
+          {isVi ? 'Tóm tắt an toàn' : 'Safe summary'}
         </label>
         <button
           type="button"
@@ -451,10 +460,40 @@ export const AgentTracesTab: React.FC<AgentTracesTabProps> = ({
                   </div>
                 ) : null}
 
-                {showThought && trace.thought ? (
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.1)', color: '#6366f1', fontWeight: 600 }}>
+                    {(trace.stage || trace.action || 'workflow')}
+                  </span>
+                  {(trace.provider || trace.model) ? (
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(14,165,233,0.1)', color: '#0284c7', fontWeight: 600 }}>
+                      {[trace.provider, trace.model].filter(Boolean).join(' · ')}
+                    </span>
+                  ) : null}
+                  {typeof trace.input_tokens_estimated === 'number' || typeof trace.output_tokens === 'number' || typeof trace.tokens === 'number' ? (
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: '#d97706', fontWeight: 600 }}>
+                      in:{trace.input_tokens_estimated ?? '—'} / out:{trace.output_tokens ?? trace.tokens ?? '—'}
+                    </span>
+                  ) : null}
+                  {(typeof trace.context_items_included === 'number' || typeof trace.context_items_dropped === 'number') ? (
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(16,185,129,0.1)', color: '#059669', fontWeight: 600 }}>
+                      evidence {trace.context_items_included ?? 0} used / {trace.context_items_dropped ?? 0} omitted
+                    </span>
+                  ) : null}
+                  {(trace.fallback_depth ?? 0) > 0 ? (
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(234,179,8,0.15)', color: '#a16207', fontWeight: 700 }}>
+                      fallback×{trace.fallback_depth}
+                    </span>
+                  ) : null}
+                  {trace.validation_status ? (
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700, background: String(trace.validation_status).toUpperCase().includes('FAIL') || String(trace.validation_status).toUpperCase() === 'NEEDS_REVIEW' ? 'rgba(220,38,38,0.1)' : 'rgba(5,150,105,0.1)', color: String(trace.validation_status).toUpperCase().includes('FAIL') || String(trace.validation_status).toUpperCase() === 'NEEDS_REVIEW' ? '#dc2626' : '#059669' }}>
+                      validation: {trace.validation_status}
+                    </span>
+                  ) : null}
+                </div>
+                {showSafeSummary && (trace.safe_summary || trace.summary_done) ? (
                   <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                    {isVi ? 'Chi tiết kỹ thuật: ' : 'Technical detail: '}
-                    {trace.thought}
+                    {isVi ? 'Tóm tắt: ' : 'Summary: '}
+                    {trace.safe_summary || trace.summary_done}
                   </div>
                 ) : null}
 
