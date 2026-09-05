@@ -169,11 +169,39 @@ class AuditService:
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     @staticmethod
-    def get_history(limit: int = 50) -> list[dict]:
+    def get_history(
+        limit: int = 50,
+        action: str | None = None,
+        actor: str | None = None,
+        target_table: str | None = None,
+        target_id: str | None = None,
+        from_ts: str | None = None,
+        to_ts: str | None = None,
+    ) -> list[dict]:
         db = get_db()
+        conditions = []
+        params: list[Any] = []
+        for column, value in (
+            ("action", action),
+            ("actor", actor),
+            ("target_table", target_table),
+            ("target_id", target_id),
+        ):
+            if value:
+                conditions.append(f"{column} = ?")
+                params.append(value)
+        if from_ts:
+            conditions.append("timestamp >= CAST(? AS TIMESTAMP)")
+            params.append(from_ts)
+        if to_ts:
+            conditions.append("timestamp < CAST(? AS TIMESTAMP)")
+            params.append(to_ts)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(max(1, min(int(limit), 500)))
         rows = db.execute(
             f"SELECT id, action, actor, target_table, target_id, details, timestamp, previous_event_hash, event_hash "
-            f"FROM audit_log ORDER BY rowid DESC LIMIT {limit}"
+            f"FROM audit_log {where} ORDER BY timestamp DESC, rowid DESC LIMIT ?",
+            params,
         )
         return [
             {

@@ -519,8 +519,6 @@ function syncWorkspaceFromMessages(messages: ChatMessage[]) {
 
     for (const json of jsons) {
       if (!json || typeof json !== 'object') continue;
-      console.log('json:', json);
-
       // Profile data
       if (json.profile || json.columns || json.columns_count || json.total_rows) {
         let profileObj = json.profile || json;

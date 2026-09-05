@@ -1,47 +1,56 @@
+import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.api.dashboard import dashboard_router
+from src.api.hitl import hitl_router
+from src.api.ingestion import router as ingestion_router
+from src.api.middleware import RoleMiddleware
+from src.api.pipeline import pipeline_router
+from src.api.quarantine_api import quarantine_router
 from src.api.routes import (
-    router,
-    ws_router,
-    auth_router,
-    datasets_router,
-    profiling_router,
-    rules_router,
     approvals_router,
-    executions_router,
+    audit_router,
+    auth_router,
+    authorizations_router,
     benchmarks_router,
+    controls_router,
+    datasets_router,
+    evaluation_router,
+    executions_router,
+    incidents_router,
+    profiling_router,
+    projects_router,
+    router,
+    rules_router,
     schedules_router,
     search_router,
-    projects_router,
     signals_router,
-    incidents_router,
-    controls_router,
-    authorizations_router,
-    audit_router,
     summary_router,
-    evaluation_router,
     system_router,
+    ws_router,
 )
-from src.api.hitl import hitl_router
-from src.api.dashboard import dashboard_router
-from src.api.pipeline import pipeline_router
-from src.api.traces import traces_router
-from src.api.quarantine_api import quarantine_router
-from src.api.snapshots import snapshots_router
-from src.api.ingestion import router as ingestion_router
 from src.api.routes.telemetry import telemetry_router
-from src.memory.routes import memory_router
-from src.services.ingestion import streaming_worker
+from src.api.snapshots import snapshots_router
+from src.api.traces import traces_router
 from src.config import get_settings
-from src.services.dataset_engine import seed_dataset
-from src.services.scheduler import scheduler_service
 from src.db.connection import get_db
+from src.memory.routes import memory_router
+from src.observability.context import bind_context, reset_context
+from src.observability.logging_config import configure_logging
+from src.services.dataset_engine import seed_dataset
+from src.services.ingestion import streaming_worker
+from src.services.scheduler import scheduler_service
+
+configure_logging(get_settings().log_level)
+logger = logging.getLogger(__name__)
 
 UI_DIR_V2 = os.path.join(os.path.dirname(__file__), "ui")
 UI_DIR_V3 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
@@ -65,20 +74,20 @@ async def lifespan(app: FastAPI):
                 profiles_sample_rate=1.0,
                 integrations=[FastApiIntegration()],
             )
-            print("Sentry Backend SDK initialized successfully")
+            logger.info("sentry_initialized", extra={"event": "sentry_initialized"})
         except ImportError:
-            print("sentry-sdk not installed; skipping Sentry initialization")
-    print(f"Starting {settings.app_name} in {settings.app_env} mode")
+            logger.warning("sentry_sdk_missing", extra={"event": "sentry_sdk_missing"})
+    logger.info("application_starting", extra={"event": "application_starting", "environment": settings.app_env})
     # Pre-seed dataset only when explicitly opted in
     if os.getenv("DATATRUST_DEMO_SEED", "").strip().lower() in ("1", "true"):
-        print("Demo seed enabled")
+        logger.info("demo_seed_enabled", extra={"event": "demo_seed_enabled"})
         seed_dataset()
     else:
-        print("Demo seed skipped (set DATATRUST_DEMO_SEED=1 to seed taxi demo)")
+        logger.info("demo_seed_skipped", extra={"event": "demo_seed_skipped"})
     # Initialize DuckDB schema
     db = get_db()
     db.init_schema()
-    print(f"DuckDB initialized at {db.db_path}")
+    logger.info("duckdb_initialized", extra={"event": "duckdb_initialized"})
     streaming_worker.start()
     scheduler_service.start()
 
@@ -86,17 +95,17 @@ async def lifespan(app: FastAPI):
     try:
         from src.services.ingestion.realtime_runner import start_realtime
         start_realtime()
-        print("Ingestion RealtimeRunner auto-started.")
-    except Exception as e:
-        print(f"Failed to auto-start RealtimeRunner: {e}")
+        logger.info("realtime_runner_started", extra={"event": "realtime_runner_started"})
+    except Exception:
+        logger.exception("realtime_runner_start_failed", extra={"event": "realtime_runner_start_failed"})
 
     # Centralized LLM Manager startup check
     try:
         from src.services.llm import UnifiedLLMAdapter
         llm_status = UnifiedLLMAdapter().get_status()
-        print(f"[LLM Startup Check] Provider: {llm_status['provider']} | Model: {llm_status['model']} | Status: {llm_status['status']}")
-    except Exception as e:
-        print(f"[LLM Startup Check] Failed: {e}")
+        logger.info("llm_startup_check", extra={"event": "llm_startup_check", "provider": llm_status["provider"], "model": llm_status["model"], "status": llm_status["status"]})
+    except Exception:
+        logger.exception("llm_startup_check_failed", extra={"event": "llm_startup_check_failed"})
 
     yield
     try:
@@ -107,7 +116,7 @@ async def lifespan(app: FastAPI):
     streaming_worker.stop()
     scheduler_service.shutdown()
     get_db().close()
-    print("Shutting down DataTrust OS...")
+    logger.info("application_shutdown", extra={"event": "application_shutdown"})
 
 
 app = FastAPI(
@@ -116,8 +125,6 @@ app = FastAPI(
     version="4.2.0",
     lifespan=lifespan,
 )
-
-from src.api.middleware import RoleMiddleware
 
 settings = get_settings()
 cors_origins = (
@@ -151,23 +158,31 @@ async def health_fastpath(request: Request, call_next):
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
     start_time = time.perf_counter()
+    request_id = request.headers.get("X-Request-ID") or f"req-{uuid.uuid4().hex[:12]}"
+    request_id = request_id[:128]
+    context_token = bind_context(request_id=request_id)
     try:
         response = await call_next(request)
-    except Exception as exc:
-        import traceback
-        print(f"\033[91m[API EXCEPTION {request.method} {request.url.path}]\033[0m\n{traceback.format_exc()}")
-        raise exc
+    except Exception:
+        logger.exception("http_request_failed", extra={"event": "http_request_failed", "method": request.method, "path": request.url.path})
+        reset_context(context_token)
+        raise
     duration = time.perf_counter() - start_time
     response.headers["X-Process-Time"] = f"{duration:.4f}s"
-    # Print timing log to terminal
-    status = response.status_code
-    path = request.url.path
-    if request.url.query:
-        path = f"{path}?{request.url.query}"
-    if duration > 0.5:
-        print(f"\033[91m[SLOW API >500ms]\033[0m {request.method} {path} - {status} - \033[93m{duration:.3f}s\033[0m")
-    else:
-        print(f"[PERF] {request.method} {path} - {status} - {duration:.3f}s")
+    response.headers["X-Request-ID"] = request_id
+    logger.log(
+        logging.WARNING if duration > 0.5 else logging.INFO,
+        "http_request_completed",
+        extra={
+            "event": "http_request_completed",
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": round(duration * 1000, 2),
+            "slow": duration > 0.5,
+        },
+    )
+    reset_context(context_token)
     return response
 
 

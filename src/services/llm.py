@@ -387,7 +387,21 @@ class UnifiedLLMAdapter:
                 "structured_validation": resp.structured_validation or "",
             }
             self.last_telemetry = telemetry
-            logger.info("llm_attempt_telemetry %s", telemetry)
+            logger.info(
+                "llm_attempt_telemetry",
+                extra={
+                    "event": "llm_attempt_telemetry",
+                    "llm_request_id": request_id,
+                    "purpose": purpose,
+                    "selected_provider": resp.provider or provider or mode,
+                    "selected_model": resp.model_used,
+                    "fallback_depth": depth,
+                    "reasoning_mode": mode,
+                    "input_tokens_estimated": input_tokens_estimated,
+                    "output_tokens": int(resp.tokens_used or 0),
+                    "provider_attempt_count": len(attempts),
+                },
+            )
             return resp
 
         if not self.use_llm or _llm_killed():
@@ -531,8 +545,29 @@ class UnifiedLLMAdapter:
                     "provider": provider, "result": "error",
                     "status_code": status_code, "error": str(e),
                 })
-                logger.warning("[LLM] %s call failed: %s. Falling back to next provider...", provider, e)
+                logger.warning(
+                    "llm_provider_failed_falling_back",
+                    extra={
+                        "event": "llm_provider_failed_falling_back",
+                        "provider": provider,
+                        "status_code": status_code,
+                        "is_timeout": is_timeout,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "fallback_enabled": not raise_on_error,
+                    },
+                )
                 if raise_on_error:
+                    logger.error(
+                        "llm_provider_failure_raised",
+                        extra={
+                            "event": "llm_provider_failure_raised",
+                            "provider": provider,
+                            "status_code": status_code,
+                            "error_type": type(e).__name__,
+                            "error": str(e),
+                        },
+                    )
                     raise LLMUnavailableException(f"{provider} call failed: {e}") from e
                 fallback_depth += 1
 
