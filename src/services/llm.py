@@ -461,7 +461,6 @@ class UnifiedLLMAdapter:
                 if provider == "gemini":
                     # Preserve multi-key rotation for Gemini
                     total_attempts = max(1, self._google_keys.total_keys)
-                    last_exc: Exception | None = None
                     for attempt in range(total_attempts):
                         key = self._google_keys.get_next()
                         if not key:
@@ -473,7 +472,6 @@ class UnifiedLLMAdapter:
                             resp.provider = provider
                             return _finalize(resp, mode="llm", provider=provider, depth=fallback_depth)
                         except urllib.error.HTTPError as http_err:
-                            last_exc = http_err
                             key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
                             status_code, retry_after, is_timeout = _classify_failure(http_err)
                             if http_err.code in (429, 503, 500):
@@ -499,7 +497,6 @@ class UnifiedLLMAdapter:
                                 if raise_on_error:
                                     raise LLMUnavailableException(f"All Gemini keys failed: {http_err}") from http_err
                         except Exception as e:
-                            last_exc = e
                             key_mask = f"...{key[-6:]}" if len(key) >= 6 else "***"
                             err_str = str(e).lower()
                             if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str or "rate limit" in err_str:
