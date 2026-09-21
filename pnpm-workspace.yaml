@@ -1,6 +1,0 @@
-packages:
-  - "frontend"
-
-allowBuilds:
-  puppeteer: true
-
