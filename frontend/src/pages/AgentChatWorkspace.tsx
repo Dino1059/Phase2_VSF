@@ -436,7 +436,6 @@ export function AgentChatWorkspace() {
     const height = canvas.clientHeight || 190;
     canvas.width = width;
     canvas.height = height;
-    const isDark = (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
     ctx.clearRect(0, 0, width, height);
     const sourceNodes = pipelineResult?.rca?.nodes || [];
     const sourceEdges = pipelineResult?.rca?.edges || [];
@@ -445,10 +444,10 @@ export function AgentChatWorkspace() {
       x: width * (0.16 + (index % 3) * 0.34),
       y: height * (0.25 + (Math.floor(index / 3) % 2) * 0.5),
       color: node.type === 'incident'
-        ? (isDark ? '#F59E0B' : '#D97706')
+        ? '#D97706'
         : node.type === 'hypothesis'
-          ? (isDark ? '#F43F5E' : '#EF4444')
-          : (isDark ? '#00F0FF' : '#0284C7'),
+          ? '#EF4444'
+          : '#0284C7',
       label: String(node.label || node.id),
     }));
     const nodeById = new Map(nodes.map((node: any) => [String(node.id), node]));
@@ -457,7 +456,7 @@ export function AgentChatWorkspace() {
       const from = nodeById.get(String(link.source));
       const to = nodeById.get(String(link.target));
       if (!from || !to) return;
-      ctx.strokeStyle = isDark ? '#1F293D' : '#CBD5E1';
+      ctx.strokeStyle = '#CBD5E1';
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
@@ -465,16 +464,16 @@ export function AgentChatWorkspace() {
     });
     nodes.forEach((n) => {
       ctx.save();
-      ctx.shadowBlur = isDark ? 8 : 0;
-      ctx.shadowColor = isDark ? n.color : 'transparent';
-      ctx.fillStyle = isDark ? '#111827' : '#FFFFFF';
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = '#FFFFFF';
       ctx.strokeStyle = n.color;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.arc(n.x, n.y, 14, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = isDark ? '#F8FAFC' : '#0F172A';
+      ctx.fillStyle = '#0F172A';
       ctx.font = '600 11px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(n.label, n.x, n.y + 30);
@@ -492,9 +491,8 @@ export function AgentChatWorkspace() {
     const height = canvas.clientHeight || 180;
     canvas.width = width;
     canvas.height = height;
-    const isDark = (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
     ctx.clearRect(0, 0, width, height);
-    ctx.strokeStyle = isDark ? '#1F293D' : '#E2E8F0';
+    ctx.strokeStyle = '#E2E8F0';
     ctx.lineWidth = 1;
     for (let y = 20; y < height; y += 30) {
       ctx.beginPath();

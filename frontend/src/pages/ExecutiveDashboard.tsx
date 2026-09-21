@@ -22,12 +22,12 @@ import {
   UserCheck,
   Search,
   Fingerprint,
+  ArrowRight,
 } from 'lucide-react';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { usePipelineStore } from '../stores/pipelineStore';
 import { hitlApi, summaryApi } from '../services/api';
 import type { HITLProposal } from '../services/api';
-import { PILOT_FAULTY, PILOT_BATCH } from '../demo/pilotFacts';
 import { useAuthStore } from '../stores/authStore';
 
 const SEVERITY_BADGE: Record<string, string> = {
@@ -49,6 +49,7 @@ export const ExecutiveDashboard: React.FC = () => {
   const incidents = useDashboardStore((s) => s.incidents);
   const summary = useDashboardStore((s) => s.summary);
   const loading = useDashboardStore((s) => s.loading);
+  const dashboardError = useDashboardStore((s) => s.error);
   const fetchDashboardData = useDashboardStore((s) => s.fetchDashboardData);
   const setPipelineProposals = usePipelineStore((s) => s.setProposals);
   const [proposals, setProposals] = useState<HITLProposal[]>([]);
@@ -56,8 +57,9 @@ export const ExecutiveDashboard: React.FC = () => {
   const [editText, setEditText] = useState('');
   const [ruleStates, setRuleStates] = useState<Record<string, 'approved' | 'rejected' | 'edited'>>({});
   const [trendRange, setTrendRange] = useState<'24h' | '7d' | '30d'>('24h');
+  const [trendUnavailable, setTrendUnavailable] = useState(false);
   const chartRef = useRef<HTMLCanvasElement>(null);
-  const chartInstance = useRef<{ destroy: () => void } | null>(null);
+  const chartInstance = useRef<{ destroy: () => void; resize: () => void } | null>(null);
 
   // Data fetching
   useEffect(() => {
@@ -92,24 +94,26 @@ export const ExecutiveDashboard: React.FC = () => {
     return () => window.removeEventListener('datatrust:db-reset', handleReset);
   }, [fetchDashboardData, setPipelineProposals]);
 
-  const isDark = () =>
-    (document.documentElement.getAttribute('data-theme') || 'tech-dark') !== 'tech-light';
-
   // Dynamic anomaly trend chart (Chart.js)
   useEffect(() => {
     let isMounted = true;
     const canvas = chartRef.current;
     if (!canvas) return;
-    const textColor = isDark() ? '#94a3b8' : '#475569';
-    const gridColor = isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const textColor = '#475569';
+    const gridColor = 'rgba(15,23,42,0.08)';
+    setTrendUnavailable(false);
 
     summaryApi
       .getTrend(trendRange)
       .then((res) => {
         if (!isMounted || !canvas) return;
-        const labels = res?.labels?.length ? res.labels : ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
-        const dataA = res?.voltage_spikes?.length ? res.voltage_spikes : [12, 19, 85, 45, 120, 32, 15];
-        const dataB = res?.thermal_flags?.length ? res.thermal_flags : [5, 12, 40, 25, 88, 20, 8];
+        const labels = res?.labels || [];
+        const dataA = res?.voltage_spikes || [];
+        const dataB = res?.thermal_flags || [];
+        if (!labels.length || (!dataA.length && !dataB.length)) {
+          setTrendUnavailable(true);
+          return;
+        }
 
         import('chart.js/auto').then(({ default: Chart }) => {
           if (!isMounted) return;
@@ -120,7 +124,7 @@ export const ExecutiveDashboard: React.FC = () => {
               labels,
               datasets: [
                 { label: 'BMS Voltage Spikes', data: dataA, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
-                { label: 'Thermal Overheat Flags', data: dataB, borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
+                { label: 'Thermal Overheat Flags', data: dataB, borderColor: '#0f172a', backgroundColor: 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
               ],
             },
             options: {
@@ -136,26 +140,10 @@ export const ExecutiveDashboard: React.FC = () => {
         });
       })
       .catch(() => {
-        // Fallback default chart
-        import('chart.js/auto').then(({ default: Chart }) => {
-          if (!isMounted || !canvas) return;
-          if (chartInstance.current) chartInstance.current.destroy();
-          chartInstance.current = new Chart(canvas, {
-            type: 'line',
-            data: {
-              labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
-              datasets: [
-                { label: 'BMS Voltage Spikes', data: [12, 19, 85, 45, 120, 32, 15], borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
-                { label: 'Thermal Overheat Flags', data: [5, 12, 40, 25, 88, 20, 8], borderColor: isDark() ? '#f8fafc' : '#0f172a', backgroundColor: isDark() ? 'rgba(248,250,252,0.08)' : 'rgba(15,23,42,0.06)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3 },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: true, position: 'top', labels: { color: textColor, boxWidth: 12, padding: 16 } } },
-            },
-          });
-        });
+        if (!isMounted) return;
+        chartInstance.current?.destroy();
+        chartInstance.current = null;
+        setTrendUnavailable(true);
       });
 
     return () => {
@@ -200,6 +188,46 @@ export const ExecutiveDashboard: React.FC = () => {
   };
 
   const totalSignals = signals.length;
+  const openIncidents = incidents.filter((incident) => incident.status === 'OPEN').length;
+  const nextAction = loading
+    ? {
+        title: isVi ? 'Đang tải trạng thái hệ thống' : 'Loading system status',
+        description: isVi ? 'Vui lòng chờ trong giây lát.' : 'This should only take a moment.',
+        label: isVi ? 'Đang tải…' : 'Loading…',
+        path: null,
+        step: 1,
+      }
+    : dashboardError
+    ? {
+        title: isVi ? 'Chưa tải được dữ liệu tổng quan' : 'Dashboard data is unavailable',
+        description: isVi ? 'Kiểm tra kết nối máy chủ rồi thử tải lại. Hệ thống không hiển thị số liệu mẫu thay thế.' : 'Check the server connection and retry. Sample values are not shown as a fallback.',
+        label: isVi ? 'Thử tải lại' : 'Retry',
+        path: null,
+        step: 1,
+      }
+    : proposals.length > 0
+    ? {
+        title: isVi ? `Duyệt ${proposals.length} bộ luật đang chờ` : `Review ${proposals.length} pending rule(s)`,
+        description: isVi ? 'Kiểm tra đề xuất của AI trước khi áp dụng vào dữ liệu.' : 'Check AI proposals before applying them to data.',
+        label: isVi ? 'Duyệt kết quả' : 'Review results',
+        path: '/operations/rules',
+        step: 3,
+      }
+    : openIncidents > 0
+      ? {
+          title: isVi ? `Kiểm tra ${openIncidents} sự cố đang mở` : `Inspect ${openIncidents} open incident(s)`,
+          description: isVi ? 'Xem nguyên nhân gốc và bằng chứng trước khi xử lý.' : 'Review root causes and evidence before resolving them.',
+          label: isVi ? 'Xem phân tích' : 'View analysis',
+          path: '/operations/alerts',
+          step: 2,
+        }
+      : {
+          title: isVi ? 'Bắt đầu bằng việc nạp dữ liệu' : 'Start by ingesting data',
+          description: isVi ? 'Nạp dữ liệu nền để hệ thống bắt đầu kiểm tra chất lượng.' : 'Load baseline data so quality checks can begin.',
+          label: isVi ? 'Nạp dữ liệu' : 'Ingest data',
+          path: '/dashboard/ingestion',
+          step: 1,
+        };
   const layerCounts = signals.reduce(
     (acc, sig) => {
       const l = sig.layer || 'L1';
@@ -223,6 +251,31 @@ export const ExecutiveDashboard: React.FC = () => {
         </div>
       </div>
 
+      <section className="dashboard-next-action" aria-labelledby="dashboard-next-title">
+        <div className="dashboard-workflow" aria-label={isVi ? 'Quy trình chính' : 'Main workflow'}>
+          {[1, 2, 3].map((step) => (
+            <span key={step} className={step === nextAction.step ? 'active' : step < nextAction.step ? 'done' : ''}>
+              <b>{step}</b>
+              {step === 1
+                ? (isVi ? 'Nạp dữ liệu' : 'Ingest')
+                : step === 2
+                  ? (isVi ? 'Phân tích' : 'Analyze')
+                  : (isVi ? 'Duyệt kết quả' : 'Review')}
+            </span>
+          ))}
+        </div>
+        <div className="dashboard-next-body">
+          <div>
+            <span className="guide-eyebrow">{isVi ? 'VIỆC CẦN LÀM TIẾP THEO' : 'NEXT ACTION'}</span>
+            <h2 id="dashboard-next-title">{nextAction.title}</h2>
+            <p>{nextAction.description}</p>
+          </div>
+          <button type="button" className="primary-next-button" disabled={loading} onClick={() => nextAction.path ? navigate(nextAction.path) : void fetchDashboardData()}>
+            {nextAction.label}<ArrowRight size={17} />
+          </button>
+        </div>
+      </section>
+
       {/* TOP SUMMARY KPI CARDS (4 CARDS) */}
       <div className="kpi-grid">
         <div className="kpi-card">
@@ -230,8 +283,8 @@ export const ExecutiveDashboard: React.FC = () => {
             <span className="kpi-title">{t('enterpriseDatasets')}</span>
             <div className="kpi-icon blue"><Boxes size={15} /></div>
           </div>
-          <div className="kpi-value">{loading ? '...' : (incidents.filter((i) => i.status === 'OPEN').length || PILOT_FAULTY.openIncidents)}<span className="unit"> OPEN</span></div>
-          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? 'SEMI_SYNTHETIC'} {isVi ? 'nguồn gốc' : 'provenance'}</div>
+          <div className="kpi-value">{loading ? '...' : openIncidents}<span className="unit"> OPEN</span></div>
+          <div className="kpi-subtext positive"><CheckCircle2 size={13} /> {summary?.provenance ?? '—'} {isVi ? 'nguồn gốc' : 'provenance'}</div>
         </div>
 
         <div className="kpi-card">
@@ -240,7 +293,7 @@ export const ExecutiveDashboard: React.FC = () => {
             <div className="kpi-icon green"><Layers size={15} /></div>
           </div>
           <div className="kpi-value">{loading ? '...' : metrics.cleanRecords.toLocaleString()}<span className="unit"> {t('rows')}</span></div>
-          <div className="kpi-subtext warning"><AlertTriangle size={13} /> {PILOT_FAULTY.socBelowZero} SoC&lt;0 · {PILOT_FAULTY.voltageOver1000} V&gt;1000 · {PILOT_FAULTY.gpsOutsideHanoi} GPS</div>
+          <div className="kpi-subtext warning"><AlertTriangle size={13} /> {metrics.quarantinedRecords.toLocaleString()} {isVi ? 'bản ghi cách ly' : 'quarantined rows'}</div>
         </div>
 
         <div className="kpi-card">
@@ -263,7 +316,7 @@ export const ExecutiveDashboard: React.FC = () => {
       </div>
 
       {/* MAIN CONTENT GRID (6 PANELS) */}
-      <div className="panels-grid">
+      <div className="panels-grid primary-panels-grid">
         {/* PANEL 1: AI SUGGESTED RULES */}
         <div className="panel-card panel-suggested-rules">
           <div className="panel-header" style={{ cursor: 'pointer' }} onClick={() => navigate('/operations/rules')}>
@@ -369,6 +422,19 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
+      </div>
+
+      <details
+        className="dashboard-details"
+        onToggle={(event) => {
+          if (event.currentTarget.open) requestAnimationFrame(() => chartInstance.current?.resize());
+        }}
+      >
+        <summary>
+          <span>{isVi ? 'Xem phân tích chi tiết' : 'View detailed analysis'}</span>
+          <span>{isVi ? 'Biểu đồ, nguyên nhân gốc và hoạt động hệ thống' : 'Charts, root causes, and system activity'}</span>
+        </summary>
+        <div className="panels-grid dashboard-details-grid">
         {/* PANEL 2: ANOMALY TRENDS */}
         <div className="panel-card panel-anomaly-chart">
           <div className="panel-header">
@@ -385,7 +451,12 @@ export const ExecutiveDashboard: React.FC = () => {
             </div>
           </div>
           <div className="chart-container">
-            <canvas ref={chartRef} id="anomalyTrendChart" />
+            <canvas ref={chartRef} id="anomalyTrendChart" hidden={trendUnavailable} />
+            {trendUnavailable && (
+              <div className="dashboard-empty-state">
+                {isVi ? 'Chưa có dữ liệu xu hướng cho khoảng thời gian này.' : 'No trend data is available for this period.'}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
             <span>{isVi ? 'L1 Schema:' : 'L1 Schema:'} <strong style={{ color: 'var(--text-main)' }}>{layerCounts.L1 || 0}</strong></span>
@@ -396,23 +467,23 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* PANEL 3: data_new steward findings (not fake agent latency) */}
+        {/* PANEL 3: live operational summary */}
         <div className="panel-card panel-agent-health">
           <div className="panel-header">
             <div className="panel-title-group">
               <Bot size={18} className="text-primary" />
-              <h2>{isVi ? 'Hàng đợi steward (data_new)' : 'Steward queue (data_new)'}</h2>
+              <h2>{isVi ? 'Tóm tắt vận hành' : 'Operational summary'}</h2>
             </div>
-            <span className="status-pill online">{PILOT_BATCH.ingress}</span>
+            <span className={`status-pill ${dashboardError ? 'offline' : 'online'}`}>{dashboardError ? (isVi ? 'Mất kết nối' : 'Unavailable') : (isVi ? 'Dữ liệu thật' : 'Live data')}</span>
           </div>
           <div className="agents-status-list">
             {[
-              { label: isVi ? 'SoC < 0' : 'SoC < 0', val: String(PILOT_FAULTY.socBelowZero) },
-              { label: isVi ? 'Voltage > 1000' : 'Voltage > 1000', val: String(PILOT_FAULTY.voltageOver1000) },
-              { label: isVi ? 'GPS ngoài Hà Nội' : 'GPS outside Hà Nội', val: String(PILOT_FAULTY.gpsOutsideHanoi) },
-              { label: isVi ? 'Phiên sạc trùng' : 'Duplicate sessions', val: String(PILOT_FAULTY.duplicateSessions) },
-              { label: 'OPEN', val: String(PILOT_FAULTY.openIncidents) },
-              { label: 'Quarantine', val: String(PILOT_FAULTY.quarantine) },
+              { label: isVi ? 'Tín hiệu phát hiện' : 'Detected signals', val: String(metrics.totalAnomalies) },
+              { label: isVi ? 'Sự cố đang mở' : 'Open incidents', val: String(openIncidents) },
+              { label: isVi ? 'Đề xuất chờ duyệt' : 'Pending proposals', val: String(proposals.length) },
+              { label: isVi ? 'Bản ghi cách ly' : 'Quarantined rows', val: String(metrics.quarantinedRecords) },
+              { label: isVi ? 'Luật đã thực thi' : 'Executed rules', val: String(metrics.rulesExecuted) },
+              { label: isVi ? 'Nguồn dữ liệu' : 'Provenance', val: summary?.provenance ?? '—' },
             ].map((row) => (
               <div key={row.label} className="agent-row">
                 <div className="agent-name">{row.label}</div>
@@ -535,6 +606,7 @@ export const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+      </details>
 
       {/* RULE EDIT MODAL */}
       {editingRule && (

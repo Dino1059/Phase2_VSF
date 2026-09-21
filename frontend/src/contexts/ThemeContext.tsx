@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 
-type Theme = 'tech-dark' | 'tech-light';
+type Theme = 'tech-light';
 
 interface ThemeContextType {
   theme: Theme;
@@ -10,20 +10,16 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const savedTheme = localStorage.getItem('techTheme');
-    return (savedTheme as Theme) || 'tech-dark';
-  });
+  const theme: Theme = 'tech-light';
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     document.body.setAttribute('data-theme', theme);
-    localStorage.setItem('techTheme', theme);
-  }, [theme]);
+    localStorage.removeItem('techTheme');
+  }, []);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'tech-dark' ? 'tech-light' : 'tech-dark'));
-  };
+  // Kept for compatibility with consumers that still destructure this API.
+  const toggleTheme = () => undefined;
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

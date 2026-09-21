@@ -1,27 +1,27 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  PieChart,
-  MessageSquare,
-  ChevronDown,
-  Car,
+  BarChart3,
   BatteryCharging,
+  Bell,
+  Car,
   CarTaxiFront,
   CheckCircle,
+  ChevronDown,
   Database,
-  Bell,
-  X,
-  Search,
-  ShieldCheck,
-  ShieldAlert,
-  Play,
-  Sparkles,
   FlaskConical,
+  MessageSquare,
+  PieChart,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import { DOMAIN_LIST } from '../../stores/pipelineStore';
 
-const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; color?: string }>> = {
+const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string }>> = {
   pilot: Sparkles,
   ev: Car,
   vgreen: BatteryCharging,
@@ -30,212 +30,164 @@ const DS_ICONS: Record<string, React.ComponentType<{ size?: number | string; col
 };
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
-  const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [activeShortcut, setActiveShortcut] = useState<string>('ev');
+  const [activeShortcut, setActiveShortcut] = useState('ev');
   const [datasetQuery, setDatasetQuery] = useState('');
-  const { t, i18n } = useTranslation('pipeline');
+  const { i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const currentDatasetKey = searchParams.get('dataset_key');
 
   useEffect(() => {
-    if (currentDatasetKey) {
-      const domain = DOMAIN_LIST.find((d) => d.id === currentDatasetKey || d.shortcut === currentDatasetKey);
-      if (domain) {
-        setActiveShortcut(domain.shortcut);
-      } else {
-        setActiveShortcut(currentDatasetKey);
-      }
-    }
+    if (!currentDatasetKey) return;
+    const domain = DOMAIN_LIST.find((item) => item.id === currentDatasetKey || item.shortcut === currentDatasetKey);
+    setActiveShortcut(domain?.shortcut ?? currentDatasetKey);
   }, [currentDatasetKey]);
 
   useEffect(() => {
-    const handleDbReset = () => {
-      setActiveShortcut('ev');
-    };
-
+    const handleDbReset = () => setActiveShortcut('ev');
     window.addEventListener('datatrust:db-reset', handleDbReset);
-
-    return () => {
-      window.removeEventListener('datatrust:db-reset', handleDbReset);
-    };
+    return () => window.removeEventListener('datatrust:db-reset', handleDbReset);
   }, []);
 
   const selectDomain = (shortcut: string) => {
     setActiveShortcut(shortcut);
-    const domain = DOMAIN_LIST.find((d) => d.shortcut === shortcut);
-    const datasetKey = domain ? domain.id : shortcut;
+    const domain = DOMAIN_LIST.find((item) => item.shortcut === shortcut);
     const day = searchParams.get('day') || searchParams.get('day_idx') || '';
-    const q = new URLSearchParams({ dataset_key: datasetKey });
+    const query = new URLSearchParams({ dataset_key: domain?.id ?? shortcut });
     if (day) {
-      q.set('day', day);
-      q.set('run_id', day.includes('-') ? day : day);
+      query.set('day', day);
+      query.set('run_id', day);
     }
-    navigate(`/workspace?${q.toString()}`);
+    navigate(`/workspace?${query.toString()}`);
     onNavigate?.();
   };
 
-  const openNewChat = () => {
-    setActiveShortcut('');
-    navigate('/workspace?new=1');
-    onNavigate?.();
-  };
-
-  // Filtered sample datasets
-  const filteredSampleDatasets = useMemo(() => {
-    const q = datasetQuery.toLowerCase().trim();
-    if (!q) return DOMAIN_LIST;
-    return DOMAIN_LIST.filter(
-      (domain) =>
-        domain.name.toLowerCase().includes(q) ||
-        domain.id.toLowerCase().includes(q) ||
-        domain.shortcut.toLowerCase().includes(q)
+  const filteredDatasets = useMemo(() => {
+    const query = datasetQuery.toLowerCase().trim();
+    if (!query) return DOMAIN_LIST;
+    return DOMAIN_LIST.filter((domain) =>
+      [domain.name, domain.id, domain.shortcut].some((value) => value.toLowerCase().includes(query))
     );
   }, [datasetQuery]);
-
-  const hasAnyMatches = filteredSampleDatasets.length > 0;
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (filteredSampleDatasets.length > 0) {
-        selectDomain(filteredSampleDatasets[0].shortcut);
-      }
-    }
-  };
 
   return (
     <aside className="dash-sidebar">
       <div className="sidebar-section">
         <NavLink
           to="/dashboard"
-          onClick={() => onNavigate?.()}
-          className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
+          onClick={onNavigate}
+          className={({ isActive }) => `menu-item sidebar-home ${isActive ? 'active' : ''}`}
         >
           <PieChart size={18} />
-          <span>{t('execHome')}</span>
+          <span>{isVi ? 'Tổng quan' : 'Overview'}</span>
         </NavLink>
 
+        <div className="menu-label workflow-label">{isVi ? 'QUY TRÌNH CHÍNH' : 'MAIN WORKFLOW'}</div>
+        <NavLink
+          to="/dashboard/ingestion"
+          onClick={onNavigate}
+          className={({ isActive }) => `menu-item workflow-item ${isActive ? 'active' : ''}`}
+        >
+          <span className="workflow-number">1</span>
+          <span>{isVi ? 'Nạp dữ liệu' : 'Ingest data'}</span>
+        </NavLink>
+        <NavLink
+          to="/workspace"
+          onClick={onNavigate}
+          className={({ isActive }) => `menu-item workflow-item ${isActive ? 'active' : ''}`}
+        >
+          <span className="workflow-number">2</span>
+          <span>{isVi ? 'Phân tích' : 'Analyze'}</span>
+        </NavLink>
+        <NavLink
+          to="/operations/rules"
+          onClick={onNavigate}
+          className={({ isActive }) => `menu-item workflow-item ${isActive ? 'active' : ''}`}
+        >
+          <span className="workflow-number">3</span>
+          <span>{isVi ? 'Duyệt kết quả' : 'Review results'}</span>
+        </NavLink>
 
+        <details className="sidebar-advanced">
+          <summary>
+            <span>{isVi ? 'Nâng cao' : 'Advanced'}</span>
+            <ChevronDown size={15} />
+          </summary>
+          <div className="sidebar-advanced-content">
+            <button
+              type="button"
+              className="menu-item sidebar-button"
+              onClick={() => {
+                navigate('/workspace?new=1');
+                onNavigate?.();
+              }}
+            >
+              <MessageSquare size={17} />
+              <span>{isVi ? 'Phân tích mới' : 'New analysis'}</span>
+            </button>
 
-        <div className="agent-chat-menu-wrapper">
-          <div
-            className="menu-item"
-            onClick={() => {
-              setChatMenuOpen((o) => !o);
-              openNewChat();
-            }}
-          >
-            <MessageSquare size={18} color="var(--neon-cyan)" />
-            <span>{t('newChat')}</span>
-            <ChevronDown size={14} className="sub-arrow" style={{ transform: chatMenuOpen ? 'rotate(180deg)' : 'none' }} />
-          </div>
-
-          {chatMenuOpen && (
-            <div className="agent-chat-subpanel show" style={{ display: 'block' }}>
-              <div className="subpanel-header" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <Search size={13} style={{ position: 'absolute', left: '10px', color: 'var(--text-muted)' }} />
+            <div className="dataset-picker">
+              <label htmlFor="sidebar-dataset-search">{isVi ? 'Chọn tập dữ liệu' : 'Choose dataset'}</label>
+              <div className="dataset-search">
+                <Search size={14} />
                 <input
-                  type="text"
-                  className="search-box"
-                  style={{ paddingLeft: '28px', paddingRight: datasetQuery ? '28px' : '10px' }}
-                  placeholder={isVi ? 'Lọc tập dữ liệu...' : (t('searchPlaceholder') || 'Filter datasets...')}
+                  id="sidebar-dataset-search"
                   value={datasetQuery}
-                  onChange={(e) => setDatasetQuery(e.target.value)}
-                  onKeyDown={handleSearchKeyDown}
-                  autoFocus
+                  onChange={(event) => setDatasetQuery(event.target.value)}
+                  placeholder={isVi ? 'Tìm tập dữ liệu…' : 'Find a dataset…'}
                 />
                 {datasetQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setDatasetQuery('')}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: 2,
-                    }}
-                    title={isVi ? 'Xóa bộ lọc' : 'Clear filter'}
-                  >
-                    <X size={12} />
+                  <button type="button" onClick={() => setDatasetQuery('')} aria-label={isVi ? 'Xóa tìm kiếm' : 'Clear search'}>
+                    <X size={13} />
                   </button>
                 )}
               </div>
-
-              {!hasAnyMatches && (
-                <div style={{ padding: '12px 8px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                  {isVi ? `Không tìm thấy tập dữ liệu "${datasetQuery}"` : `No datasets match "${datasetQuery}"`}
-                </div>
-              )}
-
-              {filteredSampleDatasets.length > 0 && (
-                <>
-
-                  {filteredSampleDatasets.map((domain) => {
-                    const Icon = DS_ICONS[domain.shortcut] || Database;
-                    return (
-                      <a
-                        key={domain.id}
-                        href="#/workspace"
-                        className={`shortcut-item ${activeShortcut === domain.shortcut ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          selectDomain(domain.shortcut);
-                        }}
-                      >
-                        <div className={`ds-icon ${domain.shortcut}`}><Icon size={14} /></div>
-                        <span>{domain.name}</span>
-                      </a>
-                    );
-                  })}
-                </>
-              )}
+              <div className="dataset-options">
+                {filteredDatasets.map((domain) => {
+                  const Icon = DS_ICONS[domain.shortcut] || Database;
+                  return (
+                    <button
+                      type="button"
+                      key={domain.id}
+                      className={`shortcut-item ${activeShortcut === domain.shortcut ? 'active' : ''}`}
+                      onClick={() => selectDomain(domain.shortcut)}
+                    >
+                      <Icon size={14} />
+                      <span>{domain.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* <a href="#/workspace" className="menu-item" onClick={(event) => { event.preventDefault(); openNewChat(); }}>
-          <CheckCircle size={18} />
-          <span>{t('recentTasks')}</span>
-        </a> */}
+            <div className="advanced-links">
+              {[
+                { key: 'alerts', vi: 'Cảnh báo', en: 'Alerts', icon: Bell },
+                { key: 'quarantine', vi: 'Dữ liệu cách ly', en: 'Quarantine', icon: ShieldAlert },
+                { key: 'eval', vi: 'Đánh giá mô hình', en: 'Evaluation', icon: FlaskConical },
+                { key: 'governance', vi: 'Quản trị', en: 'Governance', icon: ShieldCheck },
+              ].map(({ key, vi, en, icon: Icon }) => (
+                <NavLink
+                  key={key}
+                  to={`/operations/${key}`}
+                  onClick={onNavigate}
+                  className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+                >
+                  <Icon size={17} />
+                  <span>{isVi ? vi : en}</span>
+                </NavLink>
+              ))}
+            </div>
 
-        <NavLink
-          to="/dashboard/ingestion"
-          onClick={() => onNavigate?.()}
-          className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
-        >
-          <Play size={18} color="var(--neon-cyan)" />
-          <span>{isVi ? 'Data Ingestion' : 'Data Ingestion'}</span>
-        </NavLink>
-
-        <div className="menu-label" style={{ marginTop: '18px', paddingLeft: '14px' }}>
-          {isVi ? 'VẬN HÀNH & BỘ LUẬT' : 'OPERATIONS & RULES'}
-        </div>
-        {[
-          { key: 'alerts', label: isVi ? 'Bảng Cảnh Báo' : 'Alert Dashboard', icon: Bell, color: '#f43f5e' },
-          { key: 'rules', label: isVi ? 'Bộ Luật Đang Áp Dụng' : 'Active Quality Rules', icon: ShieldCheck, color: '#10b981' },
-          { key: 'quarantine', label: isVi ? 'Khu Vực Cách Ly' : 'Quarantine Zone', icon: ShieldAlert, color: '#f43f5e' },
-          { key: 'eval', label: isVi ? 'Eval vs GT' : 'Eval vs GT', icon: FlaskConical, color: '#0284c7' },
-          { key: 'governance', label: isVi ? 'Quản Trị & Sổ Cái' : 'Governance & Policies', icon: CheckCircle, color: '#38bdf8' },
-        ].map(({ key, label, icon: Icon, color }) => (
-          <NavLink
-            key={key}
-            to={`/operations/${key}`}
-            onClick={() => onNavigate?.()}
-            className={({ isActive }: { isActive: boolean }) => `menu-item ${isActive ? 'active' : ''}`}
-          >
-            <Icon size={18} color={color} />
-            <span>{label}</span>
-          </NavLink>
-        ))}
+            <div className="sidebar-flow-hint">
+              <BarChart3 size={15} />
+              <span>{isVi ? 'Dùng các mục này khi cần kiểm tra sâu.' : 'Use these tools for deeper inspection.'}</span>
+              <CheckCircle size={15} />
+            </div>
+          </div>
+        </details>
       </div>
-
     </aside>
   );
 }

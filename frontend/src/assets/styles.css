@@ -1,95 +1,13 @@
 /* ==========================================================================
-   DATATRUST OS AGENT // PREMIUM DARK & WHITE SAAS VISUAL SYSTEM
-   Deep Navy-Black (#06080d) / Soft Off-White (#f8f9fc) Systems
+   DATATRUST OS AGENT // LIGHT SAAS VISUAL SYSTEM
+   Soft Off-White (#f8f9fc) System
    Inter / Geist Primary UI Font & Serif Italic Display Font for Hero Keywords
    ========================================================================== */
 
 
 
-:root,
-[data-theme="tech-dark"],
-body[data-theme="tech-dark"] {
-  /* Surface & Background Palette (Deep Navy-Black) */
-  --bg-page: #06080d;
-  --bg-darkest: #06080d;
-  --bg-darker: #0d1018;
-  --bg-card: #111520;
-  --bg-card-hover: #171d2b;
-  --bg-sidebar: #0b0e16;
-  --bg-sidebar-hover: #141a26;
-  --bg-sidebar-active: #1a2232;
-  --bg-input: #0f131d;
-  --bg-header: #080a0f;
-  --bg-modal: #111520;
-
-  /* Radial Glow Background Effect */
-  --bg-radial: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05) 0%, transparent 65%),
-               radial-gradient(ellipse at 100% 100%, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
-               radial-gradient(circle at 0% 50%, rgba(0, 0, 0, 0.4) 0%, transparent 60%);
-
-  /* Translucent Glass Borders */
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-border-bright: rgba(255, 255, 255, 0.16);
-
-  /* Typography Colors - High Contrast Crisp White & Muted Grays */
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
-  --text-cyan: #e2e8f0;
-  --text-accent: #ffffff;
-  --text-sidebar: #f8fafc;
-  --text-sidebar-muted: #94a3b8;
-
-  /* Restrained White / Silver / Gray Accent Palette */
-  --neon-cyan: #e2e8f0;
-  --neon-cyan-glow: rgba(255, 255, 255, 0.06);
-  --electric-green: #34d399;
-  --warning-amber: #fbbf24;
-  --alert-magenta: #f87171;
-  --royal-purple: #c084fc;
-
-  /* Button & CTA Surfaces */
-  --cta-bg: #f8fafc;
-  --cta-text: #080a0f;
-  --cta-hover: #e2e8f0;
-  
-  --pill-bg: rgba(255, 255, 255, 0.06);
-  --pill-border: rgba(255, 255, 255, 0.12);
-  --pill-text: #f1f5f9;
-  --pill-active-bg: #f8fafc;
-  --pill-active-text: #080a0f;
-
-  /* Search Surfaces */
-  --search-bg: #0f131d;
-  --search-border: rgba(255, 255, 255, 0.1);
-  --search-text: #f8fafc;
-
-  /* Strict Geometry Radii Tokens */
-  --radius-container: 14px; /* Main containers: 12–16px */
-  --radius-card: 10px;      /* Cards: 8–10px */
-  --radius-input: 6px;      /* Inputs: 6px */
-  --radius-pill: 6px;       /* CTAs/pills/buttons: reduced radius 6px */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 14px;
-
-  /* Typography Scale */
-  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-serif: 'Newsreader', Georgia, serif;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-hud: var(--font-sans);
-
-  /* Shadows */
-  --shadow-subtle: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-card: 0 12px 32px -8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-dropdown: 0 20px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
-/* WHITE MODE / LIGHT MODE THEME DEFINITION */
-[data-theme="tech-light"],
-body[data-theme="tech-light"] {
-  /* Surface & Background Palette (Warm Crisp Off-White) */
+:root {
+  /* Surface & Background Palette */
   --bg-page: #f8f9fc;
   --bg-darkest: #f8f9fc;
   --bg-darker: #f1f5f9;
@@ -102,7 +20,7 @@ body[data-theme="tech-light"] {
   --bg-header: #ffffff;
   --bg-modal: #ffffff;
 
-  /* Radial Glow Background Effect for Light Mode */
+  /* Radial Glow Background Effect */
   --bg-radial: radial-gradient(circle at 50% 0%, rgba(0, 0, 0, 0.04) 0%, transparent 65%),
                radial-gradient(ellipse at 100% 100%, rgba(0, 0, 0, 0.02) 0%, transparent 50%),
                radial-gradient(circle at 0% 50%, rgba(0, 0, 0, 0.01) 0%, transparent 60%);
@@ -111,7 +29,7 @@ body[data-theme="tech-light"] {
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-border-bright: rgba(0, 0, 0, 0.16);
 
-  /* Typography Colors - High Contrast Dark Charcoal & Slate Muted */
+  /* Typography Colors */
   --text-main: #0f172a;
   --text-muted: #475569;
   --text-dim: #94a3b8;
@@ -120,7 +38,7 @@ body[data-theme="tech-light"] {
   --text-sidebar: #0f172a;
   --text-sidebar-muted: #475569;
 
-  /* Restrained Dark / Charcoal / Slate Accent Palette */
+  /* Restrained Accent Palette */
   --neon-cyan: #0f172a;
   --neon-cyan-glow: rgba(15, 23, 42, 0.06);
   --electric-green: #059669;
@@ -143,6 +61,102 @@ body[data-theme="tech-light"] {
   --search-bg: #ffffff;
   --search-border: rgba(0, 0, 0, 0.12);
   --search-text: #0f172a;
+
+  /* Strict Geometry Radii Tokens */
+  --radius-container: 14px; /* Main containers: 12–16px */
+  --radius-card: 10px;      /* Cards: 8–10px */
+  --radius-input: 6px;      /* Inputs: 6px */
+  --radius-pill: 6px;       /* CTAs/pills/buttons: reduced radius 6px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 14px;
+
+  /* Typography Scale */
+  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Newsreader', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-hud: var(--font-sans);
+
+  /* Shadows */
+  --shadow-subtle: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 10px 30px -4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-dropdown: 0 20px 40px -10px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* WHITE MODE / LIGHT MODE THEME DEFINITION */
+:root {
+  color-scheme: light;
+  /* Surface & Background Palette (Warm Crisp Off-White) */
+  --bg-page: #f8f9fc;
+  --bg-darkest: #f8f9fc;
+  --bg-darker: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-sidebar: #f1f5f9;
+  --bg-sidebar-hover: #e2e8f0;
+  --bg-sidebar-active: #cbd5e1;
+  --bg-input: #ffffff;
+  --bg-header: #ffffff;
+  --bg-modal: #ffffff;
+
+  /* Radial Glow Background Effect for Light Mode */
+  --bg-radial: radial-gradient(circle at 50% 0%, rgba(0, 0, 0, 0.04) 0%, transparent 65%),
+               radial-gradient(ellipse at 100% 100%, rgba(0, 0, 0, 0.02) 0%, transparent 50%),
+               radial-gradient(circle at 0% 50%, rgba(0, 0, 0, 0.01) 0%, transparent 60%);
+
+  /* Translucent Glass Borders */
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-bright: rgba(0, 0, 0, 0.16);
+
+  /* Typography Colors - High Contrast Charcoal & Slate */
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #94a3b8;
+  --text-cyan: #1e293b;
+  --text-accent: #0f172a;
+  --text-sidebar: #0f172a;
+  --text-sidebar-muted: #475569;
+
+  /* Restrained Charcoal / Slate Accent Palette */
+  --neon-cyan: #0f172a;
+  --neon-cyan-glow: rgba(15, 23, 42, 0.06);
+  --electric-green: #059669;
+  --warning-amber: #d97706;
+  --alert-magenta: #dc2626;
+  --royal-purple: #7c3aed;
+
+  /* Button & CTA Surfaces */
+  --cta-bg: #0f172a;
+  --cta-text: #ffffff;
+  --cta-hover: #1e293b;
+  
+  --pill-bg: rgba(0, 0, 0, 0.04);
+  --pill-border: rgba(0, 0, 0, 0.08);
+  --pill-text: #1e293b;
+  --pill-active-bg: #0f172a;
+  --pill-active-text: #ffffff;
+
+  /* Search Surfaces */
+  --search-bg: #ffffff;
+  --search-border: rgba(0, 0, 0, 0.12);
+  --search-text: #0f172a;
+
+  /* Strict Geometry Radii Tokens */
+  --radius-container: 14px;
+  --radius-card: 10px;
+  --radius-input: 6px;
+  --radius-pill: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 14px;
+
+  /* Typography Scale */
+  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Newsreader', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-hud: var(--font-sans);
 
   /* Shadows */
   --shadow-subtle: 0 4px 16px rgba(0, 0, 0, 0.04);
@@ -640,32 +654,6 @@ body::before, body::after, .ambient-glow-1, .ambient-glow-2 {
 
 .nav-btn-upload:hover {
   opacity: 0.9;
-}
-
-/* Theme Toggle Button */
-.theme-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--pill-bg);
-  border: 1px solid var(--pill-border);
-  border-radius: var(--radius-pill);
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 180ms ease;
-}
-
-.theme-toggle-btn:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--glass-border-bright);
-}
-
-.theme-toggle-btn i {
-  font-size: 13px;
-  color: var(--warning-amber);
 }
 
 /* User Profile Dropdown Button & Menu */

@@ -2,13 +2,12 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Atom, Search, Moon, Sun, ChevronDown,
+  Atom, Search, ChevronDown,
   IdCard, LogOut, X, Database,
   AlertTriangle, GitBranch, ShieldCheck,
   History, Camera, LayoutDashboard, MessageSquare, ArrowRight,
   RotateCcw, Globe, Sparkles, Shield, Zap, Menu,
 } from 'lucide-react';
-import { useTheme } from '../../contexts/ThemeContext';
 import {
   searchApi, SearchHit, systemApi, getGlobalUseLlm, setGlobalUseLlm,
   isLlmProviderAvailable, type LlmStatus,
@@ -67,7 +66,6 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
   const { user, isAuthenticated, isAdmin, setAuthModalOpen, logout, login } = useAuthStore();
   const { t, i18n } = useTranslation('pipeline');
   const isVi = i18n.language === 'vi';
-  const { theme, toggleTheme } = useTheme();
 
   const modalInputRef = useRef<HTMLInputElement>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
@@ -554,11 +552,6 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
               <span>{resetSuccess ? (isVi ? 'Đã Đặt Lại!' : 'Reset OK!') : (isVi ? 'Đặt Lại DB' : 'Reset DB')}</span>
             </button>
           )}
-
-          {/* Theme Toggle */}
-          <button className="theme-toggle-btn" title={isVi ? 'Chuyển Đổi Sáng/Tối' : 'Toggle Dark/White Mode'} onClick={toggleTheme}>
-            {theme === 'tech-dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
 
           {/* User Profile & Persona Switcher */}
           {!isAuthenticated ? (

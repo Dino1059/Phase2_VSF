@@ -4,18 +4,18 @@
 @import './assets/dashboard.css';
 
 @theme {
-  /* Dark theme base */
-  --color-background: #0f1117;
-  --color-surface: #1a1b2e;
-  --color-surface-hover: #252640;
-  --color-surface-active: #2d2e4a;
-  --color-border: #2d2e4a;
-  --color-border-subtle: #1f2037;
+  /* Light theme base */
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-surface-active: #e2e8f0;
+  --color-border: #cbd5e1;
+  --color-border-subtle: #e2e8f0;
   
   /* Text */
-  --color-text-primary: #e4e4e7;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
   
   /* Agent accent colors */
   --color-agent-orchestrator: #06b6d4;
@@ -31,9 +31,9 @@
   --color-status-info: #3b82f6;
   
   /* Chat */
-  --color-chat-user-bubble: #1e3a5f;
-  --color-chat-agent-bubble: #1a1b2e;
-  --color-chat-system: #1f2037;
+  --color-chat-user-bubble: #dbeafe;
+  --color-chat-agent-bubble: #ffffff;
+  --color-chat-system: #f1f5f9;
   
   /* Spacing */
   --spacing-chat-panel: 35%;
@@ -110,42 +110,8 @@ body {
   animation: agent-glow 2s ease-in-out infinite;
 }
 
-/* System-aware theme overrides for light/dark preference */
 :root {
-  color-scheme: dark light;
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme='tech-dark']) {
-    --color-background: #f8fafc;
-    --color-surface: #ffffff;
-    --color-surface-hover: #f1f5f9;
-    --color-surface-active: #e2e8f0;
-    --color-border: #cbd5e1;
-    --color-border-subtle: #e2e8f0;
-    --color-text-primary: #0f172a;
-    --color-text-secondary: #475569;
-    --color-text-muted: #64748b;
-
-    --color-layer-l1: #dc2626;
-    --color-layer-l1-bg: #fef2f2;
-    --color-layer-l1-border: #fca5a5;
-
-    --color-layer-l2: #d97706;
-    --color-layer-l2-bg: #fffbeb;
-    --color-layer-l2-border: #fcd34d;
-
-    --color-layer-l3: #2563eb;
-    --color-layer-l3-bg: #eff6ff;
-    --color-layer-l3-border: #93c5fd;
-
-    --color-layer-l4: #7c3aed;
-    --color-layer-l4-bg: #faf5ff;
-    --color-layer-l4-border: #c084fc;
-  }
-}
-
-[data-theme='tech-light'] {
+  color-scheme: light;
   --color-background: #f8fafc;
   --color-surface: #ffffff;
   --color-surface-hover: #f1f5f9;
@@ -171,34 +137,6 @@ body {
   --color-layer-l4: #7c3aed;
   --color-layer-l4-bg: #faf5ff;
   --color-layer-l4-border: #c084fc;
-}
-
-[data-theme='tech-dark'] {
-  --color-background: #0f1117;
-  --color-surface: #1a1b2e;
-  --color-surface-hover: #252640;
-  --color-surface-active: #2d2e4a;
-  --color-border: #2d2e4a;
-  --color-border-subtle: #1f2037;
-  --color-text-primary: #e4e4e7;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
-
-  --color-layer-l1: #ef4444;
-  --color-layer-l1-bg: rgba(239, 68, 68, 0.15);
-  --color-layer-l1-border: rgba(239, 68, 68, 0.4);
-
-  --color-layer-l2: #f59e0b;
-  --color-layer-l2-bg: rgba(245, 158, 11, 0.15);
-  --color-layer-l2-border: rgba(245, 158, 11, 0.4);
-
-  --color-layer-l3: #3b82f6;
-  --color-layer-l3-bg: rgba(59, 130, 246, 0.15);
-  --color-layer-l3-border: rgba(59, 130, 246, 0.4);
-
-  --color-layer-l4: #a855f7;
-  --color-layer-l4-bg: rgba(168, 85, 247, 0.15);
-  --color-layer-l4-border: rgba(168, 85, 247, 0.4);
 }
 
 /* Categorical L1-L4 utility classes */

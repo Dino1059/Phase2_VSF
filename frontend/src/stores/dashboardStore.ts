@@ -52,6 +52,7 @@ interface DashboardState {
   project: ProjectInfo | null;
   summary: SummaryInfo | null;
   loading: boolean;
+  error: string | null;
 
   fetchDashboardData: () => Promise<void>;
 }
@@ -75,10 +76,11 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   auditLogs: [],
   project: null,
   summary: null,
-  loading: false,
+  loading: true,
+  error: null,
 
   fetchDashboardData: async () => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
       const [statsRes, signalsRes, incidentsRes, auditRes, projectsRes, summaryRes] =
         await Promise.allSettled([
@@ -96,6 +98,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       const auditLogs = auditRes.status === 'fulfilled' ? auditRes.value : [];
       const projects = projectsRes.status === 'fulfilled' ? projectsRes.value : [];
       const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+      const coreFailed = statsRes.status === 'rejected' && incidentsRes.status === 'rejected' && summaryRes.status === 'rejected';
 
       const project = projects.length > 0 ? projects[0] : null;
 
@@ -218,9 +221,11 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         auditLogs,
         project,
         summary,
+        error: coreFailed ? 'Không thể tải dữ liệu tổng quan từ máy chủ.' : null,
       });
     } catch (err) {
       console.warn('Dashboard stats backend sync error:', err);
+      set({ error: 'Không thể tải dữ liệu tổng quan từ máy chủ.' });
     } finally {
       set({ loading: false });
     }
