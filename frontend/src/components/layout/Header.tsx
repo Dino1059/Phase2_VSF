@@ -381,7 +381,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
         <div className="brand-section">
           <div className="logo-badge" onClick={() => navigate('/dashboard')} style={{ cursor: 'pointer' }}>
             <div className="logo-icon-box"><Atom size={18} /></div>
-            <span><span style={{ color: 'var(--text-main)' }}>DATATRUST OS AGENT</span></span>
+            <span className="brand-copy"><strong>DataTrust OS</strong><small>ENTERPRISE TRUST PLATFORM</small></span>
           </div>
         </div>
 

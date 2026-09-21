@@ -1,6 +1,0 @@
-{"demo_id":"vingroup-soc-2026-08","dataset_key":"vingroup_pilot","provenance":"demo","duration_s":75}
-{"type":"workflow.step","actor_kind":"SYSTEM","action":"register_dataset","summary":"Mounted bundled VinGroup pilot. Provenance: DEMO · bundled.","tool":{"name":"register_dataset","status":"COMPLETED","duration_ms":120}}
-{"type":"workflow.step","actor_kind":"C1_AI","action":"profile_dataset","summary":"Sampled pilot telemetry. Findings come from this replay tape, not a live model.","tool":{"name":"profile_dataset","status":"COMPLETED","duration_ms":640},"output":{"sample_size":50000,"columns_count":10,"flags":14}}
-{"type":"steward_message","actor_kind":"ORCHESTRATOR","summary":"Profile complete on vingroup_pilot (DEMO). Nothing has been written to clean or quarantine."}
-{"type":"workflow.step","actor_kind":"C1_AI","action":"propose_quality_rules","summary":"Drafted 3 L1 rules. Waiting for steward review.","tool":{"name":"propose_quality_rules","status":"COMPLETED","duration_ms":410},"output":{"proposals":3}}
-{"type":"hitl_pause","actor_kind":"DATA_STEWARD","summary":"HITL gate. Clean/execute will not run until you authorize an exact version."}

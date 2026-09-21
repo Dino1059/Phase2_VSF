@@ -9,7 +9,6 @@ import {
   Save,
   Database,
   Plus,
-  Mic,
   ArrowUp,
   CloudUpload,
   ChevronLeft,
@@ -1089,10 +1088,7 @@ function NewChatLanding() {
             <button type="button" className="hud-btn" aria-label="Attach" title="Attach">
               <Plus size={28} strokeWidth={1.8} />
             </button>
-            <div className="new-chat-model">DataTrust Agent <span>⌄</span></div>
-            <button type="button" className="hud-btn" aria-label="Voice input" title="Voice input">
-              <Mic size={24} strokeWidth={1.8} />
-            </button>
+            <div className="new-chat-model">DataTrust Agent </div>
             <button type="submit" className="send-btn" disabled={!message.trim()} aria-label="Send message" title="Send message">
               <ArrowUp size={26} strokeWidth={2} />
             </button>
