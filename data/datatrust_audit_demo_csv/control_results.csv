@@ -1,0 +1,301 @@
+﻿control_result_id,control_id,control_name,domain,evaluated_at,status,severity,evidence_id,request_id,run_id,evaluation_message,rule_version
+CR_000001,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T20:40:38,PASS,NONE,EVD_000496,,RUN_000024,Control satisfied with available evidence.,v1.0
+CR_000002,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-02T15:47:54,PASS,NONE,EVD_000156,ARQ_00007,,Control satisfied with available evidence.,v1.0
+CR_000003,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-02T02:03:35,PASS,NONE,EVD_000463,,,Control satisfied with available evidence.,v1.0
+CR_000004,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-03T02:31:30,PASS,NONE,EVD_000203,,,Control satisfied with available evidence.,v1.0
+CR_000005,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-14T01:55:46,PASS,NONE,EVD_000186,,,Control satisfied with available evidence.,v1.0
+CR_000006,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-02T22:53:32,PASS,NONE,EVD_000234,,RUN_000032,Control satisfied with available evidence.,v1.0
+CR_000007,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-04T03:28:40,FAIL,MEDIUM,EVD_000104,ARQ_00032,,Control violation detected; review linked evidence.,v1.0
+CR_000008,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-03T11:22:31,PASS,NONE,EVD_000338,,,Control satisfied with available evidence.,v1.0
+CR_000009,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-02T23:15:15,NOT_EVALUATED,UNKNOWN,,,RUN_000118,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000010,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-13T21:35:44,PASS,NONE,EVD_000461,,,Control satisfied with available evidence.,v1.0
+CR_000011,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-01T08:40:39,PASS,NONE,EVD_000016,,,Control satisfied with available evidence.,v1.0
+CR_000012,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-08T18:11:27,NOT_EVALUATED,UNKNOWN,,,RUN_000062,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000013,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-11T05:29:18,FAIL,CRITICAL,EVD_000167,,RUN_000040,Control violation detected; review linked evidence.,v1.0
+CR_000014,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-13T05:21:51,PASS,NONE,EVD_000038,,,Control satisfied with available evidence.,v1.0
+CR_000015,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-03T08:48:04,FAIL,HIGH,EVD_000506,,,Control violation detected; review linked evidence.,v1.0
+CR_000016,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-05T12:45:04,PASS,NONE,EVD_000503,ARQ_00048,,Control satisfied with available evidence.,v1.0
+CR_000017,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-03T10:08:28,PASS,NONE,EVD_000478,,,Control satisfied with available evidence.,v1.0
+CR_000018,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-05T14:23:01,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000019,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-14T12:56:47,PASS,NONE,EVD_000599,,,Control satisfied with available evidence.,v1.0
+CR_000020,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-14T08:31:09,PASS,NONE,EVD_000579,,,Control satisfied with available evidence.,v1.0
+CR_000021,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-02T12:45:29,PASS,NONE,EVD_000115,ARQ_00014,,Control satisfied with available evidence.,v1.0
+CR_000022,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-15T09:33:19,FAIL,HIGH,EVD_000268,,,Control violation detected; review linked evidence.,v1.0
+CR_000023,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-11T09:29:57,FAIL,HIGH,EVD_000293,,,Control violation detected; review linked evidence.,v1.0
+CR_000024,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-02T11:09:13,FAIL,MEDIUM,EVD_000537,,,Control violation detected; review linked evidence.,v1.0
+CR_000025,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-05T17:21:47,PASS,NONE,EVD_000028,,RUN_000101,Control satisfied with available evidence.,v1.0
+CR_000026,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-06T20:04:36,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000027,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-15T10:44:27,PASS,NONE,EVD_000532,,,Control satisfied with available evidence.,v1.0
+CR_000028,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-06T12:58:47,PASS,NONE,EVD_000587,,,Control satisfied with available evidence.,v1.0
+CR_000029,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-15T05:28:59,FAIL,CRITICAL,EVD_000545,,,Control violation detected; review linked evidence.,v1.0
+CR_000030,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-12T19:29:27,PASS,NONE,EVD_000199,,,Control satisfied with available evidence.,v1.0
+CR_000031,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-12T02:04:45,PASS,NONE,EVD_000114,,,Control satisfied with available evidence.,v1.0
+CR_000032,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-10T23:39:13,NOT_EVALUATED,UNKNOWN,,ARQ_00005,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000033,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-11T00:06:31,PASS,NONE,EVD_000439,ARQ_00039,,Control satisfied with available evidence.,v1.0
+CR_000034,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-08T01:42:50,PASS,NONE,EVD_000341,,,Control satisfied with available evidence.,v1.0
+CR_000035,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-14T01:45:56,PASS,NONE,EVD_000064,,RUN_000114,Control satisfied with available evidence.,v1.0
+CR_000036,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-11T08:38:10,PASS,NONE,EVD_000096,ARQ_00075,,Control satisfied with available evidence.,v1.0
+CR_000037,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-06T22:57:54,PASS,NONE,EVD_000350,,RUN_000052,Control satisfied with available evidence.,v1.0
+CR_000038,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-13T03:39:36,PASS,NONE,EVD_000474,,,Control satisfied with available evidence.,v1.0
+CR_000039,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-08T17:03:41,PASS,NONE,EVD_000258,,,Control satisfied with available evidence.,v1.0
+CR_000040,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-08T09:59:14,PASS,NONE,EVD_000293,,,Control satisfied with available evidence.,v1.0
+CR_000041,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-09T13:14:45,PASS,NONE,EVD_000514,,,Control satisfied with available evidence.,v1.0
+CR_000042,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-14T05:32:56,FAIL,HIGH,EVD_000302,,RUN_000086,Control violation detected; review linked evidence.,v1.0
+CR_000043,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-08T08:12:28,PASS,NONE,EVD_000366,,RUN_000119,Control satisfied with available evidence.,v1.0
+CR_000044,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-10T13:36:03,PASS,NONE,EVD_000303,,,Control satisfied with available evidence.,v1.0
+CR_000045,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-01T14:25:54,PASS,NONE,EVD_000258,,RUN_000088,Control satisfied with available evidence.,v1.0
+CR_000046,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-12T05:12:26,NOT_EVALUATED,UNKNOWN,,,RUN_000055,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000047,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-01T15:17:22,PASS,NONE,EVD_000183,ARQ_00023,,Control satisfied with available evidence.,v1.0
+CR_000048,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-15T16:00:42,PASS,NONE,EVD_000088,,RUN_000091,Control satisfied with available evidence.,v1.0
+CR_000049,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-10T17:56:28,PASS,NONE,EVD_000314,ARQ_00047,,Control satisfied with available evidence.,v1.0
+CR_000050,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-10T08:39:19,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000051,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-13T18:28:42,FAIL,MEDIUM,EVD_000414,,,Control violation detected; review linked evidence.,v1.0
+CR_000052,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-15T10:13:47,PASS,NONE,EVD_000299,ARQ_00065,,Control satisfied with available evidence.,v1.0
+CR_000053,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-12T05:37:08,PASS,NONE,EVD_000513,,,Control satisfied with available evidence.,v1.0
+CR_000054,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-15T00:31:23,PASS,NONE,EVD_000265,,,Control satisfied with available evidence.,v1.0
+CR_000055,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-01T07:51:45,PASS,NONE,EVD_000221,,RUN_000093,Control satisfied with available evidence.,v1.0
+CR_000056,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-02T14:47:46,PASS,NONE,EVD_000372,,,Control satisfied with available evidence.,v1.0
+CR_000057,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-12T06:26:19,FAIL,MEDIUM,EVD_000185,,RUN_000014,Control violation detected; review linked evidence.,v1.0
+CR_000058,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-11T01:57:50,PASS,NONE,EVD_000384,,,Control satisfied with available evidence.,v1.0
+CR_000059,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-06T03:09:05,FAIL,CRITICAL,EVD_000490,,,Control violation detected; review linked evidence.,v1.0
+CR_000060,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-11T06:44:43,PASS,NONE,EVD_000110,,,Control satisfied with available evidence.,v1.0
+CR_000061,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-07T00:30:05,PASS,NONE,EVD_000063,,,Control satisfied with available evidence.,v1.0
+CR_000062,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-11T17:11:50,PASS,NONE,EVD_000458,,,Control satisfied with available evidence.,v1.0
+CR_000063,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-13T06:06:07,PASS,NONE,EVD_000423,ARQ_00072,,Control satisfied with available evidence.,v1.0
+CR_000064,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-08T08:10:47,PASS,NONE,EVD_000451,,,Control satisfied with available evidence.,v1.0
+CR_000065,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-10T18:32:24,PASS,NONE,EVD_000098,,,Control satisfied with available evidence.,v1.0
+CR_000066,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-02T16:31:07,PASS,NONE,EVD_000003,ARQ_00057,,Control satisfied with available evidence.,v1.0
+CR_000067,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-11T14:37:55,PASS,NONE,EVD_000401,,,Control satisfied with available evidence.,v1.0
+CR_000068,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-05T12:06:43,PASS,NONE,EVD_000490,,,Control satisfied with available evidence.,v1.0
+CR_000069,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-12T13:58:25,PASS,NONE,EVD_000477,,,Control satisfied with available evidence.,v1.0
+CR_000070,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-03T02:23:23,PASS,NONE,EVD_000046,ARQ_00065,,Control satisfied with available evidence.,v1.0
+CR_000071,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-14T18:48:53,FAIL,MEDIUM,EVD_000451,,RUN_000038,Control violation detected; review linked evidence.,v1.0
+CR_000072,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-11T06:50:20,FAIL,HIGH,EVD_000372,,,Control violation detected; review linked evidence.,v1.0
+CR_000073,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-12T20:19:35,PASS,NONE,EVD_000469,,,Control satisfied with available evidence.,v1.0
+CR_000074,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-07T22:33:39,FAIL,MEDIUM,EVD_000292,ARQ_00023,,Control violation detected; review linked evidence.,v1.0
+CR_000075,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-11T17:36:55,PASS,NONE,EVD_000497,,,Control satisfied with available evidence.,v1.0
+CR_000076,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-08T07:19:52,PASS,NONE,EVD_000138,,,Control satisfied with available evidence.,v1.0
+CR_000077,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-04T18:50:44,PASS,NONE,EVD_000126,,RUN_000028,Control satisfied with available evidence.,v1.0
+CR_000078,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-08T00:25:23,FAIL,HIGH,EVD_000288,,,Control violation detected; review linked evidence.,v1.0
+CR_000079,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-10T11:57:41,PASS,NONE,EVD_000542,,RUN_000082,Control satisfied with available evidence.,v1.0
+CR_000080,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-04T16:34:35,PASS,NONE,EVD_000098,,,Control satisfied with available evidence.,v1.0
+CR_000081,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-05T11:52:57,PASS,NONE,EVD_000179,,,Control satisfied with available evidence.,v1.0
+CR_000082,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-15T08:39:07,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000083,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-07T05:48:32,PASS,NONE,EVD_000059,,RUN_000073,Control satisfied with available evidence.,v1.0
+CR_000084,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-13T15:53:03,PASS,NONE,EVD_000223,,RUN_000092,Control satisfied with available evidence.,v1.0
+CR_000085,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-13T08:04:17,PASS,NONE,EVD_000182,,,Control satisfied with available evidence.,v1.0
+CR_000086,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-13T03:46:53,FAIL,MEDIUM,EVD_000565,,,Control violation detected; review linked evidence.,v1.0
+CR_000087,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-09T02:15:22,PASS,NONE,EVD_000470,,RUN_000091,Control satisfied with available evidence.,v1.0
+CR_000088,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-10T17:24:14,PASS,NONE,EVD_000310,,RUN_000042,Control satisfied with available evidence.,v1.0
+CR_000089,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-09T22:05:01,PASS,NONE,EVD_000100,ARQ_00018,,Control satisfied with available evidence.,v1.0
+CR_000090,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-10T17:15:35,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000091,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-11T23:28:57,PASS,NONE,EVD_000535,,,Control satisfied with available evidence.,v1.0
+CR_000092,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-06T06:39:36,FAIL,CRITICAL,EVD_000268,ARQ_00066,,Control violation detected; review linked evidence.,v1.0
+CR_000093,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-13T11:23:02,PASS,NONE,EVD_000121,,,Control satisfied with available evidence.,v1.0
+CR_000094,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-15T07:20:18,FAIL,CRITICAL,EVD_000104,,RUN_000062,Control violation detected; review linked evidence.,v1.0
+CR_000095,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-02T19:16:38,PASS,NONE,EVD_000326,,,Control satisfied with available evidence.,v1.0
+CR_000096,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-11T04:21:02,PASS,NONE,EVD_000435,,RUN_000057,Control satisfied with available evidence.,v1.0
+CR_000097,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-14T11:18:35,PASS,NONE,EVD_000392,,,Control satisfied with available evidence.,v1.0
+CR_000098,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-03T11:13:02,FAIL,CRITICAL,EVD_000040,,RUN_000108,Control violation detected; review linked evidence.,v1.0
+CR_000099,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-02T06:19:58,PASS,NONE,EVD_000272,,,Control satisfied with available evidence.,v1.0
+CR_000100,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-10T06:43:20,PASS,NONE,EVD_000453,,,Control satisfied with available evidence.,v1.0
+CR_000101,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-12T22:28:58,PASS,NONE,EVD_000142,,,Control satisfied with available evidence.,v1.0
+CR_000102,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-09T14:24:25,PASS,NONE,EVD_000401,,,Control satisfied with available evidence.,v1.0
+CR_000103,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-07T20:49:39,PASS,NONE,EVD_000130,,,Control satisfied with available evidence.,v1.0
+CR_000104,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-10T02:36:52,FAIL,MEDIUM,EVD_000228,,,Control violation detected; review linked evidence.,v1.0
+CR_000105,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-03T16:56:47,PASS,NONE,EVD_000289,,,Control satisfied with available evidence.,v1.0
+CR_000106,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-08T08:46:51,PASS,NONE,EVD_000521,,,Control satisfied with available evidence.,v1.0
+CR_000107,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-09T20:11:41,PASS,NONE,EVD_000023,,,Control satisfied with available evidence.,v1.0
+CR_000108,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-08T01:00:45,FAIL,HIGH,EVD_000461,,,Control violation detected; review linked evidence.,v1.0
+CR_000109,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-15T09:54:44,PASS,NONE,EVD_000536,,,Control satisfied with available evidence.,v1.0
+CR_000110,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-06T12:24:40,PASS,NONE,EVD_000026,,RUN_000109,Control satisfied with available evidence.,v1.0
+CR_000111,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-14T00:21:54,NOT_EVALUATED,UNKNOWN,,,RUN_000049,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000112,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-10T09:17:43,PASS,NONE,EVD_000026,,,Control satisfied with available evidence.,v1.0
+CR_000113,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-11T13:09:56,PASS,NONE,EVD_000055,ARQ_00038,,Control satisfied with available evidence.,v1.0
+CR_000114,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-09T13:05:43,PASS,NONE,EVD_000499,,,Control satisfied with available evidence.,v1.0
+CR_000115,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T18:18:05,PASS,NONE,EVD_000502,,RUN_000053,Control satisfied with available evidence.,v1.0
+CR_000116,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-15T07:09:16,PASS,NONE,EVD_000482,,,Control satisfied with available evidence.,v1.0
+CR_000117,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-04T03:59:32,PASS,NONE,EVD_000513,,,Control satisfied with available evidence.,v1.0
+CR_000118,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-14T07:59:15,PASS,NONE,EVD_000358,,,Control satisfied with available evidence.,v1.0
+CR_000119,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-09T17:02:20,PASS,NONE,EVD_000270,,,Control satisfied with available evidence.,v1.0
+CR_000120,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-05T15:45:51,PASS,NONE,EVD_000223,,RUN_000014,Control satisfied with available evidence.,v1.0
+CR_000121,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-14T12:37:24,PASS,NONE,EVD_000265,ARQ_00033,,Control satisfied with available evidence.,v1.0
+CR_000122,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-01T12:07:53,PASS,NONE,EVD_000153,,RUN_000108,Control satisfied with available evidence.,v1.0
+CR_000123,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-03T17:30:43,PASS,NONE,EVD_000291,,,Control satisfied with available evidence.,v1.0
+CR_000124,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-02T19:14:27,PASS,NONE,EVD_000208,,RUN_000061,Control satisfied with available evidence.,v1.0
+CR_000125,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-01T20:46:30,PASS,NONE,EVD_000318,,RUN_000085,Control satisfied with available evidence.,v1.0
+CR_000126,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-06T08:29:03,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000127,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-07T07:29:21,PASS,NONE,EVD_000098,,,Control satisfied with available evidence.,v1.0
+CR_000128,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T15:02:27,FAIL,MEDIUM,EVD_000402,,RUN_000061,Control violation detected; review linked evidence.,v1.0
+CR_000129,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-14T05:25:36,FAIL,CRITICAL,EVD_000499,,,Control violation detected; review linked evidence.,v1.0
+CR_000130,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-06T01:54:29,FAIL,MEDIUM,EVD_000207,,,Control violation detected; review linked evidence.,v1.0
+CR_000131,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-04T02:56:43,PASS,NONE,EVD_000270,,,Control satisfied with available evidence.,v1.0
+CR_000132,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-10T23:55:10,FAIL,CRITICAL,EVD_000146,,RUN_000058,Control violation detected; review linked evidence.,v1.0
+CR_000133,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-10T13:18:52,FAIL,MEDIUM,EVD_000363,,,Control violation detected; review linked evidence.,v1.0
+CR_000134,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-15T06:09:54,PASS,NONE,EVD_000499,,,Control satisfied with available evidence.,v1.0
+CR_000135,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-04T10:41:08,PASS,NONE,EVD_000231,,RUN_000011,Control satisfied with available evidence.,v1.0
+CR_000136,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-15T00:35:00,PASS,NONE,EVD_000534,,,Control satisfied with available evidence.,v1.0
+CR_000137,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-15T04:17:30,PASS,NONE,EVD_000118,,,Control satisfied with available evidence.,v1.0
+CR_000138,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-06T10:51:44,FAIL,MEDIUM,EVD_000001,ARQ_00056,,Control violation detected; review linked evidence.,v1.0
+CR_000139,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-04T12:22:36,PASS,NONE,EVD_000400,,RUN_000092,Control satisfied with available evidence.,v1.0
+CR_000140,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-07T20:10:32,PASS,NONE,EVD_000594,,,Control satisfied with available evidence.,v1.0
+CR_000141,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-07T10:17:11,PASS,NONE,EVD_000260,,RUN_000032,Control satisfied with available evidence.,v1.0
+CR_000142,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-09T04:37:52,PASS,NONE,EVD_000273,,,Control satisfied with available evidence.,v1.0
+CR_000143,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-08T20:00:55,PASS,NONE,EVD_000029,,,Control satisfied with available evidence.,v1.0
+CR_000144,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-15T02:46:57,PASS,NONE,EVD_000110,,RUN_000073,Control satisfied with available evidence.,v1.0
+CR_000145,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-13T04:03:33,FAIL,CRITICAL,EVD_000557,,,Control violation detected; review linked evidence.,v1.0
+CR_000146,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-08T07:15:38,FAIL,HIGH,EVD_000067,ARQ_00039,,Control violation detected; review linked evidence.,v1.0
+CR_000147,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-06T23:10:42,PASS,NONE,EVD_000173,,RUN_000060,Control satisfied with available evidence.,v1.0
+CR_000148,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-14T22:46:43,PASS,NONE,EVD_000068,,RUN_000062,Control satisfied with available evidence.,v1.0
+CR_000149,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-06T15:25:42,PASS,NONE,EVD_000344,,RUN_000024,Control satisfied with available evidence.,v1.0
+CR_000150,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-01T09:05:32,PASS,NONE,EVD_000428,,RUN_000065,Control satisfied with available evidence.,v1.0
+CR_000151,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-13T05:07:11,PASS,NONE,EVD_000376,,,Control satisfied with available evidence.,v1.0
+CR_000152,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-05T10:37:51,PASS,NONE,EVD_000164,,RUN_000078,Control satisfied with available evidence.,v1.0
+CR_000153,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-06T18:31:38,PASS,NONE,EVD_000305,ARQ_00068,,Control satisfied with available evidence.,v1.0
+CR_000154,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-02T04:20:18,NOT_EVALUATED,UNKNOWN,,,RUN_000015,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000155,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-09T07:10:34,PASS,NONE,EVD_000046,,,Control satisfied with available evidence.,v1.0
+CR_000156,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-15T17:37:41,PASS,NONE,EVD_000221,,,Control satisfied with available evidence.,v1.0
+CR_000157,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-04T02:20:43,PASS,NONE,EVD_000120,,,Control satisfied with available evidence.,v1.0
+CR_000158,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-05T10:10:11,PASS,NONE,EVD_000157,,RUN_000034,Control satisfied with available evidence.,v1.0
+CR_000159,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-15T10:22:42,PASS,NONE,EVD_000083,ARQ_00046,,Control satisfied with available evidence.,v1.0
+CR_000160,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-09T09:17:30,FAIL,HIGH,EVD_000327,,,Control violation detected; review linked evidence.,v1.0
+CR_000161,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-09T02:33:50,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000162,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-11T14:14:27,PASS,NONE,EVD_000119,,,Control satisfied with available evidence.,v1.0
+CR_000163,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-09T03:51:36,PASS,NONE,EVD_000427,,RUN_000065,Control satisfied with available evidence.,v1.0
+CR_000164,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-15T02:06:23,PASS,NONE,EVD_000508,,,Control satisfied with available evidence.,v1.0
+CR_000165,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-06T23:48:35,PASS,NONE,EVD_000566,,RUN_000045,Control satisfied with available evidence.,v1.0
+CR_000166,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-15T16:34:53,FAIL,HIGH,EVD_000428,,,Control violation detected; review linked evidence.,v1.0
+CR_000167,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-07T05:03:43,FAIL,HIGH,EVD_000523,,,Control violation detected; review linked evidence.,v1.0
+CR_000168,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-05T17:07:35,PASS,NONE,EVD_000368,,RUN_000044,Control satisfied with available evidence.,v1.0
+CR_000169,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-08T15:32:47,PASS,NONE,EVD_000485,,RUN_000035,Control satisfied with available evidence.,v1.0
+CR_000170,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-12T06:23:40,PASS,NONE,EVD_000066,,,Control satisfied with available evidence.,v1.0
+CR_000171,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-03T07:20:54,FAIL,MEDIUM,EVD_000211,ARQ_00020,,Control violation detected; review linked evidence.,v1.0
+CR_000172,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-05T11:14:45,PASS,NONE,EVD_000267,,,Control satisfied with available evidence.,v1.0
+CR_000173,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-10T04:24:50,PASS,NONE,EVD_000438,,RUN_000036,Control satisfied with available evidence.,v1.0
+CR_000174,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-05T03:57:14,PASS,NONE,EVD_000443,,,Control satisfied with available evidence.,v1.0
+CR_000175,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-08T16:36:41,FAIL,CRITICAL,EVD_000576,,,Control violation detected; review linked evidence.,v1.0
+CR_000176,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-10T21:30:55,PASS,NONE,EVD_000561,,RUN_000093,Control satisfied with available evidence.,v1.0
+CR_000177,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-04T05:22:59,PASS,NONE,EVD_000403,,,Control satisfied with available evidence.,v1.0
+CR_000178,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-04T19:29:28,PASS,NONE,EVD_000051,ARQ_00063,,Control satisfied with available evidence.,v1.0
+CR_000179,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T03:55:18,FAIL,HIGH,EVD_000166,,RUN_000097,Control violation detected; review linked evidence.,v1.0
+CR_000180,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-14T06:51:24,PASS,NONE,EVD_000442,,,Control satisfied with available evidence.,v1.0
+CR_000181,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-08T09:55:20,FAIL,HIGH,EVD_000095,,,Control violation detected; review linked evidence.,v1.0
+CR_000182,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-03T13:56:54,PASS,NONE,EVD_000482,,,Control satisfied with available evidence.,v1.0
+CR_000183,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-06T03:41:55,PASS,NONE,EVD_000086,,,Control satisfied with available evidence.,v1.0
+CR_000184,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-07T16:41:33,PASS,NONE,EVD_000157,,,Control satisfied with available evidence.,v1.0
+CR_000185,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-10T02:42:08,NOT_EVALUATED,UNKNOWN,,,RUN_000040,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000186,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-01T22:12:40,PASS,NONE,EVD_000578,ARQ_00012,,Control satisfied with available evidence.,v1.0
+CR_000187,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T14:10:37,PASS,NONE,EVD_000245,,RUN_000011,Control satisfied with available evidence.,v1.0
+CR_000188,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-10T14:45:18,PASS,NONE,EVD_000486,,,Control satisfied with available evidence.,v1.0
+CR_000189,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-12T08:40:35,PASS,NONE,EVD_000590,,,Control satisfied with available evidence.,v1.0
+CR_000190,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-12T06:05:28,PASS,NONE,EVD_000347,ARQ_00074,,Control satisfied with available evidence.,v1.0
+CR_000191,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-10T16:25:47,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000192,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T07:39:20,FAIL,HIGH,EVD_000286,,RUN_000118,Control violation detected; review linked evidence.,v1.0
+CR_000193,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-04T00:20:25,FAIL,MEDIUM,EVD_000160,,RUN_000118,Control violation detected; review linked evidence.,v1.0
+CR_000194,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-09T03:17:36,PASS,NONE,EVD_000015,,,Control satisfied with available evidence.,v1.0
+CR_000195,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-11T06:54:41,PASS,NONE,EVD_000417,,RUN_000021,Control satisfied with available evidence.,v1.0
+CR_000196,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-08T15:06:26,FAIL,HIGH,EVD_000571,,,Control violation detected; review linked evidence.,v1.0
+CR_000197,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-09T15:48:05,FAIL,HIGH,EVD_000085,,RUN_000104,Control violation detected; review linked evidence.,v1.0
+CR_000198,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-09T06:39:08,PASS,NONE,EVD_000265,,RUN_000075,Control satisfied with available evidence.,v1.0
+CR_000199,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-03T07:18:03,NOT_EVALUATED,UNKNOWN,,,RUN_000004,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000200,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-03T05:04:43,PASS,NONE,EVD_000083,,RUN_000107,Control satisfied with available evidence.,v1.0
+CR_000201,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T06:37:14,PASS,NONE,EVD_000155,,RUN_000007,Control satisfied with available evidence.,v1.0
+CR_000202,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-02T07:49:46,NOT_EVALUATED,UNKNOWN,,ARQ_00054,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000203,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-04T07:22:35,PASS,NONE,EVD_000361,,RUN_000047,Control satisfied with available evidence.,v1.0
+CR_000204,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-03T20:02:42,PASS,NONE,EVD_000454,ARQ_00025,,Control satisfied with available evidence.,v1.0
+CR_000205,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-06T18:47:35,PASS,NONE,EVD_000502,ARQ_00006,,Control satisfied with available evidence.,v1.0
+CR_000206,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-06T12:08:38,PASS,NONE,EVD_000448,ARQ_00037,,Control satisfied with available evidence.,v1.0
+CR_000207,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-06T11:19:22,PASS,NONE,EVD_000474,ARQ_00035,,Control satisfied with available evidence.,v1.0
+CR_000208,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T03:48:52,NOT_EVALUATED,UNKNOWN,,,RUN_000075,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000209,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T21:53:08,PASS,NONE,EVD_000156,,RUN_000070,Control satisfied with available evidence.,v1.0
+CR_000210,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-12T19:37:10,PASS,NONE,EVD_000369,,,Control satisfied with available evidence.,v1.0
+CR_000211,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-04T23:37:30,PASS,NONE,EVD_000051,,,Control satisfied with available evidence.,v1.0
+CR_000212,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-02T22:09:29,PASS,NONE,EVD_000492,,,Control satisfied with available evidence.,v1.0
+CR_000213,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-12T23:56:27,FAIL,HIGH,EVD_000112,,,Control violation detected; review linked evidence.,v1.0
+CR_000214,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-09T21:21:09,PASS,NONE,EVD_000375,,,Control satisfied with available evidence.,v1.0
+CR_000215,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-15T05:34:14,PASS,NONE,EVD_000344,,RUN_000023,Control satisfied with available evidence.,v1.0
+CR_000216,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-05T22:55:33,PASS,NONE,EVD_000441,,RUN_000115,Control satisfied with available evidence.,v1.0
+CR_000217,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-03T18:19:20,NOT_EVALUATED,UNKNOWN,,,RUN_000058,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000218,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-14T06:24:51,PASS,NONE,EVD_000112,,,Control satisfied with available evidence.,v1.0
+CR_000219,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-15T00:42:06,PASS,NONE,EVD_000526,,,Control satisfied with available evidence.,v1.0
+CR_000220,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-06T03:46:42,NOT_EVALUATED,UNKNOWN,,,RUN_000036,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000221,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-04T09:59:32,NOT_EVALUATED,UNKNOWN,,ARQ_00051,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000222,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-05T02:43:50,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000223,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-15T07:49:08,PASS,NONE,EVD_000310,,,Control satisfied with available evidence.,v1.0
+CR_000224,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-04T06:04:35,PASS,NONE,EVD_000085,,,Control satisfied with available evidence.,v1.0
+CR_000225,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-14T22:13:12,PASS,NONE,EVD_000486,,,Control satisfied with available evidence.,v1.0
+CR_000226,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-15T08:01:14,PASS,NONE,EVD_000136,,RUN_000005,Control satisfied with available evidence.,v1.0
+CR_000227,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-05T09:16:09,FAIL,MEDIUM,EVD_000473,,,Control violation detected; review linked evidence.,v1.0
+CR_000228,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-10T12:53:59,FAIL,CRITICAL,EVD_000351,,,Control violation detected; review linked evidence.,v1.0
+CR_000229,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-04T10:15:02,NOT_EVALUATED,UNKNOWN,,ARQ_00040,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000230,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-13T21:28:29,PASS,NONE,EVD_000191,,,Control satisfied with available evidence.,v1.0
+CR_000231,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-13T04:38:54,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000232,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-14T16:21:00,NOT_EVALUATED,UNKNOWN,,,RUN_000082,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000233,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-06T17:45:32,FAIL,MEDIUM,EVD_000384,ARQ_00066,,Control violation detected; review linked evidence.,v1.0
+CR_000234,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-13T07:10:47,PASS,NONE,EVD_000147,,,Control satisfied with available evidence.,v1.0
+CR_000235,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-04T21:02:54,PASS,NONE,EVD_000481,ARQ_00045,,Control satisfied with available evidence.,v1.0
+CR_000236,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-01T23:07:55,PASS,NONE,EVD_000452,,,Control satisfied with available evidence.,v1.0
+CR_000237,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-04T07:32:14,NOT_EVALUATED,UNKNOWN,,,RUN_000028,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000238,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-14T19:33:49,PASS,NONE,EVD_000539,,,Control satisfied with available evidence.,v1.0
+CR_000239,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-08T20:46:24,PASS,NONE,EVD_000230,,,Control satisfied with available evidence.,v1.0
+CR_000240,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T21:46:04,NOT_EVALUATED,UNKNOWN,,,RUN_000025,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000241,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-06T10:16:11,PASS,NONE,EVD_000585,,,Control satisfied with available evidence.,v1.0
+CR_000242,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-08T20:37:35,PASS,NONE,EVD_000188,,,Control satisfied with available evidence.,v1.0
+CR_000243,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T01:06:26,FAIL,HIGH,EVD_000091,,RUN_000015,Control violation detected; review linked evidence.,v1.0
+CR_000244,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-05T07:17:30,PASS,NONE,EVD_000118,,RUN_000088,Control satisfied with available evidence.,v1.0
+CR_000245,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-14T18:31:17,PASS,NONE,EVD_000302,,,Control satisfied with available evidence.,v1.0
+CR_000246,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-05T23:57:26,PASS,NONE,EVD_000339,,,Control satisfied with available evidence.,v1.0
+CR_000247,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-04T21:55:53,PASS,NONE,EVD_000016,,RUN_000055,Control satisfied with available evidence.,v1.0
+CR_000248,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-11T14:06:04,FAIL,CRITICAL,EVD_000247,,,Control violation detected; review linked evidence.,v1.0
+CR_000249,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-05T05:48:49,FAIL,HIGH,EVD_000580,,,Control violation detected; review linked evidence.,v1.0
+CR_000250,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-12T18:10:09,PASS,NONE,EVD_000562,,RUN_000110,Control satisfied with available evidence.,v1.0
+CR_000251,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-04T22:06:56,PASS,NONE,EVD_000368,ARQ_00078,,Control satisfied with available evidence.,v1.0
+CR_000252,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-06T00:59:09,NOT_EVALUATED,UNKNOWN,,,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000253,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-11T20:50:02,FAIL,HIGH,EVD_000451,ARQ_00045,,Control violation detected; review linked evidence.,v1.0
+CR_000254,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-04T05:32:16,PASS,NONE,EVD_000346,,RUN_000010,Control satisfied with available evidence.,v1.0
+CR_000255,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-02T02:23:05,NOT_EVALUATED,UNKNOWN,,ARQ_00049,,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000256,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-12T16:34:48,PASS,NONE,EVD_000023,ARQ_00002,,Control satisfied with available evidence.,v1.0
+CR_000257,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-12T06:30:32,PASS,NONE,EVD_000524,,,Control satisfied with available evidence.,v1.0
+CR_000258,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-12T21:21:51,PASS,NONE,EVD_000474,,,Control satisfied with available evidence.,v1.0
+CR_000259,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-08T23:14:28,PASS,NONE,EVD_000460,,,Control satisfied with available evidence.,v1.0
+CR_000260,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-02T12:06:16,PASS,NONE,EVD_000307,,,Control satisfied with available evidence.,v1.0
+CR_000261,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-09T16:03:34,PASS,NONE,EVD_000116,,,Control satisfied with available evidence.,v1.0
+CR_000262,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-01T21:35:38,FAIL,HIGH,EVD_000573,ARQ_00062,,Control violation detected; review linked evidence.,v1.0
+CR_000263,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-12T10:57:13,FAIL,CRITICAL,EVD_000553,,,Control violation detected; review linked evidence.,v1.0
+CR_000264,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-08T21:00:36,FAIL,MEDIUM,EVD_000314,,RUN_000035,Control violation detected; review linked evidence.,v1.0
+CR_000265,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-04T20:56:02,PASS,NONE,EVD_000574,,RUN_000022,Control satisfied with available evidence.,v1.0
+CR_000266,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-11T09:38:48,PASS,NONE,EVD_000571,,,Control satisfied with available evidence.,v1.0
+CR_000267,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-07T23:19:36,PASS,NONE,EVD_000132,,,Control satisfied with available evidence.,v1.0
+CR_000268,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-14T08:14:40,FAIL,HIGH,EVD_000140,,,Control violation detected; review linked evidence.,v1.0
+CR_000269,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-09T23:17:40,PASS,NONE,EVD_000085,,RUN_000035,Control satisfied with available evidence.,v1.0
+CR_000270,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-11T16:53:58,PASS,NONE,EVD_000265,,,Control satisfied with available evidence.,v1.0
+CR_000271,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-06T01:18:53,PASS,NONE,EVD_000244,,,Control satisfied with available evidence.,v1.0
+CR_000272,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-14T05:53:03,FAIL,CRITICAL,EVD_000379,,,Control violation detected; review linked evidence.,v1.0
+CR_000273,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-05T00:37:11,PASS,NONE,EVD_000144,ARQ_00045,,Control satisfied with available evidence.,v1.0
+CR_000274,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-07T07:39:34,PASS,NONE,EVD_000590,,,Control satisfied with available evidence.,v1.0
+CR_000275,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-09T04:54:24,PASS,NONE,EVD_000431,,,Control satisfied with available evidence.,v1.0
+CR_000276,AC-002,Requester must not self-approve,ACCESS_CONTROL,2026-01-06T06:21:44,PASS,NONE,EVD_000075,,,Control satisfied with available evidence.,v1.0
+CR_000277,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-08T12:37:23,PASS,NONE,EVD_000501,,,Control satisfied with available evidence.,v1.0
+CR_000278,AC-004,Sensitive export must be masked by default,PRIVACY,2026-01-11T20:42:30,PASS,NONE,EVD_000143,,,Control satisfied with available evidence.,v1.0
+CR_000279,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-06T22:05:58,FAIL,CRITICAL,EVD_000135,ARQ_00027,,Control violation detected; review linked evidence.,v1.0
+CR_000280,CM-003,Production deployment requires successful test evidence,CHANGE_MANAGEMENT,2026-01-11T10:09:44,PASS,NONE,EVD_000306,,,Control satisfied with available evidence.,v1.0
+CR_000281,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-11T03:07:36,PASS,NONE,EVD_000504,,,Control satisfied with available evidence.,v1.0
+CR_000282,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-09T20:41:33,FAIL,HIGH,EVD_000516,,RUN_000038,Control violation detected; review linked evidence.,v1.0
+CR_000283,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-02T18:56:19,PASS,NONE,EVD_000535,,,Control satisfied with available evidence.,v1.0
+CR_000284,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-05T12:06:00,FAIL,HIGH,EVD_000363,,,Control violation detected; review linked evidence.,v1.0
+CR_000285,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-11T07:26:54,PASS,NONE,EVD_000072,,RUN_000100,Control satisfied with available evidence.,v1.0
+CR_000286,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-15T09:02:19,PASS,NONE,EVD_000588,,,Control satisfied with available evidence.,v1.0
+CR_000287,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T22:33:26,FAIL,HIGH,EVD_000419,,RUN_000032,Control violation detected; review linked evidence.,v1.0
+CR_000288,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-13T22:36:16,PASS,NONE,EVD_000238,,RUN_000049,Control satisfied with available evidence.,v1.0
+CR_000289,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-15T10:21:50,PASS,NONE,EVD_000517,,RUN_000026,Control satisfied with available evidence.,v1.0
+CR_000290,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-09T06:39:45,PASS,NONE,EVD_000137,,RUN_000018,Control satisfied with available evidence.,v1.0
+CR_000291,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-09T15:16:19,PASS,NONE,EVD_000497,,,Control satisfied with available evidence.,v1.0
+CR_000292,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-10T05:57:27,PASS,NONE,EVD_000162,ARQ_00006,,Control satisfied with available evidence.,v1.0
+CR_000293,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-10T01:17:14,PASS,NONE,EVD_000076,,,Control satisfied with available evidence.,v1.0
+CR_000294,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-06T19:02:35,FAIL,MEDIUM,EVD_000257,,RUN_000090,Control violation detected; review linked evidence.,v1.0
+CR_000295,DQ-001,Pipeline run must complete successfully,DATA_PIPELINE,2026-01-07T21:17:19,NOT_EVALUATED,UNKNOWN,,,RUN_000116,Insufficient or missing evidence; control could not be evaluated.,v1.0
+CR_000296,CM-002,"Code author, approver and deployer must be separated",CHANGE_MANAGEMENT,2026-01-13T07:22:02,PASS,NONE,EVD_000146,,,Control satisfied with available evidence.,v1.0
+CR_000297,AC-001,Leaver access revoked within 24h,ACCESS_CONTROL,2026-01-04T01:57:41,PASS,NONE,EVD_000193,,,Control satisfied with available evidence.,v1.0
+CR_000298,AC-003,Sensitive export requires approval,ACCESS_CONTROL,2026-01-09T10:22:51,FAIL,CRITICAL,EVD_000577,ARQ_00057,,Control violation detected; review linked evidence.,v1.0
+CR_000299,CM-001,Production deployment must have RFC,CHANGE_MANAGEMENT,2026-01-08T00:23:47,FAIL,HIGH,EVD_000299,,,Control violation detected; review linked evidence.,v1.0
+CR_000300,DQ-002,Quarantine rate must remain below threshold,DATA_QUALITY,2026-01-02T13:02:28,PASS,NONE,EVD_000099,,RUN_000100,Control satisfied with available evidence.,v1.0

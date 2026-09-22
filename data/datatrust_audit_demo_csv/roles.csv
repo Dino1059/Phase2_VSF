@@ -1,0 +1,7 @@
+﻿role_id,role_name,description,risk_level
+ROLE_ADMIN,Admin,"Quản lý tài khoản, connector và cấu hình hệ thống",HIGH
+ROLE_STEWARD,Steward,"Quản lý/duyệt policy, rule, evidence và finding",HIGH
+ROLE_ANALYST,Analyst,"Theo dõi control result, phân tích finding và đề xuất xử lý",MEDIUM
+ROLE_VIEWER,Viewer,"Chỉ xem dashboard, result và evidence trong phạm vi được cấp",LOW
+ROLE_DATA_ENGINEER,Data Engineer,Vận hành pipeline và dữ liệu kỹ thuật,MEDIUM
+ROLE_FINANCE_OPS,Finance Ops,Đối soát nghiệp vụ và dữ liệu tài chính,MEDIUM

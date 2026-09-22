@@ -1,0 +1,10 @@
+{
+  "/dashboard/page": "app/dashboard/page.js",
+  "/pipeline-runs/page": "app/pipeline-runs/page.js",
+  "/findings/page": "app/findings/page.js",
+  "/administration/page": "app/administration/page.js",
+  "/findings/[id]/page": "app/findings/[id]/page.js",
+  "/privacy/page": "app/privacy/page.js",
+  "/data-quality/page": "app/data-quality/page.js",
+  "/evidence/page": "app/evidence/page.js"
+}

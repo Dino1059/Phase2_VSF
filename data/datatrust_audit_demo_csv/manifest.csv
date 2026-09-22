@@ -1,0 +1,15 @@
+﻿file,rows,purpose
+users.csv,60,Người dùng và trạng thái nhân sự
+roles.csv,6,Vai trò RBAC
+privileges.csv,117,Quyền thực tế trên dataset
+access_requests.csv,80,Yêu cầu cấp/thay đổi/thu hồi quyền
+approvals.csv,69,Bằng chứng phê duyệt
+hr_events.csv,35,Joiner/Mover/Leaver
+db_audit_events.csv,1200,Audit log truy cập/thao tác DB
+export_events.csv,120,Sự kiện xuất dữ liệu
+change_requests.csv,60,RFC/change ticket
+cicd_events.csv,240,PR/test/approval/deployment
+pipeline_runs.csv,120,Lần chạy Airflow/pipeline
+evidence.csv,600,Evidence chuẩn hóa
+control_results.csv,300,PASS/FAIL/NOT_EVALUATED
+findings.csv,60,Finding từ các control FAIL

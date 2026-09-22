@@ -2,13 +2,15 @@
   "compilerOptions": {
     "target": "es2023",
     "module": "esnext",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
-
     /* JSX */
     "jsx": "react-jsx",
-
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -17,19 +19,33 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "allowArbitraryExtensions": true,
-
     /* Path aliases */
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "./*"
+      ]
     },
-
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "allowJs": true,
+    "incremental": true,
+    "esModuleInterop": true
   },
-  "include": ["src"]
+  "include": [
+    "global.d.ts",
+    "src/App.tsx",
+    "src/main.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
