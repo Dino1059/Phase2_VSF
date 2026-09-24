@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-type Tone = 'blue' | 'red' | 'amber' | 'green' | 'slate' | 'xanhsm';
+type Tone = 'blue' | 'red' | 'amber' | 'green' | 'slate' | 'xanhsm' | 'gold' | 'yellow';
 type Props = React.HTMLAttributes<HTMLSpanElement> & { tone?: Tone };
 
 export function Badge({ tone = 'slate', className, ...props }: Props) {
@@ -11,6 +11,8 @@ export function Badge({ tone = 'slate', className, ...props }: Props) {
     blue: 'border-teal-200 bg-teal-50 text-teal-700',
     red: 'border-red-200 bg-red-50 text-red-600',
     amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    gold: 'border-amber-300 bg-amber-50 text-amber-800 font-semibold',
+    yellow: 'border-yellow-300 bg-yellow-50 text-yellow-800 font-semibold',
     slate: 'border-slate-200 bg-slate-50 text-slate-600',
   };
   return (

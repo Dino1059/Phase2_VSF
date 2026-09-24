@@ -11,6 +11,7 @@ export interface ProposedRule {
   confidence: number;
   affectedRows: number;
   evidenceId: string;
+  evidenceHash?: string;
   passRows: number;
   quarantineRows: number;
   compiledTarget: string;
@@ -36,6 +37,77 @@ export interface AgentStep {
   status: 'done' | 'running' | 'pending';
 }
 
+export interface TestCaseItem {
+  id: string;
+  code: string;
+  name: string;
+  domain: 'Data Quality' | 'Privacy PII' | 'ITGC & Security' | 'IoT Telemetry';
+  description: string;
+  injectedAnomaly: string;
+  expectedRule: string;
+  lawStandard: string;
+  status: 'idle' | 'running' | 'passed' | 'failed';
+  evidenceHash?: string;
+  executionTimeMs?: number;
+  quarantinedCount?: number;
+}
+
+export interface PolicyAdaptationItem {
+  id: string;
+  title: string;
+  sourceDoc: string;
+  effectiveDate: string;
+  rawText: string;
+  generatedRuleName: string;
+  generatedExpression: string;
+  compiledTarget: string;
+  confidence: number;
+  simulatedImpact: {
+    scannedRows: number;
+    silverCleanRows: number;
+    quarantinedRows: number;
+    estimatedLatencyMs: number;
+  };
+  status: 'draft' | 'simulated' | 'deployed';
+}
+
+export interface UserAccount {
+  id: 'auditor' | 'admin';
+  name: string;
+  shortName: string;
+  role: string;
+  roleTitle: string;
+  email: string;
+  avatar: string;
+  badge: string;
+  company: string;
+}
+
+export const USER_ACCOUNTS: Record<'auditor' | 'admin', UserAccount> = {
+  auditor: {
+    id: 'auditor',
+    name: 'Trần Minh Hoàng',
+    shortName: 'anh Hoàng',
+    role: 'Senior Auditor (Big 4 / IPO Assurance)',
+    roleTitle: 'Auditor IPO',
+    email: 'hoang.tran@audit-ipo.com',
+    avatar: 'TH',
+    badge: 'Kiểm toán viên IPO',
+    company: 'Big 4 Audit Consortium',
+  },
+  admin: {
+    id: 'admin',
+    name: 'Nguyễn Quốc Bảo',
+    shortName: 'anh Bảo',
+    role: 'Lead Data Platform (GSM Global)',
+    roleTitle: 'System Admin',
+    email: 'bao.nq@gsm.vn',
+    avatar: 'QB',
+    badge: 'Quản trị viên hệ thống',
+    company: 'GSM Global Tech',
+  },
+};
+
 export interface AgentStoreState {
   selectedDatasetId: string;
   agentStatus: 'idle' | 'running' | 'completed';
@@ -48,6 +120,29 @@ export interface AgentStoreState {
   rejectRule: (ruleId: string) => void;
   updateRuleExpression: (ruleId: string, expr: string) => void;
   getPendingRulesCount: () => number;
+  isChatOpen: boolean;
+  openChat: () => void;
+  closeChat: () => void;
+  toggleChat: () => void;
+  chatInitialPrompt: string | null;
+  openChatWithPrompt: (prompt: string) => void;
+  clearChatInitialPrompt: () => void;
+  // Account management
+  currentUser: UserAccount;
+  switchAccount: (accountId: 'auditor' | 'admin') => void;
+  // Persona & Hub Workspace additions
+  activePersona: 'auditor' | 'admin' | 'general';
+  setActivePersona: (persona: 'auditor' | 'admin' | 'general') => void;
+  testCases: TestCaseItem[];
+  runTestCase: (testId: string) => Promise<void>;
+  runAllTestCases: () => Promise<void>;
+  policies: PolicyAdaptationItem[];
+  adaptPolicy: (policyId: string) => Promise<void>;
+  deployPolicyRule: (policyId: string) => void;
+  workspacePreviewTab: 'tests' | 'evidence' | 'telemetry' | 'adaptation';
+  setWorkspacePreviewTab: (tab: 'tests' | 'evidence' | 'telemetry' | 'adaptation') => void;
+  workspaceInitialMessage: string | null;
+  setWorkspaceInitialMessage: (msg: string | null) => void;
 }
 
 const initialDatasets: Record<string, DatasetItem> = {
@@ -380,4 +475,274 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     });
     return count;
   },
+
+  isChatOpen: false,
+  chatInitialPrompt: null,
+  openChat: () => set({ isChatOpen: true }),
+  closeChat: () => set({ isChatOpen: false }),
+  toggleChat: () => set((state) => ({ isChatOpen: !state.isChatOpen })),
+  openChatWithPrompt: (prompt: string) => set({ isChatOpen: true, chatInitialPrompt: prompt }),
+  clearChatInitialPrompt: () => set({ chatInitialPrompt: null }),
+
+  // Account management
+  currentUser: USER_ACCOUNTS.auditor,
+  switchAccount: (accountId) => {
+    const acc = USER_ACCOUNTS[accountId];
+    set({
+      currentUser: acc,
+      activePersona: accountId,
+      workspacePreviewTab: accountId === 'auditor' ? 'tests' : 'telemetry',
+    });
+  },
+
+  // Persona & Hub Workspace Implementation
+  activePersona: 'auditor',
+  setActivePersona: (persona) =>
+    set({
+      activePersona: persona,
+      workspacePreviewTab: persona === 'auditor' ? 'tests' : 'telemetry',
+      currentUser: persona === 'admin' ? USER_ACCOUNTS.admin : USER_ACCOUNTS.auditor,
+    }),
+
+  workspacePreviewTab: 'tests',
+  setWorkspacePreviewTab: (tab) => set({ workspacePreviewTab: tab }),
+
+  workspaceInitialMessage: null,
+  setWorkspaceInitialMessage: (msg) => set({ workspaceInitialMessage: msg }),
+
+  testCases: [
+    {
+      id: 'TC-01',
+      code: 'TC-REV-01',
+      name: 'Kiểm thử bắt cuốc xe cước 0đ và quãng đường âm',
+      domain: 'Data Quality',
+      description: 'Bơm 5 cuốc xe giả lập cước phí 0đ và cự ly -2.4km vào stream dữ liệu để xác minh cơ chế cách ly doanh thu ảo.',
+      injectedAnomaly: '{ "trip_id": "SIM-TRIP-9901", "fare_amount": 0, "distance_km": -2.4, "status": "COMPLETED" }',
+      expectedRule: 'fare_amount > 0 AND distance_km >= 0.1',
+      lawStandard: 'IPO Control DQ-01: Valid Revenue Recognition',
+      status: 'idle',
+      quarantinedCount: 5,
+    },
+    {
+      id: 'TC-02',
+      code: 'TC-PII-02',
+      name: 'Kiểm thử chặn số CCCD và SĐT không mã hóa AES-256',
+      domain: 'Privacy PII',
+      description: 'Bơm 10 hồ sơ khách hàng mang số định danh CCCD 12 số dạng plain-text chưa qua che mờ (masking).',
+      injectedAnomaly: '{ "cust_id": "SIM-CUST-8812", "citizen_id": "001201012345", "phone": "0912345678", "phone_encrypted": false }',
+      expectedRule: 'mask_phone(phone) AND is_encrypted(citizen_id)',
+      lawStandard: 'Nghị định 13/2023/NĐ-CP & GDPR Art. 5(1)(c)',
+      status: 'idle',
+      quarantinedCount: 10,
+    },
+    {
+      id: 'TC-03',
+      code: 'TC-CHG-03',
+      name: 'Kiểm thử chênh lệch điện năng nạp trụ sạc VinFast',
+      domain: 'Data Quality',
+      description: 'Bơm 3 phiên sạc có kWh nạp thực tế nhỏ hơn chỉ số công tơ điện chênh lệch vượt ngưỡng an toàn > 5%.',
+      injectedAnomaly: '{ "session_id": "SIM-CHG-7721", "meter_delta_kwh": 45.2, "billed_kwh": 52.0, "pole_id": "VF-PL-09" }',
+      expectedRule: 'ABS(meter_delta_kwh - billed_kwh) <= 0.5',
+      lawStandard: 'GSM EV Asset Control 03 & Audit Revenue Proof',
+      status: 'idle',
+      quarantinedCount: 3,
+    },
+    {
+      id: 'TC-04',
+      code: 'TC-GEO-04',
+      name: 'Kiểm thử định vị GPS hành khách ngoài biên giới phục vụ',
+      domain: 'Privacy PII',
+      description: 'Bơm 4 gói tin tọa độ đón khách có vĩ độ/kinh độ nằm ngoài lãnh thổ 24 thị trường GSM Global.',
+      injectedAnomaly: '{ "trip_id": "SIM-GEO-004", "pickup_lat": 82.1124, "pickup_lon": -140.2311 }',
+      expectedRule: 'is_within_service_boundary(lat, lon)',
+      lawStandard: 'Geographic Compliance & Passenger Safety V35',
+      status: 'idle',
+      quarantinedCount: 4,
+    },
+    {
+      id: 'TC-05',
+      code: 'TC-SEC-05',
+      name: 'Kiểm thử chặn tài xế có giấy phép lái xe hết hạn',
+      domain: 'ITGC & Security',
+      description: 'Bơm 2 hồ sơ tài xế có bằng lái B2 hết hiệu lực từ ngày 15/08/2026 nhưng vẫn nhận lệnh điều phối.',
+      injectedAnomaly: '{ "driver_id": "SIM-DRV-441", "license_type": "B2", "license_expiry": "2026-08-15" }',
+      expectedRule: 'license_expiry >= CURRENT_DATE AND license_type IN ("B2","D")',
+      lawStandard: 'Bộ GTVT Quyết định 28/2024 & SOX ITGC Access Control',
+      status: 'idle',
+      quarantinedCount: 2,
+    },
+    {
+      id: 'TC-06',
+      code: 'TC-IOT-06',
+      name: 'Kiểm thử cảnh báo quá nhiệt cell pin xe điện (>65°C)',
+      domain: 'IoT Telemetry',
+      description: 'Bơm gói tin viễn thông BMS từ xe VF8 gửi thông số nhiệt độ cell pin đạt 72.4°C.',
+      injectedAnomaly: '{ "vin": "VF8-VN-99214", "battery_temp_c": 72.4, "soc_pct": 88, "status": "fast_charging" }',
+      expectedRule: 'battery_temp_c <= 65.0 AND speed_kmh <= 140',
+      lawStandard: 'GSM Fleet Battery Safety Standard L4',
+      status: 'idle',
+      quarantinedCount: 1,
+    },
+  ],
+
+  runTestCase: async (testId: string) => {
+    set((state) => ({
+      testCases: state.testCases.map((tc) =>
+        tc.id === testId ? { ...tc, status: 'running' as const } : tc
+      ),
+    }));
+
+    await new Promise((r) => setTimeout(r, 900));
+
+    const randomHash =
+      'sha256:' +
+      Array.from({ length: 64 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join('');
+
+    set((state) => ({
+      testCases: state.testCases.map((tc) =>
+        tc.id === testId
+          ? {
+              ...tc,
+              status: 'passed' as const,
+              evidenceHash: randomHash,
+              executionTimeMs: Math.floor(Math.random() * 40) + 25,
+            }
+          : tc
+      ),
+    }));
+  },
+
+  runAllTestCases: async () => {
+    set((state) => ({
+      testCases: state.testCases.map((tc) => ({ ...tc, status: 'running' as const })),
+    }));
+
+    await new Promise((r) => setTimeout(r, 1400));
+
+    set((state) => ({
+      testCases: state.testCases.map((tc) => ({
+        ...tc,
+        status: 'passed' as const,
+        evidenceHash:
+          'sha256:' +
+          Array.from({ length: 64 }, () =>
+            Math.floor(Math.random() * 16).toString(16)
+          ).join(''),
+        executionTimeMs: Math.floor(Math.random() * 35) + 20,
+      })),
+    }));
+  },
+
+  policies: [
+    {
+      id: 'POL-01',
+      title: 'Nghị định 13/2023/NĐ-CP sửa đổi: Bắt buộc mã hóa AES-256 định danh cá nhân trên taxi công nghệ',
+      sourceDoc: 'Chính phủ & Bộ Công An · Thông tư hướng dẫn 02/2026/BCA',
+      effectiveDate: '01/10/2026',
+      rawText: 'Mọi thông tin cá nhân bao gồm số căn cước công dân (CCCD/eID), số điện thoại di động và dữ liệu sinh trắc học của hành khách phải được che mờ (masking) hoặc mã hóa theo chuẩn AES-256 trước khi lưu trữ hoặc truyền qua hệ thống telemetry.',
+      generatedRuleName: 'RULE-PII-AUTO-01: mandate_aes256_passenger_identifier',
+      generatedExpression: 'is_aes256_encrypted(citizen_id) AND is_masked(phone_number)',
+      compiledTarget: 'Dynamic Masking Engine / PySpark Crypto UDF',
+      confidence: 99,
+      simulatedImpact: {
+        scannedRows: 1250000,
+        silverCleanRows: 1246580,
+        quarantinedRows: 3420,
+        estimatedLatencyMs: 14,
+      },
+      status: 'simulated',
+    },
+    {
+      id: 'POL-02',
+      title: 'Chính sách Cước phí Động GSM V35: Cước tối thiểu 1km & Chống cuốc xe ảo gian lận khuyến mãi',
+      sourceDoc: 'GSM Global Strategy Directive · Q3/2026',
+      effectiveDate: '15/09/2026',
+      rawText: 'Tất cả cuốc xe hợp lệ phải có giá cước tối thiểu 14.000 VNĐ và quãng đường di chuyển thực tế từ 0.5km trở lên (hoặc thời gian đón trả trên 2 phút). Các cuốc vi phạm lập tức chuyển sang làn Quarantine để kiểm tra đối soát trước khi ghi nhận doanh thu.',
+      generatedRuleName: 'RULE-FRAUD-AUTO-02: minimum_fare_and_distance_threshold',
+      generatedExpression: 'fare_amount >= 14000 AND (distance_km >= 0.5 OR trip_duration_sec >= 120)',
+      compiledTarget: 'SQL Quarantine Lane / Real-time Flink Job',
+      confidence: 97,
+      simulatedImpact: {
+        scannedRows: 1250000,
+        silverCleanRows: 1248760,
+        quarantinedRows: 1240,
+        estimatedLatencyMs: 8,
+      },
+      status: 'draft',
+    },
+    {
+      id: 'POL-03',
+      title: 'Quy chuẩn Nạp điện Siêu nhanh VinFast V4: Kiểm soát xung điện áp và sai lệch công tơ',
+      sourceDoc: 'VinFast Energy Infrastructure Specification V4',
+      effectiveDate: '01/08/2026',
+      rawText: 'Trụ sạc nhanh công suất đỉnh 250kW-300kW phải duy trì độ lệch giữa công tơ nguồn và điện năng nạp thực tế dưới 3%. Nếu công tơ chỉ số cuối nhỏ hơn chỉ số đầu hoặc kWh delivered âm, ngắt cổng thanh toán và cách ly bản ghi nạp điện.',
+      generatedRuleName: 'RULE-CHG-AUTO-03: ultra_charging_meter_tolerance',
+      generatedExpression: 'peak_kw <= 300 AND meter_end >= meter_start AND power_loss_ratio < 0.03',
+      compiledTarget: 'IoT Streaming Aggregator & Billing Guard',
+      confidence: 96,
+      simulatedImpact: {
+        scannedRows: 3200,
+        silverCleanRows: 3144,
+        quarantinedRows: 56,
+        estimatedLatencyMs: 5,
+      },
+      status: 'draft',
+    },
+  ],
+
+  adaptPolicy: async (policyId: string) => {
+    await new Promise((r) => setTimeout(r, 700));
+    set((state) => ({
+      policies: state.policies.map((p) =>
+        p.id === policyId ? { ...p, status: 'simulated' as const } : p
+      ),
+    }));
+  },
+
+  deployPolicyRule: (policyId: string) => {
+    set((state) => {
+      const targetPolicy = state.policies.find((p) => p.id === policyId);
+      if (!targetPolicy) return state;
+
+      const updatedPolicies = state.policies.map((p) =>
+        p.id === policyId ? { ...p, status: 'deployed' as const } : p
+      );
+
+      // Add to proposed rules in trips dataset
+      const curDs = state.datasets[state.selectedDatasetId] || state.datasets.trips;
+      const newRule: ProposedRule = {
+        id: `ADAPT-${targetPolicy.id}`,
+        name: targetPolicy.generatedRuleName,
+        expression: targetPolicy.generatedExpression,
+        rationale: `Tự động thích ứng từ chính sách: ${targetPolicy.title}. Độ tin cậy AI: ${targetPolicy.confidence}%.`,
+        domain: targetPolicy.id === 'POL-01' ? 'Privacy & Data Protection' : 'Data Quality',
+        severity: 'HIGH',
+        status: 'approved',
+        confidence: targetPolicy.confidence,
+        affectedRows: targetPolicy.simulatedImpact.quarantinedRows,
+        evidenceHash: 'ev_adapt_' + Date.now().toString(36),
+        evidenceId: 'EVID-ADAPT-' + targetPolicy.id,
+        passRows: targetPolicy.simulatedImpact.silverCleanRows,
+        quarantineRows: targetPolicy.simulatedImpact.quarantinedRows,
+        compiledTarget: targetPolicy.compiledTarget,
+        lawRef: targetPolicy.sourceDoc,
+        approvedAt: new Date().toISOString(),
+        approvedBy: 'System Admin (Auto-Adapt Engine)',
+      };
+
+      return {
+        policies: updatedPolicies,
+        datasets: {
+          ...state.datasets,
+          [state.selectedDatasetId]: {
+            ...curDs,
+            proposedRules: [newRule, ...curDs.proposedRules],
+          },
+        },
+      };
+    });
+  },
 }));
+

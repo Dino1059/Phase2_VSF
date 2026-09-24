@@ -27,6 +27,7 @@ export function OverviewPage() {
     runAgent,
     approveRule,
     rejectRule,
+    openChatWithPrompt,
   } = useAgentStore();
 
   const currentDataset: DatasetItem = datasets[selectedDatasetId] || datasets.trips;
@@ -235,10 +236,17 @@ export function OverviewPage() {
           </div>
 
           {/* Callout Notice at bottom */}
-          <div className="mt-6 rounded-xl border border-[#cbebe2] bg-[#f0f9f6] p-4 text-xs leading-relaxed text-[#005b4c]">
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#cbebe2] bg-[#f0f9f6] p-4 text-xs leading-relaxed text-[#005b4c]">
             <p>
               Agent đã nối phát hiện với evidence. Rule mới chỉ được áp dụng sau khi bạn phê duyệt.
             </p>
+            <button
+              onClick={() => openChatWithPrompt('💡 Hướng dẫn tôi các bước sử dụng sản phẩm')}
+              className="inline-flex items-center gap-1.5 font-semibold text-[#008b74] hover:underline cursor-pointer shrink-0"
+            >
+              <Sparkles size={13} className="text-amber-500" />
+              Cần trợ giúp? Hỏi Trợ lý AI →
+            </button>
           </div>
         </Card>
       </div>
@@ -300,14 +308,25 @@ export function OverviewPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 sm:pt-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openChatWithPrompt(`Tại sao bạn lại đề xuất rule ${rule.name}?`)}
+                      className="h-8 gap-1 text-xs text-amber-800 border-amber-300 bg-amber-50/70 hover:bg-amber-100 hover:border-amber-400 cursor-pointer"
+                      title="Mở Trợ lý AI để giải thích lý do đề xuất rule này"
+                    >
+                      <Sparkles size={12} className="text-amber-600" />
+                      Hỏi Agent
+                    </Button>
+
                     {isPending ? (
                       <>
                         <Button
                           variant="xanhsm"
                           size="sm"
                           onClick={() => approveRule(rule.id)}
-                          className="h-8 gap-1.5 px-3 text-xs font-semibold"
+                          className="h-8 gap-1.5 px-3 text-xs font-semibold cursor-pointer"
                         >
                           <Check size={14} />
                           Phê duyệt rule
@@ -316,7 +335,7 @@ export function OverviewPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => rejectRule(rule.id)}
-                          className="h-8 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50"
+                          className="h-8 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 cursor-pointer"
                         >
                           Từ chối
                         </Button>

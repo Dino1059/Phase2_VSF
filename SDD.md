@@ -1,1099 +1,358 @@
 # Software Design Document (SDD)
 ## DataTrust OS – Hệ thống kiểm soát tuân thủ dữ liệu chuẩn IPO
+### Case GSM Phát triển Toàn cầu – Chiến dịch V35 mở rộng dịch vụ đến 24 thị trường
 
-**Phiên bản:** 0.1  
-**Trạng thái:** Draft  
-**Nguồn thiết kế:** Tài liệu “XÂY DỰNG HỆ THỐNG KIỂM SOÁT TUÂN THỦ DỮ LIỆU CHUẨN IPO – Case GSM phát triển toàn cầu, chiến dịch V35 mở rộng dịch vụ đến 24 quốc gia”
+**Phiên bản:** 1.0 (Production-Ready Architecture)  
+**Trạng thái:** Approved / Updated  
+**Thời điểm cập nhật:** 2026-09-24  
+**Nguồn thiết kế:** Tài liệu *“XÂY DỰNG HỆ THỐNG KIỂM SOÁT TUÂN THỦ DỮ LIỆU CHUẨN IPO – Case GSM phát triển toàn cầu, chiến dịch V35 mở rộng dịch vụ đến 24 quốc gia”* kết hợp thiết kế trải nghiệm người dùng HubHome AI Agent và kiến trúc tài khoản phân vai độc lập.
 
 ---
 
 ## 1. Mục đích tài liệu
 
-Tài liệu này mô tả thiết kế phần mềm mức hệ thống cho **DataTrust OS** – một lớp giám sát và kiểm soát dữ liệu tập trung phục vụ kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân, thu thập audit evidence, kiểm tra một số control ITGC, quản lý finding và hỗ trợ phân tích bằng AI.
+Tài liệu này đặc tả thiết kế phần mềm mức kiến trúc hệ thống (Software Design Document - SDD) cho **DataTrust OS** – một lớp giám sát, kiểm định tuân thủ và điều hành chất lượng dữ liệu tập trung (Control Plane). Hệ thống phục vụ công tác kiểm soát chất lượng dữ liệu (Data Quality), bảo vệ dữ liệu cá nhân (Privacy & PII), thẩm định các chốt kiểm soát công nghệ thông tin (IT General Controls - ITGC), thu thập và niêm phong bằng chứng kiểm toán độc lập bất biến (Audit Evidence SHA-256), tự động thích ứng chính sách (Auto-Adaptation) và đồng hành cùng người dùng qua trợ lý **DataTrust AI Copilot**.
 
-SDD tập trung vào:
-
-- Kiến trúc tổng thể.
-- Các module chính và trách nhiệm của từng module.
-- Luồng dữ liệu và luồng kiểm soát.
-- Mô hình dữ liệu logic.
-- Cơ chế rule, evidence, result, finding và HITL.
-- Phân quyền người dùng.
-- Thiết kế AI Assistant.
-- Khả năng mở rộng policy theo vùng/quốc gia.
-- Công nghệ triển khai dự kiến.
+Tài liệu là cơ sở chuẩn mực kỹ thuật cho đội ngũ phát triển, kiểm toán viên độc lập (Big 4 / IPO Assurance) và kỹ sư vận hành nền tảng dữ liệu (Data Platform Engineers).
 
 ---
 
 ## 2. Bối cảnh và mục tiêu hệ thống
 
-### 2.1. Bối cảnh
+### 2.1. Bối cảnh nghiệp vụ GSM V35
+GSM (Green & Smart Mobility) đang mở rộng dịch vụ taxi điện và giải pháp di chuyển thông minh đến 24 thị trường quốc tế (Đông Nam Á, Châu Âu, Bắc Mỹ, Trung Đông...). Để đáp ứng yêu cầu thẩm định hồ sơ niêm yết IPO quốc tế, toàn bộ dữ liệu vận hành từ xe điện VinFast, trụ sạc pin, hành trình cuốc xe, thanh toán và thông tin khách hàng phải tuân thủ nghiêm ngặt các quy định:
+- **Luật Bảo vệ Dữ liệu:** Nghị định 13/2023/NĐ-CP (Việt Nam), GDPR (Châu Âu), CCPA/CPRA (Mỹ), PDPA (Singapore/Thái Lan).
+- **Chuẩn mực Kiểm toán IPO:** SOX Section 404, ITGC (Change Management, Access Control, Data Integrity), PCAOB standards.
+- **Tính toàn vẹn dữ liệu doanh thu:** Ngăn chặn tuyệt đối các giao dịch bất thường (cuốc xe 0đ không lý do, quãng đường âm, chênh lệch điện năng sạc kWh).
 
-DataTrust OS được thiết kế cho bối cảnh doanh nghiệp vận hành dịch vụ tại nhiều quốc gia, trong đó dữ liệu phải đáp ứng đồng thời các yêu cầu về:
-
-- Data Quality.
-- Privacy & Data Protection.
-- IT General Controls (ITGC).
-- Auditability và khả năng truy vết.
-- Human-in-the-Loop đối với các hành động quan trọng.
-
-Trong phạm vi MVP, hệ thống sử dụng dữ liệu mô phỏng cho ứng dụng đặt xe đa quốc gia. Dữ liệu khách hàng, tài xế và dữ liệu định danh trong môi trường demo là dữ liệu giả lập.
-
-### 2.2. Mục tiêu
-
-Hệ thống cần:
-
-1. Giám sát chất lượng dữ liệu và phát hiện bất thường.
-2. Phân loại và xử lý dữ liệu cá nhân theo policy.
-3. Thu thập log/metadata và chuẩn hóa thành evidence.
-4. Đối chiếu evidence với rule/control.
-5. Sinh kết quả kiểm tra `Pass`, `Fail`, hoặc `Not Evaluated`.
-6. Tổng hợp vi phạm thành Finding.
-7. Hỗ trợ phê duyệt và xử lý qua HITL.
-8. Hỗ trợ người dùng giải thích và phân tích vấn đề bằng AI Assistant.
-9. Lưu lại đầy đủ lịch sử xử lý phục vụ audit và truy vết.
+### 2.2. Mục tiêu hệ thống
+1. **Giám sát chất lượng dữ liệu đa tầng (L1–L4):** Tự động phát hiện bất thường từ cấp độ định danh (deterministic) đến mô hình thống kê học máy (multivariate & change point).
+2. **Cách ly dữ liệu vi phạm tự động (Quarantine Lane):** Đảm bảo chỉ 100% dữ liệu sạch mới vào tầng Silver/Gold phục vụ báo cáo tài chính IPO.
+3. **Bằng chứng số hóa bất biến (Tamper-Proof Audit Receipts):** Toàn bộ sự kiện kiểm tra, dữ liệu vi phạm và log xử lý được niêm phong bằng mã băm SHA-256.
+4. **Vận hành bởi AI Agent có Human-In-The-Loop (HITL):** Trợ lý Copilot điều hướng, giải thích nguyên nhân gốc (RCA), tự động sinh rule và đưa ra đề xuất cho con người phê duyệt.
+5. **Cá nhân hóa theo 2 Tài khoản Thực tế:** Phục vụ trực tiếp Kiểm toán viên IPO (Auditor Big 4) và Quản trị viên hệ thống (Lead Data Platform).
+6. **Tự động thích ứng chính sách mới (Policy Auto-Adaptation Engine):** Tự động phân tích thông tư, biểu giá cước mới thành biểu thức lọc dữ liệu mà không cần viết lại toàn bộ pipeline.
 
 ### 2.3. Nguyên tắc thiết kế cốt lõi
-
-- DataTrust OS là **lớp giám sát và kiểm soát**, không trực tiếp thay đổi hệ thống nguồn.
-- Các hành động có khả năng thay đổi dữ liệu/quyền truy cập phải đi qua workflow riêng có phê duyệt.
-- Evidence phải có khả năng liên kết tới `run_id`, `control_id`, request hoặc đối tượng liên quan.
-- Rule Engine đưa ra kết quả kiểm soát; AI Assistant không thay thế Rule Engine.
-- Quyết định quan trọng phải có Human-in-the-Loop.
-- Không xóa lịch sử evidence, finding và phê duyệt chỉ vì rule/policy đã ngừng sử dụng.
+- **Kiểm soát thụ động (Non-invasive Control Plane):** DataTrust OS là lớp kiểm soát độc lập, không trực tiếp can thiệp ghi đè phá hủy dữ liệu nguồn.
+- **Phân tách trách nhiệm (Segregation of Duties - SoD):** Kiểm toán viên (Auditor) chỉ có quyền thẩm tra, chạy test case và kiểm tra mã băm; Quản trị viên (Admin) quản lý cấu hình và pipeline; người tạo yêu cầu không được tự duyệt rule.
+- **Quyền quyết định thuộc về con người (Human-in-the-Loop):** AI Agent và Rule Engine phát hiện và đề xuất; việc triển khai rule vào production phải có chữ ký phê duyệt số của Steward/Admin.
+- **Tính bất biến của lịch sử bằng chứng (Immutability):** Không bao giờ xóa bằng chứng, kết quả kiểm tra hoặc biên nhận SHA-256 ngay cả khi rule/chính sách tương ứng đã hết hiệu lực.
 
 ---
 
-## 3. Phạm vi MVP
+## 3. Kiến trúc Phân vai và 2 Tài khoản Thực tế (Account Architecture)
 
-### 3.1. Trong phạm vi
+DataTrust OS phân tách hệ thống thành 2 không gian làm việc chuyên biệt tương ứng với 2 tài khoản thực tế, có thể chuyển đổi tức thì thông qua component `<AccountSwitcher />` trên thanh Topbar:
 
-| Nhóm chức năng | Phạm vi MVP |
-|---|---|
-| Data Quality | Profiling; xem dữ liệu mẫu theo quyền; định nghĩa và chạy rule; lưu kết quả theo dataset và `run_id`. |
-| Privacy & Data Protection | Phân loại PII; masking/tokenization; kiểm tra dữ liệu sau xử lý; quarantine dữ liệu vi phạm. |
-| ITGC & Evidence | Thu thập metadata về access, approval, deployment và job; liên kết log gốc với kết quả kiểm soát. |
-| Finding & HITL | Gom vi phạm thành finding; phân công; duyệt/từ chối đề xuất; lưu lịch sử xử lý. |
-| AI Assistant | Giải thích result/evidence; tóm tắt finding; phân tích nguyên nhân khả dĩ; đề xuất hướng xử lý; hỏi đáp bằng LLM + RAG. |
-| Quản trị ứng dụng | JWT authentication; RBAC; phân quyền theo role và phạm vi dataset; audit log thao tác quan trọng. |
+```mermaid
+flowchart TD
+    subgraph ACCOUNTS["Tài khoản Thực tế & Phân vai"]
+        ACC_AUDITOR["🛡️ Trần Minh Hoàng\nSenior Auditor (Big 4 / IPO Assurance)\nhoang.tran@audit-ipo.com"]
+        ACC_ADMIN["👨‍💻 Nguyễn Quốc Bảo\nLead Data Platform (GSM Global Tech)\nbao.nq@gsm.vn"]
+    end
 
-### 3.2. Ngoài phạm vi mặc định của MVP
+    SWITCHER["Topbar 1-Click Account Switcher\n(Đồng bộ Session Zustand Store)"]
+    ACC_AUDITOR <--> SWITCHER <--> ACC_ADMIN
 
-- Tự động sửa dữ liệu trực tiếp trên hệ thống nguồn.
-- Tự động thay đổi quyền truy cập trên hệ thống nguồn.
-- Triển khai CDC thời gian thực bắt buộc.
-- Thay con người ra quyết định trong các bước kiểm soát quan trọng.
+    subgraph AUDITOR_SPACE["Không gian Auditor IPO"]
+        direction TB
+        A1["Compliance Test Lab (6 Tests giả lập)"]
+        A2["Tra cứu Bằng chứng Bất biến (SHA-256 Evidence)"]
+        A3["Đối soát độc lập cuốc cước 0đ & PII NĐ 13"]
+    end
 
-Kafka và Debezium chỉ cần khi muốn kiểm chứng CDC hoặc thu thập sự kiện gần thời gian thực.
+    subgraph ADMIN_SPACE["Không gian System Admin"]
+        direction TB
+        B1["Live Pipeline Telemetry & Health (2.450 TPS)"]
+        B2["Giám sát Silver Clean vs Quarantine Lane"]
+        B3["Auto-Adaptation Engine (Chính sách GSM V35 → Rule)"]
+    end
+
+    ACC_AUDITOR --> AUDITOR_SPACE
+    ACC_ADMIN --> ADMIN_SPACE
+```
+
+### 3.1. Tài khoản Auditor IPO: Trần Minh Hoàng
+- **Chức danh:** Senior Auditor Big 4 / IPO Technical Assurance Lead.
+- **Mục tiêu:** Thẩm định tính tuân thủ pháp lý, đối soát độc lập các bất thường tài chính (1.240 chuyến đi cước 0đ), xác thực việc che mờ CCCD/PII theo Nghị định 13 và xuất chứng chỉ số băm SHA-256 nộp cho Sở giao dịch chứng khoán.
+- **Công cụ độc quyền:** **Compliance Test Lab** (bơm lỗi giả lập để chứng thực hệ thống tự ngắt vi phạm) và **Evidence Store Inspector**.
+
+### 3.2. Tài khoản System Admin: Nguyễn Quốc Bảo
+- **Chức danh:** Lead Data Platform (GSM Global Tech).
+- **Mục tiêu:** Đảm bảo độ sẵn sàng của pipeline (Throughput 2.450 TPS, SLA P99 < 35ms), kiểm soát lưu lượng bản ghi sạch vào Silver vs bản ghi cách ly ở Quarantine, và biên dịch nhanh chính sách kinh doanh mới thành rule mà không làm gián đoạn luồng streaming.
+- **Công cụ độc quyền:** **Live Telemetry Dashboard** và **Auto-Adaptation Engine Sandbox**.
 
 ---
 
-## 4. Kiến trúc tổng thể
+## 4. Kiến trúc Trải nghiệm Người dùng (UX/UI Architecture)
 
-Hệ thống được chia thành ba luồng chính:
+Giao diện DataTrust OS được thiết kế theo hệ thống nhận diện **Xanh SM & Taxi Gold Accent**, chia thành 3 trải nghiệm chính:
 
-1. **Pipeline xử lý dữ liệu**
-2. **Lớp giám sát và kiểm soát DataTrust OS**
-3. **Workflow phê duyệt và thực thi**
+### 4.1. Design System & Bảng màu Thương hiệu Xanh SM
+- **Màu Xanh lục chủ đạo (Xanh SM Forest Teal):** `#008b74` (Brand Primary), `#007460` (Primary Dark), `#e6f6f2` (Light Tint Background).
+- **Màu Xanh ngọc phát quang (Electric Cyan):** `#00d09c` (Điểm nhấn robot mascot, radar quét và trạng thái Active).
+- **Màu Xanh rừng sẫm (Deep Forest Slate):** `#0f3834` (Sidebar, Header, thanh điều hướng Topbar).
+- **Màu Vàng ánh kim Taxi (GSM Taxi Gold):** `#f59e0b` / `#facc15` (Dấu ấn thương hiệu taxi GSM, huy hiệu AI Agent, nút Call-to-action quan trọng và chỉ báo Human-in-the-Loop).
+
+### 4.2. AI Landing Hub (`/`, `/hub` – Mô hình HubHome Screenshot 1)
+- **Điểm chạm đầu tiên khi truy cập:**
+  - **Mascot Robot AI:** Hoạt họa robot thân thiện với ăng-ten vàng, mắt phát quang xanh ngọc và huy hiệu trực tuyến.
+  - **Lời chào cá nhân hóa:** Tự động điều chỉnh theo họ tên và chức vụ của tài khoản đang đăng nhập (*"Chào anh Hoàng..."* vs *"Chào anh Bảo..."*).
+  - **Thanh tìm kiếm trung tâm (Intent Omnibox):** Nhận diện ngôn ngữ tự nhiên tiếng Việt, cho phép chọn nhanh dataset mục tiêu (`trips`, `customers`, `drivers`, `charging`, `telemetry`).
+  - **Lưới 4 Thẻ gợi ý hành động:** Tự động gắn tag `★ Khuyên dùng` và viền nổi bật cho 2 thẻ tương thích với vai trò của tài khoản đang đăng nhập.
+  - **Dải bảo chứng cuối trang:** Khẳng định các tiêu chuẩn cốt lõi: *Bằng chứng SHA-256 bất biến · Chuẩn kiểm toán IPO Big 4 · Tự thích ứng L1–L4*.
+
+### 4.3. Không gian làm việc chia đôi (AI Split Workspace: `/workspace` – Mô hình Screenshot 2)
+Bố cục Dual-Pane đồng bộ thời gian thực 2 chiều:
+- **Cột trái (~38% chiều rộng): Trợ lý Conversational Copilot**
+  - Đóng vai trò là **người điều hướng ngắn gọn, súc tích** ("vừa phải, dễ hiểu", mỗi tin nhắn chỉ từ 1–3 câu).
+  - Không xả văn bản thô dài dòng; số liệu được thể hiện qua **Status Tags**, **Metric Pills** và **Quick Action Chips** (`[🧪 Chạy test case tuân thủ]`, `[🛡️ Bằng chứng SHA-256]`, `[⚡ Quét lại dữ liệu]`).
+  - Tích hợp thanh thông tin tài khoản Sub-bar (Họ tên, email công vụ, vai trò).
+- **Cột phải (~62% chiều rộng): Dynamic PREVIEW Panel**
+  - Chịu trách nhiệm hiển thị các bảng biểu, số liệu phức tạp và giao diện tương tác chuyên sâu.
+  - Khi tài khoản là **Auditor IPO**: PREVIEW hiển thị **Compliance Test Lab (6 Tests)** hoặc **Kho Bằng chứng SHA-256**.
+  - Khi tài khoản là **System Admin**: PREVIEW hiển thị **Live Pipeline Telemetry** hoặc **Auto-Adaptation Engine Sandbox**.
+
+### 4.4. Quy trình Quản trị Truyền thống (Dashboard `new_UI.png`)
+Hệ thống duy trì đầy đủ 4 màn hình điều hành theo quy trình chuẩn:
+1. **Tổng quan (`/overview`):** Chọn bộ dữ liệu → Bấm *"Cho agent chạy"* → Xem 4 thẻ số liệu và danh sách rule chờ duyệt.
+2. **Lần chạy (`/runs`):** Lịch sử các đợt scan kèm mã `run_id`, tỷ lệ bất thường và độ trễ.
+3. **Duyệt rule (`/rules`):** Sandbox điều chỉnh biểu thức SQL/PySpark, so sánh dữ liệu sạch vs cách ly và nút phê duyệt số.
+4. **Kết quả & Bằng chứng (`/results`):** Danh mục vi phạm, mã băm SHA-256 và tùy chọn xuất tệp kiểm toán.
+
+---
+
+## 5. Kiến trúc Hệ thống Tổng thể
 
 ```mermaid
 flowchart TB
-    subgraph SRC["Nguồn"]
-        DB["CSDL nguồn"]
-        IAM["IAM / RBAC"]
-        GIT["Git / CI-CD"]
-        APP["Hệ thống nghiệp vụ"]
-        LOG["Audit / System Log"]
+    subgraph UI_LAYER["Lớp Trải nghiệm Người dùng (Frontend React + Vite + Tailwind)"]
+        HUB["AI Landing Hub (/hub)\nIntent Omnibox & Mascot"]
+        WORKSPACE["AI Split Workspace (/workspace)\nDual-Pane: Chat Copilot + Dynamic Preview"]
+        DASH["Traditional Dashboards (new_UI)\n/overview, /runs, /rules, /results"]
+        SWITCH["Topbar Account Switcher\n(Auditor Hoàng ⇄ Admin Bảo)"]
     end
 
-    subgraph PIPE["1. Pipeline dữ liệu"]
-        RAW["Raw / Bronze"]
-        PRE["Pre-check / Profiling"]
-        PII["Chuẩn hóa + xử lý PII"]
-        POST["Post-check"]
-        SILVER["Silver"]
-        QUAR["Quarantine"]
+    subgraph GATEWAY["API Gateway & Service Layer (FastAPI)"]
+        AUTH_SVC["Auth & Session Manager"]
+        COPILOT_SVC["Conversational Copilot Engine"]
+        ADAPT_SVC["Policy Auto-Adaptation Engine"]
+        TEST_SVC["Compliance Test Lab Runner"]
     end
 
-    subgraph DT["2. DataTrust OS"]
-        CONN["Connector / Log Collector"]
-        EVID["Evidence Store"]
-        RULE["Rule / Control Engine"]
-        RESULT["Control / Rule Result"]
-        FIND["Finding"]
-        DASH["Dashboard"]
-        AI["AI Assistant"]
-        HITL["HITL"]
-        AUDIT["Application Audit Log"]
+    subgraph ENGINE_LAYER["Lớp Động cơ Kiểm soát (DataTrust Control Plane)"]
+        RULE_ENG["Rule & Anomaly Engine (L1-L4)"]
+        FUSION_ENG["Signal Fusion & Incident Correlation"]
+        PRIVACY_ENG["Privacy Classifier & Treatment (NĐ 13/GDPR)"]
+        CRYPTO_ENG["SHA-256 Tamper-Proof Evidence Hasher"]
+        HITL_ENG["Human-in-the-Loop Approval State Machine"]
     end
 
-    subgraph EXEC["3. Workflow thực thi"]
-        REQ["Yêu cầu"]
-        REVIEW["Thẩm định"]
-        APPROVE["Phê duyệt"]
-        ACTION["Thực thi"]
-        RECHECK["Kiểm tra lại"]
+    subgraph DATA_PIPELINE["Lớp Pipeline Dữ liệu Thực thi (GSM V35 Data Engine)"]
+        RAW["Raw / Bronze (Kafka / S3)"]
+        PRE["Pre-check & Profiling"]
+        TREAT["PII Tokenize / Masking"]
+        POST["Post-check Validation"]
+        SILVER["Silver Clean Data (1.248.760 rows)"]
+        QUAR["Quarantine Isolation Lane (1.240 rows)"]
     end
 
-    DB --> RAW --> PRE --> PII --> POST
-    POST -->|Pass| SILVER
-    POST -->|Fail| QUAR
+    subgraph STORAGE["Lớp Lưu trữ & Bằng chứng (Storage Layer)"]
+        DB["PostgreSQL / DuckDB\n(Catalog, Rules, Findings)"]
+        EVID_STORE["Audit Evidence Store\n(SHA-256 Hashes & Raw Logs)"]
+    end
 
-    DB --> CONN
-    IAM --> CONN
-    GIT --> CONN
-    APP --> CONN
-    LOG --> CONN
-    PIPE --> CONN
+    UI_LAYER <--> GATEWAY
+    GATEWAY <--> ENGINE_LAYER
+    ENGINE_LAYER <--> DATA_PIPELINE
+    ENGINE_LAYER <--> STORAGE
 
-    CONN --> EVID --> RULE --> RESULT --> FIND
-    FIND --> DASH
-    RESULT --> AI
-    EVID --> AI
-    FIND --> AI
-    AI --> HITL
-    FIND --> HITL
-
-    HITL --> REQ --> REVIEW --> APPROVE --> ACTION --> RECHECK
-    RECHECK --> CONN
+    POST -->|Pass SLA| SILVER
+    POST -->|Vi phạm| QUAR
+    QUAR -->|Evidence Hash| CRYPTO_ENG --> EVID_STORE
 ```
 
 ---
 
-## 5. Thành phần hệ thống
+## 6. Động cơ Phát hiện Bất thường Đa tầng (L1–L4 Anomaly Detection Engine)
 
-### 5.1. Orchestration Layer
+Để phát hiện triệt để các sai sót trong 1.250.000 bản ghi cuốc xe và dữ liệu IoT xe điện VinFast, hệ thống áp dụng cơ chế 4 tầng kiểm tra:
 
-**Công nghệ dự kiến:** Apache Airflow
+### 6.1. Tầng L1 – Kiểm tra Tiên quyết Xác định (Deterministic Rules)
+Kiểm tra các quy chuẩn kỹ thuật và nghiệp vụ bất biến:
+- Dữ liệu cuốc xe GSM: `fare_amount > 0 AND distance_km >= 0.1 AND trip_duration_sec >= 60`.
+- Pin xe điện VinFast: `battery_soc BETWEEN 0 AND 100 AND battery_temp_c BETWEEN -10 AND 65`.
+- Trạm sạc VinFast: `power_kw >= 0 AND meter_delta >= 0 AND ABS(meter_delta - billed_kwh) <= 0.5`.
+- Định vị địa lý: `is_within_service_boundary(pickup_lat, pickup_lon) = TRUE`.
 
-Trách nhiệm:
+### 6.2. Tầng L2 – Phân tích Thống kê Độ lệch (Statistical Outlier Detection)
+Sử dụng phương sai trung vị bền vững (**MAD - Median Absolute Deviation**) và **Robust Z-score**:
+$$Z_{\text{robust}} = \frac{x - \text{median}(X)}{1.4826 \times \text{MAD}(X)}$$
+Phát hiện cuốc xe có đơn giá bất thường theo cung đường hoặc thời gian sạc pin bất thường so với dung lượng pack pin.
 
-- Điều phối pipeline ingestion.
-- Gọi các bước pre-check, profiling, privacy treatment, post-check.
-- Sinh và duy trì `run_id`.
-- Theo dõi trạng thái job.
-- Ghi số lượng bản ghi và kết quả từng bước.
-- Liên kết kết quả pipeline với evidence/control result.
+### 6.3. Tầng L3 – Phát hiện Tương quan Đa biến (Multivariate Regression Residuals)
+Thiết lập tương quan tuyến tính giữa cự ly di chuyển ($x$) và điện năng tiêu thụ thực tế ($y$):
+$$y = ax + b + \epsilon$$
+Nếu thặng dư $|\epsilon| > 3\sigma$, hệ thống ghi nhận nghi vấn gian lận pin hoặc đồng hồ đo cự ly GPS bị can thiệp.
 
-### 5.2. Data Ingestion Layer
+### 6.4. Tầng L4 – Phát hiện Điểm thay đổi Chế độ (Change Point Detection)
+Ứng dụng thuật toán **CUSUM (Cumulative Sum)** và **PELT (Pruned Exact Linear Time)** trên chuỗi thời gian telemetry để phát hiện hiện tượng sụt điện áp đột ngột của cell pin xe điện hoặc thay đổi đột ngột trong luồng cước phí theo khu vực.
 
-Trách nhiệm:
-
-- Nhận dữ liệu từ CSDL nguồn hoặc bộ dữ liệu demo.
-- Ghi dữ liệu ban đầu vào Raw/Bronze.
-- Đính metadata nguồn và thông tin run.
-- Chuyển dữ liệu sang bước profiling và kiểm tra.
-
-### 5.3. Profiling Service
-
-Thu thập tối thiểu:
-
-- Schema.
-- Tên cột.
-- Primary key.
-- Data type.
-- Null rate.
-- Min/max.
-- Distinct count.
-- Duplicate statistics.
-
-**Output:** `ProfileResult`.
-
-Profiling chỉ mô tả dữ liệu, chưa kết luận dữ liệu có sự cố.
-
-### 5.4. Data Quality & Anomaly Detection Engine
-
-Hệ thống phát hiện bất thường theo nhiều tầng:
-
-#### L1 – Deterministic Validation
-
-Rule cố định, ví dụ:
-
-- `battery_soc BETWEEN 0 AND 100`
-- `battery_temp_c BETWEEN -10 AND 85`
-- `battery_voltage >= 0`
-- `station_temp_c BETWEEN -10 AND 85`
-- `power_kw >= 0`
-- `kwh_consumed >= 0`
-- `trip_distance_km > 0`
-- `fare_amount >= 0`
-
-#### L2 – Statistical Outlier Detection
-
-Sử dụng:
-
-- Median.
-- MAD.
-- Robust Z-score.
-
-Mục tiêu: phát hiện giá trị lệch đáng kể so với lịch sử.
-
-#### L3 – Multivariate Anomaly Detection
-
-Sử dụng Linear Regression residual:
-
-`y = ax + b`
-
-Mục tiêu: phát hiện quan hệ bất thường giữa nhiều trường dữ liệu.
-
-#### L4 – Change Point Detection
-
-Sử dụng:
-
-- CUSUM.
-- PELT.
-
-Mục tiêu: phát hiện thay đổi chế độ trên chuỗi thời gian.
-
-### 5.5. Fusion Engine
-
-Detector chỉ sinh `Signal`.
-
-Fusion Engine gom các Signal:
-
-- Cùng thực thể.
-- Cùng dự án.
-- Nằm gần nhau theo thời gian.
-
-Incident được mở khi thỏa ít nhất một điều kiện:
-
-1. Có từ hai tầng trở lên đồng thuận.
-2. Có tín hiệu L1 mức CRITICAL.
-3. Tín hiệu lặp trên nhiều thực thể liên quan.
-4. L2 kéo dài hoặc có severity HIGH/CRITICAL.
-5. Có cụm HIGH/CRITICAL hoặc từ ba tín hiệu trở lên.
-
-LLM không được dùng để quyết định mở Incident.
-
-### 5.6. Privacy Classification Service
-
-Input:
-
-- `ProfileResult`.
-- Data Catalog tĩnh.
-
-Output theo từng cột phải mô tả tối thiểu:
-
-- `table`
-- `column`
-- `data_category`
-- `is_personal_data`
-- `pii_class`
-- `pii_role`
-- `proposed_treatment`
-- `review_status`
-- `mask_on_export`
-- `mask_on_llm`
-- `retention_sla_days`
-- `after_sla_action`
-- `applicable_laws`
-- `recommended_controls`
-- `evidence_refs`
-
-`pii_class` gồm:
-
-- `none`
-- `regular`
-- `sensitive`
-
-Classifier xác định cách nhận diện và cách xử lý dữ liệu; không tự gán trực tiếp một điều khoản pháp lý như một kết luận duy nhất.
-
-### 5.7. Privacy Treatment Engine
-
-Các hành động có thể gồm:
-
-- Keep.
-- Keep Restricted.
-- Pseudonymize.
-- Generalize.
-- Mask on export.
-- Mask on LLM.
-- Anonymize.
-- Quarantine.
-
-Dữ liệu sau treatment phải đi qua post-check trước khi được đưa vào Silver.
-
-### 5.8. Policy Pack Engine
-
-Policy được đóng gói theo vùng.
-
-Ví dụ:
-
-- EU pack.
-- VN pack.
-- US pack.
-
-Mỗi pack có:
-
-- Điều kiện kích hoạt.
-- Danh sách control.
-- `control_id`.
-- `law_ref`.
-- Rule xử lý.
-- Test hồi quy.
-
-#### Thêm vùng mới
-
-```text
-Vùng mới
-→ Tạo policy pack đầy đủ
-→ Định nghĩa điều kiện kích hoạt
-→ Thêm control/rule
-→ Chạy regression test:
-   1. Chỉ vùng mới
-   2. Vùng mới + vùng cũ
-   3. Chỉ vùng cũ
-```
-
-#### Xóa/ngừng một vùng
-
-- Đánh dấu control là `deprecated`.
-- Không xóa catalog row.
-- Không xóa Finding/Evidence/HITL lịch sử.
-- Không xóa rule đang có Finding mở.
-- Khi retired, engine ngừng nạp rule đó ở lần chạy mới.
+### 6.5. Động cơ Dung hợp Tín hiệu (Signal Fusion Engine)
+Các detector chỉ sinh tín hiệu độc lập (`Signal`). Fusion Engine chỉ mở một `Incident` hoặc `Quarantine Action` khi thỏa mãn ít nhất một tiêu chí:
+1. Có từ **2 tầng kiểm tra trở lên** đồng thuận vi phạm (VD: L1 cước 0đ + L2 đơn giá lệch 4 MAD).
+2. Tín hiệu L1 ở mức nghiêm trọng `CRITICAL` (VD: lộ CCCD chưa mã hóa).
+3. Tín hiệu lặp lại trên cùng một đội xe/tài xế trong thời gian ngắn.
 
 ---
 
-## 6. Rule Engine
+## 7. Compliance Test Lab (Kịch bản Kiểm thử Tuân thủ Độc lập)
 
-### 6.1. Loại rule
+Phục vụ trực tiếp cho **Auditor IPO Trần Minh Hoàng** thực hiện đối soát độc lập, hệ thống tích hợp sẵn 6 test case giả lập GSM:
 
-Hệ thống có ba nhóm rule chính:
+| Mã Test | Tên Test Case | Lĩnh vực | Bơm Dữ liệu Lỗi (Injected Payload) | Biểu thức Kiểm soát Dự kiến | Chuẩn Tuân thủ |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`TC-REV-01`** | Bắt cuốc xe cước 0đ & cự ly âm | Data Quality | `{"fare_amount": 0, "distance_km": -2.4}` | `fare_amount > 0 AND distance_km >= 0.1` | Chuẩn Doanh thu IFRS 15 / IPO |
+| **`TC-PII-02`** | Chặn CCCD & SĐT chưa mã hóa AES-256 | Privacy PII | `{"citizen_id": "001201012345", "encrypted": false}` | `is_encrypted(citizen_id) AND mask_phone(phone)` | Nghị định 13/2023/NĐ-CP & GDPR |
+| **`TC-CHG-03`** | Chênh lệch điện năng nạp trụ sạc | Data Quality | `{"meter_delta": 45.2, "billed_kwh": 52.0}` | `ABS(meter_delta - billed_kwh) <= 0.5` | Đo lường Năng lượng VinFast V4 |
+| **`TC-GEO-04`** | Định vị GPS ngoài biên giới dịch vụ | Privacy / Fraud | `{"pickup_lat": 82.11, "pickup_lon": -140.23}` | `is_within_service_boundary(lat, lon)` | Chủ quyền Dữ liệu & Gian lận |
+| **`TC-SEC-05`** | Chặn tài xế có bằng lái B2 hết hạn | ITGC Security | `{"license_expiry": "2026-08-15"}` | `license_expiry >= CURRENT_DATE` | ITGC Access & An toàn Pháp lý |
+| **`TC-IOT-06`** | Cảnh báo quá nhiệt cell pin xe điện (>65°C) | IoT Telemetry | `{"battery_temp_c": 72.4}` | `battery_temp_c <= 65.0` | Quy chuẩn An toàn Kỹ thuật VinFast |
 
-1. Data Quality / Anomaly Rule.
-2. Privacy / Policy Rule.
-3. ITGC Control Rule.
+### Quy trình Vận hành Test Lab:
+1. Auditor nhấp nút *"Chạy test"* đơn lẻ hoặc *"▶ Chạy tất cả 6 Tests"*.
+2. Runner tiêm payload giả lập vào pipeline.
+3. Post-check bắt lỗi, chặn bản ghi vào Silver, đẩy vào **Quarantine Lane**.
+4. Hasher sinh chuỗi băm **SHA-256** lưu vào Evidence Store.
+5. Giao diện trả về trạng thái `PASS ✓` kèm biên nhận kiểm toán.
 
-### 6.2. Trạng thái kết quả
+---
 
-Mỗi rule/control trả về:
+## 8. Động cơ Tự động Thích ứng Chính sách (Policy Auto-Adaptation Engine)
 
-- `PASS`
-- `FAIL`
-- `NOT_EVALUATED`
-
-`NOT_EVALUATED` được dùng khi thiếu dữ liệu hoặc thiếu evidence để đưa ra kết luận.
-
-### 6.3. Luồng xử lý
+Phục vụ cho **System Admin Nguyễn Quốc Bảo** khi GSM ban hành quy chế hoặc thông tư mới:
 
 ```mermaid
 flowchart LR
-    INPUT["Dataset / Event / Evidence"] --> RULE["Rule / Control"]
-    RULE -->|PASS| PASS["Pass"]
-    RULE -->|FAIL| FAIL["Fail"]
-    RULE -->|Thiếu evidence| NE["Not Evaluated"]
-    FAIL --> FIND["Finding"]
-    NE --> REVIEW["Review / bổ sung evidence"]
+    DOC["Chính sách mới\n(Thông tư, Biểu giá cước V35)"] --> NLP["NLP Analysis\n(Trích xuất ràng buộc)"]
+    NLP --> CODE["Tự sinh biểu thức\n(SQL / PySpark)"]
+    CODE --> DRYRUN["Dry-run Simulation\n(Mô phỏng 1.25M bản ghi)"]
+    DRYRUN --> METRICS["Đánh giá Tác động:\n- Silver Sạch (99.9%)\n- Bị cách ly (1.240)\n- SLA P99: 34ms"]
+    METRICS --> HITL{"Admin duyệt\n1-Click Deploy?"}
+    HITL -->|Đồng ý| PROD["Nạp Rule vào Pipeline Stream"]
+    HITL -->|Từ chối| ADJUST["Hiệu chỉnh tham số"]
 ```
 
----
-
-## 7. ITGC Control Design
-
-### 7.1. Access Control
-
-Nguyên tắc:
-
-- Chỉ cấp quyền khi có nhu cầu thực tế.
-- Quyền gắn với cá nhân cụ thể.
-- Không cấp tài khoản dùng chung.
-- Quyền phải phù hợp chức danh và thời điểm đảm nhiệm.
-- Khi đổi vị trí phải xin phê duyệt lại.
-- Nếu không thay đổi, tối đa 12 tháng phải rà soát lại.
-- Quyền truy cập dữ liệu cá nhân nhạy cảm cần phê duyệt phù hợp.
-
-Evidence có thể gồm:
-
-- User.
-- Role.
-- Privilege.
-- Access request.
-- Approval.
-- HR event.
-- Access log.
-
-### 7.2. Data Export Control
-
-Yêu cầu:
-
-- Nêu rõ phạm vi trường dữ liệu.
-- Nêu mục đích.
-- Nêu nơi lưu.
-- Nêu thời hạn sử dụng.
-- Dữ liệu chứa PII mặc định phải masking khi xuất.
-- 100% lệnh export cần được ghi log.
-
-Evidence:
-
-- Export request.
-- Approval.
-- Export event.
-- Dataset scope.
-- Actor.
-- Timestamp.
-
-### 7.3. Change Management
-
-Yêu cầu:
-
-- Mọi thay đổi phải có RFC.
-- Không deploy trực tiếp ngoài CI/CD.
-- Người viết mã, người phê duyệt và người triển khai Production phải tách biệt.
-- Deploy chỉ được thực hiện sau approval hợp lệ.
-- Có test evidence.
-- Major/Emergency change cần rollback plan.
-- Evidence thay đổi nên được thu tự động.
-
-Evidence:
-
-- RFC/ticket.
-- Commit.
-- Pull Request.
-- Reviewer.
-- Approval.
-- Security scan result.
-- Test result.
-- Deployment log.
-- Environment.
-- Rollback plan.
-
-### 7.4. Incident Management
-
-Yêu cầu:
-
-- Một sự cố có một ticket/mã duy nhất.
-- Giữ nguyên bằng chứng.
-- Không xóa/sửa log.
-- Có timeline xuyên suốt từ phát hiện tới đóng.
-- Thao tác xử lý cần được ghi nhận.
+### Các tầng thích ứng chính sách:
+- **Level 1 (Tham số hóa - Parameter Adjustment):** Tự động điều chỉnh ngưỡng cước tối thiểu, cự ly ngắn (VD: cước tối thiểu từ 12.000đ → 14.000đ).
+- **Level 2 (Biểu thức điều kiện - Logical Rule Generation):** Tự sinh biểu thức kiểm soát phụ phí đêm và cuốc xe đa chặng (`fare_amount >= 14000 AND (distance_km >= 0.5 OR trip_duration_sec >= 120)`).
+- **Level 3 (Chính sách liên kết vùng - Region Pack Binding):** Kích hoạt bộ policy tương thích khi xe di chuyển giữa các quốc gia (VD: áp dụng GDPR khi hoạt động tại thị trường Châu Âu).
+- **Level 4 (Học máy thích ứng - Adaptive Dynamic Threshold):** Tự động cập nhật dải dung sai nhiệt độ pin theo mùa và điều kiện thời tiết thực tế.
 
 ---
 
-## 8. Evidence Model
+## 9. Mô hình Bằng chứng Bất biến (Tamper-Proof Audit Evidence SHA-256)
 
-### 8.1. Nhóm evidence
-
-- Access Control.
-- Database Activity.
-- Change Management.
-- Data Pipeline & Data Quality.
-- Finding & HITL.
-
-### 8.2. Thuộc tính chuẩn
-
-Mỗi evidence/event nên có tối thiểu:
-
-```text
-event_id
-timestamp
-source_system
-actor            # nếu nguồn cung cấp
-event_type
-object_type
-object_id
-run_id           # nếu liên quan pipeline
-control_id       # nếu liên quan control
-request_id       # nếu liên quan workflow
-raw_reference    # tham chiếu log gốc
-metadata
+### 9.1. Cấu trúc Biên nhận Bằng chứng (Audit Receipt)
+Mỗi sự kiện vi phạm hoặc phê duyệt được đóng gói và ký băm SHA-256 với cấu trúc chuẩn:
+```json
+{
+  "receipt_id": "EV-TRIP-2026-0924-A1",
+  "run_id": "RUN-2026-0924-01",
+  "timestamp": "2026-09-24T10:14:22.842Z",
+  "dataset": "trips",
+  "control_id": "CTRL-REV-VAL-01",
+  "rule_expression": "fare_amount > 0 AND distance_km >= 0.1",
+  "quarantined_records_count": 1240,
+  "injected_anomaly_sample": {
+    "trip_id": "TRIP-VN-009482",
+    "fare_amount": 0,
+    "distance_km": -2.4
+  },
+  "executed_by": "agent-copilot-daemon",
+  "approved_by": "hoang.tran@audit-ipo.com",
+  "previous_receipt_hash": "sha256:4b22c7...",
+  "current_evidence_hash": "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"
+}
 ```
 
-### 8.3. Nguyên tắc
-
-- Evidence phải truy ngược được về nguồn.
-- Không sửa nội dung evidence gốc sau khi ingest.
-- Có thể chuẩn hóa metadata nhưng cần giữ tham chiếu tới raw source.
-- Evidence mới sau bước remediation phải được ingest lại để xác minh trạng thái thực tế.
+### 9.2. Chuỗi Khối Kiểm toán (Hash-Chain Audit Trail)
+Các biên nhận bằng chứng được liên kết theo chuỗi băm tương tự Block-chain: biên nhận $N$ chứa mã băm của biên nhận $N-1$. Bất kỳ hành vi sửa đổi dữ liệu quá khứ trên cơ sở dữ liệu sẽ lập tức làm sai lệch toàn bộ chuỗi băm, giúp kiểm toán viên Big 4 phát hiện ngay dấu hiệu giả mạo hồ sơ.
 
 ---
 
-## 9. Finding & HITL
+## 10. Trợ lý DataTrust AI Copilot & Thiết kế Chat Tinh giản
 
-### 9.1. Finding
+### 10.1. Triết lý Thiết kế: "Vừa phải, Dễ hiểu, Tránh Quá tải chữ"
+Nhằm khắc phục tình trạng người dùng bị ngợp khi đọc các khối văn bản kỹ thuật dài, AI Copilot tuân thủ nguyên tắc:
+1. **Độ dài khống chế:** Mỗi câu trả lời tối đa **1–3 câu ngắn gọn**.
+2. **Trực quan hóa thay vì văn bản:** Sử dụng huy hiệu trạng thái (status badges), metric pills và bảng tóm tắt.
+3. **Phân chia nhiệm vụ:** Khung Chat bên trái đóng vai trò là **người điều hướng/ra lệnh**, toàn bộ chi tiết dữ liệu nặng nề được kích hoạt hiển thị tại khung **Preview** bên phải.
+4. **Phím tắt hành động nhanh (Quick Action Chips):** Cung cấp sẵn các nút bấm ngữ cảnh (VD: `[🧪 Chạy test case]`, `[🛡️ Tra cứu bằng chứng SHA-256]`, `[⚡ Quét làn Quarantine]`).
 
-Finding được tạo từ một hoặc nhiều kết quả kiểm soát liên quan.
-
-Thuộc tính logic:
-
-```text
-finding_id
-title
-description
-status
-severity
-control_ids[]
-result_ids[]
-evidence_ids[]
-assignee
-created_at
-updated_at
-resolution
-```
-
-### 9.2. Vòng đời
-
-```mermaid
-stateDiagram-v2
-    [*] --> Open
-    Open --> Assigned
-    Assigned --> UnderReview
-    UnderReview --> Approved
-    UnderReview --> Rejected
-    Approved --> InRemediation
-    InRemediation --> Recheck
-    Recheck --> Closed: đã đáp ứng
-    Recheck --> UnderReview: vẫn vi phạm
-```
-
-### 9.3. HITL
-
-Các tác vụ yêu cầu HITL gồm:
-
-- Duyệt/từ chối hướng xử lý.
-- Duyệt rule trước khi áp dụng.
-- Duyệt remediation.
-- Duyệt xử lý dữ liệu nhạy cảm.
-- Duyệt các thay đổi quyền.
-- Duyệt ngoại lệ.
-
-Nguyên tắc SoD:
-
-- Người tạo yêu cầu không được tự phê duyệt yêu cầu của mình.
-- Với quy trình nhạy cảm, requester, approver và executor có thể phải là ba người độc lập.
+### 10.2. Chức năng chính của Copilot
+- Giải thích nguyên nhân gốc rễ (Root Cause Analysis - RCA) khi có vi phạm.
+- Đề xuất câu lệnh SQL/PySpark để vá lỗi rule.
+- Tiếp nhận lệnh kiểm thử từ người dùng qua ngôn ngữ tự nhiên.
+- Thực hiện xác nhận Human-in-the-Loop khi phê duyệt rule mới.
 
 ---
 
-## 10. Workflow phê duyệt và thực thi
+## 11. Kiến trúc Dữ liệu Logic (Data Architecture & Schema)
 
-```mermaid
-flowchart LR
-    A["Yêu cầu"] --> B["Thẩm định"]
-    B --> C["Phê duyệt"]
-    C -->|Approved| D["Thực thi"]
-    C -->|Rejected| R["Kết thúc / chỉnh sửa yêu cầu"]
-    D --> E["Thu thập evidence mới"]
-    E --> F["Kiểm tra lại"]
-    F -->|Pass| G["Đóng Finding"]
-    F -->|Fail| B
-```
+### 11.1. Các bảng Nghiệp vụ Mô phỏng
+- `trips`: Lưu trữ 1.250.000 cuốc xe (trip_id, driver_id, customer_id, fare_amount, distance_km, duration, lat/lon, status).
+- `customers`: 450.000 hồ sơ hành khách quốc tế kèm trường PII (citizen_id, phone, email, card_token, country).
+- `drivers`: 85.000 tài xế xe điện GSM (driver_id, license_id, license_expiry, rating, vehicle_plate).
+- `charging`: Nhật ký sạc xe điện VinFast (session_id, vin, station_id, meter_delta, billed_kwh, temp_c).
+- `telemetry`: Dữ liệu streaming IoT xe điện (vin, timestamp, battery_soc, battery_temp_c, voltage, tps).
 
-Các action có thể gồm:
-
-- Cấp/thu hồi quyền.
-- Xử lý lại dữ liệu trong Quarantine.
-- Công bố dữ liệu.
-- Làm sạch dữ liệu.
-- Áp dụng treatment privacy.
-
-Trong MVP, bước thực thi có thể được mô phỏng hoặc thực hiện thủ công.
+### 11.2. Các bảng Kiểm soát & Bằng chứng
+- `pipeline_runs`: Theo dõi từng đợt scan (`run_id`, timestamp, records_in, clean_out, quarantined_count, status).
+- `quarantine_records`: Lưu trữ bản ghi vi phạm kèm mã lỗi và lý do cách ly.
+- `proposed_rules`: Danh sách rule do AI Agent đề xuất hoặc thích ứng (id, name, expression, confidence, status).
+- `evidence_store`: Lưu trữ mã băm SHA-256, chữ ký số và log nguyên thủy phục vụ kiểm toán IPO.
+- `compliance_test_runs`: Nhật ký các lần chạy test case của Auditor.
 
 ---
 
-## 11. AI Assistant
+## 12. Ngăn ngừa Mất mát Dữ liệu & Kiểm soát Thay đổi (Data Loss Prevention & ITGC)
 
-### 11.1. Vai trò
-
-AI Assistant hỗ trợ phân tích nhưng không đưa ra quyết định kiểm soát cuối cùng.
-
-### 11.2. Input context
-
-AI có thể sử dụng:
-
-- Result.
-- Evidence.
-- Finding.
-- Policy.
-- Rule.
-- Tài liệu nội bộ qua RAG.
-
-### 11.3. Chức năng
-
-- Giải thích tại sao rule/control Fail.
-- Giải thích trạng thái Not Evaluated.
-- Tóm tắt finding.
-- Tóm tắt evidence liên quan.
-- Hỗ trợ Root Cause Analysis.
-- Sinh giả thuyết nguyên nhân.
-- Gán mức confidence cho giả thuyết.
-- Đề xuất hướng xử lý.
-- Hỏi đáp bằng ngôn ngữ tự nhiên.
-
-### 11.4. Luồng AI
-
-```mermaid
-flowchart LR
-    C["Result + Evidence + Finding + Policy"] --> RAG["Context Builder / RAG"]
-    RAG --> LLM["LLM"]
-    LLM --> EX["Giải thích"]
-    LLM --> RCA["RCA / giả thuyết"]
-    LLM --> REC["Đề xuất xử lý"]
-    EX --> HITL["HITL"]
-    RCA --> HITL
-    REC --> HITL
-```
-
-### 11.5. Ràng buộc
-
-- AI không sửa dữ liệu nguồn.
-- AI không cấp quyền.
-- AI không tự đóng finding.
-- Confidence của AI không được coi là bằng chứng chắc chắn.
-- Rule Engine vẫn là nguồn xác định trạng thái control.
+- **Cấm thao tác phá hủy trực tiếp:** Không hỗ trợ các lệnh `DROP TABLE`, `TRUNCATE` hay `DELETE` không điều kiện trên bất kỳ môi trường nào.
+- **Bảo toàn dữ liệu Quarantine:** Dữ liệu vi phạm trong làn Quarantine không bao giờ bị xóa tự động; mọi thao tác tái xử lý (Remediation) phải được thực hiện trên bản sao và có phê duyệt của Steward.
+- **Nguyên tắc môi trường tách biệt:** Dữ liệu PII định danh thực không bao giờ được đưa vào môi trường kiểm thử; toàn bộ dữ liệu demo được sinh bằng cơ chế tổng hợp (Synthetic Data Generation) chuẩn GDPR/NĐ 13.
 
 ---
 
-## 12. Role & RBAC
+## 13. Ngăn xếp Công nghệ Triển khai (Technology Stack)
 
-### 12.1. Vai trò trong DataTrust OS
-
-| Role | Trách nhiệm |
-|---|---|
-| Admin | Quản lý tài khoản, connector và cấu hình hệ thống. |
-| Steward | Quản lý/duyệt policy, rule; xem evidence; phê duyệt xử lý finding. |
-| Analyst | Theo dõi kết quả; phân tích finding; đề xuất hướng xử lý. |
-| Viewer | Xem dashboard, result và evidence trong phạm vi được cấp. |
-
-### 12.2. Vai trò nghiệp vụ
-
-- Người yêu cầu.
-- CBLĐ khối.
-- Data Owner.
-- Bộ phận Kiểm soát Dữ liệu.
-- GĐ Kiểm soát Dữ liệu.
-- PTGĐ Khối KD&VH.
-- ANBM / VinSOC.
-- Phòng Nhân sự.
-
-### 12.3. Authentication
-
-Cơ chế dự kiến:
-
-- JWT authentication.
-- RBAC theo role.
-- Dataset scope.
-- Audit log cho hành động quan trọng.
+| Tầng chức năng | Công nghệ lựa chọn | Mục đích sử dụng |
+| :--- | :--- | :--- |
+| **Giao diện Người dùng (Frontend)** | React 19, Vite, TypeScript | Ứng dụng SPA hiệu năng cao, kiểm soát kiểu dữ liệu nghiêm ngặt |
+| **Thiết kế & Bảng màu (Styling)** | Tailwind CSS, Lucide React Icons | Design System Xanh SM kết hợp điểm nhấn Vàng kim Taxi GSM |
+| **Quản lý Trạng thái (State)** | Zustand Store | Đồng bộ trạng thái 2 tài khoản, chat thread và tabs thời gian thực |
+| **Dịch vụ API (Backend)** | Python 3.11, FastAPI, Pydantic | Xây dựng RESTful API async hiệu năng cao phục vụ Control Plane |
+| **Động cơ Băm Bằng chứng** | Python `hashlib` (SHA-256 Crypto) | Tạo biên nhận số băm chuỗi bất biến cho Evidence Store |
+| **Lưu trữ Dữ liệu** | PostgreSQL / DuckDB | Lưu trữ metadata, catalog, rule, findings và bảng dữ liệu lớn |
+| **Điều phối Quy trình** | Apache Airflow | Lập lịch pipeline ingestion, profiling và post-check |
+| **Đóng gói Triển khai** | Docker, Docker Compose | Đóng gói toàn bộ ngăn xếp phục vụ môi trường demo và thẩm định |
 
 ---
 
-## 13. Mô hình dữ liệu logic
+## 14. Tiêu chí Nghiệm thu Hệ thống (System Acceptance Criteria)
 
-### 13.1. Dữ liệu nghiệp vụ mô phỏng
+Hệ thống được xác nhận đạt chuẩn kiến trúc khi vượt qua 100% các tiêu chí:
 
-- `customers`
-- `drivers`
-- `trips`
-- `data_catalog`
-- `region_policy`
-
-### 13.2. Dữ liệu audit và control
-
-- `users`
-- `roles`
-- `privileges`
-- `access_requests`
-- `approvals`
-- `hr_events`
-- `db_audit_events`
-- `export_events`
-- `change_requests`
-- `cicd_events`
-- `pipeline_runs`
-- `control_results`
-- `evidence`
-- `findings`
-
-### 13.3. ERD logic đề xuất
-
-```mermaid
-erDiagram
-    PIPELINE_RUNS ||--o{ CONTROL_RESULTS : produces
-    CONTROLS ||--o{ CONTROL_RESULTS : evaluates
-    CONTROL_RESULTS }o--o{ EVIDENCE : supported_by
-    CONTROL_RESULTS }o--o{ FINDINGS : grouped_into
-    FINDINGS }o--o{ EVIDENCE : references
-
-    ACCESS_REQUESTS ||--o{ APPROVALS : has
-    USERS ||--o{ ACCESS_REQUESTS : requests
-    USERS ||--o{ APPROVALS : approves
-
-    CHANGE_REQUESTS ||--o{ CICD_EVENTS : generates
-    CHANGE_REQUESTS ||--o{ APPROVALS : has
-
-    USERS ||--o{ DB_AUDIT_EVENTS : performs
-    USERS ||--o{ EXPORT_EVENTS : performs
-
-    ROLES ||--o{ PRIVILEGES : grants
-    USERS }o--o{ ROLES : assigned
-
-    PIPELINE_RUNS {
-        string run_id PK
-        datetime started_at
-        datetime ended_at
-        string status
-        int input_count
-        int output_count
-    }
-
-    CONTROL_RESULTS {
-        string result_id PK
-        string control_id FK
-        string run_id FK
-        string status
-        string reason
-        datetime evaluated_at
-    }
-
-    EVIDENCE {
-        string evidence_id PK
-        string source_system
-        string event_id
-        datetime timestamp
-        string actor
-        string raw_reference
-    }
-
-    FINDINGS {
-        string finding_id PK
-        string status
-        string severity
-        string assignee
-        datetime created_at
-    }
-```
-
-> Ghi chú: tài liệu nguồn chưa định nghĩa schema vật lý đầy đủ cho từng bảng. ERD trên thể hiện quan hệ logic phục vụ thiết kế; tên field chi tiết cần được chốt ở bước database design.
+1. **Tính độc lập của 2 Tài khoản:** Chuyển đổi giữa Auditor Trần Minh Hoàng và Admin Nguyễn Quốc Bảo với độ trễ < 100ms, tự động cập nhật ngữ cảnh giao diện và quyền truy cập công cụ.
+2. **Độ súc tích của Trợ lý Copilot:** Phản hồi chat không quá 3 câu, đính kèm đầy đủ action chips và cập nhật trực quan sang bảng Preview.
+3. **Độ chính xác của Compliance Test Lab:** Cả 6 test case giả lập khi kích hoạt phải bắt lỗi chính xác 100%, cách ly vào làn Quarantine và cấp biên nhận SHA-256 hợp lệ.
+4. **Hiệu năng Pipeline:** Duy trì throughput giả lập 2.450 TPS với độ trễ xử lý P99 < 35ms.
+5. **Tính toàn vẹn kiểm toán (IPO Readiness):** Khả năng truy xuất ngược từ một biên nhận băm SHA-256 bất kỳ về nguồn gốc bản ghi, `run_id`, điều kiện rule và danh tính người phê duyệt.
+6. **Độ ổn định mã nguồn:** `npm run typecheck` đạt 0 lỗi (`tsc --noEmit`) và `npm run build` thành công 100%.
 
 ---
 
-## 14. Pipeline dữ liệu
+## 15. Kết luận
 
-### 14.1. Luồng chính
-
-```text
-CSDL nguồn
-→ Raw/Bronze
-→ Pre-check
-→ Profiling
-→ Privacy Classification
-→ Privacy Treatment
-→ Post-check
-→ Silver hoặc Quarantine
-```
-
-### 14.2. Run tracking
-
-Mỗi lần pipeline chạy có `run_id`.
-
-Theo `run_id`, hệ thống cần theo dõi:
-
-- Thời gian bắt đầu/kết thúc.
-- Dataset.
-- Số lượng record đầu vào.
-- Số lượng record đầu ra.
-- Số record vào Quarantine.
-- Trạng thái từng task.
-- Rule/control result.
-- Evidence liên quan.
-
----
-
-## 15. Quarantine Design
-
-Dữ liệu vi phạm không bị xóa ngay.
-
-Quarantine dùng để:
-
-- Tách record lỗi khỏi clean dataset.
-- Lưu lý do vi phạm.
-- Gắn rule/control gây fail.
-- Gắn `run_id`.
-- Cho phép review.
-- Cho phép xử lý lại sau approval.
-
-Luồng:
-
-```text
-Fail
-→ Quarantine
-→ Analyst review
-→ Steward approve
-→ Remediation / Reprocess
-→ Post-check
-→ Silver hoặc tiếp tục Quarantine
-```
-
----
-
-## 16. Audit Trail
-
-Các hành động quan trọng trong DataTrust OS cần được audit.
-
-Tối thiểu:
-
-- Ai thực hiện.
-- Hành động gì.
-- Đối tượng nào.
-- Thời điểm.
-- Trước/sau thay đổi nếu phù hợp.
-- Request/finding/control liên quan.
-
-Tài liệu nguồn cũng định hướng sử dụng SHA-256 để hỗ trợ phát hiện lịch sử audit bị chỉnh sửa.
-
-Thiết kế chi tiết cơ chế hash-chain cần được chốt riêng ở mức implementation.
-
----
-
-## 17. Logical API Boundaries
-
-Tài liệu nguồn xác định FastAPI cho backend/API nhưng chưa quy định endpoint cụ thể. Có thể chia API theo domain như sau:
-
-```text
-/auth
-/users
-/roles
-/datasets
-/pipeline-runs
-/profiling
-/rules
-/controls
-/control-results
-/evidence
-/findings
-/approvals
-/privacy
-/connectors
-/ai
-/audit
-```
-
-Đây là **phân ranh logic**, không phải danh sách endpoint đã được tài liệu nguồn phê duyệt.
-
----
-
-## 18. Connector Design
-
-Nguồn có thể kết nối:
-
-- Database.
-- IAM / RBAC.
-- Git.
-- CI/CD.
-- Application logs.
-- Audit logs.
-- Data pipeline.
-- HR event source.
-
-Connector ưu tiên cơ chế read-only.
-
-Output connector cần được normalize trước khi đưa vào Evidence Store.
-
-```mermaid
-flowchart LR
-    SRC["Source System"] --> CON["Connector"]
-    CON --> NORM["Normalizer"]
-    NORM --> EVID["Evidence Store"]
-    EVID --> CTRL["Control Engine"]
-```
-
----
-
-## 19. Công nghệ dự kiến
-
-| Nhóm | Công nghệ | Vai trò |
-|---|---|---|
-| Orchestration | Apache Airflow | Lập lịch và điều phối pipeline |
-| Database | PostgreSQL / DuckDB | Lưu demo data, metadata, evidence, result, finding |
-| Streaming / CDC | Kafka, Debezium | Thu thập thay đổi gần thời gian thực khi cần |
-| Log collection | Vector | Thu thập/chuyển log sang evidence layer |
-| Backend | Python, FastAPI | API, rule engine, connector, service |
-| Data processing | Python, SQL | Profiling, DQ, masking/tokenization |
-| AI | LLM + RAG | Giải thích, RCA, tóm tắt, đề xuất |
-| Deployment | Docker | Đóng gói môi trường demo |
-
----
-
-## 20. Deployment View
-
-MVP có thể triển khai bằng Docker theo mô hình:
-
-```mermaid
-flowchart TB
-    UI["Web UI"]
-    API["FastAPI"]
-    AIR["Airflow"]
-    DB["PostgreSQL / DuckDB"]
-    VEC["Vector"]
-    AI["LLM / RAG"]
-    SRC["Demo Sources / External Sources"]
-
-    UI --> API
-    API --> DB
-    API --> AI
-    AIR --> DB
-    AIR --> SRC
-    SRC --> VEC
-    VEC --> API
-    AI --> DB
-```
-
-Kafka/Debezium là optional trong MVP batch.
-
----
-
-## 21. Yêu cầu bảo mật và kiểm soát
-
-- JWT authentication.
-- RBAC.
-- Dataset-level scope.
-- Segregation of Duties.
-- Read-only connector khi có thể.
-- Không dùng dữ liệu Production/DLCN thật cho môi trường dev/test theo nguyên tắc Change Management trong tài liệu.
-- Audit log thao tác quan trọng.
-- Không xóa evidence lịch sử.
-- Mask PII trước khi export khi policy yêu cầu.
-- Có cơ chế hạn chế dữ liệu gửi vào LLM theo `mask_on_llm`.
-
----
-
-## 22. Observability
-
-Tối thiểu cần theo dõi:
-
-- Pipeline status.
-- Task failure.
-- Số record đầu vào/đầu ra.
-- Quarantine count.
-- Rule Pass/Fail/Not Evaluated.
-- Finding count theo severity/status.
-- Connector error.
-- Evidence ingestion error.
-- AI request/error.
-- Approval workflow status.
-
-Dashboard tập trung phục vụ quan sát trạng thái tuân thủ và xử lý vấn đề.
-
----
-
-## 23. Error Handling
-
-### 23.1. Thiếu dữ liệu/evidence
-
-Không mặc định coi là Fail.
-
-Trạng thái:
-
-`NOT_EVALUATED`
-
-### 23.2. Pipeline error
-
-- Ghi trạng thái task.
-- Gắn với `run_id`.
-- Không đưa dữ liệu chưa qua kiểm tra vào Silver.
-- Lưu evidence lỗi nếu có.
-
-### 23.3. Connector error
-
-- Không làm sai lệch evidence hiện có.
-- Ghi rõ nguồn không thể kiểm tra.
-- Control phụ thuộc evidence đó có thể chuyển sang `NOT_EVALUATED`.
-
----
-
-## 24. Dữ liệu kiểm thử
-
-Demo dataset cần có đủ ba nhóm:
-
-1. Dữ liệu đạt yêu cầu → `PASS`.
-2. Dữ liệu có vi phạm → `FAIL` + Finding.
-3. Dữ liệu thiếu evidence → `NOT_EVALUATED`.
-
-Các tình huống kiểm thử nên bao phủ:
-
-- Data Quality.
-- PII regular.
-- PII sensitive.
-- Access Control.
-- Export.
-- Change Management.
-- Pipeline failure.
-- Missing evidence.
-- HITL approve/reject.
-- Finding reopen/recheck.
-
----
-
-## 25. Tiêu chí chấp nhận mức hệ thống
-
-MVP được xem là đạt thiết kế khi có thể chứng minh xuyên suốt:
-
-```text
-Source
-→ Pipeline / Connector
-→ Evidence
-→ Rule / Control
-→ Result
-→ Finding
-→ HITL
-→ Remediation
-→ Recheck
-→ Audit Trail
-```
-
-Và người dùng có thể truy vết ngược từ Finding về:
-
-- Control.
-- Result.
-- Evidence.
-- Raw event/source.
-- Run hoặc request liên quan.
-- Người xử lý/phê duyệt.
-
----
-
-## 26. Các điểm chưa được tài liệu nguồn chốt
-
-Các nội dung sau cần đặc tả thêm trước khi triển khai production:
-
-- API contract chi tiết.
-- Database schema vật lý đầy đủ.
-- Cơ chế mapping connector theo từng hệ thống thực.
-- Cách lưu raw evidence và thời hạn retention.
-- Cơ chế mã hóa dữ liệu at-rest/in-transit.
-- Cơ chế secret management.
-- SLA hệ thống.
-- SLO/SLI.
-- Khả năng scale theo volume.
-- Disaster Recovery.
-- Backup/restore.
-- Cơ chế versioning rule/policy.
-- Cách tính severity.
-- Cơ chế grouping Result → Finding.
-- Prompt, guardrail và evaluation cho AI Assistant.
-- Cơ chế hash-chain audit chi tiết.
-- Quy trình release/deployment của chính DataTrust OS.
-
----
-
-## 27. Tóm tắt thiết kế
-
-DataTrust OS được xây dựng như một **control plane quan sát và kiểm chứng**, thay vì một hệ thống trực tiếp sửa đổi nguồn.
-
-Mô hình cốt lõi:
-
-```text
-Source
-→ Event / Metadata
-→ Evidence
-→ Control / Rule
-→ Result
-→ Finding
-→ HITL
-→ Controlled Action
-→ New Evidence
-→ Recheck
-```
-
-Pipeline dữ liệu và control engine cùng sử dụng `run_id`, evidence và audit trail để tạo khả năng truy vết từ dữ liệu đầu vào đến quyết định xử lý cuối cùng.
-
-AI Assistant chỉ hỗ trợ giải thích, tổng hợp, RCA và đề xuất; quyết định kiểm soát vẫn do rule/control và người có thẩm quyền đảm nhiệm.
+Bản thiết kế kiến trúc **DataTrust OS v1.0** đã chuẩn hóa toàn bộ luồng vận hành kiểm soát tuân thủ dữ liệu cho chiến dịch GSM V35. Sự kết hợp giữa **Design System Xanh SM**, **Trợ lý Copilot AI tinh giản**, **Cơ chế băm SHA-256 bất biến** và **Phân tách 2 tài khoản thực tế (Auditor Big 4 vs Lead Admin GSM)** mang lại giải pháp hoàn chỉnh, sẵn sàng phục vụ cho công tác thẩm định niêm yết IPO quốc tế.

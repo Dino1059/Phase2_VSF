@@ -4,15 +4,18 @@ import type { ComponentProps } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import {
   CheckSquare,
+  Layers,
   LayoutGrid,
   Menu,
   RotateCw,
+  Sparkles,
   TableProperties,
   X,
 } from 'lucide-react';
 import { Brand } from './brand';
 import { cn } from '@/lib/utils';
 import { useAgentStore, type AgentStoreState } from '@/lib/agent-store';
+import { AccountSwitcher } from '@/components/datatrust/auth/account-switcher';
 
 interface NavItem {
   label: string;
@@ -22,6 +25,8 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
+  { label: 'AI Hub (Trang chủ)', href: '/', icon: Sparkles },
+  { label: 'Không gian AI', href: '/workspace', icon: Layers },
   { label: 'Tổng quan', href: '/overview', icon: LayoutGrid },
   { label: 'Lần chạy', href: '/runs', icon: RotateCw },
   {
@@ -33,7 +38,7 @@ const navigation: NavItem[] = [
       return count > 0 ? count : null;
     },
   },
-  { label: 'Kết quả', href: '/results', icon: TableProperties },
+  { label: 'Kết quả & Evidence', href: '/results', icon: TableProperties },
 ];
 
 function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {
@@ -44,10 +49,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useLocation().pathname;
   const [open, setOpen] = useState(false);
   const pendingCount = useAgentStore((s: AgentStoreState) => s.getPendingRulesCount());
-
+  const openChat = useAgentStore((s: AgentStoreState) => s.openChat);
 
   const getBreadcrumbTitle = () => {
-    if (pathname.startsWith('/overview') || pathname === '/') return 'Tổng quan';
+    if (pathname === '/' || pathname === '/hub') return 'AI Hub (Trang chủ)';
+    if (pathname.startsWith('/workspace')) return 'Không gian làm việc AI';
+    if (pathname.startsWith('/overview')) return 'Tổng quan';
     if (pathname.startsWith('/runs')) return 'Lần chạy';
     if (pathname.startsWith('/rules')) return 'Duyệt rule';
     if (pathname.startsWith('/results')) return 'Kết quả';
@@ -82,9 +89,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="mt-2.5 flex flex-1 flex-col gap-1">
           {navigation.map((item) => {
             const active =
-              pathname === item.href ||
-              (item.href === '/overview' && pathname === '/') ||
-              pathname.startsWith(item.href + '/');
+              item.href === '/'
+                ? pathname === '/' || pathname === '/hub'
+                : pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.icon;
             const badgeValue = item.href === '/rules' ? pendingCount : null;
 
@@ -142,27 +149,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center rounded-full border border-[#bfe7dc] bg-[#e6f6f2] px-3.5 py-1 text-xs font-semibold text-[#007460] shadow-2xs">
-              Bản demo giao diện
-            </span>
-
-            <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-
-            <div className="hidden items-center gap-2.5 sm:flex">
-              <span className="grid size-8 place-items-center rounded-full bg-[#0f3834] text-xs font-bold text-[#00D09C]">
-                ST
-              </span>
-              <span className="leading-none text-left">
-                <strong className="block text-xs font-semibold text-slate-800">Data Steward</strong>
-                <small className="text-[10px] text-slate-400">Compliance & Governance</small>
-              </span>
-            </div>
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="hidden h-5 w-px bg-slate-200" />
+            {/* User Account Switcher (Auditor IPO vs System Admin) */}
+            <AccountSwitcher />
           </div>
         </header>
 
         {/* Page Content */}
         <main className="min-h-[calc(100vh-4rem)] p-4 md:p-8">{children}</main>
+
       </div>
     </div>
   );

@@ -7,6 +7,10 @@
   --xanhsm-dark: #0f3834;
   --xanhsm-surface-mint: #e6f6f2;
   --xanhsm-border: #e1ece8;
+  --xanhsm-gold: #f59e0b;
+  --xanhsm-yellow: #facc15;
+  --xanhsm-gold-light: #fef9c3;
+  --xanhsm-gold-border: #fde047;
 }
 
 * { box-sizing: border-box; }

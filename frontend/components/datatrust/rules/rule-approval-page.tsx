@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Pencil,
   Search,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -23,6 +24,7 @@ export function RuleApprovalPage() {
     approveRule,
     rejectRule,
     updateRuleExpression,
+    openChatWithPrompt,
   } = useAgentStore();
 
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -260,14 +262,25 @@ export function RuleApprovalPage() {
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openChatWithPrompt(`Giải thích chi tiết căn cứ và rủi ro của rule ${rule.name}?`)}
+                        className="h-8 gap-1 text-xs text-amber-800 border-amber-300 bg-amber-50/70 hover:bg-amber-100 hover:border-amber-400 cursor-pointer"
+                        title="Hỏi AI Copilot để giải thích chi tiết rule này"
+                      >
+                        <Sparkles size={12} className="text-amber-600" />
+                        Hỏi Copilot
+                      </Button>
+
                       {isPending ? (
                         <>
                           <Button
                             variant="xanhsm"
                             size="sm"
                             onClick={() => approveRule(rule.id)}
-                            className="h-8 gap-1.5 px-3 text-xs font-semibold"
+                            className="h-8 gap-1.5 px-3 text-xs font-semibold cursor-pointer"
                           >
                             <Check size={14} />
                             Phê duyệt rule

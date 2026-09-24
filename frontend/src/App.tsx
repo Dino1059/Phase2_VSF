@@ -5,6 +5,8 @@ import { OverviewPage } from '@/components/datatrust/overview/overview-page';
 import { RunsPage } from '@/components/datatrust/runs/runs-page';
 import { RuleApprovalPage } from '@/components/datatrust/rules/rule-approval-page';
 import { ResultsPage } from '@/components/datatrust/results/results-page';
+import { AiLandingHub } from '@/components/datatrust/hub/ai-landing-hub';
+import { AgentSplitWorkspace } from '@/components/datatrust/workspace/agent-split-workspace';
 import { FindingDetail } from '@/components/datatrust/findings/finding-detail';
 import { PipelineRunDetail } from '@/components/datatrust/pipeline/pipeline-run-detail';
 import { findingsDataSource } from '@/lib/data/local-findings-data';
@@ -57,7 +59,9 @@ export default function App() {
   return (
     <AppShell>
       <Routes>
-        <Route path="/" element={<Navigate to="/overview" replace />} />
+        <Route path="/" element={<AiLandingHub />} />
+        <Route path="/hub" element={<AiLandingHub />} />
+        <Route path="/workspace" element={<AgentSplitWorkspace />} />
         <Route path="/overview" element={<OverviewPage />} />
         <Route path="/runs" element={<RunsPage />} />
         <Route path="/runs/:id" element={<Run />} />
