@@ -7,12 +7,14 @@ import {
   LayoutGrid,
   Menu,
   RotateCw,
+  ShieldCheck,
   TableProperties,
+  UserCog,
   X,
 } from 'lucide-react';
 import { Brand } from './brand';
 import { cn } from '@/lib/utils';
-import { useAgentStore, type AgentStoreState } from '@/lib/agent-store';
+import { useAgentStore, USER_ACCOUNTS, type AgentStoreState } from '@/lib/agent-store';
 
 interface NavItem {
   label: string;
@@ -44,6 +46,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useLocation().pathname;
   const [open, setOpen] = useState(false);
   const pendingCount = useAgentStore((s: AgentStoreState) => s.getPendingRulesCount());
+  const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
+  const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
+  const currentUser = USER_ACCOUNTS[currentRole];
 
 
   const getBreadcrumbTitle = () => {
@@ -143,19 +148,59 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="inline-flex items-center rounded-full border border-[#bfe7dc] bg-[#e6f6f2] px-3.5 py-1 text-xs font-semibold text-[#007460] shadow-2xs">
-              Bản demo giao diện
-            </span>
+            {/* Interactive Role Switcher Toggle Pill */}
+            <div className="flex items-center rounded-lg border border-[#d2e2dc] bg-[#f0f6f4] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setRole('auditor')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 transition text-xs',
+                  currentRole === 'auditor'
+                    ? 'bg-[#0f3834] text-[#00D09C] shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                )}
+                title="Chuyển sang chế độ Kiểm toán viên IPO"
+              >
+                <ShieldCheck size={14} />
+                <span>Auditor</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('admin')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 transition text-xs',
+                  currentRole === 'admin'
+                    ? 'bg-[#008b74] text-white shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                )}
+                title="Chuyển sang chế độ Quản trị viên hệ thống"
+              >
+                <UserCog size={14} />
+                <span>Admin</span>
+              </button>
+            </div>
 
             <div className="hidden h-5 w-px bg-slate-200 sm:block" />
 
+            {/* Active User Account Info */}
             <div className="hidden items-center gap-2.5 sm:flex">
-              <span className="grid size-8 place-items-center rounded-full bg-[#0f3834] text-xs font-bold text-[#00D09C]">
-                ST
+              <span
+                className={cn(
+                  'grid size-8 place-items-center rounded-full text-xs font-bold transition-colors',
+                  currentRole === 'auditor'
+                    ? 'bg-[#0f3834] text-[#00D09C]'
+                    : 'bg-[#008b74] text-white'
+                )}
+              >
+                {currentUser.avatar}
               </span>
-              <span className="leading-none text-left">
-                <strong className="block text-xs font-semibold text-slate-800">Data Steward</strong>
-                <small className="text-[10px] text-slate-400">Compliance & Governance</small>
+              <span className="leading-tight text-left">
+                <strong className="block text-xs font-semibold text-slate-800">
+                  {currentUser.name}
+                </strong>
+                <small className="text-[10px] text-slate-400">
+                  {currentUser.roleTitle} · {currentUser.company}
+                </small>
               </span>
             </div>
           </div>

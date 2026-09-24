@@ -2,37 +2,423 @@
 import { useState } from 'react';
 import type { ComponentProps } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { ArrowLeft, Bot, Check, CheckCircle2, Clipboard, Clock3, ExternalLink, Link2, ShieldAlert } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  Download,
+  Link2,
+  Lock,
+  ShieldAlert,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import type { FindingDetail as FindingDetailModel } from '@/lib/data/findings-types';
 import { SeverityBadge, StateBadge } from './finding-badges';
 
-const tabs = ['Overview','Evidence','Processing History','AI Assistant','Related'] as const;
-type Tab = typeof tabs[number];
-function Link({href,...props}:Omit<ComponentProps<typeof RouterLink>,'to'>&{href:string}){return <RouterLink to={href} {...props}/>}
-const displayDate = (value:string) => new Intl.DateTimeFormat('en',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
+function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {
+  return <RouterLink to={href} {...props} />;
+}
+
+const displayDate = (value: string) =>
+  new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
 export function FindingDetail({ finding }: { finding: FindingDetailModel }) {
-  const [tab,setTab]=useState<Tab>('Overview');
-  return <section className="page-enter mx-auto max-w-[1440px] space-y-5">
-    <div><Link href="/findings" className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600"><ArrowLeft size={14}/> Findings</Link><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight">{finding.id}</h1><SeverityBadge value={finding.severity}/><StateBadge value={finding.status}/></div><p className="mt-1 text-sm text-slate-600">{finding.title}</p></div><Button size="sm">Update status</Button></div></div>
-    <div className="flex gap-1 overflow-x-auto border-b border-slate-200">{tabs.map(item=><button key={item} onClick={()=>setTab(item)} className={tab===item?'whitespace-nowrap border-b-2 border-blue-600 px-4 py-3 text-xs font-semibold text-blue-600':'whitespace-nowrap border-b-2 border-transparent px-4 py-3 text-xs font-medium text-slate-500 hover:text-slate-800'}>{item}{item==='Evidence'&&<span className="ml-1">({finding.evidence.length})</span>}{item==='Related'&&<span className="ml-1">({finding.related.length})</span>}</button>)}</div>
-    {tab==='Overview'&&<Overview finding={finding}/>} {tab==='Evidence'&&<Evidence finding={finding} onRelatedControl={()=>setTab('Overview')}/>} {tab==='Processing History'&&<History finding={finding}/>} {tab==='AI Assistant'&&<Assistant/>} {tab==='Related'&&<Related finding={finding}/>} 
-  </section>;
-}
+  const [activeTab, setActiveTab] = useState<'agentic' | 'evidence' | 'history' | 'related'>('agentic');
+  const [copiedPayload, setCopiedPayload] = useState(false);
+  const [appliedRule, setAppliedRule] = useState(false);
+  const [status, setStatus] = useState(finding.status);
 
-function Overview({finding}:{finding:FindingDetailModel}) { return <div className="grid gap-4 lg:grid-cols-[340px_1fr]"><Card><CardHeader><CardTitle>Finding metadata</CardTitle></CardHeader><CardContent className="space-y-4">{[['Finding ID',finding.id],['Control domain',finding.domain],['Assigned to',finding.assignedTo],['Created at',displayDate(finding.createdAt)]].map(([label,value])=><div key={label} className="grid grid-cols-[110px_1fr] gap-3 text-xs"><span className="text-slate-400">{label}</span><strong className="font-medium text-slate-700">{value}</strong></div>)}</CardContent></Card><div className="space-y-4"><Card><CardHeader><CardTitle>Violated control</CardTitle></CardHeader><CardContent><div className="flex gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-red-50 text-red-600"><ShieldAlert size={18}/></span><div><p className="text-xs font-semibold text-blue-600">{finding.control.id}</p><p className="mt-1 text-sm font-semibold">{finding.control.name}</p><p className="mt-2 text-xs leading-5 text-slate-500">{finding.control.evaluationMessage}</p></div></div></CardContent></Card><Card><CardContent className="grid gap-6 p-5 md:grid-cols-2"><TextSection title="Issue description" text={finding.issueDescription}/><TextSection title="Impact" text={finding.impact}/><div className="md:col-span-2"><h3 className="mb-3 text-sm font-semibold">Recommended actions</h3><ol className="space-y-2">{finding.recommendedActions.map((action,index)=><li key={action} className="flex gap-3 text-xs leading-5 text-slate-600"><span className="grid size-5 shrink-0 place-items-center rounded-full bg-blue-50 text-[10px] font-bold text-blue-600">{index+1}</span>{action}</li>)}</ol></div></CardContent></Card></div></div>; }
-function TextSection({title,text}:{title:string;text:string}) { return <div><h3 className="mb-2 text-sm font-semibold">{title}</h3><p className="text-xs leading-5 text-slate-600">{text}</p></div>; }
-function Evidence({finding,onRelatedControl}:{finding:FindingDetailModel;onRelatedControl:()=>void}) {
-  const [selectedId,setSelectedId]=useState(finding.evidence[0]?.id ?? '');
-  const [copied,setCopied]=useState(false);
-  const selected=finding.evidence.find(item=>item.id===selectedId);
-  const copyEvidence=async()=>{if(!selected)return;await navigator.clipboard.writeText(JSON.stringify({evidence_id:selected.id,source_system:selected.source,evidence_type:selected.type,timestamp:selected.capturedAt,actor:selected.actor,linked_object:selected.linkedObject,raw_reference:selected.reference,raw_event:selected.rawEvent},null,2));setCopied(true);window.setTimeout(()=>setCopied(false),1600);};
-  if(!finding.evidence.length) return <Card><CardContent className="py-14 text-center text-sm text-slate-400">No linked evidence was recorded.</CardContent></Card>;
-  return <div className="space-y-4"><Card className="overflow-hidden"><CardHeader><CardTitle>Linked evidence</CardTitle><span className="text-[11px] text-slate-400">{finding.evidence.length} item{finding.evidence.length===1?'':'s'}</span></CardHeader><CardContent className="overflow-x-auto p-0"><table className="w-full min-w-[980px] text-left text-xs"><thead className="border-y border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['Evidence ID','Source system','Evidence type','Timestamp','Actor','Linked object','Raw reference'].map(column=><th key={column} className="px-4 py-3 font-semibold">{column}</th>)}</tr></thead><tbody>{finding.evidence.map(item=><tr key={item.id} onClick={()=>setSelectedId(item.id)} className={selectedId===item.id?'cursor-pointer border-b border-blue-100 bg-blue-50/70':'cursor-pointer border-b border-slate-100 hover:bg-slate-50'}><td className="px-4 py-3 font-semibold text-blue-600">{item.id}</td><td className="px-4 py-3 text-slate-600">{item.source}</td><td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600">{item.type}</span></td><td className="px-4 py-3 whitespace-nowrap text-slate-500">{displayDate(item.capturedAt)}</td><td className="px-4 py-3 font-medium">{item.actor}</td><td className="px-4 py-3 text-slate-600">{item.linkedObject}</td><td className="px-4 py-3 font-mono text-[10px] text-slate-500">{item.reference}</td></tr>)}</tbody></table></CardContent></Card>
-  {selected&&<Card><CardHeader><div><CardTitle>Evidence viewer · {selected.id}</CardTitle><p className="mt-1 text-[11px] text-slate-400">Structured source event from {selected.reference}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={copyEvidence}>{copied?<Check size={13}/>:<Clipboard size={13}/>} {copied?'Copied':'Copy evidence'}</Button><Button variant="outline" size="sm" onClick={()=>setSelectedId(selected.id)}><ExternalLink size={13}/> View raw event</Button><Button variant="outline" size="sm" onClick={onRelatedControl}><ShieldAlert size={13}/> Related control result · {selected.controlResultId}</Button></div></CardHeader><CardContent><div className="overflow-x-auto rounded-lg border border-slate-800 bg-[#0b1624] p-4"><pre className="min-w-[620px] whitespace-pre-wrap font-mono text-[11px] leading-5 text-emerald-300">{JSON.stringify(selected.rawEvent,null,2)}</pre></div><div className="mt-3 grid gap-3 text-[11px] sm:grid-cols-3"><div><span className="text-slate-400">Integrity source</span><p className="mt-1 font-mono text-slate-600">{selected.reference}</p></div><div><span className="text-slate-400">Actor</span><p className="mt-1 font-medium">{selected.actor}</p></div><div><span className="text-slate-400">Linked object</span><p className="mt-1 font-medium">{selected.linkedObject}</p></div></div></CardContent></Card>}</div>;
+  const copyEvidence = async (data: unknown) => {
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setCopiedPayload(true);
+    setTimeout(() => setCopiedPayload(false), 2000);
+  };
+
+  const handleDownload = () => {
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(
+        JSON.stringify(
+          {
+            finding_id: finding.id,
+            title: finding.title,
+            control: finding.control,
+            severity: finding.severity,
+            status,
+            assigned_to: finding.assignedTo,
+            ai_analysis: {
+              impact: finding.impact,
+              domain: finding.domain,
+            },
+            root_cause: finding.issueDescription,
+            evidence: finding.evidence,
+            recommended_actions: finding.recommendedActions,
+            exported_at: new Date().toISOString(),
+          },
+          null,
+          2
+        )
+      );
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `finding-${finding.id}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  return (
+    <section className="page-enter mx-auto max-w-[1360px] space-y-6">
+      {/* Back Link */}
+      <div>
+        <Link
+          href="/results?tab=findings"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#008b74] transition"
+        >
+          <ArrowLeft size={14} /> Quay lại danh sách Finding
+        </Link>
+      </div>
+
+      {/* Header Banner */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-[#e2ece8] pb-5">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs font-bold text-[#007460] bg-[#e6f6f2] px-2.5 py-0.5 rounded-md border border-[#bfe7dc]">
+              {finding.id}
+            </span>
+            <SeverityBadge value={finding.severity} />
+            <StateBadge value={status} />
+            <Badge tone="slate">{finding.domain}</Badge>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+            {finding.title}
+          </h1>
+          <p className="text-xs text-slate-500">
+            Kiểm soát liên quan: <strong className="text-slate-800">{finding.control.id} · {finding.control.name}</strong> · Phân công: <span className="font-medium text-slate-700">{finding.assignedTo}</span> · Ngày phát hiện: {displayDate(finding.createdAt)}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            className="h-9 px-3 text-xs gap-1.5"
+          >
+            <Download size={14} /> Tải hồ sơ (.JSON)
+          </Button>
+
+          {status !== 'REMEDIATED' ? (
+            <Button
+              variant="xanhsm"
+              size="sm"
+              onClick={() => setStatus('REMEDIATED')}
+              className="h-9 px-4 text-xs font-semibold gap-1.5"
+            >
+              <CheckCircle2 size={14} /> Đánh dấu đã xử lý
+            </Button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+              <Check size={14} strokeWidth={2.5} /> Đã khắc phục & Lưu vết
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Segmented Tabs (Agentic View as default) */}
+      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto pb-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab('agentic')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition ${
+            activeTab === 'agentic'
+              ? 'bg-[#0f3834] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Sparkles size={14} />
+          Phân tích AI & Hành động (Core)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('evidence')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition ${
+            activeTab === 'evidence'
+              ? 'bg-[#0f3834] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Lock size={14} />
+          Bằng chứng số liệu ({finding.evidence.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('history')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition ${
+            activeTab === 'history'
+              ? 'bg-[#0f3834] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Clock3 size={14} />
+          Lịch sử thẩm tra ({finding.history.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('related')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition ${
+            activeTab === 'related'
+              ? 'bg-[#0f3834] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Link2 size={14} />
+          Findings liên quan ({finding.related.length})
+        </button>
+      </div>
+
+      {/* TAB 1: 4 AGENTIC PILLARS */}
+      {activeTab === 'agentic' && (
+        <div className="space-y-5">
+          {/* PILLAR 1: AI ANALYSIS */}
+          <Card className="rounded-xl border border-[#bfe7dc] bg-[#f0f9f6] p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#007460]">
+                <Sparkles size={15} />
+                1. Phân Tích & Đánh Giá Rủi Ro Từ AI Agent (AI Analysis)
+              </span>
+              <span className="text-[11px] font-semibold text-[#006e5b] bg-white px-2 py-0.5 rounded border border-[#bfe7dc]">
+                Độ tin cậy: 98%
+              </span>
+            </div>
+            
+            <p className="text-xs text-slate-700 leading-relaxed font-medium">
+              AI Agent đã thực hiện kiểm tra đối soát tự động tiêu chuẩn <strong>{finding.control.id} ({finding.control.name})</strong>: {finding.control.evaluationMessage}.
+            </p>
+
+            <div className="rounded-lg bg-white p-3.5 border border-[#d2e2dc] space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Tác động kiểm toán (Impact Assessment):</span>
+              <p className="text-xs text-slate-800 leading-relaxed font-medium">{finding.impact}</p>
+            </div>
+          </Card>
+
+          {/* PILLAR 2: ROOT CAUSE */}
+          <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
+              <ShieldAlert size={15} className="text-rose-600" />
+              2. Nguyên Nhân Gốc Rễ (Root Cause Analysis)
+            </span>
+            <div className="rounded-lg bg-rose-50/50 border border-rose-100 p-4 text-xs leading-relaxed text-slate-800">
+              <p className="font-semibold text-rose-950 mb-1">Bóc tách nguyên nhân kỹ thuật do AI Agent xác định:</p>
+              {finding.issueDescription}
+            </div>
+          </Card>
+
+          {/* PILLAR 3: EVIDENCE PREVIEW */}
+          <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
+                <Lock size={15} className="text-[#008b74]" />
+                3. Bằng Chứng Mật Mã & Bản Ghi Nguồn (Evidence)
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('evidence')}
+                className="text-xs font-semibold text-[#007460] hover:underline flex items-center gap-1"
+              >
+                Xem chi tiết {finding.evidence.length} bằng chứng <ArrowLeft size={12} className="rotate-180" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-2.5">Mã bằng chứng</th>
+                    <th className="px-4 py-2.5">Hệ thống nguồn</th>
+                    <th className="px-4 py-2.5">Loại bằng chứng</th>
+                    <th className="px-4 py-2.5">Thời gian bắt</th>
+                    <th className="px-4 py-2.5">Đối tượng</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {finding.evidence.slice(0, 3).map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-mono font-bold text-[#007460]">{item.id}</td>
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{item.source}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                          {item.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{displayDate(item.capturedAt)}</td>
+                      <td className="px-4 py-2.5 font-mono text-slate-600">{item.linkedObject}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* PILLAR 4: SUGGESTED ACTIONS */}
+          <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
+              <SlidersHorizontal size={15} className="text-[#008b74]" />
+              4. Hành Động Đề Xuất Từ AI Agent (Suggested Action & Remediation)
+            </span>
+
+            {/* Recommended Steps */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-600">Kế hoạch hành động từng bước:</span>
+              <ol className="space-y-2">
+                {finding.recommendedActions.map((action, index) => (
+                  <li key={action} className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-700">
+                    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#e6f6f2] text-[11px] font-bold text-[#007460] mt-0.5">
+                      {index + 1}
+                    </span>
+                    <span>{action}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {/* AI 1-Click Action Box */}
+            <div className="rounded-lg border border-[#cbebe2] bg-[#f0f9f6] p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <strong className="block text-xs font-bold text-slate-900">
+                  ⚡ 1-Click Áp dụng Rule kiểm soát tự động
+                </strong>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Tự động biên dịch quy tắc kiểm soát và cập nhật vào Ingestion Pipeline.
+                </p>
+              </div>
+              <Button
+                variant="xanhsm"
+                size="sm"
+                onClick={() => {
+                  setAppliedRule(true);
+                  setTimeout(() => setAppliedRule(false), 3000);
+                }}
+                disabled={appliedRule}
+                className="text-xs font-semibold gap-1.5 shrink-0"
+              >
+                {appliedRule ? <Check size={13} /> : <Sparkles size={13} />}
+                {appliedRule ? 'Đã kích hoạt rule vào Pipeline!' : 'Áp dụng Rule ngay'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 2: DETAILED EVIDENCE */}
+      {activeTab === 'evidence' && (
+        <div className="space-y-4">
+          {finding.evidence.map((item) => (
+            <Card key={item.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-[#007460] bg-[#e6f6f2] px-2 py-0.5 rounded border border-[#bfe7dc]">
+                      {item.id}
+                    </span>
+                    <strong className="text-xs font-bold text-slate-900">{item.source} · {item.type}</strong>
+                  </div>
+                  <p className="text-xs text-slate-500">Mã tham chiếu: <code className="font-mono text-slate-700">{item.reference}</code></p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyEvidence(item.rawEvent)}
+                  className="text-xs gap-1.5 self-start sm:self-auto"
+                >
+                  {copiedPayload ? <Check size={13} /> : <Copy size={13} />}
+                  {copiedPayload ? 'Đã sao chép' : 'Sao chép raw JSON'}
+                </Button>
+              </div>
+
+              {/* Raw JSON viewer */}
+              <div className="rounded-lg border border-slate-800 bg-[#0c1917] p-3.5 overflow-x-auto max-h-60">
+                <pre className="font-mono text-xs text-emerald-300 leading-relaxed whitespace-pre">
+                  {JSON.stringify(item.rawEvent, null, 2)}
+                </pre>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs text-slate-500">
+                <div><span>Tác nhân:</span> <strong className="block text-slate-700">{item.actor}</strong></div>
+                <div><span>Đối tượng:</span> <strong className="block text-slate-700 font-mono">{item.linkedObject}</strong></div>
+                <div><span>Thời gian:</span> <span className="block text-slate-700">{displayDate(item.capturedAt)}</span></div>
+                <div><span>Kết quả kiểm soát:</span> <strong className="block text-[#007460] font-mono">{item.controlResultId}</strong></div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* TAB 3: PROCESSING HISTORY */}
+      {activeTab === 'history' && (
+        <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+          <div className="space-y-4">
+            {finding.history.map((item, index) => (
+              <div key={`${item.label}-${index}`} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <span
+                    className={`grid size-7 place-items-center rounded-full text-xs ${
+                      item.tone === 'green'
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : item.tone === 'amber'
+                        ? 'bg-amber-50 text-amber-600'
+                        : 'bg-[#e6f6f2] text-[#007460]'
+                    }`}
+                  >
+                    {item.tone === 'green' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+                  </span>
+                  {index < finding.history.length - 1 && <span className="h-10 w-px bg-slate-200" />}
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-slate-800">{item.label}</p>
+                  <p className="text-xs text-slate-600">{item.detail}</p>
+                  <p className="text-[11px] text-slate-500">{displayDate(item.occurredAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* TAB 4: RELATED FINDINGS */}
+      {activeTab === 'related' && (
+        <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+          {finding.related.length > 0 ? (
+            finding.related.map((item) => (
+              <Link
+                key={item.id}
+                href={`/findings/${item.id}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 hover:border-[#008b74] hover:bg-[#f0f9f6]/30 transition"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Link2 className="text-[#008b74]" size={16} />
+                  <div>
+                    <span className="font-mono text-xs font-bold text-[#007460]">{item.id}</span>
+                    <p className="text-xs font-semibold text-slate-800">{item.title}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SeverityBadge value={item.severity} />
+                  <StateBadge value={item.status} />
+                </div>
+              </Link>
+            ))
+          ) : (
+            <p className="py-6 text-center text-xs text-slate-400">Không có finding liên quan.</p>
+          )}
+        </Card>
+      )}
+    </section>
+  );
 }
-function History({finding}:{finding:FindingDetailModel}) { return <Card><CardHeader><CardTitle>Processing history</CardTitle></CardHeader><CardContent><div className="space-y-0">{finding.history.map((item,index)=><div key={`${item.label}-${index}`} className="flex gap-4"><div className="flex flex-col items-center"><span className={item.tone==='green'?'grid size-8 place-items-center rounded-full bg-emerald-50 text-emerald-600':item.tone==='amber'?'grid size-8 place-items-center rounded-full bg-amber-50 text-amber-600':'grid size-8 place-items-center rounded-full bg-blue-50 text-blue-600'}>{item.tone==='green'?<CheckCircle2 size={15}/>:<Clock3 size={15}/>}</span>{index<finding.history.length-1&&<span className="h-12 w-px bg-slate-200"/>}</div><div><p className="text-xs font-semibold">{item.label}</p><p className="mt-1 text-xs text-slate-500">{item.detail}</p><p className="mt-1 text-[10px] text-slate-400">{displayDate(item.occurredAt)}</p></div></div>)}</div></CardContent></Card>; }
-function Assistant() { return <Card><CardContent className="flex min-h-64 flex-col items-center justify-center p-8 text-center"><span className="grid size-12 place-items-center rounded-xl bg-blue-50 text-blue-600"><Bot size={22}/></span><h3 className="mt-4 text-sm font-semibold">AI Assistant</h3><p className="mt-2 max-w-md text-xs leading-5 text-slate-500">Ask for a risk summary, evidence analysis, or remediation plan. Assistant integration will connect to the platform service in a later milestone.</p></CardContent></Card>; }
-function Related({finding}:{finding:FindingDetailModel}) { return <Card><CardHeader><CardTitle>Related findings</CardTitle></CardHeader><CardContent className="space-y-2">{finding.related.length?finding.related.map(item=><Link key={item.id} href={`/findings/${item.id}`} className="flex items-center gap-3 rounded-lg border border-slate-200 p-4 hover:border-blue-200 hover:bg-blue-50/40"><Link2 className="text-blue-600" size={16}/><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-blue-600">{item.id}</p><p className="truncate text-xs text-slate-600">{item.title}</p></div><SeverityBadge value={item.severity}/><StateBadge value={item.status}/></Link>):<p className="py-8 text-center text-sm text-slate-400">No related findings.</p>}</CardContent></Card>; }
