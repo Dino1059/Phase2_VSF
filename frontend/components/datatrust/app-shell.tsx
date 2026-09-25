@@ -83,15 +83,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Brand & Collapse Toggle */}
         <div className="flex items-center justify-between px-1">
           <Brand collapsed={isSidebarCollapsed} />
-          {!isSidebarCollapsed && (
-            <button
-              onClick={toggleSidebarCollapse}
-              title="Thu gọn thanh bên"
-              className="hidden lg:grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-[#04D3D4]/10 hover:text-[#04D3D4] transition"
-            >
-              <PanelLeftClose size={16} />
-            </button>
-          )}
         </div>
 
         {/* Section title (only when expanded) */}
@@ -101,20 +92,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Không gian làm việc
             </span>
           </div>
-        ) : (
-          <div className="my-4 flex justify-center">
-            <button
-              onClick={toggleSidebarCollapse}
-              title="Mở rộng thanh bên"
-              className="hidden lg:grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-[#04D3D4]/15 hover:text-[#04D3D4] transition"
-            >
-              <PanelLeftOpen size={16} />
-            </button>
-          </div>
-        )}
+        ) : null}
 
         {/* Navigation list */}
-        <nav className="mt-2.5 flex flex-1 flex-col gap-1.5">
+        <nav className="mt-5 flex flex-1 flex-col gap-1.5">
           {navigation.map((item) => {
             const active =
               pathname === item.href ||
@@ -261,10 +242,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* IPO Pilot Demo Badge */}
-            <span className="rounded-full border border-[#FFC402]/60 bg-[#FFC402]/15 px-2.5 py-1 text-[11px] font-extrabold text-amber-950">
-              GSM IPO Pilot
-            </span>
           </div>
         </header>
 

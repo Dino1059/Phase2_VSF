@@ -9,11 +9,8 @@ export function Brand({ collapsed = false }: { collapsed?: boolean }) {
       {!collapsed && (
         <span className="leading-tight overflow-hidden transition-all duration-300">
           <strong className="block text-[17px] font-bold tracking-tight text-slate-900">
-            datatrust
+            DataTrust OS
           </strong>
-          <small className="block text-[9px] font-extrabold uppercase tracking-[.22em] text-[#04D3D4]">
-            OS / AGENT
-          </small>
         </span>
       )}
     </div>

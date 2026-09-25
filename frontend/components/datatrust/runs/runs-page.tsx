@@ -41,9 +41,6 @@ export function RunsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Lịch Sử Lần Chạy
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Theo dõi tiến trình luân chuyển dữ liệu nguồn → Silver sạch và Quarantine cách ly.
-          </p>
         </div>
 
         <Button variant="xanhsm" size="sm" className="h-9 gap-1.5 px-4 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]">

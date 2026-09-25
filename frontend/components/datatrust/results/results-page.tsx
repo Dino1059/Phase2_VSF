@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -110,6 +111,20 @@ export function ResultsPage() {
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
+  useEffect(() => {
+    if (!selectedEvidence) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedEvidence(null);
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedEvidence]);
+
   const filteredEvidence = evidenceList.filter((e) => {
     if (!evidenceSearch) return true;
     const q = evidenceSearch.toLowerCase();
@@ -133,9 +148,6 @@ export function ResultsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Kết Quả Kiểm Soát & Bằng Chứng
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Xem báo cáo tuân thủ tổng thể chuẩn IPO, kho bằng chứng bất biến SHA-256 và danh sách vi phạm.
-          </p>
         </div>
 
         {/* Tab Switcher */}
@@ -482,16 +494,28 @@ export function ResultsPage() {
         </Card>
       )}
 
-      {/* Evidence Modal / Drawer */}
-      {selectedEvidence && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      {/* Evidence Modal / Drawer via Portal */}
+      {selectedEvidence && typeof document !== 'undefined' && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedEvidence(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-150"
+          >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
                 <Fingerprint size={18} className="text-[#04D3D4]" />
                 <h3 className="text-base font-bold text-slate-900">Chi tiết Bằng chứng Kiểm toán</h3>
               </div>
-              <button onClick={() => setSelectedEvidence(null)} className="text-slate-400 hover:text-slate-700">
+              <button
+                onClick={() => setSelectedEvidence(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                title="Đóng modal"
+              >
                 <X size={18} />
               </button>
             </div>
@@ -521,13 +545,18 @@ export function ResultsPage() {
               </div>
               <div>
                 <span className="text-slate-400 block mb-1">Mã băm toàn vẹn SHA-256 (Tamper-proof):</span>
-                <div className="flex items-center justify-between rounded-lg border border-[#c2ebe0] bg-[#f0f9f6] p-2.5 font-mono text-[11px] text-[#007460]">
-                  <span className="break-all">{selectedEvidence.hash}</span>
+                <div className="flex items-center justify-between rounded-lg border border-[#04D3D4]/30 bg-[#04D3D4]/10 p-2.5 font-mono text-[11px] text-slate-900">
+                  <span className="break-all font-semibold">{selectedEvidence.hash}</span>
                   <button
                     onClick={() => copyHash(selectedEvidence.hash)}
-                    className="ml-2 hover:text-[#004d40] shrink-0"
+                    className="ml-2 hover:text-[#04D3D4] text-slate-500 shrink-0 transition"
+                    title="Sao chép SHA-256"
                   >
-                    <Copy size={13} />
+                    {copiedHash === selectedEvidence.hash ? (
+                      <CheckCircle2 size={13} className="text-[#04D3D4]" />
+                    ) : (
+                      <Copy size={13} />
+                    )}
                   </button>
                 </div>
               </div>
@@ -539,7 +568,8 @@ export function ResultsPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

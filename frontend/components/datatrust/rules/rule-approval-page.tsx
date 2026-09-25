@@ -83,6 +83,9 @@ export function RuleApprovalPage() {
     return true;
   });
 
+  const totalScannedCount = activeRules.reduce((sum, r) => sum + r.scannedCount, 0);
+  const totalQuarantinedCount = activeRules.reduce((sum, r) => sum + r.quarantinedCount, 0);
+
   const handleStartEdit = (rule: ProposedRule) => {
     setEditingRuleId(rule.id);
     setEditedExpr(rule.expression);
@@ -106,22 +109,10 @@ export function RuleApprovalPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Quản Lý Rule Kiểm Soát Dữ Liệu
           </h1>
-          <p className="mt-1 text-xs text-slate-500">
-            Chuyển đổi linh hoạt giữa các Rule đang chạy bảo vệ luồng thực tế và Đề xuất mới của AI đang chờ phê duyệt.
-          </p>
         </div>
 
         {/* Quick dataset filter & Role badge */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold border ${
-              currentRole === 'auditor'
-                ? 'bg-slate-100 text-slate-700 border-slate-200'
-                : 'bg-[#04D3D4]/15 text-slate-950 border-[#04D3D4]/40'
-            }`}
-          >
-            {currentRole === 'auditor' ? '👤 Auditor (Viewer)' : '⚡ Admin (Toàn quyền)'}
-          </span>
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 font-medium">Lọc theo bộ dữ liệu:</span>
@@ -160,7 +151,7 @@ export function RuleApprovalPage() {
             }`}
           >
             <ShieldCheck size={17} className={rulesSegmentTab === 'active' ? 'text-[#04D3D4]' : 'text-slate-400'} />
-            <span>Rule đang áp dụng cho luồng (Active in Production)</span>
+            <span>Rule đang áp dụng cho luồng</span>
             <span
               className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${
                 rulesSegmentTab === 'active'
@@ -180,7 +171,7 @@ export function RuleApprovalPage() {
             }`}
           >
             <Sparkles size={17} className={rulesSegmentTab === 'proposed' ? 'text-[#04D3D4]' : 'text-slate-400'} />
-            <span>Các đề xuất của AI (AI Proposed Rules awaiting review)</span>
+            <span>Các đề xuất của AI</span>
             {pendingCount > 0 ? (
               <span className="rounded-full bg-[#FFC402] px-2.5 py-0.5 text-[10px] font-extrabold text-slate-950 shadow-2xs">
                 {pendingCount} chờ duyệt
@@ -216,11 +207,23 @@ export function RuleApprovalPage() {
                 <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-slate-900">
-                  {activeRules.length} Rule Đang Thực Thi Bảo Vệ Luồng Dữ Liệu Thực Tế
-                </h3>
-                <p className="text-[11px] text-slate-600">
-                  Tất cả các giao dịch và telemetry đi qua pipeline đều được đối chiếu theo các điều kiện logic này.
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-xs font-bold text-slate-900">
+                    Bảo Vệ Luồng Dữ Liệu Thực Tế
+                  </h3>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-300/60 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Inline Gate: 100% Kích hoạt
+                  </span>
+                  <span className="rounded-full bg-white/80 border border-slate-200/80 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                    Đã kiểm tra: <strong className="text-slate-900">{totalScannedCount.toLocaleString('vi-VN')}</strong> dòng
+                  </span>
+                  <span className="rounded-full bg-rose-50 border border-rose-200/80 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                    Đã cách ly: <strong>{totalQuarantinedCount.toLocaleString('vi-VN')}</strong> vi phạm
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-600">
+                  Tất cả các giao dịch và telemetry đi qua pipeline đều được đối chiếu liên tục theo các chính sách đã phê duyệt.
                 </p>
               </div>
             </div>

@@ -23,8 +23,6 @@ export function AiChatPane() {
     sendUserChatMessage,
     startPipelineRun,
     resetHomepageFlow,
-    selectedDatasetId,
-    datasets,
   } = useAgentStore();
 
   const [inputVal, setInputVal] = useState('');
@@ -58,7 +56,6 @@ export function AiChatPane() {
     }
   };
 
-  const activeDataset = datasets[selectedDatasetId] || datasets.trips;
 
   // When collapsed: show thin vertical bar with icon & expand button
   if (isChatCollapsed) {
@@ -101,9 +98,6 @@ export function AiChatPane() {
                 Online
               </span>
             </div>
-            <span className="text-[10px] text-slate-500 font-mono">
-              {activeDataset ? `context: ${activeDataset.id}` : 'ready'}
-            </span>
           </div>
         </div>
 

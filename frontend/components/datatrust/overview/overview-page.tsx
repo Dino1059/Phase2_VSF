@@ -25,25 +25,6 @@ export function OverviewPage() {
 
   return (
     <div className="page-enter mx-auto max-w-[1600px] space-y-4">
-      {/* Top Header */}
-      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#04D3D4]">
-              DataTrust OS · Global Assurance
-            </span>
-            <span className="rounded-full bg-[#FFC402]/20 border border-[#FFC402]/50 px-2 py-0.5 text-[10px] font-extrabold text-amber-950">
-              Chiến dịch V35 · 24 thị trường
-            </span>
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-            Trung Tâm Điều Phối Tuân Thủ Dữ Liệu Chuẩn IPO
-          </h1>
-          <p className="text-xs text-slate-500">
-            AI Agent đóng vai trò Orchestrator dẫn dắt qua 4 tầng kiểm soát L1 - L4 và cơ chế phê duyệt Human-in-the-Loop.
-          </p>
-        </div>
-      </div>
 
       {/* Main Dual-Pane Layout: Left Chat Sticky & Fixed, Right Canvas Scrollable */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
@@ -76,9 +57,10 @@ export function OverviewPage() {
                   </div>
 
                   <Button
+                    variant="xanhsm"
                     onClick={() => startPipelineRun(selectedDatasetId)}
                     size="lg"
-                    className="h-11 gap-2 bg-[#04D3D4] text-slate-950 px-5 text-xs font-bold hover:bg-[#03bcbd] shadow-sm border border-[#04D3D4] cursor-pointer"
+                    className="h-11 gap-2 text-slate-950 px-5 text-xs font-bold shadow-sm border border-[#04D3D4] cursor-pointer"
                   >
                     <span>Cho Agent chạy {selectedDatasetId}</span>
                     <ArrowRight size={15} />
@@ -146,14 +128,15 @@ export function OverviewPage() {
                             {ds.proposedRules.length} Rule đề xuất
                           </span>
                           <Button
+                            variant="white"
                             onClick={(e) => {
                               e.stopPropagation();
                               startPipelineRun(ds.id);
                             }}
                             size="sm"
-                            className="h-7 gap-1 border border-[#04D3D4]/40 bg-white text-[11px] font-bold text-slate-900 hover:bg-[#04D3D4] transition"
+                            className="group h-7 gap-1 border border-slate-300 bg-white text-[11px] font-bold text-slate-900 hover:border-slate-950 hover:bg-slate-950 hover:text-white transition-all cursor-pointer shadow-xs"
                           >
-                            <Play size={10} className="fill-slate-900" />
+                            <Play size={10} className="fill-current text-current transition-colors" />
                             <span>Chạy {ds.id}</span>
                           </Button>
                         </div>

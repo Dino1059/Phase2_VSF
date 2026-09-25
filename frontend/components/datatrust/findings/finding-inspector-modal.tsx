@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   CheckCircle2,
@@ -20,6 +21,20 @@ export function FindingInspectorModal() {
   const [copiedHash, setCopiedHash] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [appliedRule, setAppliedRule] = useState(false);
+
+  useEffect(() => {
+    if (!selectedFindingModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeFindingModal();
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedFindingModal, closeFindingModal]);
 
   if (!selectedFindingModal) return null;
   const finding: FindingItem = selectedFindingModal;
@@ -75,14 +90,20 @@ export function FindingInspectorModal() {
     downloadAnchor.remove();
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-finding-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-slate-950/60 backdrop-blur-xs"
+      onClick={closeFindingModal}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150"
     >
-      <div className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-xl border border-[#d2e2dc] bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-xl border border-[#d2e2dc] bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+      >
         
         {/* 1. Header */}
         <div className="flex items-start justify-between border-b border-[#e2ece8] bg-[#f8fbf9] p-5 sm:p-6">
@@ -327,6 +348,7 @@ export function FindingInspectorModal() {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
