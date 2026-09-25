@@ -32,7 +32,7 @@ export function PipelineRunDetail({ run }: { run: Detail }) {
       <div>
         <Link
           href="/runs"
-          className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#008b74]"
+          className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900"
         >
           <ArrowLeft size={14} /> Trở lại danh sách lần chạy
         </Link>
@@ -126,11 +126,11 @@ export function PipelineRunDetail({ run }: { run: Detail }) {
                 <Link
                   key={finding.id}
                   href={`/results?tab=findings`}
-                  className="flex items-center gap-3 rounded-lg border border-[#e2ece8] bg-[#fbfdfc] p-3 hover:bg-[#e6f6f2] transition"
+                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[#fbfdfc] p-3 hover:bg-[#04D3D4]/10 transition"
                 >
                   <ShieldAlert className="text-red-500" size={16} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-[#008b74]">{finding.id}</p>
+                    <p className="font-mono text-xs font-bold text-slate-900">{finding.id}</p>
                     <p className="truncate text-[11px] text-slate-500">{finding.title}</p>
                   </div>
                   <Badge tone={finding.status === 'OPEN' ? 'red' : 'green'}>
@@ -145,7 +145,7 @@ export function PipelineRunDetail({ run }: { run: Detail }) {
         </Card>
       </div>
 
-      <Card className="rounded-xl border-[#e2ece8] bg-white p-5 shadow-2xs">
+      <Card className="rounded-xl border-slate-200 bg-white p-5 shadow-2xs">
         <div className="flex items-center justify-between border-b border-[#f0f4f2] pb-3">
           <CardTitle className="text-sm font-semibold text-slate-800">Bằng chứng liên kết (Evidence)</CardTitle>
           <span className="text-[11px] text-slate-400">{run.evidence.length} mục bằng chứng</span>
@@ -153,12 +153,12 @@ export function PipelineRunDetail({ run }: { run: Detail }) {
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {run.evidence.length ? (
             run.evidence.map((item: PipelineEvidence) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-[#e2ece8] bg-[#fbfdfc] p-4">
-                <span className="grid size-9 place-items-center rounded-lg bg-[#e6f6f2] text-[#007460]">
+              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[#fbfdfc] p-4">
+                <span className="grid size-9 place-items-center rounded-lg bg-[#04D3D4]/15 text-slate-950 font-bold">
                   <FileText size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-[#008b74]">{item.id}</p>
+                  <p className="font-mono text-xs font-bold text-slate-900">{item.id}</p>
                   <p className="truncate text-[11px] text-slate-500">
                     {item.type} · {item.source}
                   </p>
@@ -185,15 +185,15 @@ function Flow({
   tone?: 'blue' | 'green' | 'amber';
 }) {
   return (
-    <div className="flex-1 rounded-lg border border-[#e2ece8] bg-slate-50 p-4 text-center">
+    <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-4 text-center">
       <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
       <p
         className={
           tone === 'green'
-            ? 'mt-1 text-xl font-bold text-[#008b74]'
+            ? 'mt-1 text-xl font-bold text-emerald-700'
             : tone === 'amber'
             ? 'mt-1 text-xl font-bold text-amber-600'
-            : 'mt-1 text-xl font-bold text-slate-800'
+            : 'mt-1 text-xl font-bold text-slate-900'
         }
       >
         {value.toLocaleString('vi-VN')}

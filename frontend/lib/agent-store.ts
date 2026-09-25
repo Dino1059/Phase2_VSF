@@ -142,6 +142,204 @@ export const USER_ACCOUNTS: Record<'auditor' | 'admin', UserAccount> = {
   },
 };
 
+export interface ActiveRule {
+  id: string;
+  name: string;
+  expression: string;
+  domain: 'Data Quality' | 'Privacy & Data Protection' | 'ITGC & Evidence';
+  datasetId: string;
+  datasetName: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  targetLane: string;
+  enforcedAt: string;
+  enforcedBy: string;
+  lawRef: string;
+  scannedCount: number;
+  quarantinedCount: number;
+  engine: string;
+  status: 'active' | 'paused';
+}
+
+export interface ChatMessageItem {
+  id: string;
+  sender: 'ai' | 'user';
+  text: string;
+  timestamp: string;
+  quickActions?: { label: string; actionType: string; payload?: any }[];
+  highlightRuleId?: string;
+}
+
+export type HomepageViewMode = 'welcome' | 'running_pipeline' | 'results_dashboard';
+
+export interface PipelineLevelProgress {
+  status: 'idle' | 'running' | 'done';
+  progress: number;
+  scanned: number;
+  passed: number;
+  failed: number;
+  signalCount: number;
+  algorithm: string;
+  latencyMs: number;
+}
+
+export interface PipelineLevelsState {
+  currentLevel: 'L1' | 'L2' | 'L3' | 'L4' | 'COMPLETED' | 'IDLE';
+  l1: PipelineLevelProgress;
+  l2: PipelineLevelProgress;
+  l3: PipelineLevelProgress;
+  l4: PipelineLevelProgress;
+}
+
+export const initialActiveRules: ActiveRule[] = [
+  {
+    id: 'ACT-TRIP-01',
+    name: 'fare_amount_positive_threshold',
+    expression: 'fare_amount > 0 AND trip_distance_km >= 0.1',
+    domain: 'Data Quality',
+    datasetId: 'trips',
+    datasetName: 'trips',
+    severity: 'CRITICAL',
+    targetLane: 'Quarantine Lane / Ingestion Gate',
+    enforcedAt: '2026-09-20T08:30:00Z',
+    enforcedBy: 'Trần Minh Hoàng (Auditor IPO)',
+    lawRef: 'IFRS 15 / SOX 404 Section 404',
+    scannedCount: 12480,
+    quarantinedCount: 18,
+    engine: 'PySpark / SQL Stream Validator',
+    status: 'active',
+  },
+  {
+    id: 'ACT-CUST-01',
+    name: 'mask_phone_cleartext_enforcement',
+    expression: 'mask_phone(customer_phone) WHEN role != "Admin"',
+    domain: 'Privacy & Data Protection',
+    datasetId: 'customers',
+    datasetName: 'customers',
+    severity: 'HIGH',
+    targetLane: 'Dynamic Masking Engine',
+    enforcedAt: '2026-09-21T14:15:00Z',
+    enforcedBy: 'Nguyễn Quốc Bảo (Lead Platform)',
+    lawRef: 'Nghị định 13/2023/NĐ-CP & GDPR Art. 5',
+    scannedCount: 10000,
+    quarantinedCount: 7,
+    engine: 'Presidio / Hash Masking Gateway',
+    status: 'active',
+  },
+  {
+    id: 'ACT-DRV-01',
+    name: 'license_validity_dispatch_guard',
+    expression: 'license_expiry_date > CURRENT_DATE()',
+    domain: 'ITGC & Evidence',
+    datasetId: 'drivers',
+    datasetName: 'drivers',
+    severity: 'CRITICAL',
+    targetLane: 'Daily Dispatch Gate',
+    enforcedAt: '2026-09-22T09:00:00Z',
+    enforcedBy: 'Trần Minh Hoàng (Auditor IPO)',
+    lawRef: 'Quy chuẩn An toàn Vận tải GSM 2024',
+    scannedCount: 1200,
+    quarantinedCount: 6,
+    engine: 'HR / Telematics Webhook Guard',
+    status: 'active',
+  },
+  {
+    id: 'ACT-CHG-01',
+    name: 'modbus_meter_delta_tolerance',
+    expression: 'abs(meter_kwh_delta - bms_kwh_delta) <= 0.03 * meter_kwh_delta',
+    domain: 'Data Quality',
+    datasetId: 'charging',
+    datasetName: 'charging',
+    severity: 'HIGH',
+    targetLane: 'Energy Billing Guard',
+    enforcedAt: '2026-09-23T11:45:00Z',
+    enforcedBy: 'Nguyễn Quốc Bảo (Lead Platform)',
+    lawRef: 'SOX 404 & Chuẩn Đo lường Điện năng',
+    scannedCount: 8500,
+    quarantinedCount: 9,
+    engine: 'IoT Edge Modbus Stream Filter',
+    status: 'active',
+  },
+  {
+    id: 'ACT-TEL-01',
+    name: 'bms_cell_temp_critical_cutoff',
+    expression: 'max_cell_temp_c <= 65.0 AND min_cell_temp_c >= -20.0',
+    domain: 'Data Quality',
+    datasetId: 'telemetry',
+    datasetName: 'telemetry',
+    severity: 'CRITICAL',
+    targetLane: 'BMS Ingestion Gate',
+    enforcedAt: '2026-09-24T16:20:00Z',
+    enforcedBy: 'Hệ thống tự động kích hoạt (Auto-Enforce)',
+    lawRef: 'UN ECE R100 Battery Safety Norms',
+    scannedCount: 45000,
+    quarantinedCount: 12,
+    engine: 'CAN-bus MQTT Stream Processor',
+    status: 'active',
+  },
+];
+
+export const initialChatMessages: ChatMessageItem[] = [
+  {
+    id: 'MSG-01',
+    sender: 'ai',
+    text: `Chào bạn! Tôi là **DataTrust AI Orchestrator**. Tôi sẽ đồng hành cùng bạn kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân (PII) và thẩm tra bằng chứng tuân thủ chuẩn IPO.
+
+Để bắt đầu, hãy chọn 1 bộ dữ liệu để tôi quét và chạy luồng kiểm soát từ **L1 đến L4**:`,
+    timestamp: 'Vừa xong',
+    quickActions: [
+      { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+      { label: '👥 customers', actionType: 'SELECT_AND_RUN', payload: 'customers' },
+      { label: '🚗 drivers', actionType: 'SELECT_AND_RUN', payload: 'drivers' },
+      { label: '⚡ charging', actionType: 'SELECT_AND_RUN', payload: 'charging' },
+      { label: '🔋 telemetry', actionType: 'SELECT_AND_RUN', payload: 'telemetry' },
+    ],
+  },
+];
+
+export const initialPipelineLevels: PipelineLevelsState = {
+  currentLevel: 'IDLE',
+  l1: {
+    status: 'idle',
+    progress: 0,
+    scanned: 0,
+    passed: 0,
+    failed: 0,
+    signalCount: 0,
+    algorithm: 'Deterministic Range, Schema & Null check',
+    latencyMs: 14,
+  },
+  l2: {
+    status: 'idle',
+    progress: 0,
+    scanned: 0,
+    passed: 0,
+    failed: 0,
+    signalCount: 0,
+    algorithm: 'Median, MAD & Robust Z-Score',
+    latencyMs: 22,
+  },
+  l3: {
+    status: 'idle',
+    progress: 0,
+    scanned: 0,
+    passed: 0,
+    failed: 0,
+    signalCount: 0,
+    algorithm: 'Linear Regression Residuals (y = ax + b)',
+    latencyMs: 38,
+  },
+  l4: {
+    status: 'idle',
+    progress: 0,
+    scanned: 0,
+    passed: 0,
+    failed: 0,
+    signalCount: 0,
+    algorithm: 'CUSUM / PELT Regime Shift Detection',
+    latencyMs: 45,
+  },
+};
+
 export interface AgentStoreState {
   // Global Role & Dataset Selection
   currentRole: 'auditor' | 'admin';
@@ -177,13 +375,32 @@ export interface AgentStoreState {
   approvePolicyRule: (policyId: string) => void;
   rejectPolicyRule: (policyId: string) => void;
   addNewPolicyText: (title: string, rawText: string) => void;
+
+  // Homepage Dual-Pane & Real-time Flow
+  isSidebarCollapsed: boolean;
+  toggleSidebarCollapse: () => void;
+  homepageViewMode: HomepageViewMode;
+  isChatCollapsed: boolean;
+  toggleChatCollapse: () => void;
+  setHomepageViewMode: (mode: HomepageViewMode) => void;
+  pipelineLevels: PipelineLevelsState;
+  chatMessages: ChatMessageItem[];
+  activeRules: ActiveRule[];
+  rulesSegmentTab: 'active' | 'proposed';
+  setRulesSegmentTab: (tab: 'active' | 'proposed') => void;
+  startPipelineRun: (datasetId?: string) => Promise<void>;
+  skipPipelineRunToResults: () => void;
+  sendUserChatMessage: (text: string) => void;
+  resetHomepageFlow: () => void;
+  simulateDryRun: (ruleId: string) => Promise<void>;
+  toggleActiveRuleStatus: (ruleId: string) => void;
 }
 
 const initialDatasets: Record<string, DatasetItem> = {
   trips: {
     id: 'trips',
-    name: 'Chuyến đi đa quốc gia · trips',
-    title: 'Chuyến đi đa quốc gia',
+    name: 'trips',
+    title: 'trips',
     records: 12480,
     anomalies: 18,
     proposedRulesCount: 2,
@@ -224,8 +441,8 @@ const initialDatasets: Record<string, DatasetItem> = {
   },
   customers: {
     id: 'customers',
-    name: 'Khách hàng toàn cầu · customers',
-    title: 'Khách hàng toàn cầu',
+    name: 'customers',
+    title: 'customers',
     records: 10000,
     anomalies: 14,
     proposedRulesCount: 2,
@@ -266,8 +483,8 @@ const initialDatasets: Record<string, DatasetItem> = {
   },
   drivers: {
     id: 'drivers',
-    name: 'Tài xế & Đội xe · drivers',
-    title: 'Tài xế & Đội xe',
+    name: 'drivers',
+    title: 'drivers',
     records: 1200,
     anomalies: 6,
     proposedRulesCount: 1,
@@ -292,8 +509,8 @@ const initialDatasets: Record<string, DatasetItem> = {
   },
   charging: {
     id: 'charging',
-    name: 'Trạm sạc xe điện · acn_charging',
-    title: 'Trạm sạc xe điện',
+    name: 'charging',
+    title: 'charging',
     records: 2500,
     anomalies: 9,
     proposedRulesCount: 2,
@@ -334,8 +551,8 @@ const initialDatasets: Record<string, DatasetItem> = {
   },
   telemetry: {
     id: 'telemetry',
-    name: 'Viễn thông xe điện · ev_telemetry',
-    title: 'Viễn thông xe điện & Pin',
+    name: 'telemetry',
+    title: 'telemetry',
     records: 50000,
     anomalies: 42,
     proposedRulesCount: 2,
@@ -754,13 +971,57 @@ const initialPolicies: PolicyItem[] = [
 
 export const useAgentStore = create<AgentStoreState>((set, get) => ({
   currentRole: 'auditor',
-  setRole: (role) => set({ currentRole: role }),
+  setRole: (role) => {
+    const isAuditor = role === 'auditor';
+    const user = USER_ACCOUNTS[role];
+    set((s) => ({
+      currentRole: role,
+      rulesSegmentTab: isAuditor ? 'active' : s.rulesSegmentTab,
+      chatMessages: [
+        ...s.chatMessages,
+        {
+          id: `ROLE-${Date.now()}`,
+          sender: 'ai',
+          text: isAuditor
+            ? `👤 **Đã chuyển sang vai trò Auditor (Viewer) - ${user.name}**\n\n• **Quyền hạn**: Bạn có quyền theo dõi toàn bộ luồng dữ liệu, xem kho bằng chứng và **yêu cầu tôi sinh Test Case kiểm toán** (gõ *"sinh test case"*).\n• **Quy chế**: Giao diện tập trung hiển thị dữ liệu và hồ sơ kiểm toán độc lập.`
+            : `⚡ **Đã chuyển sang vai trò Admin (Toàn quyền) - ${user.name}**\n\n• **Quyền hạn toàn diện**: Kích hoạt luồng pipeline, nhận **Đề xuất giải pháp & Rule từ AI**, chạy thử nghiệm (Dry-Run), chỉnh sửa và phê duyệt Rule vào Production.`,
+          timestamp: 'Vừa xong',
+          quickActions: isAuditor
+            ? [
+                { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+                { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+                { label: '👥 customers', actionType: 'SELECT_AND_RUN', payload: 'customers' },
+                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+              ]
+            : [
+                { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+                { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+                { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
+                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+              ],
+        },
+      ],
+    }));
+  },
 
   selectedDatasetId: 'trips',
   agentStatus: 'completed',
   stepIndex: 4,
   datasets: initialDatasets,
   steps: initialSteps,
+
+  // Homepage Dual-Pane & Real-time Flow
+  isSidebarCollapsed: false,
+  toggleSidebarCollapse: () => set((s) => ({ isSidebarCollapsed: !s.isSidebarCollapsed })),
+  homepageViewMode: 'welcome',
+  isChatCollapsed: false,
+  toggleChatCollapse: () => set((s) => ({ isChatCollapsed: !s.isChatCollapsed })),
+  setHomepageViewMode: (mode) => set({ homepageViewMode: mode }),
+  pipelineLevels: initialPipelineLevels,
+  chatMessages: initialChatMessages,
+  activeRules: initialActiveRules,
+  rulesSegmentTab: 'active',
+  setRulesSegmentTab: (tab) => set({ rulesSegmentTab: tab }),
 
   selectDataset: (id: string) => {
     set({
@@ -809,15 +1070,57 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   approveRule: (ruleId: string) => {
+    if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot approve rules
+
     set((state) => {
       const currentDs = state.datasets[state.selectedDatasetId];
       if (!currentDs) return state;
 
-      const updatedRules = currentDs.proposedRules.map((r) =>
-        r.id === ruleId
-          ? { ...r, status: 'approved' as const, approvedAt: new Date().toISOString(), approvedBy: 'Steward (HITL)' }
-          : r
-      );
+      let approvedRuleTarget: ProposedRule | undefined;
+      const updatedRules = currentDs.proposedRules.map((r) => {
+        if (r.id === ruleId) {
+          approvedRuleTarget = {
+            ...r,
+            status: 'approved' as const,
+            approvedAt: new Date().toISOString(),
+            approvedBy: state.currentRole === 'auditor' ? 'Trần Minh Hoàng (Auditor IPO)' : 'Nguyễn Quốc Bảo (Admin)',
+          };
+          return approvedRuleTarget;
+        }
+        return r;
+      });
+
+      let updatedActiveRules = state.activeRules;
+      if (approvedRuleTarget) {
+        const newActive: ActiveRule = {
+          id: `ACT-${approvedRuleTarget.id}`,
+          name: approvedRuleTarget.name,
+          expression: approvedRuleTarget.expression,
+          domain: approvedRuleTarget.domain,
+          datasetId: state.selectedDatasetId,
+          datasetName: currentDs.title,
+          severity: approvedRuleTarget.severity,
+          targetLane: approvedRuleTarget.compiledTarget,
+          enforcedAt: new Date().toISOString(),
+          enforcedBy: state.currentRole === 'auditor' ? 'Trần Minh Hoàng (Auditor IPO)' : 'Nguyễn Quốc Bảo (Admin)',
+          lawRef: approvedRuleTarget.lawRef,
+          scannedCount: currentDs.records,
+          quarantinedCount: approvedRuleTarget.affectedRows,
+          engine: 'PySpark / SQL Stream Validator',
+          status: 'active',
+        };
+        if (!updatedActiveRules.some((a) => a.id === newActive.id)) {
+          updatedActiveRules = [newActive, ...updatedActiveRules];
+        }
+      }
+
+      const ruleName = approvedRuleTarget?.name || ruleId;
+      const newAiMsg: ChatMessageItem = {
+        id: `MSG-APP-${Date.now()}`,
+        sender: 'ai',
+        text: `✅ **Đã phê duyệt Rule thành công!**\nRule **${ruleName}** đã được kích hoạt vào danh sách **Rule đang áp dụng (Active in Production)**.\n• **Căn cứ**: *${approvedRuleTarget?.lawRef || 'IPO Control'}*\n• **Làn xử lý**: *${approvedRuleTarget?.compiledTarget || 'Quarantine Lane'}*\n• **Tác động bảo vệ**: Đã chuyển các bản ghi vi phạm vào luồng cách ly để bảo toàn doanh thu sạch (Silver lane).`,
+        timestamp: 'Vừa xong',
+      };
 
       return {
         datasets: {
@@ -827,18 +1130,34 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             proposedRules: updatedRules,
           },
         },
+        activeRules: updatedActiveRules,
+        chatMessages: [...state.chatMessages, newAiMsg],
       };
     });
   },
 
   rejectRule: (ruleId: string) => {
+    if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot reject rules
+
     set((state) => {
       const currentDs = state.datasets[state.selectedDatasetId];
       if (!currentDs) return state;
 
-      const updatedRules = currentDs.proposedRules.map((r) =>
-        r.id === ruleId ? { ...r, status: 'rejected' as const } : r
-      );
+      let rejectedRule: ProposedRule | undefined;
+      const updatedRules = currentDs.proposedRules.map((r) => {
+        if (r.id === ruleId) {
+          rejectedRule = { ...r, status: 'rejected' as const };
+          return rejectedRule;
+        }
+        return r;
+      });
+
+      const newAiMsg: ChatMessageItem = {
+        id: `MSG-REJ-${Date.now()}`,
+        sender: 'ai',
+        text: `⚠️ Bạn đã **từ chối** áp dụng Rule **${rejectedRule?.name || ruleId}**. Dữ liệu liên quan sẽ tiếp tục được theo dõi ở mức cảnh báo và chưa đưa vào chặn tự động.`,
+        timestamp: 'Vừa xong',
+      };
 
       return {
         datasets: {
@@ -848,11 +1167,14 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             proposedRules: updatedRules,
           },
         },
+        chatMessages: [...state.chatMessages, newAiMsg],
       };
     });
   },
 
   updateRuleExpression: (ruleId: string, expr: string) => {
+    if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot edit rules
+
     set((state) => {
       const currentDs = state.datasets[state.selectedDatasetId];
       if (!currentDs) return state;
@@ -986,6 +1308,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   approvePolicyRule: (policyId: string) => {
+    if (get().currentRole === 'auditor') return;
+
     set((state) => {
       const targetPolicy = state.policies.find((p) => p.id === policyId);
       if (!targetPolicy) return state;
@@ -1028,6 +1352,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   rejectPolicyRule: (policyId: string) => {
+    if (get().currentRole === 'auditor') return;
+
     set((state) => ({
       policies: state.policies.map((p) =>
         p.id === policyId ? { ...p, status: 'rejected' as const } : p
@@ -1064,6 +1390,246 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     set((state) => ({
       policies: [newPolicy, ...state.policies],
       selectedPolicyId: newId,
+    }));
+  },
+
+  startPipelineRun: async (datasetId?: string) => {
+    const targetDatasetId = datasetId || get().selectedDatasetId;
+    const dataset = get().datasets[targetDatasetId] || get().datasets.trips;
+    
+    set({
+      selectedDatasetId: targetDatasetId,
+      homepageViewMode: 'running_pipeline',
+      pipelineLevels: {
+        currentLevel: 'L1',
+        l1: { status: 'running', progress: 30, scanned: Math.floor(dataset.records * 0.3), passed: Math.floor(dataset.records * 0.29), failed: 0, signalCount: 1, algorithm: 'Deterministic Range, Schema & Null check', latencyMs: 14 },
+        l2: { status: 'idle', progress: 0, scanned: 0, passed: 0, failed: 0, signalCount: 0, algorithm: 'Median, MAD & Robust Z-Score', latencyMs: 22 },
+        l3: { status: 'idle', progress: 0, scanned: 0, passed: 0, failed: 0, signalCount: 0, algorithm: 'Linear Regression Residuals (y = ax + b)', latencyMs: 38 },
+        l4: { status: 'idle', progress: 0, scanned: 0, passed: 0, failed: 0, signalCount: 0, algorithm: 'CUSUM / PELT Regime Shift Detection', latencyMs: 45 },
+      },
+      chatMessages: [
+        ...get().chatMessages,
+        {
+          id: `MSG-RUN-${Date.now()}`,
+          sender: 'user',
+          text: `Bắt đầu kiểm tra bộ dữ liệu **${dataset.title}** (${dataset.records.toLocaleString()} bản ghi).`,
+          timestamp: 'Vừa xong',
+        },
+        {
+          id: `MSG-AI-RUN-${Date.now() + 1}`,
+          sender: 'ai',
+          text: `Tôi đang kích hoạt luồng kiểm soát tuân thủ **L1 -> L4** cho **${dataset.title}**. Bạn hãy theo dõi luồng phân tích trực tiếp trên Canvas bên phải.`,
+          timestamp: 'Vừa xong',
+        },
+      ],
+    });
+
+    // Step L1
+    await new Promise((r) => setTimeout(r, 650));
+    set((s) => ({
+      pipelineLevels: {
+        ...s.pipelineLevels,
+        currentLevel: 'L2',
+        l1: { ...s.pipelineLevels.l1, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - Math.floor(dataset.anomalies * 0.4), failed: Math.floor(dataset.anomalies * 0.4) },
+        l2: { ...s.pipelineLevels.l2, status: 'running', progress: 35, scanned: Math.floor(dataset.records * 0.4), passed: Math.floor(dataset.records * 0.38), failed: 0, signalCount: 2 },
+      }
+    }));
+
+    // Step L2
+    await new Promise((r) => setTimeout(r, 700));
+    set((s) => ({
+      pipelineLevels: {
+        ...s.pipelineLevels,
+        currentLevel: 'L3',
+        l2: { ...s.pipelineLevels.l2, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - Math.floor(dataset.anomalies * 0.3), failed: Math.floor(dataset.anomalies * 0.3) },
+        l3: { ...s.pipelineLevels.l3, status: 'running', progress: 40, scanned: Math.floor(dataset.records * 0.4), passed: Math.floor(dataset.records * 0.38), failed: 0, signalCount: 3 },
+      }
+    }));
+
+    // Step L3
+    await new Promise((r) => setTimeout(r, 700));
+    set((s) => ({
+      pipelineLevels: {
+        ...s.pipelineLevels,
+        currentLevel: 'L4',
+        l3: { ...s.pipelineLevels.l3, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - Math.floor(dataset.anomalies * 0.2), failed: Math.floor(dataset.anomalies * 0.2) },
+        l4: { ...s.pipelineLevels.l4, status: 'running', progress: 50, scanned: Math.floor(dataset.records * 0.5), passed: Math.floor(dataset.records * 0.48), failed: 0, signalCount: 4 },
+      }
+    }));
+
+    // Step L4 & finish
+    await new Promise((r) => setTimeout(r, 800));
+    const finalFailedL4 = Math.max(1, dataset.anomalies - Math.floor(dataset.anomalies * 0.4) - Math.floor(dataset.anomalies * 0.3) - Math.floor(dataset.anomalies * 0.2));
+    const isAuditor = get().currentRole === 'auditor';
+
+    set((s) => ({
+      homepageViewMode: 'results_dashboard',
+      pipelineLevels: {
+        ...s.pipelineLevels,
+        currentLevel: 'COMPLETED',
+        l4: { ...s.pipelineLevels.l4, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - finalFailedL4, failed: finalFailedL4 },
+      },
+      chatMessages: [
+        ...s.chatMessages,
+        {
+          id: `MSG-RESULT-${Date.now()}`,
+          sender: 'ai',
+          text: `🚨 **Luồng L1-L4 đã hoàn tất! Phát hiện ${dataset.anomalies} vi phạm bất thường trên bộ dữ liệu ${dataset.title}**:\n` +
+            (targetDatasetId === 'trips'
+              ? `• **TC-REV-01**: 18 cuốc xe cước 0đ / cự ly âm (vi phạm IFRS 15).\n• **TC-PII-02**: 7 số điện thoại khách hàng dạng cleartext (vi phạm Nghị định 13/2023).\n\n`
+              : targetDatasetId === 'customers'
+              ? `• **TC-KYC-01**: 14 số CCCD/eID sai độ dài hoặc định dạng (Luật Căn cước).\n• 6 tài khoản disposable email.\n\n`
+              : targetDatasetId === 'drivers'
+              ? `• **TC-DRV-01**: 6 tài xế có GPLX hết hạn nhưng vẫn mở ca trực điều phối.\n\n`
+              : targetDatasetId === 'charging'
+              ? `• **TC-CHG-01**: 9 phiên sạc công tơ Modbus sai lệch vượt 3%.\n\n`
+              : `• **TC-IOT-01**: 12 gói tin IoT nhiệt độ cell pin BMS vượt 65°C và 28 lỗi SoC âm.\n\n`) +
+            (isAuditor
+              ? `👉 Dữ liệu vi phạm đã tự động được cách ly khỏi luồng. Canvas bên phải đã chuyển sang **Dashboard Kết quả** để bạn kiểm tra chi tiết các vi phạm và bằng chứng kiểm toán.`
+              : `👉 Tôi đã chuyển Canvas bên phải sang **Dashboard Kết quả** và đưa ra **${dataset.proposedRules.length} Đề xuất giải pháp khắc phục (Rule Proposals)**. Mời bạn thẩm định và duyệt (Human-in-the-Loop)!`),
+          timestamp: 'Vừa xong',
+          quickActions: isAuditor
+            ? [
+                { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+              ]
+            : [
+                { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+                { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
+                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+              ],
+        }
+      ]
+    }));
+  },
+
+  skipPipelineRunToResults: () => {
+    const dataset = get().datasets[get().selectedDatasetId] || get().datasets.trips;
+    set((s) => ({
+      homepageViewMode: 'results_dashboard',
+      pipelineLevels: {
+        currentLevel: 'COMPLETED',
+        l1: { ...s.pipelineLevels.l1, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - 7, failed: 7 },
+        l2: { ...s.pipelineLevels.l2, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - 5, failed: 5 },
+        l3: { ...s.pipelineLevels.l3, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - 4, failed: 4 },
+        l4: { ...s.pipelineLevels.l4, status: 'done', progress: 100, scanned: dataset.records, passed: dataset.records - 2, failed: 2 },
+      },
+    }));
+  },
+
+  sendUserChatMessage: (text: string) => {
+    const userMsg: ChatMessageItem = {
+      id: `USER-${Date.now()}`,
+      sender: 'user',
+      text,
+      timestamp: 'Vừa xong',
+    };
+    set((s) => ({ chatMessages: [...s.chatMessages, userMsg] }));
+
+    const lower = text.toLowerCase();
+    setTimeout(() => {
+      let aiReply = '';
+      let quickActions = undefined;
+      const role = get().currentRole;
+
+      if (lower.includes('trips') || lower.includes('chuyến đi') || lower.includes('chọn trips')) {
+        get().startPipelineRun('trips');
+        return;
+      } else if (lower.includes('customers') || lower.includes('khách hàng')) {
+        get().startPipelineRun('customers');
+        return;
+      } else if (lower.includes('drivers') || lower.includes('tài xế')) {
+        get().startPipelineRun('drivers');
+        return;
+      } else if (lower.includes('charging') || lower.includes('trạm sạc')) {
+        get().startPipelineRun('charging');
+        return;
+      } else if (lower.includes('telemetry') || lower.includes('pin') || lower.includes('viễn thông')) {
+        get().startPipelineRun('telemetry');
+        return;
+      } else if (lower.includes('test case') || lower.includes('auditor') || lower.includes('kiểm toán') || lower.includes('sinh test case')) {
+        aiReply = `📋 **Bộ kịch bản kiểm toán đề xuất cho Auditor (Chuẩn IPO / SOX 404 & IFRS 15)**:\n\n1. **TC-REV-01 (Hiện hữu & Đo lường doanh thu)**: Thẩm tra 100% cuốc xe có \`fare_amount > 0\` và \`trip_distance_km >= 0.1\`. Khóa chặn rủi ro ghi nhận doanh thu khống.\n2. **TC-PII-02 (Bảo vệ dữ liệu cá nhân Nghị định 13/2023)**: Thẩm tra các trường SĐT/CCCD xem đã được hash salt và dynamic masking trước khi vào Silver stream chưa.\n3. **TC-CUTOFF-03 (Tính đúng kỳ Cut-off)**: Thẩm tra timestamp cuốc xe theo múi giờ 24 quốc gia để tránh lệch kỳ báo cáo tài chính.\n4. **TC-IOT-04 (Chất lượng Telemetry xe điện)**: Kiểm toán tín hiệu SoC và nhiệt độ cell pin BMS, lọc sạch gói tin nhiễu trước khi đối soát trạm sạc.`;
+        quickActions = [
+          { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+          { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+        ];
+      } else if (lower.includes('policy') || lower.includes('chính sách') || lower.includes('luật') || lower.includes('rule mới') || lower.includes('giải pháp') || lower.includes('đề xuất rule')) {
+        if (role === 'auditor') {
+          aiReply = `⚠️ **Thông báo phân quyền (Auditor - Viewer)**:\n\nBạn đang đăng nhập với vai trò **Auditor**. Ở vai trò này:\n• Bạn có quyền **yêu cầu sinh Test Case kiểm toán** (hãy gõ *"sinh test case"* hoặc click nút bên dưới).\n• **AI sẽ không đề xuất giải pháp/rule** và bạn không có quyền phê duyệt rule.\n\n👉 Vui lòng chuyển sang tài khoản **Admin** ở thanh trên cùng để mở khóa tính năng đề xuất giải pháp và phê duyệt rule!`;
+          quickActions = [
+            { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+            { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+            { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+          ];
+        } else {
+          aiReply = `📜 **Đề xuất Rule tự động từ Văn bản Chính sách (Policy Ingestion)**:\n\n• **Chính sách nguồn**: *Nghị định 13/2023/NĐ-CP & GDPR Điều 5*\n• **Ràng buộc trích xuất**: Dữ liệu PII của khách hàng không được lưu trữ plain text ở môi trường Analytics.\n• **Đề xuất Rule**: \`mask_phone(customer_phone) WHEN role != 'Admin'\`\n• **Làn triển khai**: Dynamic Masking Gateway.\n\nBạn có thể duyệt nhanh quy tắc này ở tab **Quản lý Rule**!`;
+          quickActions = [
+            { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
+            { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+            { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+          ];
+        }
+      } else {
+        aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ điều phối sau:`;
+        quickActions = role === 'auditor'
+          ? [
+              { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+              { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+              { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+            ]
+          : [
+              { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+              { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
+              { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
+              { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+            ];
+      }
+
+      set((s) => ({
+        chatMessages: [
+          ...s.chatMessages,
+          {
+            id: `AI-${Date.now()}`,
+            sender: 'ai',
+            text: aiReply,
+            timestamp: 'Vừa xong',
+            quickActions,
+          },
+        ],
+      }));
+    }, 450);
+  },
+
+  resetHomepageFlow: () => {
+    set({
+      homepageViewMode: 'welcome',
+      pipelineLevels: initialPipelineLevels,
+      chatMessages: initialChatMessages,
+    });
+  },
+
+  simulateDryRun: async (ruleId: string) => {
+    await new Promise((r) => setTimeout(r, 600));
+    set((s) => ({
+      chatMessages: [
+        ...s.chatMessages,
+        {
+          id: `DRY-${Date.now()}`,
+          sender: 'ai',
+          text: `🧪 **Kết quả chạy thử nghiệm (Dry-Run)** cho Rule \`${ruleId}\`:\n• **Dữ liệu quét**: 12,480 bản ghi mẫu\n• **Dữ liệu sạch (Silver Clean)**: 12,469 bản ghi (99.91%)\n• **Cách ly an toàn (Quarantine)**: 11 bản ghi (0.09%)\n• **Độ trễ gia tăng (Latency Overhead)**: +1.2ms (Hoàn toàn đạt chuẩn SLA real-time).`,
+          timestamp: 'Vừa xong',
+        }
+      ]
+    }));
+  },
+
+  toggleActiveRuleStatus: (ruleId: string) => {
+    if (get().currentRole === 'auditor') return;
+
+    set((s) => ({
+      activeRules: s.activeRules.map((r) =>
+        r.id === ruleId ? { ...r, status: r.status === 'active' ? 'paused' : 'active' } : r
+      )
     }));
   },
 }));

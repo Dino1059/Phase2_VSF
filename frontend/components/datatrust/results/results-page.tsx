@@ -39,7 +39,7 @@ import evidenceCsv from '../../../../data/datatrust_audit_demo_csv/evidence.csv?
 import { parseCsv, type CsvRow } from '@/lib/data/csv';
 
 
-const domainColors = ['#008b74', '#00d09c', '#f59e0b', '#06b6d4', '#64748b'];
+const domainColors = ['#04D3D4', '#FFC402', '#06b6d4', '#10b981', '#64748b'];
 const severityTone: Record<FindingSeverity, 'red' | 'amber' | 'blue' | 'slate'> = {
   CRITICAL: 'red',
   HIGH: 'red',
@@ -127,7 +127,7 @@ export function ResultsPage() {
       {/* Top Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[#008b74]">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
             Giám Sát & Truy Vết
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -139,12 +139,12 @@ export function ResultsPage() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex rounded-xl border border-[#e2ece8] bg-white p-1 shadow-2xs">
+        <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-2xs">
           <button
             onClick={() => handleTabChange('dashboard')}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
               activeTab === 'dashboard'
-                ? 'bg-[#0f3834] text-white shadow-xs'
+                ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -153,9 +153,9 @@ export function ResultsPage() {
           </button>
           <button
             onClick={() => handleTabChange('evidence')}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
               activeTab === 'evidence'
-                ? 'bg-[#0f3834] text-white shadow-xs'
+                ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -164,9 +164,9 @@ export function ResultsPage() {
           </button>
           <button
             onClick={() => handleTabChange('findings')}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
               activeTab === 'findings'
-                ? 'bg-[#0f3834] text-white shadow-xs'
+                ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -245,7 +245,7 @@ export function ResultsPage() {
                 <div
                   className="relative grid size-44 place-items-center rounded-full shadow-inner"
                   style={{
-                    background: `conic-gradient(#008b74 ${dashboardData.complianceScore * 3.6}deg, #e2ece8 0)`,
+                    background: `conic-gradient(#04D3D4 ${dashboardData.complianceScore * 3.6}deg, #e2ece8 0)`,
                   }}
                 >
                   <div className="grid size-32 place-items-center rounded-full bg-white text-center shadow-xs">
@@ -253,13 +253,13 @@ export function ResultsPage() {
                       <strong className="text-3xl font-extrabold text-slate-900">
                         {dashboardData.complianceScore}%
                       </strong>
-                      <span className="block text-[11px] font-semibold text-[#008b74]">
+                      <span className="block text-[11px] font-bold text-slate-700">
                         Đạt chuẩn
                       </span>
                     </div>
                   </div>
                 </div>
-                <p className="mt-4 text-center text-xs font-medium text-[#007460]">
+                <p className="mt-4 text-center text-xs font-semibold text-emerald-700">
                   ↑ Tăng 5% sau khi áp dụng các rule L1-L4
                 </p>
               </div>
@@ -281,7 +281,7 @@ export function ResultsPage() {
                       {dashboardData.controls.map((item) => (
                         <Cell
                           key={item.name}
-                          fill={item.name === 'Pass' ? '#008b74' : item.name === 'Fail' ? '#ef4444' : '#94a3b8'}
+                          fill={item.name === 'Pass' ? '#04D3D4' : item.name === 'Fail' ? '#ef4444' : '#94a3b8'}
                         />
                       ))}
                     </Bar>
@@ -291,7 +291,7 @@ export function ResultsPage() {
             </Card>
 
             {/* Findings by Domain Pie */}
-            <Card className="rounded-2xl border-[#e2ece8] bg-white p-6 shadow-xs xl:col-span-4">
+            <Card className="rounded-2xl border-slate-200 bg-white p-6 shadow-xs xl:col-span-4">
               <CardTitle className="text-sm font-semibold text-slate-800">
                 Phân bố Vi phạm theo Miền
               </CardTitle>
@@ -330,7 +330,7 @@ export function ResultsPage() {
           </div>
 
           {/* Compliance Trend Line */}
-          <Card className="rounded-2xl border-[#e2ece8] bg-white p-6 shadow-xs">
+          <Card className="rounded-2xl border-slate-200 bg-white p-6 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-sm font-semibold text-slate-800">
@@ -351,9 +351,9 @@ export function ResultsPage() {
                   <Line
                     type="monotone"
                     dataKey="score"
-                    stroke="#008b74"
+                    stroke="#04D3D4"
                     strokeWidth={2.8}
-                    dot={{ r: 3.5, fill: '#008b74', strokeWidth: 0 }}
+                    dot={{ r: 3.5, fill: '#04D3D4', strokeWidth: 0 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -364,15 +364,15 @@ export function ResultsPage() {
 
       {/* TAB 2: AUDIT EVIDENCE STORE */}
       {activeTab === 'evidence' && (
-        <Card className="overflow-hidden rounded-2xl border-[#e2ece8] bg-white shadow-xs">
-          <div className="flex flex-col gap-3 border-b border-[#e2ece8] p-5 sm:flex-row sm:items-center sm:justify-between">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-xs">
+          <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input
                 value={evidenceSearch}
                 onChange={(e) => setEvidenceSearch(e.target.value)}
                 placeholder="Tìm kiếm Evidence ID, Actor, Event, SHA-256..."
-                className="h-9 w-full rounded-lg border border-[#e2ece8] bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-[#008b74] focus:bg-white transition"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-[#04D3D4] focus:bg-white transition"
               />
             </div>
 
@@ -385,7 +385,7 @@ export function ResultsPage() {
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] text-left text-xs">
-              <thead className="border-b border-[#e2ece8] bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>
                   {['Mã Evidence', 'Loại Bằng chứng', 'Hệ thống Nguồn', 'Tác nhân (Actor)', 'Đối tượng', 'Mã băm SHA-256', 'Thời điểm', ''].map(
                     (col, idx) => (
@@ -398,10 +398,10 @@ export function ResultsPage() {
               </thead>
               <tbody className="divide-y divide-[#f2f6f4]">
                 {filteredEvidence.slice(0, 50).map((ev) => (
-                  <tr key={ev.id} className="hover:bg-[#f8fbf9] transition-colors">
-                    <td className="px-5 py-3.5 font-mono text-[11px] font-bold text-[#008b74]">{ev.id}</td>
+                  <tr key={ev.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5 font-mono text-[11px] font-bold text-slate-900">{ev.id}</td>
                     <td className="px-5 py-3.5">
-                      <span className="rounded-md border border-[#c2ebe0] bg-[#e6f6f2] px-2 py-0.5 text-[10px] font-semibold text-[#007460]">
+                      <span className="rounded-md border border-[#04D3D4]/30 bg-[#04D3D4]/15 px-2 py-0.5 text-[10px] font-bold text-slate-950">
                         {ev.type}
                       </span>
                     </td>
@@ -413,11 +413,11 @@ export function ResultsPage() {
                         <span className="truncate max-w-[130px]">{ev.hash}</span>
                         <button
                           onClick={() => copyHash(ev.hash)}
-                          className="hover:text-[#008b74] text-slate-400"
+                          className="hover:text-[#04D3D4] text-slate-400"
                           title="Sao chép SHA-256"
                         >
                           {copiedHash === ev.hash ? (
-                            <CheckCircle2 size={12} className="text-[#008b74]" />
+                            <CheckCircle2 size={12} className="text-[#04D3D4]" />
                           ) : (
                             <Copy size={12} />
                           )}
@@ -430,7 +430,7 @@ export function ResultsPage() {
                     <td className="px-5 py-3.5 text-right">
                       <button
                         onClick={() => setSelectedEvidence(ev)}
-                        className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:border-[#008b74] hover:text-[#008b74]"
+                        className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:border-[#04D3D4] hover:text-[#04D3D4]"
                       >
                         Chi tiết
                       </button>
@@ -445,10 +445,10 @@ export function ResultsPage() {
 
       {/* TAB 3: FINDINGS LIST */}
       {activeTab === 'findings' && (
-        <Card className="overflow-hidden rounded-2xl border-[#e2ece8] bg-white shadow-xs">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[920px] text-left text-xs">
-              <thead className="border-b border-[#e2ece8] bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>
                   {['Mã Finding', 'Tiêu đề vi phạm', 'Miền kiểm soát', 'Mức độ', 'Trạng thái', 'Ngày phát hiện'].map(
                     (col, idx) => (
@@ -462,7 +462,7 @@ export function ResultsPage() {
               <tbody className="divide-y divide-[#f2f6f4]">
                 {findings.map((f) => (
                   <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3.5 font-mono text-[11px] font-bold text-[#008b74]">{f.id}</td>
+                    <td className="px-5 py-3.5 font-mono text-[11px] font-bold text-slate-900">{f.id}</td>
                     <td className="max-w-md px-5 py-3.5 font-medium text-slate-800 truncate">{f.title}</td>
                     <td className="px-5 py-3.5 text-slate-500">{f.domain}</td>
                     <td className="px-5 py-3.5">
@@ -485,10 +485,10 @@ export function ResultsPage() {
       {/* Evidence Modal / Drawer */}
       {selectedEvidence && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl border border-[#e2ece8] bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between border-b border-[#e2ece8] pb-3">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
-                <Fingerprint size={18} className="text-[#008b74]" />
+                <Fingerprint size={18} className="text-[#04D3D4]" />
                 <h3 className="text-base font-bold text-slate-900">Chi tiết Bằng chứng Kiểm toán</h3>
               </div>
               <button onClick={() => setSelectedEvidence(null)} className="text-slate-400 hover:text-slate-700">
@@ -499,7 +499,7 @@ export function ResultsPage() {
             <div className="mt-4 space-y-3 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-400">Mã Evidence:</span>
-                <span className="font-mono font-bold text-[#008b74]">{selectedEvidence.id}</span>
+                <span className="font-mono font-bold text-slate-900">{selectedEvidence.id}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-400">Loại bằng chứng:</span>

@@ -9,7 +9,6 @@ import {
   Lock,
   Download,
   Sparkles,
-  ShieldAlert,
   SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAgentStore, type FindingItem } from '@/lib/agent-store';
 
 export function FindingInspectorModal() {
-  const { selectedFindingModal, closeFindingModal, markFindingAudited } = useAgentStore();
+  const { currentRole, selectedFindingModal, closeFindingModal, markFindingAudited } = useAgentStore();
   const [copiedHash, setCopiedHash] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [appliedRule, setAppliedRule] = useState(false);
@@ -162,24 +161,12 @@ export function FindingInspectorModal() {
             </div>
           </div>
 
-          {/* PILLAR 2: ROOT CAUSE (Nguyên nhân gốc rễ) */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-            <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
-              <ShieldAlert size={15} className="text-rose-600" />
-              2. Nguyên Nhân Gốc Rễ (Root Cause)
-            </span>
-            <div className="rounded-lg bg-rose-50/50 border border-rose-100 p-3 text-xs leading-relaxed text-slate-800">
-              <p className="font-semibold text-rose-950 mb-1">Bóc tách từ AI Agent:</p>
-              {finding.rootCauseAnalysis}
-            </div>
-          </div>
-
-          {/* PILLAR 3: EVIDENCE (Bằng chứng mật mã & Payload thực tế) */}
+          {/* PILLAR 2: EVIDENCE (Bằng chứng mật mã & Payload thực tế) */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
-                <Lock size={15} className="text-[#008b74]" />
-                3. Bằng Chứng Mật Mã (Cryptographic Evidence)
+                <Lock size={15} className="text-[#04D3D4]" />
+                2. Bằng Chứng Mật Mã (Cryptographic Evidence)
               </span>
               <span className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
                 Cách ly: {finding.evidence.quarantinedCount} bản ghi
@@ -195,7 +182,7 @@ export function FindingInspectorModal() {
                 <button
                   type="button"
                   onClick={handleCopyHash}
-                  className="flex items-center gap-1 text-xs font-semibold text-[#007460] hover:underline"
+                  className="flex items-center gap-1 text-xs font-semibold text-slate-800 hover:text-[#04D3D4] hover:underline"
                 >
                   {copiedHash ? <Check size={13} /> : <Copy size={13} />}
                   {copiedHash ? 'Đã sao chép' : 'Sao chép mã hash'}
@@ -238,7 +225,7 @@ export function FindingInspectorModal() {
           {/* PILLAR 4: SUGGESTED ACTION (Hành động đề xuất từ AI Agent) */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
-              <SlidersHorizontal size={15} className="text-[#008b74]" />
+              <SlidersHorizontal size={15} className="text-[#04D3D4]" />
               4. Hành Động Đề Xuất Xử Lý Từ AI Agent (Suggested Action)
             </span>
 
@@ -250,7 +237,7 @@ export function FindingInspectorModal() {
               <ul className="space-y-1.5 text-xs text-slate-700">
                 {finding.aiRemediation.actionPlan.map((action, idx) => (
                   <li key={idx} className="flex items-start gap-2.5">
-                    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#e6f6f2] text-[11px] font-bold text-[#007460] mt-0.5">
+                    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#04D3D4]/20 text-[11px] font-bold text-slate-950 mt-0.5">
                       {idx + 1}
                     </span>
                     <span className="leading-snug">{action}</span>
@@ -259,36 +246,38 @@ export function FindingInspectorModal() {
               </ul>
             </div>
 
-            {/* Proposed Control/Rule with 1-Click Action */}
-            <div className="rounded-lg border border-[#cbebe2] bg-[#fbfdfc] p-3.5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-900">
-                  Đề xuất Rule kiểm soát tự động:
-                </span>
-                <span className="text-xs font-medium text-slate-500">
-                  Target: <strong className="text-[#007460]">{finding.aiRemediation.targetLane}</strong>
-                </span>
-              </div>
-              <p className="text-xs font-medium text-slate-600">
-                Tên rule: <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-mono">{finding.aiRemediation.proposedRuleName}</code>
-              </p>
-              <div className="rounded-md border border-[#cbebe2] bg-[#f0f9f6] p-2.5 font-mono text-xs text-[#005b4c]">
-                {finding.aiRemediation.proposedExpression}
-              </div>
+            {/* Proposed Control/Rule with 1-Click Action (Chỉ hiển thị cho Admin) */}
+            {currentRole === 'admin' && (
+              <div className="rounded-lg border border-slate-200 bg-[#fbfdfc] p-3.5 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-900">
+                    Đề xuất Rule kiểm soát tự động:
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">
+                    Target: <strong className="font-mono text-slate-900">{finding.aiRemediation.targetLane}</strong>
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-slate-600">
+                  Tên rule: <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-mono">{finding.aiRemediation.proposedRuleName}</code>
+                </p>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-900">
+                  {finding.aiRemediation.proposedExpression}
+                </div>
 
-              <div className="flex justify-end pt-1">
-                <Button
-                  variant="xanhsm"
-                  size="sm"
-                  onClick={handleApplyProposedRule}
-                  disabled={appliedRule}
-                  className="h-8 text-xs font-semibold gap-1.5"
-                >
-                  {appliedRule ? <Check size={13} /> : <Sparkles size={13} />}
-                  {appliedRule ? 'Đã áp dụng rule vào pipeline!' : '1-Click Áp dụng Rule này'}
-                </Button>
+                <div className="flex justify-end pt-1">
+                  <Button
+                    variant="xanhsm"
+                    size="sm"
+                    onClick={handleApplyProposedRule}
+                    disabled={appliedRule}
+                    className="h-8 text-xs font-bold gap-1.5 bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]"
+                  >
+                    {appliedRule ? <Check size={13} /> : <Sparkles size={13} />}
+                    {appliedRule ? 'Đã áp dụng rule vào pipeline!' : '1-Click Áp dụng Rule này'}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
         </div>
@@ -315,7 +304,7 @@ export function FindingInspectorModal() {
                 onClick={() => {
                   markFindingAudited(finding.id);
                 }}
-                className="text-xs font-semibold gap-1.5 h-9 px-4"
+                className="text-xs font-bold gap-1.5 h-9 px-4 bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]"
               >
                 <CheckCircle2 size={15} />
                 Xác nhận đã kiểm toán & Lưu vết

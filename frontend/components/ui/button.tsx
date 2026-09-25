@@ -11,8 +11,8 @@ export function Button({ className, variant = 'default', size = 'default', ...pr
     <button
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all disabled:pointer-events-none disabled:opacity-50 cursor-pointer',
-        variant === 'default' && 'bg-[#0f3834] text-white hover:bg-[#164a44] shadow-sm active:scale-[0.99]',
-        variant === 'xanhsm' && 'bg-[#008b74] text-white hover:bg-[#007460] shadow-sm active:scale-[0.99]',
+        variant === 'default' && 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm active:scale-[0.99]',
+        variant === 'xanhsm' && 'bg-[#04D3D4] text-slate-950 font-bold hover:bg-[#03b8b9] shadow-sm active:scale-[0.99]',
         variant === 'outline' && 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-xs',
         variant === 'ghost' && 'text-slate-600 hover:bg-slate-100',
         variant === 'danger' && 'border border-red-200 bg-red-50 text-red-600 hover:bg-red-100',

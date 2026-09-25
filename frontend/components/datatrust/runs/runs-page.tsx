@@ -35,7 +35,7 @@ export function RunsPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[#008b74]">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
             Data Pipeline & Ingestion
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -46,22 +46,22 @@ export function RunsPage() {
           </p>
         </div>
 
-        <Button variant="xanhsm" size="sm" className="h-9 gap-1.5 px-4 text-xs font-semibold">
+        <Button variant="xanhsm" size="sm" className="h-9 gap-1.5 px-4 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]">
           <Play size={14} /> Chạy pipeline mới
         </Button>
       </div>
 
       {/* Main Table Card */}
-      <Card className="overflow-hidden rounded-2xl border-[#e2ece8] bg-white shadow-xs">
+      <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-xs">
         {/* Filter bar */}
-        <div className="flex flex-col gap-3 border-b border-[#e2ece8] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm kiếm Run ID hoặc DAG ID..."
-              className="h-9 w-full rounded-lg border border-[#e2ece8] bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-[#008b74] focus:bg-white transition"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-[#04D3D4] focus:bg-white transition"
             />
           </div>
 
@@ -69,7 +69,7 @@ export function RunsPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-9 rounded-lg border border-[#e2ece8] bg-white px-3 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#008b74]"
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#04D3D4]"
             >
               <option value="ALL">Tất cả trạng thái</option>
               <option value="SUCCESS">Thành công (SUCCESS)</option>
@@ -82,7 +82,7 @@ export function RunsPage() {
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px] text-left text-xs">
-            <thead className="border-b border-[#e2ece8] bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
                 {['Mã Lần chạy', 'DAG ID', 'Trạng thái', 'Đầu vào (Raw)', 'Bản ghi Sạch (Silver)', 'Cách ly (Quarantine)', 'Bắt đầu lúc', 'Thời lượng', ''].map(
                   (col, idx) => (
@@ -95,15 +95,15 @@ export function RunsPage() {
             </thead>
             <tbody className="divide-y divide-[#f2f6f4]">
               {filteredRuns.map((run) => (
-                <tr key={run.id} className="group hover:bg-[#f8fbf9] transition-colors">
+                <tr key={run.id} className="group hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3.5">
-                    <Link to={`/runs/${run.id}`} className="font-mono font-bold text-[#008b74] hover:underline">
+                    <Link to={`/runs/${run.id}`} className="font-mono font-bold text-slate-900 hover:text-[#04D3D4] hover:underline">
                       {run.id}
                     </Link>
                   </td>
                   <td className="px-4 py-3.5 font-medium">
                     <span className="inline-flex items-center gap-2 text-slate-700">
-                      <Workflow size={13} className="text-[#008b74]" />
+                      <Workflow size={13} className="text-[#04D3D4]" />
                       {run.dagId}
                     </span>
                   </td>
@@ -113,7 +113,7 @@ export function RunsPage() {
                   <td className="px-4 py-3.5 font-medium text-slate-700">
                     {run.inputRecords.toLocaleString('vi-VN')}
                   </td>
-                  <td className="px-4 py-3.5 font-semibold text-[#008b74]">
+                  <td className="px-4 py-3.5 font-semibold text-emerald-700">
                     {run.silverRecords.toLocaleString('vi-VN')}
                   </td>
                   <td className="px-4 py-3.5">
@@ -128,7 +128,7 @@ export function RunsPage() {
                   <td className="px-4 py-3.5 text-right">
                     <Link
                       to={`/runs/${run.id}`}
-                      className="inline-grid size-7 place-items-center rounded-md border border-slate-200 text-slate-400 group-hover:border-[#008b74] group-hover:text-[#008b74]"
+                      className="inline-grid size-7 place-items-center rounded-md border border-slate-200 text-slate-400 group-hover:border-[#04D3D4] group-hover:text-slate-950"
                       aria-label={`Open ${run.id}`}
                     >
                       <ChevronRight size={15} />

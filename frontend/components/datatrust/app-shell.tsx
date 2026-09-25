@@ -6,6 +6,8 @@ import {
   CheckSquare,
   LayoutGrid,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   RotateCw,
   ShieldCheck,
   TableProperties,
@@ -27,7 +29,7 @@ const navigation: NavItem[] = [
   { label: 'Tổng quan', href: '/overview', icon: LayoutGrid },
   { label: 'Lần chạy', href: '/runs', icon: RotateCw },
   {
-    label: 'Duyệt rule',
+    label: 'Quản lý rule',
     href: '/rules',
     icon: CheckSquare,
     badge: () => {
@@ -48,19 +50,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pendingCount = useAgentStore((s: AgentStoreState) => s.getPendingRulesCount());
   const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
   const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
+  const isSidebarCollapsed = useAgentStore((s: AgentStoreState) => s.isSidebarCollapsed);
+  const toggleSidebarCollapse = useAgentStore((s: AgentStoreState) => s.toggleSidebarCollapse);
   const currentUser = USER_ACCOUNTS[currentRole];
-
 
   const getBreadcrumbTitle = () => {
     if (pathname.startsWith('/overview') || pathname === '/') return 'Tổng quan';
     if (pathname.startsWith('/runs')) return 'Lần chạy';
-    if (pathname.startsWith('/rules')) return 'Duyệt rule';
+    if (pathname.startsWith('/rules')) return 'Quản lý rule';
     if (pathname.startsWith('/results')) return 'Kết quả';
     return 'Tổng quan';
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f8f7] text-slate-900">
+    <div className="min-h-screen bg-[#f7faf9] text-slate-900">
       {open && (
         <button
           aria-label="Close navigation"
@@ -69,147 +72,205 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar matching new_UI.png */}
+      {/* Collapsible Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-[236px] flex-col border-r border-[#e2ece8] bg-white px-3.5 py-5 text-slate-700 shadow-xs transition-transform lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex flex-col border-r border-[#e2ece8] bg-white text-slate-700 shadow-xs transition-all duration-300 ease-in-out lg:translate-x-0',
+          isSidebarCollapsed ? 'w-[72px] px-2.5 py-4' : 'w-[236px] px-3.5 py-5',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="px-2 pt-1">
-          <Brand />
+        {/* Brand & Collapse Toggle */}
+        <div className="flex items-center justify-between px-1">
+          <Brand collapsed={isSidebarCollapsed} />
+          {!isSidebarCollapsed && (
+            <button
+              onClick={toggleSidebarCollapse}
+              title="Thu gọn thanh bên"
+              className="hidden lg:grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-[#04D3D4]/10 hover:text-[#04D3D4] transition"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          )}
         </div>
 
-        <div className="mt-8 px-2.5">
-          <span className="text-[11px] font-semibold text-slate-400">Không gian làm việc</span>
-        </div>
+        {/* Section title (only when expanded) */}
+        {!isSidebarCollapsed ? (
+          <div className="mt-8 px-2.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Không gian làm việc
+            </span>
+          </div>
+        ) : (
+          <div className="my-4 flex justify-center">
+            <button
+              onClick={toggleSidebarCollapse}
+              title="Mở rộng thanh bên"
+              className="hidden lg:grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-[#04D3D4]/15 hover:text-[#04D3D4] transition"
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+          </div>
+        )}
 
-        <nav className="mt-2.5 flex flex-1 flex-col gap-1">
+        {/* Navigation list */}
+        <nav className="mt-2.5 flex flex-1 flex-col gap-1.5">
           {navigation.map((item) => {
             const active =
               pathname === item.href ||
               (item.href === '/overview' && pathname === '/') ||
               pathname.startsWith(item.href + '/');
             const Icon = item.icon;
-            const badgeValue = item.href === '/rules' ? pendingCount : null;
+            const badgeValue = item.href === '/rules' && currentRole === 'admin' ? pendingCount : null;
 
             return (
               <Link
                 key={item.label}
                 href={item.href}
                 onClick={() => setOpen(false)}
+                title={isSidebarCollapsed ? item.label : undefined}
                 className={cn(
-                  'flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors',
+                  'flex h-10 items-center rounded-xl transition-all',
+                  isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3 text-[13px]',
                   active
-                    ? 'bg-[#e6f4f1] font-semibold text-[#007460]'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'bg-[#04D3D4]/15 border border-[#04D3D4]/40 font-bold text-slate-950 shadow-2xs'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
                 )}
               >
-                <Icon size={16} className={active ? 'text-[#008b74]' : 'text-slate-400'} />
-                <span className="flex-1">{item.label}</span>
-                {badgeValue ? (
-                  <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
-                    {badgeValue}
-                  </span>
-                ) : null}
+                <div className="relative flex items-center justify-center">
+                  <Icon
+                    size={17}
+                    className={active ? 'text-[#04D3D4]' : 'text-slate-400 group-hover:text-slate-600'}
+                  />
+                  {isSidebarCollapsed && badgeValue ? (
+                    <span className="absolute -top-1.5 -right-2 size-2 rounded-full bg-[#FFC402] ring-2 ring-white" />
+                  ) : null}
+                </div>
+
+                {!isSidebarCollapsed && (
+                  <>
+                    <span className="flex-1">{item.label}</span>
+                    {badgeValue ? (
+                      <span className="rounded-full bg-[#FFC402] px-2 py-0.5 text-[10px] font-extrabold text-slate-950 shadow-2xs">
+                        {badgeValue}
+                      </span>
+                    ) : null}
+                  </>
+                )}
               </Link>
             );
           })}
         </nav>
 
         {/* GSM Footer tag */}
-        <div className="flex items-center gap-3 border-t border-[#e2ece8] px-2 pt-4">
-          <span className="grid size-8 place-items-center rounded-lg bg-[#e6f6f2] text-[10px] font-bold text-[#007460]">
-            GSM
-          </span>
-          <span className="leading-tight">
-            <strong className="block text-xs font-semibold text-slate-800">GSM Global</strong>
-            <small className="text-[10px] text-slate-400">Chiến dịch V35 · 24 thị trường</small>
-          </span>
+        <div className="border-t border-[#e2ece8] pt-3">
+          {isSidebarCollapsed ? (
+            <div className="flex justify-center" title="GSM Global · Chiến dịch V35">
+              <span className="grid size-8 place-items-center rounded-xl bg-[#04D3D4]/15 text-[10px] font-extrabold text-slate-900 border border-[#04D3D4]/30">
+                GSM
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 px-2">
+              <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#04D3D4]/15 text-[10px] font-extrabold text-slate-900 border border-[#04D3D4]/30">
+                GSM
+              </span>
+              <span className="leading-tight overflow-hidden">
+                <strong className="block text-xs font-bold text-slate-800">GSM Global</strong>
+                <small className="block truncate text-[10px] text-slate-400">V35 · 24 thị trường</small>
+              </span>
+            </div>
+          )}
         </div>
       </aside>
 
-      {/* Main Container */}
-      <div className="lg:pl-[236px]">
-        {/* Topbar matching new_UI.png */}
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[#e2ece8] bg-white/90 px-5 backdrop-blur-md md:px-8">
+      {/* Main Content Area */}
+      <div
+        className={cn(
+          'transition-all duration-300 ease-in-out',
+          isSidebarCollapsed ? 'lg:pl-[72px]' : 'lg:pl-[236px]'
+        )}
+      >
+        {/* Topbar */}
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[#e2ece8] bg-white/95 px-5 backdrop-blur-md md:px-8">
           <div className="flex items-center gap-3">
             <button
-              className="grid size-9 place-items-center rounded-md border border-slate-200 lg:hidden text-slate-600"
+              className="grid size-9 place-items-center rounded-lg border border-slate-200 lg:hidden text-slate-600"
               onClick={() => setOpen((v) => !v)}
             >
               {open ? <X size={18} /> : <Menu size={18} />}
             </button>
+
+            {/* Desktop collapse quick toggle button */}
+            <button
+              onClick={toggleSidebarCollapse}
+              title={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+              className="hidden lg:grid size-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[#04D3D4] hover:text-[#04D3D4] transition"
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+            </button>
+
             <div className="text-xs font-medium text-slate-500">
-              <span>DataTrust OS</span>
+              <span className="hover:text-slate-800 transition">DataTrust OS</span>
               <span className="mx-1.5 text-slate-300">/</span>
-              <span className="font-semibold text-slate-800">{getBreadcrumbTitle()}</span>
+              <span className="font-bold text-slate-900">{getBreadcrumbTitle()}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Interactive Role Switcher Toggle Pill */}
-            <div className="flex items-center rounded-lg border border-[#d2e2dc] bg-[#f0f6f4] p-0.5 text-xs font-semibold">
+            <div className="flex items-center rounded-xl border border-[#d2e2dc] bg-[#f0f6f4] p-0.5 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setRole('auditor')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 transition text-xs',
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition text-xs',
                   currentRole === 'auditor'
-                    ? 'bg-[#0f3834] text-[#00D09C] shadow-2xs font-bold'
+                    ? 'bg-slate-950 text-[#04D3D4] shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 )}
-                title="Chuyển sang chế độ Kiểm toán viên IPO"
+                title="Chế độ Kiểm toán viên IPO"
               >
-                <ShieldCheck size={14} />
+                <ShieldCheck size={14} className={currentRole === 'auditor' ? 'text-[#04D3D4]' : ''} />
                 <span>Auditor</span>
               </button>
               <button
                 type="button"
                 onClick={() => setRole('admin')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 transition text-xs',
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition text-xs',
                   currentRole === 'admin'
-                    ? 'bg-[#008b74] text-white shadow-2xs font-bold'
+                    ? 'bg-[#04D3D4] text-slate-950 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 )}
-                title="Chuyển sang chế độ Quản trị viên hệ thống"
+                title="Chế độ Quản trị viên hệ thống"
               >
                 <UserCog size={14} />
                 <span>Admin</span>
               </button>
             </div>
 
-            <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-
-            {/* Active User Account Info */}
-            <div className="hidden items-center gap-2.5 sm:flex">
-              <span
-                className={cn(
-                  'grid size-8 place-items-center rounded-full text-xs font-bold transition-colors',
-                  currentRole === 'auditor'
-                    ? 'bg-[#0f3834] text-[#00D09C]'
-                    : 'bg-[#008b74] text-white'
-                )}
-              >
+            {/* User Account Pill */}
+            <div className="hidden sm:flex items-center gap-2 rounded-xl border border-[#e2ece8] bg-white px-2.5 py-1 text-xs">
+              <div className="grid size-6 place-items-center rounded-lg bg-slate-950 font-mono text-[10px] font-bold text-[#04D3D4]">
                 {currentUser.avatar}
-              </span>
-              <span className="leading-tight text-left">
-                <strong className="block text-xs font-semibold text-slate-800">
-                  {currentUser.name}
-                </strong>
-                <small className="text-[10px] text-slate-400">
-                  {currentUser.roleTitle} · {currentUser.company}
-                </small>
-              </span>
+              </div>
+              <div className="flex flex-col text-left leading-none">
+                <span className="font-semibold text-slate-800">{currentUser.name}</span>
+                <span className="text-[10px] text-slate-400">{currentUser.badge}</span>
+              </div>
             </div>
+
+            {/* IPO Pilot Demo Badge */}
+            <span className="rounded-full border border-[#FFC402]/60 bg-[#FFC402]/15 px-2.5 py-1 text-[11px] font-extrabold text-amber-950">
+              GSM IPO Pilot
+            </span>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="min-h-[calc(100vh-4rem)] p-4 md:p-8">{children}</main>
+        {/* Content body */}
+        <main className="p-4 sm:p-6 lg:p-7">{children}</main>
       </div>
     </div>
   );
 }
-
