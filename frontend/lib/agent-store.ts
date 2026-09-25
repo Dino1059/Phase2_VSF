@@ -380,8 +380,6 @@ export interface AgentStoreState {
   isSidebarCollapsed: boolean;
   toggleSidebarCollapse: () => void;
   homepageViewMode: HomepageViewMode;
-  isChatCollapsed: boolean;
-  toggleChatCollapse: () => void;
   setHomepageViewMode: (mode: HomepageViewMode) => void;
   pipelineLevels: PipelineLevelsState;
   chatMessages: ChatMessageItem[];
@@ -989,8 +987,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   isSidebarCollapsed: false,
   toggleSidebarCollapse: () => set((s) => ({ isSidebarCollapsed: !s.isSidebarCollapsed })),
   homepageViewMode: 'welcome',
-  isChatCollapsed: false,
-  toggleChatCollapse: () => set((s) => ({ isChatCollapsed: !s.isChatCollapsed })),
   setHomepageViewMode: (mode) => set({ homepageViewMode: mode }),
   pipelineLevels: initialPipelineLevels,
   chatMessages: initialChatMessages,

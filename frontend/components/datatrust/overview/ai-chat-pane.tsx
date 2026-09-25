@@ -2,8 +2,6 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Bot,
-  ChevronLeft,
-  ChevronRight,
   Database,
   FileCheck2,
   FileText,
@@ -17,8 +15,6 @@ import { useAgentStore, type ChatMessageItem } from '@/lib/agent-store';
 export function AiChatPane() {
   const {
     currentRole,
-    isChatCollapsed,
-    toggleChatCollapse,
     chatMessages,
     sendUserChatMessage,
     startPipelineRun,
@@ -56,33 +52,6 @@ export function AiChatPane() {
     }
   };
 
-
-  // When collapsed: show thin vertical bar with icon & expand button
-  if (isChatCollapsed) {
-    return (
-      <div className="flex h-full w-14 flex-col items-center justify-between rounded-2xl border border-slate-200 bg-white py-4 shadow-xs transition-all">
-        <div className="flex flex-col items-center gap-3">
-          <button
-            onClick={toggleChatCollapse}
-            title="Mở rộng khung Chat"
-            className="flex size-9 items-center justify-center rounded-xl bg-[#04D3D4]/15 text-slate-900 border border-[#04D3D4]/40 transition hover:bg-[#04D3D4]"
-          >
-            <ChevronRight size={18} />
-          </button>
-          <div className="size-8 grid place-items-center rounded-xl bg-slate-950 text-[#04D3D4] border border-[#04D3D4]/30 shadow-xs">
-            <Bot size={16} />
-          </div>
-          <span className="writing-mode-vertical text-[11px] font-bold uppercase tracking-wider text-slate-400 rotate-180 py-4">
-            AI Copilot
-          </span>
-        </div>
-        <div className="flex flex-col items-center gap-2 text-slate-400">
-          <Sparkles size={16} className="text-[#04D3D4] fill-[#FFC402] animate-pulse" />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
       {/* Header */}
@@ -100,14 +69,6 @@ export function AiChatPane() {
             </div>
           </div>
         </div>
-
-        <button
-          onClick={toggleChatCollapse}
-          title="Thu gọn khung Chat"
-          className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
-        >
-          <ChevronLeft size={16} />
-        </button>
       </div>
 
       {/* Quick Action Navigation Bar */}

@@ -16,7 +16,6 @@ import { SlideDownDashboard } from './slide-down-dashboard';
 export function OverviewPage() {
   const {
     homepageViewMode,
-    isChatCollapsed,
     selectedDatasetId,
     selectDataset,
     datasets,
@@ -28,12 +27,8 @@ export function OverviewPage() {
 
       {/* Main Dual-Pane Layout: Left Chat Sticky & Fixed, Right Canvas Scrollable */}
       <div className="flex flex-col lg:flex-row gap-5 items-start">
-        {/* Left Pane: Collapsible AI Chat (Fixed position with independent scrollbar) */}
-        <aside
-          className={`shrink-0 transition-all duration-300 w-full lg:sticky lg:top-[80px] lg:h-[calc(100vh-108px)] z-10 ${
-            isChatCollapsed ? 'lg:w-14' : 'lg:w-[380px] xl:w-[420px]'
-          }`}
-        >
+        {/* Left Pane: AI Chat (Fixed position with independent scrollbar) */}
+        <aside className="shrink-0 w-full lg:sticky lg:top-[80px] lg:h-[calc(100vh-108px)] z-10 lg:w-[380px] xl:w-[420px]">
           <AiChatPane />
         </aside>
 
