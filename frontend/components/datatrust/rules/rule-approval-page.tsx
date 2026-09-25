@@ -211,16 +211,6 @@ export function RuleApprovalPage() {
                   <h3 className="text-xs font-bold text-slate-900">
                     Bảo Vệ Luồng Dữ Liệu Thực Tế
                   </h3>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-300/60 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Inline Gate: 100% Kích hoạt
-                  </span>
-                  <span className="rounded-full bg-white/80 border border-slate-200/80 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                    Đã kiểm tra: <strong className="text-slate-900">{totalScannedCount.toLocaleString('vi-VN')}</strong> dòng
-                  </span>
-                  <span className="rounded-full bg-rose-50 border border-rose-200/80 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
-                    Đã cách ly: <strong>{totalQuarantinedCount.toLocaleString('vi-VN')}</strong> vi phạm
-                  </span>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-600">
                   Tất cả các giao dịch và telemetry đi qua pipeline đều được đối chiếu liên tục theo các chính sách đã phê duyệt.

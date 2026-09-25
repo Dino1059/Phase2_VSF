@@ -172,13 +172,18 @@ export function AiChatPane() {
               >
                 <div className="whitespace-pre-line text-xs font-normal">
                   {msg.text.split('\n').map((line, idx) => {
-                    const parts = line.split(/(\*\*.*?\*\*)/g);
+                    const parts = line.split(/(\*\*.*?\*\*|`.*?`)/g);
                     return (
                       <p key={idx} className={idx > 0 ? 'mt-1' : ''}>
                         {parts.map((p, pIdx) => {
                           if (p.startsWith('**') && p.endsWith('**')) {
                             return (
-                              <strong key={pIdx} className="font-bold text-slate-950">
+                              <strong
+                                key={pIdx}
+                                className={`font-bold ${
+                                  isAi ? 'text-slate-950' : 'text-[#04D3D4]'
+                                }`}
+                              >
                                 {p.slice(2, -2)}
                               </strong>
                             );
@@ -187,7 +192,11 @@ export function AiChatPane() {
                             return (
                               <code
                                 key={pIdx}
-                                className="rounded bg-slate-100 px-1 py-0.5 text-[11px] font-mono text-cyan-900 border border-slate-200"
+                                className={`rounded px-1 py-0.5 text-[11px] font-mono border ${
+                                  isAi
+                                    ? 'bg-slate-100 text-cyan-900 border-slate-200'
+                                    : 'bg-slate-900 text-[#04D3D4] border-slate-800'
+                                }`}
                               >
                                 {p.slice(1, -1)}
                               </code>
@@ -207,7 +216,7 @@ export function AiChatPane() {
                       <button
                         key={aIdx}
                         onClick={() => handleActionClick(action)}
-                        className="rounded-lg border border-[#04D3D4]/50 bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-900 hover:bg-[#04D3D4] transition shadow-2xs"
+                        className="rounded-lg border border-[#04D3D4]/50 bg-white px-2.5 py-1 text-[11px] font-mono font-bold text-slate-900 hover:bg-[#04D3D4] transition shadow-2xs cursor-pointer"
                       >
                         {action.label}
                       </button>

@@ -973,34 +973,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   currentRole: 'auditor',
   setRole: (role) => {
     const isAuditor = role === 'auditor';
-    const user = USER_ACCOUNTS[role];
     set((s) => ({
       currentRole: role,
       rulesSegmentTab: isAuditor ? 'active' : s.rulesSegmentTab,
-      chatMessages: [
-        ...s.chatMessages,
-        {
-          id: `ROLE-${Date.now()}`,
-          sender: 'ai',
-          text: isAuditor
-            ? `👤 **Đã chuyển sang vai trò Auditor (Viewer) - ${user.name}**\n\n• **Quyền hạn**: Bạn có quyền theo dõi toàn bộ luồng dữ liệu, xem kho bằng chứng và **yêu cầu tôi sinh Test Case kiểm toán** (gõ *"sinh test case"*).\n• **Quy chế**: Giao diện tập trung hiển thị dữ liệu và hồ sơ kiểm toán độc lập.`
-            : `⚡ **Đã chuyển sang vai trò Admin (Toàn quyền) - ${user.name}**\n\n• **Quyền hạn toàn diện**: Kích hoạt luồng pipeline, nhận **Đề xuất giải pháp & Rule từ AI**, chạy thử nghiệm (Dry-Run), chỉnh sửa và phê duyệt Rule vào Production.`,
-          timestamp: 'Vừa xong',
-          quickActions: isAuditor
-            ? [
-                { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-                { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
-                { label: '👥 customers', actionType: 'SELECT_AND_RUN', payload: 'customers' },
-                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-              ]
-            : [
-                { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
-                { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-                { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
-                { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-              ],
-        },
-      ],
     }));
   },
 
@@ -1569,6 +1544,15 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
           ];
         }
+      } else if (lower.includes('chọn dataset') || lower.includes('dataset') || lower.includes('danh sách bảng') || lower.includes('chọn bảng')) {
+        aiReply = `Dưới đây là danh sách các bộ dữ liệu sẵn sàng kiểm soát tuân thủ. Hãy chọn 1 bảng để tôi quét luồng L1 -> L4:`;
+        quickActions = [
+          { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+          { label: '👥 customers', actionType: 'SELECT_AND_RUN', payload: 'customers' },
+          { label: '🚗 drivers', actionType: 'SELECT_AND_RUN', payload: 'drivers' },
+          { label: '⚡ charging', actionType: 'SELECT_AND_RUN', payload: 'charging' },
+          { label: '🔋 telemetry', actionType: 'SELECT_AND_RUN', payload: 'telemetry' },
+        ];
       } else {
         aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ điều phối sau:`;
         quickActions = role === 'auditor'
