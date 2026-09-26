@@ -1,7 +1,0 @@
-Issue Type,Issue Key,Summary,Assignee,Story Points,Priority,Sprint,Due Date,Status,Description
-Story,SCRUM-31,Open-Source Data Fetcher & VinGroup Domain Schema Mapper,Tạ Kim Ngân,5,High,Sprint 1,2026-08-07,In Progress,"Fetch ST-EVCDP, UIT-VSFC, JAC IEV40, and Ride Hailing datasets and map to VinGroup enterprise schemas."
-Story,SCRUM-29,Implement Vietnamese NLP Aspect Extractor & Teen-code Normalizer,Trần Tiến Dũng,5,High,Sprint 2,2026-08-11,To Do,"Normalize teen-code slang (ko sac dc -> không sạc được), extract aspect entities, and cross-validate with V-GREEN logs."
-Story,SCRUM-30,Build Multi-Agent ReAct Bounded Loop with Gemma-4 Function Calling,Phạm Quốc Thanh,8,Highest,Sprint 3,2026-08-15,To Do,"6-agent ReAct orchestration with Gemma-4-26B and HITL RuleProposalCard."
-Story,SCRUM-32,Executive Dashboard & In-Stream Daily Operation Date Filters,Vũ Thu Huyền,5,High,Sprint 4,2026-08-19,To Do,"React 19 Executive Dashboard, in-stream date filters (3d, 7d, Tuần, Tháng), and Vietnamese mentor workflow board."
-Task,SCRUM-24,Sprint 4 Control Issue & Feature Lock,Phạm Quốc Thanh,5,Highest,Sprint 4,2026-08-19,To Do,"Feature freeze gate at 23:59 on August 19."
-Task,SCRUM-25,Stabilization Benchmark Verification & Mentor Presentation Readiness,Phạm Quốc Thanh,8,Highest,Sprint 5,2026-08-23,To Do,"Verify 125/125 pytest tests, validate Clean DB output hashes, and finalize mentor presentation before final project submission on August 24."

@@ -76,6 +76,7 @@ demo/
 implementation-notes.md
 implementation_notes.md
 scratch/
+docs/planning/
 # Agent / loop scratch
 .loop-state/
 .swarm/

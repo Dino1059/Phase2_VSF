@@ -1,0 +1,74 @@
+{
+  "schema_version": "zone_contract_v1",
+  "linkage_type": "constructed_for_scenario_testing",
+  "random_seed": 42,
+  "note": "3-Zone dataset created via affine transformation from Hanoi bounding box.",
+  "datasets": [
+    {
+      "dataset_key": "vingroup_pilot.ev_telemetry",
+      "source_file": "synthetic_ev_telemetry_ved_ref.csv",
+      "geo_origin": "ved_pattern_reprojected_hn",
+      "notes": "GPS transformed via affine mapping per VIN slice"
+    },
+    {
+      "dataset_key": "vingroup_pilot.trips",
+      "source_file": "ride_hailing_xanh_sm_trips.csv",
+      "notes": "pickup coords transformed via affine mapping per VIN slice"
+    },
+    {
+      "dataset_key": "vingroup_pilot.charging",
+      "source_file": "acn_charging_mapped.csv",
+      "notes": "tagged with subject_zone per VIN"
+    }
+  ],
+  "slices": [
+    {
+      "slice_id": "pilot_eu",
+      "vin_from": "VF8VNF_0001",
+      "vin_to": "VF8VNF_0020",
+      "vehicle_count": 20,
+      "subject_zone": "EU",
+      "gps_bbox": {
+        "lat_min": 52.45,
+        "lat_max": 52.55,
+        "lon_min": 13.3,
+        "lon_max": 13.45
+      },
+      "packs_expected": [
+        "pack_eu_stub"
+      ]
+    },
+    {
+      "slice_id": "pilot_vn",
+      "vin_from": "VF8VNF_0021",
+      "vin_to": "VF8VNF_0040",
+      "vehicle_count": 20,
+      "subject_zone": "VN",
+      "gps_bbox": {
+        "lat_min": 20.95,
+        "lat_max": 21.1,
+        "lon_min": 105.75,
+        "lon_max": 105.9
+      },
+      "packs_expected": [
+        "pack_vn_stub"
+      ]
+    },
+    {
+      "slice_id": "pilot_us",
+      "vin_from": "VF8VNF_0041",
+      "vin_to": "VF8VNF_0060",
+      "vehicle_count": 20,
+      "subject_zone": "US",
+      "gps_bbox": {
+        "lat_min": 40.7,
+        "lat_max": 40.8,
+        "lon_min": -74.05,
+        "lon_max": -73.9
+      },
+      "packs_expected": [
+        "pack_us_stub"
+      ]
+    }
+  ]
+}
