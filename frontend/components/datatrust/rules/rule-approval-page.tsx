@@ -1,5 +1,4 @@
-'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -9,6 +8,7 @@ import {
   Pause,
   Pencil,
   Play,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -37,7 +37,14 @@ export function RuleApprovalPage() {
     rulesSegmentTab,
     setRulesSegmentTab,
     toggleActiveRuleStatus,
+    isBackendLive,
+    isSyncing,
+    syncWithBackend,
   } = useAgentStore();
+
+  useEffect(() => {
+    syncWithBackend();
+  }, [syncWithBackend]);
 
   const [proposedSubTab, setProposedSubTab] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,9 +90,6 @@ export function RuleApprovalPage() {
     return true;
   });
 
-  const totalScannedCount = activeRules.reduce((sum, r) => sum + r.scannedCount, 0);
-  const totalQuarantinedCount = activeRules.reduce((sum, r) => sum + r.quarantinedCount, 0);
-
   const handleStartEdit = (rule: ProposedRule) => {
     setEditingRuleId(rule.id);
     setEditedExpr(rule.expression);
@@ -111,8 +115,34 @@ export function RuleApprovalPage() {
           </h1>
         </div>
 
-        {/* Quick dataset filter & Role badge */}
+        {/* Quick dataset filter & Connection status */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Backend Connection Indicator */}
+          {isBackendLive ? (
+            <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
+              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Live Backend (:8000)</span>
+              <button
+                onClick={() => syncWithBackend()}
+                title="Làm mới dữ liệu từ Backend"
+                className="ml-1 text-emerald-600 hover:text-emerald-900 transition-colors"
+              >
+                <RefreshCw className={`size-3 ${isSyncing ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 shadow-2xs">
+              <span className="size-2 rounded-full bg-amber-500" />
+              <span>Chế độ Demo (Fallback)</span>
+              <button
+                onClick={() => syncWithBackend()}
+                title="Thử kết nối lại Backend FastAPI"
+                className="ml-1 text-amber-600 hover:text-amber-900 transition-colors"
+              >
+                <RefreshCw className={`size-3 ${isSyncing ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 font-medium">Lọc theo bộ dữ liệu:</span>
@@ -262,8 +292,6 @@ export function RuleApprovalPage() {
                       <div className="mt-2 text-xs text-slate-600">
                         <span>Căn cứ kiểm toán: </span>
                         <strong className="text-slate-800">{rule.lawRef}</strong>
-                        <span className="text-slate-400"> · Phê duyệt bởi: </span>
-                        <span className="font-semibold text-slate-700">{rule.enforcedBy}</span>
                       </div>
                     </div>
 

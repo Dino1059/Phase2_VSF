@@ -64,7 +64,7 @@ export function SlideDownDashboard() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-600">
-              Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Nghị định 13/2023
+              Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.filename || dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Nghị định 13/2023
             </p>
           </div>
         </div>
@@ -77,7 +77,7 @@ export function SlideDownDashboard() {
             className="h-8 gap-1.5 border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-300"
           >
             <RotateCcw size={13} />
-            <span>Chạy lần khác</span>
+            <span>Chạy lại</span>
           </Button>
 
           <Link to="/results">
@@ -85,7 +85,7 @@ export function SlideDownDashboard() {
               size="sm"
               className="h-8 gap-1.5 bg-[#04D3D4] text-xs font-bold text-slate-950 hover:bg-[#03b8b9] shadow-xs"
             >
-              <span>Xem toàn bộ Findings</span>
+              <span>Xem Findings</span>
               <ArrowRight size={13} />
             </Button>
           </Link>
@@ -113,7 +113,7 @@ export function SlideDownDashboard() {
             Hợp lệ (Pass rate)
           </span>
           <div className="mt-1 text-xl font-bold text-emerald-700">
-            {((1 - dataset.anomalies / dataset.records) * 100).toFixed(2)}%
+            {((1 - (dataset.anomalies ?? 0) / dataset.records) * 100).toFixed(2)}%
           </div>
           <span className="text-[10px] text-slate-500 font-medium">Đạt điều kiện Silver</span>
         </Card>
@@ -122,7 +122,7 @@ export function SlideDownDashboard() {
           <span className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide">
             Phát hiện vi phạm
           </span>
-          <div className="mt-1 text-xl font-bold text-rose-700">{dataset.anomalies}</div>
+          <div className="mt-1 text-xl font-bold text-rose-700">{dataset.anomalies ?? 0}</div>
           <span className="text-[10px] text-rose-600 font-medium">Cần cách ly & xử lý</span>
         </Card>
 

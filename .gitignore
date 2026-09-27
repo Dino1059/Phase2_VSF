@@ -1,0 +1,28 @@
+# Environment variables and secrets
+.env
+.env.local
+*.env
+
+# Airflow & execution logs
+logs/
+*.log
+
+# Python cache & virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# Build caches & Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

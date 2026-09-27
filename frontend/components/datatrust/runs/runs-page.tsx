@@ -1,25 +1,61 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Play, Search, Workflow } from 'lucide-react';
+import { ChevronRight, Loader2, Play, Search, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { pipelineDataSource } from '@/lib/data/local-pipeline-data';
 import type { PipelineRun } from '@/lib/data/pipeline-types';
 import { PipelineStatusBadge } from '@/components/datatrust/pipeline/pipeline-status';
+import { apiBridge } from '@/lib/api-bridge';
 
-
-const format = (value: string) =>
-  new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+const format = (value: string) => {
+  try {
+    return new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  } catch {
+    return value;
+  }
+};
 
 export function RunsPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [isTriggering, setIsTriggering] = useState(false);
+  const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
+
+  const loadRuns = async () => {
+    try {
+      const liveRuns = await apiBridge.fetchLivePipelineRuns();
+      if (liveRuns && liveRuns.length > 0) {
+        setRuns(liveRuns);
+        return;
+      }
+    } catch {
+      // Fallback to local
+    }
+    const local = await pipelineDataSource.listRuns();
+    setRuns(local);
+  };
 
   useEffect(() => {
-    pipelineDataSource.listRuns().then(setRuns);
+    loadRuns();
   }, []);
+
+  const handleTriggerAirflow = async () => {
+    setIsTriggering(true);
+    setTriggerMessage(null);
+    try {
+      const res = await apiBridge.triggerAirflow('trips');
+      setTriggerMessage(`Đã kích hoạt Airflow DAG: ${res.dag_run_id || 'Thành công'}`);
+      await loadRuns();
+    } catch (err: any) {
+      setTriggerMessage(`Kích hoạt pipeline thử nghiệm (fallback)`);
+      await loadRuns();
+    } finally {
+      setIsTriggering(false);
+    }
+  };
 
   const filteredRuns = runs.filter((r) => {
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
@@ -43,10 +79,24 @@ export function RunsPage() {
           </h1>
         </div>
 
-        <Button variant="xanhsm" size="sm" className="h-9 gap-1.5 px-4 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]">
-          <Play size={14} /> Chạy pipeline mới
+        <Button
+          variant="xanhsm"
+          size="sm"
+          disabled={isTriggering}
+          onClick={handleTriggerAirflow}
+          className="h-9 gap-1.5 px-4 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9] cursor-pointer"
+        >
+          {isTriggering ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+          <span>{isTriggering ? 'Đang kích hoạt...' : 'Chạy pipeline mới (Airflow)'}</span>
         </Button>
       </div>
+
+      {triggerMessage && (
+        <div className="rounded-xl border border-[#04D3D4]/40 bg-[#04D3D4]/10 p-3 text-xs font-medium text-slate-900 flex items-center justify-between">
+          <span>{triggerMessage}</span>
+          <button onClick={() => setTriggerMessage(null)} className="text-slate-500 hover:text-slate-800 text-xs cursor-pointer">✕</button>
+        </div>
+      )}
 
       {/* Main Table Card */}
       <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-xs">
@@ -103,6 +153,11 @@ export function RunsPage() {
                       <Workflow size={13} className="text-[#04D3D4]" />
                       {run.dagId}
                     </span>
+                    {(run as any).datasetId && (
+                      <span className="block text-[10px] font-mono text-slate-500 mt-0.5">
+                        {(run as any).datasetId}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3.5">
                     <PipelineStatusBadge status={run.status} />

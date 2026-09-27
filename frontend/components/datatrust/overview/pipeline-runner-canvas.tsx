@@ -80,7 +80,7 @@ export function PipelineRunnerCanvas() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-600">
-              Dataset: <strong className="font-mono text-slate-900">{dataset.id}</strong> (
+              Dataset: <strong className="font-mono text-slate-900">{dataset.filename || dataset.id}</strong> (
               {dataset.records.toLocaleString()} records) · Kiến trúc IPO Assurance GSM V35
             </p>
           </div>

@@ -1,7 +1,9 @@
 'use client';
+import { useState } from 'react';
 import {
   ArrowRight,
   Database,
+  Eye,
   Play,
   Sparkles,
 } from 'lucide-react';
@@ -9,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAgentStore, type DatasetItem } from '@/lib/agent-store';
 import { FindingInspectorModal } from '@/components/datatrust/findings/finding-inspector-modal';
+import { DatasetPreviewModal } from '@/components/datatrust/datasets/dataset-preview-modal';
 import { AiChatPane } from './ai-chat-pane';
 import { PipelineRunnerCanvas } from './pipeline-runner-canvas';
 import { SlideDownDashboard } from './slide-down-dashboard';
@@ -21,6 +24,8 @@ export function OverviewPage() {
     datasets,
     startPipelineRun,
   } = useAgentStore();
+
+  const [previewDataset, setPreviewDataset] = useState<DatasetItem | null>(null);
 
   return (
     <div className="page-enter mx-auto max-w-[1600px] space-y-4">
@@ -50,16 +55,6 @@ export function OverviewPage() {
                       AI Agent sẽ tự động nạp dữ liệu, thực thi kiểm tra 4 tầng (L1 Deterministic → L2 Statistical Outlier → L3 Multivariate → L4 Change Point), trích xuất vi phạm và chuẩn bị các đề xuất Rule khắc phục để bạn thẩm định.
                     </p>
                   </div>
-
-                  <Button
-                    variant="xanhsm"
-                    onClick={() => startPipelineRun(selectedDatasetId)}
-                    size="lg"
-                    className="h-11 gap-2 text-slate-950 px-5 text-xs font-bold shadow-sm border border-[#04D3D4] cursor-pointer"
-                  >
-                    <span>Cho Agent chạy {selectedDatasetId}</span>
-                    <ArrowRight size={15} />
-                  </Button>
                 </div>
               </div>
 
@@ -67,7 +62,7 @@ export function OverviewPage() {
               <div>
                 <div className="flex items-center justify-between mb-2.5">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                    Datasets sẵn sàng thẩm tra (VinGroup GSM Pilot Datasets)
+                    Datasets sẵn sàng thẩm tra
                   </h3>
                   <span className="text-[11px] text-slate-500">
                     Bấm vào card để chọn và chạy luồng L1-L4
@@ -75,53 +70,74 @@ export function OverviewPage() {
                 </div>
 
                 <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.values(datasets).map((ds: DatasetItem) => {
-                    const isSelected = ds.id === selectedDatasetId;
+                  {Array.from(
+                    new Map(Object.values(datasets).map((ds: DatasetItem) => [ds.filename || ds.id, ds])).values()
+                  ).map((ds: DatasetItem) => {
                     return (
                       <Card
                         key={ds.id}
                         onClick={() => selectDataset(ds.id)}
-                        className={`cursor-pointer rounded-2xl border p-4.5 transition-all duration-200 bg-white ${
-                          isSelected
-                            ? 'border-[#04D3D4] ring-2 ring-[#04D3D4]/30 shadow-sm'
-                            : 'border-slate-200 hover:border-[#04D3D4]/60 hover:shadow-xs'
-                        }`}
+                        className={`cursor-pointer rounded-2xl border p-4.5 transition-all duration-200 bg-white`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <span className="grid size-8 place-items-center rounded-xl bg-[#04D3D4]/15 text-slate-950 font-mono font-bold border border-[#04D3D4]/30">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#04D3D4]/15 text-slate-950 font-mono font-bold border border-[#04D3D4]/30 mt-0.5">
                               <Database size={15} className="text-[#04D3D4]" />
                             </span>
-                            <span className="text-sm font-mono font-bold text-slate-900">
-                              {ds.id}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="text-xs font-mono font-bold text-slate-900 truncate" title={ds.filename || ds.id}>
+                                {ds.filename || ds.id}
+                              </div>
+                            </div>
                           </div>
-                          {isSelected && (
-                            <span className="rounded-full bg-[#04D3D4] px-2.5 py-0.5 text-[10px] font-extrabold text-slate-950 shadow-2xs">
-                              Đang chọn
-                            </span>
-                          )}
                         </div>
 
-                        <div className="mt-3.5 grid grid-cols-2 gap-2 text-[11px] border-t border-slate-100 pt-3">
+                        {ds.zoneCounts ? (
+                          <div className="mt-2.5 flex flex-wrap gap-1">
+                            {Object.entries(ds.zoneCounts).map(([zone, count]) => (
+                              <span key={zone} className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">
+                                <span className={`size-1.5 rounded-full ${zone === 'VN' ? 'bg-red-500' : zone === 'US' ? 'bg-blue-500' : 'bg-amber-500'}`} />
+                                {zone}: {count.toLocaleString()}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] border-t border-slate-100 pt-3">
                           <div>
-                            <span className="text-slate-400">Quy mô:</span>
+                            <span className="text-slate-400">Số dòng:</span>
                             <div className="font-semibold text-slate-800">
-                              {ds.records.toLocaleString()} records
+                              {ds.records.toLocaleString()}
                             </div>
                           </div>
                           <div>
                             <span className="text-slate-400">Anomalies:</span>
-                            <div className="font-bold text-rose-600">
-                              {ds.anomalies} vi phạm
-                            </div>
+                            {ds.isProfiled && ds.anomalies !== null ? (
+                              <div className="font-bold text-rose-600">
+                                {ds.anomalies} vi phạm
+                              </div>
+                            ) : (
+                              <div className="font-medium text-slate-400 italic">
+                                Chưa thẩm tra (—)
+                              </div>
+                            )}
                           </div>
                         </div>
 
                         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5">
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                            {ds.proposedRules.length} Rule đề xuất
-                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewDataset(ds);
+                            }}
+                            className="h-7 gap-1 px-2 text-[11px] font-semibold text-[#04D3D4] hover:bg-[#04D3D4]/10 hover:text-slate-950 transition-colors cursor-pointer"
+                          >
+                            <Eye size={12} />
+                            <span>Xem dữ liệu thô</span>
+                          </Button>
+
                           <Button
                             variant="white"
                             onClick={(e) => {
@@ -132,7 +148,7 @@ export function OverviewPage() {
                             className="group h-7 gap-1 border border-slate-300 bg-white text-[11px] font-bold text-slate-900 hover:border-slate-950 hover:bg-slate-950 hover:text-white transition-all cursor-pointer shadow-xs"
                           >
                             <Play size={10} className="fill-current text-current transition-colors" />
-                            <span>Chạy {ds.id}</span>
+                            <span>Chạy pipeline</span>
                           </Button>
                         </div>
                       </Card>
@@ -196,6 +212,18 @@ export function OverviewPage() {
 
       {/* Global Inspector Modal for deep dive into Findings */}
       <FindingInspectorModal />
+
+      {/* Raw Data Preview Modal */}
+      {previewDataset && (
+        <DatasetPreviewModal
+          isOpen={!!previewDataset}
+          onClose={() => setPreviewDataset(null)}
+          datasetId={previewDataset.id}
+          datasetTitle={previewDataset.name}
+          filename={previewDataset.filename || previewDataset.id}
+          totalRecords={previewDataset.records}
+        />
+      )}
     </div>
   );
 }
