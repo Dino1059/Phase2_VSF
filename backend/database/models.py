@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import uuid
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # =============================================================================
@@ -141,6 +141,50 @@ class OperationRegistryModel(BaseModel):
     parameter_schema: Dict[str, Any] = {}
     description: str
     is_active: bool = True
+
+
+class ComplianceCheckRuleModel(BaseModel):
+    rule_id: str
+    dataset_id: str
+    target_column: str
+    column_name: Optional[str] = None
+    rule_name: str
+    rule_code: str
+    expression: str
+    description: str
+    law_ref: str
+    severity: RuleSeverity = RuleSeverity.CRITICAL
+    on_fail_action: OnFailAction = OnFailAction.QUARANTINE
+    is_fixed: bool = True  # Cố định, không thể sửa trên UI, AI không có quyền đề xuất
+    enforced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_column(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "target_column" in data and not data.get("column_name"):
+                data["column_name"] = data["target_column"]
+            elif "column_name" in data and not data.get("target_column"):
+                data["target_column"] = data["column_name"]
+        return data
+
+
+class DataTreatmentRuleModel(BaseModel):
+    rule_id: str
+    dataset_id: str
+    column_name: str
+    operation_id: str
+    treatment_name: str
+    params_json: Dict[str, Any] = {}
+    expression_display: str
+    description: Optional[str] = None
+    is_ai_proposed: bool = False
+    ai_rationale: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    status: str = "active"  # "active", "pending", "rejected", "paused"
+    enforced_by: str = "Admin"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class FieldProcessConfigModel(BaseModel):

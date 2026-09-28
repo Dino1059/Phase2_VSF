@@ -12,6 +12,39 @@ export interface BackendHealth {
   message: string;
 }
 
+export interface ComplianceCheckRule {
+  rule_id: string;
+  dataset_id: string;
+  column_name: string;
+  rule_name: string;
+  rule_code: string;
+  expression: string;
+  description: string;
+  law_ref: string;
+  severity: string;
+  on_fail_action: string;
+  is_fixed: boolean;
+  enforced_at: string;
+}
+
+export interface DataTreatmentRule {
+  rule_id: string;
+  dataset_id: string;
+  column_name: string;
+  operation_id: string;
+  treatment_name: string;
+  params_json: Record<string, any>;
+  expression_display: string;
+  description?: string;
+  is_ai_proposed: boolean;
+  ai_rationale?: string;
+  ai_confidence?: number;
+  status: 'active' | 'pending' | 'rejected' | 'paused';
+  enforced_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export const apiBridge = {
   /**
    * Kiểm tra tình trạng kết nối tới Backend FastAPI
@@ -205,7 +238,7 @@ export const apiBridge = {
   /**
    * Kích hoạt Airflow DAG datatrust_adaptive_pipeline qua Backend
    */
-  async triggerAirflow(datasetId: string = 'trips'): Promise<any> {
+  async triggerAirflow(datasetId: string = 'ride_hailing_xanh_sm_trips.csv'): Promise<any> {
     const res = await fetch(`${API_ROOT}/airflow/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -255,6 +288,121 @@ export const apiBridge = {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp lịch sử runs`);
+    return res.json();
+  },
+
+  /**
+   * Lấy danh sách Compliance Check Rules (Cố định, Read-Only, AI không có quyền đề xuất)
+   */
+  async fetchComplianceCheckRules(datasetId?: string): Promise<ComplianceCheckRule[]> {
+    const url = datasetId
+      ? `${API_ROOT}/rules/compliance-checks?dataset_id=${encodeURIComponent(datasetId)}`
+      : `${API_ROOT}/rules/compliance-checks`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp compliance check rules`);
+    return res.json();
+  },
+
+  /**
+   * Lấy danh sách Data Treatment Rules (Xử lý dữ liệu chung, AI đề xuất note riêng)
+   */
+  async fetchDataTreatmentRules(datasetId?: string, status?: string): Promise<DataTreatmentRule[]> {
+    let url = `${API_ROOT}/rules/treatments`;
+    const params = new URLSearchParams();
+    if (datasetId) params.append('dataset_id', datasetId);
+    if (status) params.append('status', status);
+    if (params.toString()) url += `?${params.toString()}`;
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp data treatment rules`);
+    return res.json();
+  },
+
+  /**
+   * Cập nhật biểu thức xử lý trên UI (Admin)
+   */
+  async updateTreatmentRuleExpression(
+    ruleId: string,
+    expressionDisplay: string,
+    paramsJson?: Record<string, any>,
+    description?: string
+  ): Promise<DataTreatmentRule> {
+    const res = await fetch(`${API_ROOT}/rules/treatments/${encodeURIComponent(ruleId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expression_display: expressionDisplay,
+        params_json: paramsJson,
+        description: description,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi cập nhật biểu thức rule HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Duyệt rule xử lý do AI đề xuất -> chuyển thành Active
+   */
+  async approveTreatmentRule(
+    ruleId: string,
+    actorName: string,
+    actorRole: string
+  ): Promise<DataTreatmentRule> {
+    const res = await fetch(`${API_ROOT}/rules/treatments/${encodeURIComponent(ruleId)}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actor_name: actorName,
+        actor_role: actorRole.toUpperCase(),
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi duyệt rule HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Từ chối rule xử lý do AI đề xuất -> chuyển thành Rejected
+   */
+  async rejectTreatmentRule(
+    ruleId: string,
+    actorName: string,
+    actorRole: string,
+    comments?: string
+  ): Promise<DataTreatmentRule> {
+    const res = await fetch(`${API_ROOT}/rules/treatments/${encodeURIComponent(ruleId)}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actor_name: actorName,
+        actor_role: actorRole.toUpperCase(),
+        comments,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi từ chối rule HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Bật / Tạm dừng rule xử lý
+   */
+  async toggleTreatmentRule(ruleId: string): Promise<DataTreatmentRule> {
+    const res = await fetch(`${API_ROOT}/rules/treatments/${encodeURIComponent(ruleId)}/toggle`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi toggle rule HTTP ${res.status}`);
+    }
     return res.json();
   },
 };

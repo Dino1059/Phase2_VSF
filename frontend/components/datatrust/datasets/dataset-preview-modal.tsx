@@ -99,6 +99,9 @@ export function DatasetPreviewModal({
                 <h3 className="font-mono font-bold text-base text-slate-900">
                   {filename}
                 </h3>
+                {datasetTitle && datasetTitle !== filename && (
+                  <span className="text-xs text-slate-500 font-sans">({datasetTitle})</span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Tổng số: <strong className="text-slate-900 font-bold">{totalRecords.toLocaleString()}</strong> bản ghi
@@ -120,10 +123,19 @@ export function DatasetPreviewModal({
 
         {/* Filter bar */}
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-3 bg-white">
-
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-2.5 size-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Lọc dữ liệu mẫu..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#04D3D4]"
+            />
+          </div>
           <div className="flex items-center gap-2 text-xs text-slate-600">
             <Globe size={14} className="text-slate-400" />
-            <span>Đang hiển thị <strong>{filteredRows.length}</strong> dòng mẫu đầu tiên</span>
+            <span>Đang hiển thị <strong>{filteredRows.length}</strong> dòng mẫu</span>
           </div>
         </div>
 

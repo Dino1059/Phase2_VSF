@@ -94,41 +94,35 @@ VALUES
 ('CLAUSE-IFRS-REV', 'POL-IFRS-15', 'Section 404.1', 'Kiểm tra cước phí và cự ly di chuyển dương hợp lệ trên từng chuyến đi', ARRAY['NON_PERSONAL_REFERENCE']::catalog.pii_role_type[], 'KEEP')
 ON CONFLICT (clause_id) DO NOTHING;
 
--- 5. SEED ACTIVE RULES (Enforced by Admin Nguyễn Quốc Bảo)
+-- 5. SEED FIXED COMPLIANCE CHECKING RULES (Backend-Only, Immutable Gates)
+INSERT INTO engine.compliance_check_rules (rule_id, dataset_id, target_column, rule_name, rule_code, expression, description, law_ref, severity, on_fail_action, is_fixed)
+VALUES
+('CHK-TRIP-FARE', 'trips', 'fare_amount', 'Doanh thu & cự ly chuyến đi hợp lệ', 'TC-REV-01', 'fare_amount > 0 AND trip_distance_km >= 0.1', 'Cước phí phải lớn hơn 0 và cự ly >= 0.1km theo chuẩn IFRS 15 / SOX 404', 'IFRS 15 / SOX Section 404', 'CRITICAL', 'QUARANTINE', TRUE),
+('CHK-TRIP-GPS', 'trips', 'pickup_latitude', 'Giới hạn tọa độ đón khách lãnh thổ VN', 'TC-GEO-01', 'pickup_latitude BETWEEN 8.0 AND 24.0', 'Tọa độ GPS điểm đón khách phải nằm trong phạm vi lãnh thổ Việt Nam', 'Quy định Vận tải GSM VN', 'HIGH', 'QUARANTINE', TRUE),
+('CHK-TELEM-TEMP', 'telemetry', 'battery_temp_c', 'Ngưỡng nhiệt độ an toàn pack pin EV', 'TC-TEL-01', 'battery_temp_c BETWEEN -10.0 AND 85.0', 'Nhiệt độ cell pin xe điện VinFast phải nằm trong ngưỡng kỹ thuật an toàn', 'IEC 62660-1 / UN ECE R100', 'CRITICAL', 'QUARANTINE', TRUE),
+('CHK-TELEM-SOC', 'telemetry', 'battery_soc', 'Dung lượng pin xe điện khả dụng (SoC)', 'TC-TEL-02', 'battery_soc BETWEEN 0.0 AND 100.0', 'Mức pin xe điện phải nằm trong dải 0% đến 100%', 'VinFast EV Telematics Spec', 'CRITICAL', 'QUARANTINE', TRUE),
+('CHK-CHG-METER', 'charging', 'meter_kwh_delta', 'Sai số công tơ Modbus trụ sạc V-GREEN', 'TC-CHG-01', 'abs(meter_kwh_delta - bms_kwh_delta) <= 0.03 * meter_kwh_delta', 'Chênh lệch điện năng giữa đồng hồ trụ sạc và xe không vượt quá 3%', 'SOX 404 & Tiêu chuẩn V-GREEN', 'HIGH', 'QUARANTINE', TRUE)
+ON CONFLICT (rule_id) DO NOTHING;
+
+-- 6. SEED DATA TREATMENT RULES (Unified Processing - AI Proposals Noted Separately)
+INSERT INTO engine.data_treatment_rules (rule_id, dataset_id, column_name, operation_id, treatment_name, params_json, expression_display, description, is_ai_proposed, ai_rationale, ai_confidence, status, enforced_by)
+VALUES
+-- Active Treatments (Đang áp dụng)
+('TRT-TRIP-DRIVER', 'trips', 'driver_id', 'hash_sha256', 'Mã hóa một chiều Driver ID', '{"salt": "gsm_driver_salt_2026"}'::jsonb, 'hash_sha256(driver_id)', 'Bí danh hóa mã tài xế đối tác GSM', FALSE, NULL, NULL, 'active', 'Nguyễn Quốc Bảo (Lead Platform)'),
+('TRT-TRIP-GPS', 'trips', 'pickup_latitude', 'round_decimal', 'Làm tròn tọa độ GPS đón khách', '{"decimals": 2}'::jsonb, 'round_decimal(pickup_latitude, 2)', 'Làm mờ tọa độ GPS đón khách độ chính xác ~1km bảo vệ nơi ở', FALSE, NULL, NULL, 'active', 'Nguyễn Quốc Bảo (Lead Platform)'),
+
+-- AI Proposed Treatments (Được note riêng biệt, chờ Admin duyệt và có thể sửa biểu thức trên UI)
+('TRT-PROP-PHONE', 'trips', 'customer_phone', 'mask_phone', 'Che mờ số điện thoại khách hàng', '{"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}'::jsonb, 'mask_phone(customer_phone)', 'Che mờ số điện thoại khách đặt xe', TRUE, 'AI phát hiện số điện thoại khách hàng dạng cleartext, đề xuất che mờ theo NĐ 13/2023.', 0.965, 'pending', 'AI Treatment Proposer'),
+('TRT-PROP-NAME', 'trips', 'customer_name', 'mask_name', 'Che mờ họ tên khách hàng', '{"keep_first": true, "mask_char": "*"}'::jsonb, 'mask_name(customer_name)', 'Che mờ họ tên hành khách', TRUE, 'Họ tên khách hàng cần được ẩn danh tên riêng theo quy định bảo vệ dữ liệu cá nhân.', 0.940, 'pending', 'AI Treatment Proposer'),
+('TRT-PROP-VIN', 'telemetry', 'vehicle_vin', 'to_upper', 'Chuẩn hóa mã VIN in hoa', '{}'::jsonb, 'to_upper(vehicle_vin)', 'Chuẩn hóa chuỗi ký tự mã VIN xe', TRUE, 'AI phát hiện một số gói tin telemetry có mã VIN chữ thường, đề xuất chuẩn hóa in hoa chuẩn ISO 3779.', 0.980, 'pending', 'AI Treatment Proposer')
+ON CONFLICT (rule_id) DO NOTHING;
+
+-- Backward compatibility seeds for field_process_configs
 INSERT INTO engine.field_process_configs (config_id, dataset_id, column_name, pii_role, treatment_action, operation_id, execution_phase, execution_order, params_json, expression_display, on_fail_action, severity, policy_id, law_ref, enforced_by, is_active, version)
 VALUES
-('ACT-TRIP-01', 'trips', 'fare_amount', 'NON_PERSONAL_REFERENCE', 'KEEP', 'range_check', 'post_check', 1, 
- '{"min_val": 0.01, "allow_zero": false}'::jsonb, 
- 'fare_amount > 0 AND trip_distance_km >= 0.1', 'QUARANTINE', 'CRITICAL', 'POL-IFRS-15', 'IFRS 15 / SOX Section 404', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1),
-
-('ACT-CUST-01', 'trips', 'customer_phone', 'DIRECT_IDENTIFIER', 'PSEUDONYMIZE', 'mask_phone', 'treatment', 2, 
- '{"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}'::jsonb, 
- 'mask_phone(customer_phone)', 'QUARANTINE', 'HIGH', 'POL-VN-ND13', 'Nghị định 13/2023/NĐ-CP Điều 17', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1),
-
-('ACT-TRIP-GPS', 'trips', 'pickup_latitude', 'CONTEXTUAL_PERSONAL_DATA', 'GENERALIZE', 'round_decimal', 'treatment', 3, 
- '{"decimals": 2}'::jsonb, 
- 'round_decimal(pickup_latitude, 2)', 'WARN', 'MEDIUM', 'POL-VN-ND13', 'Nghị định 13/2023/NĐ-CP Điều 13', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1),
-
-('ACT-CUST-ID', 'customers', 'national_id', 'DIRECT_IDENTIFIER', 'REMOVE', 'redact_null', 'treatment', 4, 
- '{}'::jsonb, 
- 'redact_null(national_id)', 'QUARANTINE', 'CRITICAL', 'POL-EU-GDPR', 'GDPR Article 5 Data Minimization', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1)
+('ACT-TRIP-01', 'trips', 'fare_amount', 'NON_PERSONAL_REFERENCE', 'KEEP', 'range_check', 'post_check', 1, '{"min_val": 0.01, "allow_zero": false}'::jsonb, 'fare_amount > 0 AND trip_distance_km >= 0.1', 'QUARANTINE', 'CRITICAL', 'POL-IFRS-15', 'IFRS 15 / SOX Section 404', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1),
+('ACT-CUST-01', 'trips', 'customer_phone', 'DIRECT_IDENTIFIER', 'PSEUDONYMIZE', 'mask_phone', 'treatment', 2, '{"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}'::jsonb, 'mask_phone(customer_phone)', 'QUARANTINE', 'HIGH', 'POL-VN-ND13', 'Nghị định 13/2023/NĐ-CP Điều 17', 'Nguyễn Quốc Bảo (Lead Platform)', TRUE, 1)
 ON CONFLICT (config_id) DO NOTHING;
-
--- 6. SEED PROPOSED RULES (Generated by AI Agent, Awaiting Admin Approval - HITL)
-INSERT INTO engine.proposed_rules (proposal_id, dataset_id, column_name, pii_role, treatment_action, operation_id, execution_phase, params_json, expression_display, rationale, domain, severity, confidence, law_ref, policy_id, status, simulated_pass_rows, simulated_quarantine_rows)
-VALUES
-('a0000001-0000-0000-0000-000000000001'::uuid, 'trips', 'trip_notes', 'AMBIGUOUS_UNSTRUCTURED_DATA', 'PSEUDONYMIZE', 'hash_sha256', 'treatment', 
- '{"salt": "gsm_notes_salt"}'::jsonb, 
- 'hash_sha256(trip_notes)', 
- 'AI phát hiện cột ghi chú tự do chứa số điện thoại cá nhân do khách hàng tự nhập, đề xuất bí danh hóa bảo vệ dữ liệu cá nhân theo NĐ13.', 
- 'Privacy & Data Protection', 'HIGH', 0.945, 'Nghị định 13/2023/NĐ-CP', 'POL-VN-ND13', 'pending', 985, 15),
-
-('a0000001-0000-0000-0000-000000000002'::uuid, 'telemetry', 'battery_temp_c', 'TECHNICAL_METADATA', 'KEEP', 'range_check', 'post_check', 
- '{"min_val": -10, "max_val": 85, "allow_zero": true}'::jsonb, 
- 'battery_temp_c BETWEEN -10 AND 85', 
- 'Quy chuẩn an toàn pin xe điện VinFast, phát hiện bất thường quá nhiệt (>85°C) để bảo vệ cell pin và hồ sơ an toàn IPO.', 
- 'Data Quality', 'CRITICAL', 0.980, 'Quy chuẩn Kỹ thuật Pin EV VinFast 2024', 'POL-IFRS-15', 'pending', 10350, 32)
-ON CONFLICT (proposal_id) DO NOTHING;
 
 -- 7. SEED AUDIT TRAIL (Initial State Verification)
 INSERT INTO audit.system_audit_trail (actor, actor_role, action_type, entity_type, entity_id, previous_state, new_state, record_hash, previous_hash)

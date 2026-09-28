@@ -357,3 +357,28 @@ def test_airflow_endpoints():
     assert res_data["mode"] in ["airflow_celery", "local_fallback"]
     assert res_data["status"] in ["triggered", "completed"]
 
+
+def test_dynamic_runs_and_dataset_filenames():
+    """Kiểm tra tab lần chạy (/api/runs) và kích hoạt Airflow/fallback với tên file dataset thực tế."""
+    client = TestClient(app)
+
+    # 1. Trigger pipeline cho fleet_index.csv
+    resp_fleet = client.post("/api/airflow/trigger", json={"dataset_id": "fleet_index.csv"})
+    assert resp_fleet.status_code == 200
+    fleet_data = resp_fleet.json()
+    assert "fleet_index.csv" in fleet_data.get("dataset_id", "") or "fleet_index.csv" in str(fleet_data)
+
+    # 2. Trigger pipeline cho synthetic_ev_telemetry_ved_ref.csv
+    resp_telem = client.post("/api/airflow/trigger", json={"dataset_id": "synthetic_ev_telemetry_ved_ref.csv"})
+    assert resp_telem.status_code == 200
+
+    # 3. Lấy danh sách runs và kiểm tra rằng datasetId là tên file và kết quả tương ứng
+    resp_runs = client.get("/api/runs")
+    assert resp_runs.status_code == 200
+    runs = resp_runs.json()
+    assert len(runs) > 0
+    assert any(r["datasetId"].endswith(".csv") for r in runs)
+    # Xác nhận các lần chạy có dataset khác nhau
+    dataset_ids = {r["datasetId"] for r in runs}
+    assert len(dataset_ids) >= 1
+

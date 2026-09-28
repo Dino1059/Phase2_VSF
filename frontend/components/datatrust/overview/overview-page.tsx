@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 import {
-  ArrowRight,
   Database,
   Eye,
   Play,
@@ -19,7 +18,6 @@ import { SlideDownDashboard } from './slide-down-dashboard';
 export function OverviewPage() {
   const {
     homepageViewMode,
-    selectedDatasetId,
     selectDataset,
     datasets,
     startPipelineRun,
@@ -79,9 +77,9 @@ export function OverviewPage() {
                         onClick={() => selectDataset(ds.id)}
                         className={`cursor-pointer rounded-2xl border p-4.5 transition-all duration-200 bg-white`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2.5 min-w-0">
-                            <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#04D3D4]/15 text-slate-950 font-mono font-bold border border-[#04D3D4]/30 mt-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#04D3D4]/15 text-slate-950 font-mono font-bold border border-[#04D3D4]/30">
                               <Database size={15} className="text-[#04D3D4]" />
                             </span>
                             <div className="min-w-0">

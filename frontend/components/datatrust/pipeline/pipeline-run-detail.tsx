@@ -45,6 +45,12 @@ export function PipelineRunDetail({ run }: { run: Detail }) {
             <p className="mt-1 text-sm text-slate-500">
               DAG: <strong className="text-slate-700">{run.dagId}</strong> · Bắt đầu lúc {format(run.startedAt)}
             </p>
+            {run.datasetId && (
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#e6f6f2] px-2.5 py-1 text-xs font-mono font-medium text-[#007460] border border-[#b2e2d5]">
+                <Database size={13} />
+                <span>File dữ liệu: <strong>{run.datasetId}</strong></span>
+              </div>
+            )}
           </div>
         </div>
       </div>

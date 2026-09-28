@@ -17,8 +17,17 @@ const format = (value: string) => {
   }
 };
 
+const DATASET_OPTIONS = [
+  { id: 'ride_hailing_xanh_sm_trips.csv', label: 'ride_hailing_xanh_sm_trips.csv (10,382 dòng)' },
+  { id: 'synthetic_ev_telemetry_ved_ref.csv', label: 'synthetic_ev_telemetry_ved_ref.csv (86,400 dòng)' },
+  { id: 'acn_charging_mapped.csv', label: 'acn_charging_mapped.csv (1,331 dòng)' },
+  { id: 'nlp_benchmark_uit_vsfc.csv', label: 'nlp_benchmark_uit_vsfc.csv (500 dòng)' },
+  { id: 'fleet_index.csv', label: 'fleet_index.csv (60 dòng)' },
+];
+
 export function RunsPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [selectedDatasetFile, setSelectedDatasetFile] = useState('ride_hailing_xanh_sm_trips.csv');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isTriggering, setIsTriggering] = useState(false);
@@ -46,11 +55,11 @@ export function RunsPage() {
     setIsTriggering(true);
     setTriggerMessage(null);
     try {
-      const res = await apiBridge.triggerAirflow('trips');
-      setTriggerMessage(`Đã kích hoạt Airflow DAG: ${res.dag_run_id || 'Thành công'}`);
+      const res = await apiBridge.triggerAirflow(selectedDatasetFile);
+      setTriggerMessage(`Đã kích hoạt Airflow DAG cho ${selectedDatasetFile}: ${res.dag_run_id || 'Thành công'}`);
       await loadRuns();
     } catch (err: any) {
-      setTriggerMessage(`Kích hoạt pipeline thử nghiệm (fallback)`);
+      setTriggerMessage(`Kích hoạt pipeline dự phòng cho ${selectedDatasetFile}`);
       await loadRuns();
     } finally {
       setIsTriggering(false);
@@ -61,7 +70,8 @@ export function RunsPage() {
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      return r.id.toLowerCase().includes(q) || r.dagId.toLowerCase().includes(q);
+      const ds = ((r as any).datasetId || '').toLowerCase();
+      return r.id.toLowerCase().includes(q) || r.dagId.toLowerCase().includes(q) || ds.includes(q);
     }
     return true;
   });
@@ -79,16 +89,27 @@ export function RunsPage() {
           </h1>
         </div>
 
-        <Button
-          variant="xanhsm"
-          size="sm"
-          disabled={isTriggering}
-          onClick={handleTriggerAirflow}
-          className="h-9 gap-1.5 px-4 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9] cursor-pointer"
-        >
-          {isTriggering ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-          <span>{isTriggering ? 'Đang kích hoạt...' : 'Chạy pipeline mới (Airflow)'}</span>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedDatasetFile}
+            onChange={(e) => setSelectedDatasetFile(e.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 font-mono text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#04D3D4]"
+          >
+            {DATASET_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            onClick={handleTriggerAirflow}
+            disabled={isTriggering}
+            className="h-9 gap-1.5 px-3 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9] shadow-xs"
+          >
+            {isTriggering ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            <span>Kích hoạt Airflow Run</span>
+          </Button>
+        </div>
       </div>
 
       {triggerMessage && (
@@ -107,7 +128,7 @@ export function RunsPage() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm Run ID hoặc DAG ID..."
+              placeholder="Tìm kiếm Run ID, DAG ID hoặc Tệp dữ liệu..."
               className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-[#04D3D4] focus:bg-white transition"
             />
           </div>
@@ -131,7 +152,7 @@ export function RunsPage() {
           <table className="w-full min-w-[1000px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
-                {['Mã Lần chạy', 'DAG ID', 'Trạng thái', 'Đầu vào (Raw)', 'Bản ghi Sạch (Silver)', 'Cách ly (Quarantine)', 'Bắt đầu lúc', 'Thời lượng', ''].map(
+                {['Mã Lần chạy', 'DAG ID & Tệp Dữ Liệu', 'Trạng thái', 'Đầu vào (Raw)', 'Bản ghi Sạch (Silver)', 'Cách ly (Quarantine)', 'Bắt đầu lúc', 'Thời lượng', ''].map(
                   (col, idx) => (
                     <th key={idx} className="px-4 py-3 font-semibold">
                       {col}
@@ -149,14 +170,16 @@ export function RunsPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3.5 font-medium">
-                    <span className="inline-flex items-center gap-2 text-slate-700">
+                    <span className="inline-flex items-center gap-2 text-slate-700 font-semibold">
                       <Workflow size={13} className="text-[#04D3D4]" />
                       {run.dagId}
                     </span>
                     {(run as any).datasetId && (
-                      <span className="block text-[10px] font-mono text-slate-500 mt-0.5">
-                        {(run as any).datasetId}
-                      </span>
+                      <div className="mt-1">
+                        <span className="inline-flex items-center rounded-md bg-[#04D3D4]/10 border border-[#04D3D4]/30 px-1.5 py-0.5 text-[10px] font-mono font-bold text-slate-900">
+                          {(run as any).datasetId}
+                        </span>
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3.5">

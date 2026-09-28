@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import { apiBridge } from './api-bridge';
+import { apiBridge, type ComplianceCheckRule, type DataTreatmentRule } from './api-bridge';
+
+export type { ComplianceCheckRule, DataTreatmentRule };
 
 export interface ProposedRule {
   id: string;
@@ -201,8 +203,8 @@ export const initialActiveRules: ActiveRule[] = [
     name: 'fare_amount_positive_threshold',
     expression: 'fare_amount > 0 AND trip_distance_km >= 0.1',
     domain: 'Data Quality',
-    datasetId: 'trips',
-    datasetName: 'trips',
+    datasetId: 'ride_hailing_xanh_sm_trips.csv',
+    datasetName: 'ride_hailing_xanh_sm_trips.csv',
     severity: 'CRITICAL',
     targetLane: 'Quarantine Lane / Ingestion Gate',
     enforcedAt: '2026-09-20T08:30:00Z',
@@ -252,8 +254,8 @@ export const initialActiveRules: ActiveRule[] = [
     name: 'modbus_meter_delta_tolerance',
     expression: 'abs(meter_kwh_delta - bms_kwh_delta) <= 0.03 * meter_kwh_delta',
     domain: 'Data Quality',
-    datasetId: 'charging',
-    datasetName: 'charging',
+    datasetId: 'acn_charging_mapped.csv',
+    datasetName: 'acn_charging_mapped.csv',
     severity: 'HIGH',
     targetLane: 'Energy Billing Guard',
     enforcedAt: '2026-09-23T11:45:00Z',
@@ -269,8 +271,8 @@ export const initialActiveRules: ActiveRule[] = [
     name: 'bms_cell_temp_critical_cutoff',
     expression: 'max_cell_temp_c <= 65.0 AND min_cell_temp_c >= -20.0',
     domain: 'Data Quality',
-    datasetId: 'telemetry',
-    datasetName: 'telemetry',
+    datasetId: 'synthetic_ev_telemetry_ved_ref.csv',
+    datasetName: 'synthetic_ev_telemetry_ved_ref.csv',
     severity: 'CRITICAL',
     targetLane: 'BMS Ingestion Gate',
     enforcedAt: '2026-09-24T16:20:00Z',
@@ -292,11 +294,11 @@ export const initialChatMessages: ChatMessageItem[] = [
 Để bắt đầu, hãy chọn 1 bộ dữ liệu thực tế để tôi quét profiling và chạy luồng kiểm soát từ **L1 đến L4**:`,
     timestamp: 'Vừa xong',
     quickActions: [
-      { label: '📄 ride_hailing_xanh_sm_trips.csv (10,382)', actionType: 'SELECT_AND_RUN', payload: 'trips' },
-      { label: '📄 synthetic_ev_telemetry_ved_ref.csv (86,400)', actionType: 'SELECT_AND_RUN', payload: 'telemetry' },
-      { label: '📄 acn_charging_mapped.csv (1,331)', actionType: 'SELECT_AND_RUN', payload: 'charging' },
-      { label: '📄 nlp_benchmark_uit_vsfc.csv (500)', actionType: 'SELECT_AND_RUN', payload: 'nlp_feedback' },
-      { label: '📄 fleet_index.csv (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet' },
+      { label: '📄 ride_hailing_xanh_sm_trips.csv (10,382)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
+      { label: '📄 synthetic_ev_telemetry_ved_ref.csv (86,400)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref.csv' },
+      { label: '📄 acn_charging_mapped.csv (1,331)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped.csv' },
+      { label: '📄 nlp_benchmark_uit_vsfc.csv (500)', actionType: 'SELECT_AND_RUN', payload: 'nlp_benchmark_uit_vsfc.csv' },
+      { label: '📄 fleet_index.csv (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index.csv' },
     ],
   },
 ];
@@ -344,6 +346,178 @@ export const initialPipelineLevels: PipelineLevelsState = {
     latencyMs: 45,
   },
 };
+
+export const initialComplianceCheckRules: ComplianceCheckRule[] = [
+  {
+    rule_id: 'CHK-TRIP-FARE',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'fare_amount',
+    rule_name: 'Thẩm tra doanh thu cước & cự ly chuyến đi',
+    rule_code: 'VAL-FARE-01',
+    expression: 'fare_amount > 0 AND trip_distance_km >= 0.1',
+    description: 'Bảo đảm 100% cuốc xe phát sinh doanh thu hợp lệ, chống gian lận cước ảo',
+    law_ref: 'IFRS 15 / SOX 404',
+    severity: 'CRITICAL',
+    on_fail_action: 'QUARANTINE',
+    is_fixed: true,
+    enforced_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'CHK-TRIP-GPS',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'pickup_latitude',
+    rule_name: 'Kiểm tra tọa độ GPS đón khách',
+    rule_code: 'VAL-GPS-02',
+    expression: 'pickup_latitude BETWEEN 8.0 AND 24.0 AND pickup_longitude BETWEEN 102.0 AND 110.0',
+    description: 'Xác thực tọa độ đón khách nằm trong phạm vi lãnh thổ và vùng dịch vụ hợp lệ',
+    law_ref: 'TCVN 12823:2020',
+    severity: 'HIGH',
+    on_fail_action: 'QUARANTINE',
+    is_fixed: true,
+    enforced_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'CHK-TELEM-TEMP',
+    dataset_id: 'synthetic_ev_telemetry_ved_ref.csv',
+    column_name: 'battery_temp_c',
+    rule_name: 'Ngưỡng nhiệt độ an toàn khối pin BMS',
+    rule_code: 'VAL-TEMP-01',
+    expression: 'battery_temp_c >= -10.0 AND battery_temp_c <= 60.0',
+    description: 'Cảnh báo và cách ly các gói tin telemetry có nhiệt độ vượt ngưỡng an toàn nhiệt động học',
+    law_ref: 'ISO 26262 ASIL-D',
+    severity: 'CRITICAL',
+    on_fail_action: 'QUARANTINE',
+    is_fixed: true,
+    enforced_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'CHK-TELEM-SOC',
+    dataset_id: 'synthetic_ev_telemetry_ved_ref.csv',
+    column_name: 'battery_soc',
+    rule_name: 'Giới hạn tỷ lệ sạc trạng thái pin (SoC)',
+    rule_code: 'VAL-SOC-02',
+    expression: 'battery_soc >= 0.0 AND battery_soc <= 100.0',
+    description: 'Chỉ số phần trăm dung lượng pin bắt buộc nằm trong khoảng vật lý 0% - 100%',
+    law_ref: 'UN R100 Rev 2',
+    severity: 'HIGH',
+    on_fail_action: 'QUARANTINE',
+    is_fixed: true,
+    enforced_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'CHK-CHG-METER',
+    dataset_id: 'acn_charging_mapped.csv',
+    column_name: 'energy_kwh',
+    rule_name: 'Đối soát điện năng sạc & chi phí thanh toán',
+    rule_code: 'VAL-CHG-01',
+    expression: 'energy_kwh > 0.0 AND cost_vnd >= 0.0',
+    description: 'Xác thực phiên sạc hợp lệ có điện năng tiêu thụ thực tế và chi phí không âm',
+    law_ref: 'Đo lường điện lực EVN / IEC 61851',
+    severity: 'CRITICAL',
+    on_fail_action: 'QUARANTINE',
+    is_fixed: true,
+    enforced_at: '2026-09-27T08:00:00Z',
+  },
+];
+
+export const initialDataTreatmentRules: DataTreatmentRule[] = [
+  {
+    rule_id: 'TRT-TRIP-PHONE',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'customer_phone',
+    operation_id: 'mask_phone',
+    treatment_name: 'Che mờ số điện thoại khách hàng',
+    params_json: { prefix_len: 3, suffix_len: 2, mask_char: '*' },
+    expression_display: 'mask_phone(customer_phone)',
+    description: 'Bảo vệ thông tin liên lạc khách hàng theo Nghị định 13/2023',
+    is_ai_proposed: false,
+    status: 'active',
+    enforced_by: 'Nguyễn Quốc Bảo (Lead Platform)',
+    created_at: '2026-09-27T08:00:00Z',
+    updated_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'TRT-TRIP-DRIVER',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'driver_id',
+    operation_id: 'hash_sha256',
+    treatment_name: 'Mã hóa một chiều định danh tài xế',
+    params_json: { algorithm: 'sha256' },
+    expression_display: 'hash_sha256(driver_id)',
+    description: 'Bí danh hóa mã tài xế đối tác GSM',
+    is_ai_proposed: false,
+    status: 'active',
+    enforced_by: 'Nguyễn Quốc Bảo (Lead Platform)',
+    created_at: '2026-09-27T08:00:00Z',
+    updated_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'TRT-TRIP-GPS',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'pickup_latitude',
+    operation_id: 'round_decimal',
+    treatment_name: 'Làm tròn tọa độ GPS đón khách',
+    params_json: { decimals: 2 },
+    expression_display: 'round_decimal(pickup_latitude, 2)',
+    description: 'Làm mờ tọa độ GPS đón khách độ chính xác ~1km bảo vệ nơi ở',
+    is_ai_proposed: false,
+    status: 'active',
+    enforced_by: 'Nguyễn Quốc Bảo (Lead Platform)',
+    created_at: '2026-09-27T08:00:00Z',
+    updated_at: '2026-09-27T08:00:00Z',
+  },
+  {
+    rule_id: 'TRT-PROP-PHONE',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'customer_phone',
+    operation_id: 'mask_phone',
+    treatment_name: 'Che mờ số điện thoại khách hàng (Cải tiến)',
+    params_json: { prefix_len: 3, suffix_len: 2, mask_char: '*' },
+    expression_display: 'mask_phone(customer_phone, prefix=3, suffix=2)',
+    description: 'Che mờ số điện thoại khách đặt xe',
+    is_ai_proposed: true,
+    ai_rationale: 'AI phát hiện số điện thoại khách hàng dạng cleartext, đề xuất che mờ bảo vệ dữ liệu theo Nghị định 13/2023.',
+    ai_confidence: 0.965,
+    status: 'pending',
+    enforced_by: 'AI Treatment Proposer',
+    created_at: '2026-09-28T09:00:00Z',
+    updated_at: '2026-09-28T09:00:00Z',
+  },
+  {
+    rule_id: 'TRT-PROP-NAME',
+    dataset_id: 'ride_hailing_xanh_sm_trips.csv',
+    column_name: 'customer_name',
+    operation_id: 'mask_name',
+    treatment_name: 'Che mờ họ tên khách hàng',
+    params_json: { keep_first: true, mask_char: '*' },
+    expression_display: 'mask_name(customer_name)',
+    description: 'Che mờ họ tên hành khách',
+    is_ai_proposed: true,
+    ai_rationale: 'Họ tên khách hàng cần được ẩn danh tên riêng theo quy định bảo vệ dữ liệu cá nhân.',
+    ai_confidence: 0.940,
+    status: 'pending',
+    enforced_by: 'AI Treatment Proposer',
+    created_at: '2026-09-28T09:00:00Z',
+    updated_at: '2026-09-28T09:00:00Z',
+  },
+  {
+    rule_id: 'TRT-PROP-VIN',
+    dataset_id: 'synthetic_ev_telemetry_ved_ref.csv',
+    column_name: 'vehicle_vin',
+    operation_id: 'to_upper',
+    treatment_name: 'Chuẩn hóa mã VIN in hoa',
+    params_json: {},
+    expression_display: 'to_upper(vehicle_vin)',
+    description: 'Chuẩn hóa chuỗi ký tự mã VIN xe',
+    is_ai_proposed: true,
+    ai_rationale: 'AI phát hiện một số gói tin telemetry có mã VIN chữ thường, đề xuất chuẩn hóa in hoa chuẩn ISO 3779.',
+    ai_confidence: 0.980,
+    status: 'pending',
+    enforced_by: 'AI Treatment Proposer',
+    created_at: '2026-09-28T09:00:00Z',
+    updated_at: '2026-09-28T09:00:00Z',
+  },
+];
 
 export interface AgentStoreState {
   // Global Role & Dataset Selection
@@ -398,6 +572,17 @@ export interface AgentStoreState {
   simulateDryRun: (ruleId: string) => Promise<void>;
   toggleActiveRuleStatus: (ruleId: string) => void;
 
+  // Fixed Compliance Check Rules (Backend Only, Read-Only, No AI Proposals)
+  complianceCheckRules: ComplianceCheckRule[];
+  // Data Treatment Rules (Generic, AI Proposed Noted Separately, UI Editable)
+  dataTreatmentRules: DataTreatmentRule[];
+  rulesMainTab: 'treatments' | 'compliance_checks';
+  setRulesMainTab: (tab: 'treatments' | 'compliance_checks') => void;
+  updateTreatmentRuleExpression: (ruleId: string, newExpr: string, paramsJson?: any) => Promise<void>;
+  approveTreatmentRule: (ruleId: string) => Promise<void>;
+  rejectTreatmentRule: (ruleId: string, comments?: string) => Promise<void>;
+  toggleTreatmentRuleStatus: (ruleId: string) => Promise<void>;
+
   // Backend Live Integration & Fallback
   isBackendLive: boolean;
   isSyncing: boolean;
@@ -407,21 +592,31 @@ export interface AgentStoreState {
 
 export const normalizeDatasetId = (id: string): string => {
   const map: Record<string, string> = {
-    'ride_hailing_xanh_sm_trips': 'trips',
-    'synthetic_ev_telemetry_ved_ref': 'telemetry',
-    'acn_charging_mapped': 'charging',
-    'nlp_benchmark_uit_vsfc': 'nlp_feedback',
-    'fleet_index': 'fleet',
+    'trips': 'ride_hailing_xanh_sm_trips.csv',
+    'ride_hailing_xanh_sm_trips': 'ride_hailing_xanh_sm_trips.csv',
+    'ride_hailing_xanh_sm_trips.csv': 'ride_hailing_xanh_sm_trips.csv',
+    'telemetry': 'synthetic_ev_telemetry_ved_ref.csv',
+    'synthetic_ev_telemetry_ved_ref': 'synthetic_ev_telemetry_ved_ref.csv',
+    'synthetic_ev_telemetry_ved_ref.csv': 'synthetic_ev_telemetry_ved_ref.csv',
+    'charging': 'acn_charging_mapped.csv',
+    'acn_charging_mapped': 'acn_charging_mapped.csv',
+    'acn_charging_mapped.csv': 'acn_charging_mapped.csv',
+    'nlp_feedback': 'nlp_benchmark_uit_vsfc.csv',
+    'nlp_benchmark_uit_vsfc': 'nlp_benchmark_uit_vsfc.csv',
+    'nlp_benchmark_uit_vsfc.csv': 'nlp_benchmark_uit_vsfc.csv',
+    'fleet': 'fleet_index.csv',
+    'fleet_index': 'fleet_index.csv',
+    'fleet_index.csv': 'fleet_index.csv',
   };
-  return map[id] || id;
+  return map[id] || (id.endsWith('.csv') ? id : `${id}.csv`);
 };
 
 const initialDatasets: Record<string, DatasetItem> = {
-  trips: {
-    id: 'trips',
-    name: 'ride_hailing_xanh_sm_trips',
+  'ride_hailing_xanh_sm_trips.csv': {
+    id: 'ride_hailing_xanh_sm_trips.csv',
+    name: 'ride_hailing_xanh_sm_trips.csv',
     filename: 'ride_hailing_xanh_sm_trips.csv',
-    title: 'GSM Xanh SM Trips (3-Zone Pilot)',
+    title: 'ride_hailing_xanh_sm_trips.csv',
     records: 10382,
     zones: ['VN', 'US', 'EU'],
     zoneCounts: { VN: 3515, US: 3444, EU: 3423 },
@@ -430,11 +625,11 @@ const initialDatasets: Record<string, DatasetItem> = {
     proposedRulesCount: 0,
     proposedRules: [],
   },
-  telemetry: {
-    id: 'telemetry',
-    name: 'synthetic_ev_telemetry_ved_ref',
+  'synthetic_ev_telemetry_ved_ref.csv': {
+    id: 'synthetic_ev_telemetry_ved_ref.csv',
+    name: 'synthetic_ev_telemetry_ved_ref.csv',
     filename: 'synthetic_ev_telemetry_ved_ref.csv',
-    title: 'VinFast EV Telematics VED (BMS Telemetry)',
+    title: 'synthetic_ev_telemetry_ved_ref.csv',
     records: 86400,
     zones: ['VN', 'US', 'EU'],
     zoneCounts: { VN: 28800, US: 28800, EU: 28800 },
@@ -443,11 +638,11 @@ const initialDatasets: Record<string, DatasetItem> = {
     proposedRulesCount: 0,
     proposedRules: [],
   },
-  charging: {
-    id: 'charging',
-    name: 'acn_charging_mapped',
+  'acn_charging_mapped.csv': {
+    id: 'acn_charging_mapped.csv',
+    name: 'acn_charging_mapped.csv',
     filename: 'acn_charging_mapped.csv',
-    title: 'V-GREEN Trạm Sạc Xe Điện (EV Charging)',
+    title: 'acn_charging_mapped.csv',
     records: 1331,
     zones: ['VN', 'US', 'EU'],
     zoneCounts: { VN: 445, US: 446, EU: 440 },
@@ -456,11 +651,11 @@ const initialDatasets: Record<string, DatasetItem> = {
     proposedRulesCount: 0,
     proposedRules: [],
   },
-  nlp_feedback: {
-    id: 'nlp_feedback',
-    name: 'nlp_benchmark_uit_vsfc',
+  'nlp_benchmark_uit_vsfc.csv': {
+    id: 'nlp_benchmark_uit_vsfc.csv',
+    name: 'nlp_benchmark_uit_vsfc.csv',
     filename: 'nlp_benchmark_uit_vsfc.csv',
-    title: 'Đánh Giá & Phản Hồi Khách Hàng (NLP Feedback)',
+    title: 'nlp_benchmark_uit_vsfc.csv',
     records: 500,
     zones: ['VN'],
     zoneCounts: { VN: 500 },
@@ -469,11 +664,11 @@ const initialDatasets: Record<string, DatasetItem> = {
     proposedRulesCount: 0,
     proposedRules: [],
   },
-  fleet: {
-    id: 'fleet',
-    name: 'fleet_index',
+  'fleet_index.csv': {
+    id: 'fleet_index.csv',
+    name: 'fleet_index.csv',
     filename: 'fleet_index.csv',
-    title: 'Đội Xe Pilot 60 VIN (VinFast VF8, VF9, VF e34)',
+    title: 'fleet_index.csv',
     records: 60,
     zones: ['VN', 'US', 'EU'],
     zoneCounts: { VN: 20, US: 20, EU: 20 },
@@ -483,6 +678,18 @@ const initialDatasets: Record<string, DatasetItem> = {
     proposedRules: [],
   },
 };
+
+// Aliases for backward compatibility
+initialDatasets['trips'] = initialDatasets['ride_hailing_xanh_sm_trips.csv'];
+initialDatasets['telemetry'] = initialDatasets['synthetic_ev_telemetry_ved_ref.csv'];
+initialDatasets['charging'] = initialDatasets['acn_charging_mapped.csv'];
+initialDatasets['nlp_feedback'] = initialDatasets['nlp_benchmark_uit_vsfc.csv'];
+initialDatasets['fleet'] = initialDatasets['fleet_index.csv'];
+initialDatasets['ride_hailing_xanh_sm_trips'] = initialDatasets['ride_hailing_xanh_sm_trips.csv'];
+initialDatasets['synthetic_ev_telemetry_ved_ref'] = initialDatasets['synthetic_ev_telemetry_ved_ref.csv'];
+initialDatasets['acn_charging_mapped'] = initialDatasets['acn_charging_mapped.csv'];
+initialDatasets['nlp_benchmark_uit_vsfc'] = initialDatasets['nlp_benchmark_uit_vsfc.csv'];
+initialDatasets['fleet_index'] = initialDatasets['fleet_index.csv'];
 
 const initialSteps: AgentStep[] = [
   { id: 1, title: 'Đọc dữ liệu & profiling', desc: 'Kiểm tra cấu trúc, giá trị thiếu và phân bố dữ liệu', status: 'done' },
@@ -887,6 +1094,13 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   rulesSegmentTab: 'active',
   setRulesSegmentTab: (tab) => set({ rulesSegmentTab: tab }),
 
+  // Fixed Compliance Check Rules (Backend Only, Read-Only, No AI Proposals)
+  complianceCheckRules: initialComplianceCheckRules,
+  // Data Treatment Rules (Generic, AI Proposed Noted Separately, UI Editable)
+  dataTreatmentRules: initialDataTreatmentRules,
+  rulesMainTab: 'treatments',
+  setRulesMainTab: (tab) => set({ rulesMainTab: tab }),
+
   // Backend Live Integration & Fallback
   isBackendLive: false,
   isSyncing: false,
@@ -900,9 +1114,11 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         set({ isBackendLive: false, isSyncing: false });
         return;
       }
-      const [backendActiveRules, backendProposedRules] = await Promise.all([
+      const [backendActiveRules, backendProposedRules, backendComplianceRules, backendTreatmentRules] = await Promise.all([
         apiBridge.fetchActiveRules().catch(() => []),
         apiBridge.fetchProposedRules().catch(() => []),
+        apiBridge.fetchComplianceCheckRules().catch(() => []),
+        apiBridge.fetchDataTreatmentRules().catch(() => []),
       ]);
 
       set((state) => {
@@ -924,6 +1140,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           isSyncing: false,
           activeRules: nextActive,
           datasets: nextDatasets,
+          complianceCheckRules: backendComplianceRules.length > 0 ? backendComplianceRules : state.complianceCheckRules,
+          dataTreatmentRules: backendTreatmentRules.length > 0 ? backendTreatmentRules : state.dataTreatmentRules,
         };
       });
     } catch (err: any) {
@@ -1469,13 +1687,18 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     };
 
     // Alias lookups
+    verifiedMap['ride_hailing_xanh_sm_trips.csv'] = verifiedMap['ride_hailing_xanh_sm_trips'];
+    verifiedMap['synthetic_ev_telemetry_ved_ref.csv'] = verifiedMap['synthetic_ev_telemetry_ved_ref'];
+    verifiedMap['acn_charging_mapped.csv'] = verifiedMap['acn_charging_mapped'];
+    verifiedMap['nlp_benchmark_uit_vsfc.csv'] = verifiedMap['nlp_benchmark_uit_vsfc'];
+    verifiedMap['fleet_index.csv'] = verifiedMap['fleet_index'];
     verifiedMap['trips'] = verifiedMap['ride_hailing_xanh_sm_trips'];
     verifiedMap['telemetry'] = verifiedMap['synthetic_ev_telemetry_ved_ref'];
     verifiedMap['charging'] = verifiedMap['acn_charging_mapped'];
     verifiedMap['nlp_feedback'] = verifiedMap['nlp_benchmark_uit_vsfc'];
     verifiedMap['fleet'] = verifiedMap['fleet_index'];
 
-    const targetProfile = verifiedMap[targetDatasetId] || verifiedMap['ride_hailing_xanh_sm_trips'];
+    const targetProfile = verifiedMap[targetDatasetId] || verifiedMap['ride_hailing_xanh_sm_trips.csv'];
     const totalAnomalies = targetProfile.count;
 
     await new Promise((r) => setTimeout(r, 650));
@@ -1594,24 +1817,24 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       const role = get().currentRole;
 
       if (lower.includes('trips') || lower.includes('chuyến đi') || lower.includes('chọn trips')) {
-        get().startPipelineRun('trips');
-        return;
-      } else if (lower.includes('customers') || lower.includes('khách hàng')) {
-        get().startPipelineRun('customers');
-        return;
-      } else if (lower.includes('drivers') || lower.includes('tài xế')) {
-        get().startPipelineRun('drivers');
+        get().startPipelineRun('ride_hailing_xanh_sm_trips.csv');
         return;
       } else if (lower.includes('charging') || lower.includes('trạm sạc')) {
-        get().startPipelineRun('charging');
+        get().startPipelineRun('acn_charging_mapped.csv');
         return;
       } else if (lower.includes('telemetry') || lower.includes('pin') || lower.includes('viễn thông')) {
-        get().startPipelineRun('telemetry');
+        get().startPipelineRun('synthetic_ev_telemetry_ved_ref.csv');
+        return;
+      } else if (lower.includes('nlp') || lower.includes('đánh giá') || lower.includes('phản hồi')) {
+        get().startPipelineRun('nlp_benchmark_uit_vsfc.csv');
+        return;
+      } else if (lower.includes('fleet') || lower.includes('đội xe')) {
+        get().startPipelineRun('fleet_index.csv');
         return;
       } else if (lower.includes('test case') || lower.includes('auditor') || lower.includes('kiểm toán') || lower.includes('sinh test case')) {
         aiReply = `📋 **Bộ kịch bản kiểm toán đề xuất cho Auditor (Chuẩn IPO / SOX 404 & IFRS 15)**:\n\n1. **TC-REV-01 (Hiện hữu & Đo lường doanh thu)**: Thẩm tra 100% cuốc xe có \`fare_amount > 0\` và \`trip_distance_km >= 0.1\`. Khóa chặn rủi ro ghi nhận doanh thu khống.\n2. **TC-PII-02 (Bảo vệ dữ liệu cá nhân Nghị định 13/2023)**: Thẩm tra các trường SĐT/CCCD xem đã được hash salt và dynamic masking trước khi vào Silver stream chưa.\n3. **TC-CUTOFF-03 (Tính đúng kỳ Cut-off)**: Thẩm tra timestamp cuốc xe theo múi giờ 24 quốc gia để tránh lệch kỳ báo cáo tài chính.\n4. **TC-IOT-04 (Chất lượng Telemetry xe điện)**: Kiểm toán tín hiệu SoC và nhiệt độ cell pin BMS, lọc sạch gói tin nhiễu trước khi đối soát trạm sạc.`;
         quickActions = [
-          { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+          { label: '🚀 Chạy ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
           { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
         ];
       } else if (lower.includes('policy') || lower.includes('chính sách') || lower.includes('luật') || lower.includes('rule mới') || lower.includes('giải pháp') || lower.includes('đề xuất rule')) {
@@ -1619,36 +1842,36 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           aiReply = `⚠️ **Thông báo phân quyền (Auditor - Viewer)**:\n\nBạn đang đăng nhập với vai trò **Auditor**. Ở vai trò này:\n• Bạn có quyền **yêu cầu sinh Test Case kiểm toán** (hãy gõ *"sinh test case"* hoặc click nút bên dưới).\n• **AI sẽ không đề xuất giải pháp/rule** và bạn không có quyền phê duyệt rule.\n\n👉 Vui lòng chuyển sang tài khoản **Admin** ở thanh trên cùng để mở khóa tính năng đề xuất giải pháp và phê duyệt rule!`;
           quickActions = [
             { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-            { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+            { label: '🚀 Chạy ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
             { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
           ];
         } else {
           aiReply = `📜 **Đề xuất Rule tự động từ Văn bản Chính sách (Policy Ingestion)**:\n\n• **Chính sách nguồn**: *Nghị định 13/2023/NĐ-CP & GDPR Điều 5*\n• **Ràng buộc trích xuất**: Dữ liệu PII của khách hàng không được lưu trữ plain text ở môi trường Analytics.\n• **Đề xuất Rule**: \`mask_phone(customer_phone) WHEN role != 'Admin'\`\n• **Làn triển khai**: Dynamic Masking Gateway.\n\nBạn có thể duyệt nhanh quy tắc này ở tab **Quản lý Rule**!`;
           quickActions = [
             { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
-            { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+            { label: '🚀 Chạy ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
             { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
           ];
         }
       } else if (lower.includes('chọn dataset') || lower.includes('dataset') || lower.includes('danh sách bảng') || lower.includes('chọn bảng')) {
         aiReply = `Dưới đây là danh sách các bộ dữ liệu sẵn sàng kiểm soát tuân thủ. Hãy chọn 1 bảng để tôi quét luồng L1 -> L4:`;
         quickActions = [
-          { label: '🚖 trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
-          { label: '👥 customers', actionType: 'SELECT_AND_RUN', payload: 'customers' },
-          { label: '🚗 drivers', actionType: 'SELECT_AND_RUN', payload: 'drivers' },
-          { label: '⚡ charging', actionType: 'SELECT_AND_RUN', payload: 'charging' },
-          { label: '🔋 telemetry', actionType: 'SELECT_AND_RUN', payload: 'telemetry' },
+          { label: '📄 ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
+          { label: '📄 synthetic_ev_telemetry_ved_ref.csv', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref.csv' },
+          { label: '📄 acn_charging_mapped.csv', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped.csv' },
+          { label: '📄 nlp_benchmark_uit_vsfc.csv', actionType: 'SELECT_AND_RUN', payload: 'nlp_benchmark_uit_vsfc.csv' },
+          { label: '📄 fleet_index.csv', actionType: 'SELECT_AND_RUN', payload: 'fleet_index.csv' },
         ];
       } else {
         aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ điều phối sau:`;
         quickActions = role === 'auditor'
           ? [
               { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-              { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+              { label: '🚀 Chạy ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
               { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
             ]
           : [
-              { label: '🚀 Chạy kiểm soát trips', actionType: 'SELECT_AND_RUN', payload: 'trips' },
+              { label: '🚀 Chạy ride_hailing_xanh_sm_trips.csv', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
               { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
               { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
               { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
@@ -1700,6 +1923,80 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       activeRules: s.activeRules.map((r) =>
         r.id === ruleId ? { ...r, status: r.status === 'active' ? 'paused' : 'active' } : r
       )
+    }));
+  },
+
+  updateTreatmentRuleExpression: async (ruleId: string, newExpr: string, paramsJson?: any) => {
+    if (get().currentRole === 'auditor') return;
+    if (get().isBackendLive) {
+      try {
+        await apiBridge.updateTreatmentRuleExpression(ruleId, newExpr, paramsJson);
+      } catch (e) {
+        console.warn('Backend update treatment error:', e);
+      }
+    }
+    set((s) => ({
+      dataTreatmentRules: s.dataTreatmentRules.map((r) =>
+        r.rule_id === ruleId
+          ? { ...r, expression_display: newExpr, ...(paramsJson ? { params_json: paramsJson } : {}), updated_at: new Date().toISOString() }
+          : r
+      ),
+    }));
+  },
+
+  approveTreatmentRule: async (ruleId: string) => {
+    if (get().currentRole === 'auditor') return;
+    if (get().isBackendLive) {
+      try {
+        await apiBridge.approveTreatmentRule(ruleId, 'Nguyễn Quốc Bảo', 'ADMIN');
+      } catch (e) {
+        console.warn('Backend approve treatment error:', e);
+      }
+    }
+    set((s) => ({
+      dataTreatmentRules: s.dataTreatmentRules.map((r) =>
+        r.rule_id === ruleId
+          ? { ...r, status: 'active', enforced_by: 'Nguyễn Quốc Bảo (Lead Platform)', updated_at: new Date().toISOString() }
+          : r
+      ),
+    }));
+  },
+
+  rejectTreatmentRule: async (ruleId: string, comments?: string) => {
+    if (get().currentRole === 'auditor') return;
+    if (get().isBackendLive) {
+      try {
+        await apiBridge.rejectTreatmentRule(ruleId, 'Nguyễn Quốc Bảo', 'ADMIN', comments);
+      } catch (e) {
+        console.warn('Backend reject treatment error:', e);
+      }
+    }
+    set((s) => ({
+      dataTreatmentRules: s.dataTreatmentRules.map((r) =>
+        r.rule_id === ruleId
+          ? { ...r, status: 'rejected', updated_at: new Date().toISOString() }
+          : r
+      ),
+    }));
+  },
+
+  toggleTreatmentRuleStatus: async (ruleId: string) => {
+    if (get().currentRole === 'auditor') return;
+    if (get().isBackendLive) {
+      try {
+        await apiBridge.toggleTreatmentRule(ruleId);
+      } catch (e) {
+        console.warn('Backend toggle treatment error:', e);
+      }
+    }
+    set((s) => ({
+      dataTreatmentRules: s.dataTreatmentRules.map((r) => {
+        if (r.rule_id === ruleId) {
+          const nextStatus = r.status === 'active' ? 'paused' : 'active';
+          return { ...r, status: nextStatus, updated_at: new Date().toISOString() };
+        }
+        return r;
+      }),
     }));
   },
 }));

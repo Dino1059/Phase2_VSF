@@ -21,6 +21,8 @@ from backend.database.models import (
     PiiRoleType,
     TreatmentActionType,
     FieldProcessConfigModel,
+    ComplianceCheckRuleModel,
+    DataTreatmentRuleModel,
     ExecutionPhase,
     RuleSeverity,
     UserRole
@@ -37,12 +39,40 @@ PILOT_DATA_DIR = Path("data/vingroup_clean_3zone_pilot")
 # 1. CATALOG SPECIFICATION FOR 3-ZONE PILOT
 # =============================================================================
 
+class DatasetDict(dict):
+    """
+    Dictionary hỗ trợ truy vấn bằng tên file dữ liệu (.csv) làm khóa chính,
+    đồng thời hỗ trợ tra cứu tương thích ngược qua alias (trips, telemetry, v.v.).
+    """
+    ALIASES = {
+        "trips": "ride_hailing_xanh_sm_trips.csv",
+        "ride_hailing_xanh_sm_trips": "ride_hailing_xanh_sm_trips.csv",
+        "telemetry": "synthetic_ev_telemetry_ved_ref.csv",
+        "synthetic_ev_telemetry_ved_ref": "synthetic_ev_telemetry_ved_ref.csv",
+        "charging": "acn_charging_mapped.csv",
+        "acn_charging_mapped": "acn_charging_mapped.csv",
+        "nlp_feedback": "nlp_benchmark_uit_vsfc.csv",
+        "nlp_benchmark_uit_vsfc": "nlp_benchmark_uit_vsfc.csv",
+        "fleet": "fleet_index.csv",
+        "fleet_index": "fleet_index.csv",
+    }
+    def __getitem__(self, key):
+        actual_key = self.ALIASES.get(key, key)
+        return super().__getitem__(actual_key)
+    def get(self, key, default=None):
+        actual_key = self.ALIASES.get(key, key)
+        return super().get(actual_key, default)
+    def __contains__(self, key):
+        actual_key = self.ALIASES.get(key, key)
+        return super().__contains__(actual_key)
+
+
 def get_3zone_datasets() -> Dict[str, DatasetModel]:
-    return {
-        "trips": DatasetModel(
-            dataset_id="trips",
-            name="ride_hailing_xanh_sm_trips",
-            title="GSM Xanh SM Trips (3-Zone Pilot: EU, VN, US)",
+    datasets = DatasetDict({
+        "ride_hailing_xanh_sm_trips.csv": DatasetModel(
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            name="ride_hailing_xanh_sm_trips.csv",
+            title="ride_hailing_xanh_sm_trips.csv",
             domain="trips",
             owner_dept="Khối Vận Hành GSM Toàn Cầu",
             storage_table_bronze="bronze.trips_raw",
@@ -50,10 +80,10 @@ def get_3zone_datasets() -> Dict[str, DatasetModel]:
             description="10,382 cuốc xe taxi điện VinFast phân bổ qua 3 phân vùng EU (Berlin), VN (Hà Nội), US (New York)",
             retention_days=1825
         ),
-        "telemetry": DatasetModel(
-            dataset_id="telemetry",
-            name="synthetic_ev_telemetry_ved_ref",
-            title="VinFast EV Telematics VED (3-Zone Pilot)",
+        "synthetic_ev_telemetry_ved_ref.csv": DatasetModel(
+            dataset_id="synthetic_ev_telemetry_ved_ref.csv",
+            name="synthetic_ev_telemetry_ved_ref.csv",
+            title="synthetic_ev_telemetry_ved_ref.csv",
             domain="telemetry",
             owner_dept="Khối R&D Phần Mềm Xe Điện VinFast",
             storage_table_bronze="bronze.telemetry_raw",
@@ -61,10 +91,10 @@ def get_3zone_datasets() -> Dict[str, DatasetModel]:
             description="86,400 bản ghi telemetry cảm biến pin (SOC, nhiệt độ, điện áp, dòng xả) từ 60 xe pilot trong 15 ngày",
             retention_days=730
         ),
-        "charging": DatasetModel(
-            dataset_id="charging",
-            name="acn_charging_mapped",
-            title="V-GREEN Trạm Sạc Xe Điện (3-Zone Pilot)",
+        "acn_charging_mapped.csv": DatasetModel(
+            dataset_id="acn_charging_mapped.csv",
+            name="acn_charging_mapped.csv",
+            title="acn_charging_mapped.csv",
             domain="charging",
             owner_dept="Công Ty Cổ Phần Phát Triển Trạm Sạc Toàn Cầu V-GREEN",
             storage_table_bronze="bronze.charging_raw",
@@ -72,10 +102,10 @@ def get_3zone_datasets() -> Dict[str, DatasetModel]:
             description="1,331 phiên sạc xe điện với thông số công suất kW, sản lượng kWh tiêu thụ và chi phí",
             retention_days=1825
         ),
-        "nlp_feedback": DatasetModel(
-            dataset_id="nlp_feedback",
-            name="nlp_benchmark_uit_vsfc",
-            title="Khách Hàng Phản Hồi & Đánh Giá (NLP Benchmark)",
+        "nlp_benchmark_uit_vsfc.csv": DatasetModel(
+            dataset_id="nlp_benchmark_uit_vsfc.csv",
+            name="nlp_benchmark_uit_vsfc.csv",
+            title="nlp_benchmark_uit_vsfc.csv",
             domain="nlp_feedback",
             owner_dept="Trung Tâm Trải Nghiệm Khách Hàng & CSKH",
             storage_table_bronze="bronze.feedback_raw",
@@ -83,10 +113,10 @@ def get_3zone_datasets() -> Dict[str, DatasetModel]:
             description="500 phản hồi văn bản tự do của khách hàng về chất lượng cuốc xe và trạm sạc V-GREEN",
             retention_days=365
         ),
-        "fleet": DatasetModel(
-            dataset_id="fleet",
-            name="fleet_index",
-            title="Đội Xe Pilot 60 VIN (VinFast VF8, VF9, VF e34)",
+        "fleet_index.csv": DatasetModel(
+            dataset_id="fleet_index.csv",
+            name="fleet_index.csv",
+            title="fleet_index.csv",
             domain="fleet",
             owner_dept="Quản Lý Đội Xe GSM Global",
             storage_table_bronze="bronze.fleet_raw",
@@ -94,77 +124,84 @@ def get_3zone_datasets() -> Dict[str, DatasetModel]:
             description="60 xe điện VinFast chia đều cho 3 phân vùng VN (Hà Nội: 20 xe), EU (Berlin: 20 xe), US (New York: 20 xe)",
             retention_days=3650
         )
-    }
+    })
+    return datasets
 
 
 def get_3zone_columns() -> Dict[str, List[ColumnModel]]:
-    return {
-        "trips": [
-            ColumnModel(dataset_id="trips", column_name="trip_id", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED, semantic_tag="vehicle_identifier"),
-            ColumnModel(dataset_id="trips", column_name="driver_id", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.PSEUDONYMIZE, semantic_tag="driver_identifier"),
-            ColumnModel(dataset_id="trips", column_name="pickup_datetime", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="dropoff_datetime", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="trip_distance_km", data_type="NUMERIC(8,3)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="distance_metric"),
-            ColumnModel(dataset_id="trips", column_name="fare_amount", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="financial_fare"),
-            ColumnModel(dataset_id="trips", column_name="tip_amount", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="total_fare", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="pickup_latitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE, semantic_tag="gps_latitude"),
-            ColumnModel(dataset_id="trips", column_name="pickup_longitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE, semantic_tag="gps_longitude"),
-            ColumnModel(dataset_id="trips", column_name="vehicle_type", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="trips", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="regulatory_jurisdiction")
+    base_cols = DatasetDict({
+        "ride_hailing_xanh_sm_trips.csv": [
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="trip_id", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED, semantic_tag="vehicle_identifier"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="driver_id", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.PSEUDONYMIZE, semantic_tag="driver_identifier"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="pickup_datetime", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="dropoff_datetime", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="trip_distance_km", data_type="NUMERIC(8,3)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="distance_metric"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="fare_amount", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="financial_fare"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="tip_amount", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="total_fare", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="pickup_latitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE, semantic_tag="gps_latitude"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="pickup_longitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE, semantic_tag="gps_longitude"),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="vehicle_type", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="ride_hailing_xanh_sm_trips.csv", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP, semantic_tag="regulatory_jurisdiction")
         ],
-        "telemetry": [
-            ColumnModel(dataset_id="telemetry", column_name="record_id", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED),
-            ColumnModel(dataset_id="telemetry", column_name="timestamp", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="speed_kmh", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="motor_rpm", data_type="INT", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="battery_soc", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP, semantic_tag="battery_state_of_charge"),
-            ColumnModel(dataset_id="telemetry", column_name="battery_voltage", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="battery_current", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="telemetry", column_name="battery_temp_c", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP, semantic_tag="battery_temperature_celsius"),
-            ColumnModel(dataset_id="telemetry", column_name="latitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE),
-            ColumnModel(dataset_id="telemetry", column_name="longitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE),
-            ColumnModel(dataset_id="telemetry", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
+        "synthetic_ev_telemetry_ved_ref.csv": [
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="record_id", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="timestamp", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="speed_kmh", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="motor_rpm", data_type="INT", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="battery_soc", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP, semantic_tag="battery_state_of_charge"),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="battery_voltage", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="battery_current", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="battery_temp_c", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP, semantic_tag="battery_temperature_celsius"),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="latitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="longitude", data_type="NUMERIC(9,6)", is_personal_data=True, pii_role=PiiRoleType.CONTEXTUAL_PERSONAL_DATA, default_treatment=TreatmentActionType.GENERALIZE),
+            ColumnModel(dataset_id="synthetic_ev_telemetry_ved_ref.csv", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
         ],
-        "charging": [
-            ColumnModel(dataset_id="charging", column_name="session_id", data_type="VARCHAR(100)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED),
-            ColumnModel(dataset_id="charging", column_name="station_id", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="start_time", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="duration_mins", data_type="NUMERIC(8,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="kwh_consumed", data_type="NUMERIC(8,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="power_kw", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="station_temp_c", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="cost_vnd", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="charging", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
+        "acn_charging_mapped.csv": [
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="session_id", data_type="VARCHAR(100)", is_primary_key=True, pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="vehicle_vin", data_type="VARCHAR(50)", is_personal_data=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="station_id", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="start_time", data_type="TIMESTAMPTZ", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="duration_mins", data_type="NUMERIC(8,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="kwh_consumed", data_type="NUMERIC(8,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="power_kw", data_type="NUMERIC(6,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="station_temp_c", data_type="NUMERIC(5,2)", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="cost_vnd", data_type="NUMERIC(12,2)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="acn_charging_mapped.csv", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
         ],
-        "nlp_feedback": [
-            ColumnModel(dataset_id="nlp_feedback", column_name="sentence", data_type="TEXT", is_personal_data=True, pii_role=PiiRoleType.AMBIGUOUS_UNSTRUCTURED_DATA, default_treatment=TreatmentActionType.PSEUDONYMIZE, semantic_tag="free_text_review"),
-            ColumnModel(dataset_id="nlp_feedback", column_name="sentiment", data_type="INT", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="nlp_feedback", column_name="topic", data_type="INT", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
+        "nlp_benchmark_uit_vsfc.csv": [
+            ColumnModel(dataset_id="nlp_benchmark_uit_vsfc.csv", column_name="sentence", data_type="TEXT", is_personal_data=True, pii_role=PiiRoleType.AMBIGUOUS_UNSTRUCTURED_DATA, default_treatment=TreatmentActionType.PSEUDONYMIZE, semantic_tag="free_text_review"),
+            ColumnModel(dataset_id="nlp_benchmark_uit_vsfc.csv", column_name="sentiment", data_type="INT", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="nlp_benchmark_uit_vsfc.csv", column_name="topic", data_type="INT", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
         ],
-        "fleet": [
-            ColumnModel(dataset_id="fleet", column_name="vehicle_vin", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED, semantic_tag="vehicle_identifier"),
-            ColumnModel(dataset_id="fleet", column_name="vehicle_type", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="fleet", column_name="telemetry_equipped", data_type="BOOLEAN", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
-            ColumnModel(dataset_id="fleet", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
+        "fleet_index.csv": [
+            ColumnModel(dataset_id="fleet_index.csv", column_name="vehicle_vin", data_type="VARCHAR(50)", is_primary_key=True, pii_role=PiiRoleType.LINKABLE_IDENTIFIER, default_treatment=TreatmentActionType.KEEP_RESTRICTED, semantic_tag="vehicle_identifier"),
+            ColumnModel(dataset_id="fleet_index.csv", column_name="vehicle_type", data_type="VARCHAR(50)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="fleet_index.csv", column_name="telemetry_equipped", data_type="BOOLEAN", pii_role=PiiRoleType.TECHNICAL_METADATA, default_treatment=TreatmentActionType.KEEP),
+            ColumnModel(dataset_id="fleet_index.csv", column_name="subject_zone", data_type="VARCHAR(10)", pii_role=PiiRoleType.NON_PERSONAL_REFERENCE, default_treatment=TreatmentActionType.KEEP)
         ]
-    }
+    })
+    return base_cols
 
 
 DATASET_FILE_MAP = {
     "trips": "ride_hailing_xanh_sm_trips.csv",
     "ride_hailing_xanh_sm_trips": "ride_hailing_xanh_sm_trips.csv",
+    "ride_hailing_xanh_sm_trips.csv": "ride_hailing_xanh_sm_trips.csv",
     "telemetry": "synthetic_ev_telemetry_ved_ref.csv",
     "synthetic_ev_telemetry_ved_ref": "synthetic_ev_telemetry_ved_ref.csv",
+    "synthetic_ev_telemetry_ved_ref.csv": "synthetic_ev_telemetry_ved_ref.csv",
     "charging": "acn_charging_mapped.csv",
     "acn_charging_mapped": "acn_charging_mapped.csv",
+    "acn_charging_mapped.csv": "acn_charging_mapped.csv",
     "nlp_feedback": "nlp_benchmark_uit_vsfc.csv",
     "nlp_benchmark_uit_vsfc": "nlp_benchmark_uit_vsfc.csv",
+    "nlp_benchmark_uit_vsfc.csv": "nlp_benchmark_uit_vsfc.csv",
     "fleet": "fleet_index.csv",
-    "fleet_index": "fleet_index.csv"
+    "fleet_index": "fleet_index.csv",
+    "fleet_index.csv": "fleet_index.csv",
 }
 
 
@@ -469,3 +506,161 @@ class ThreeZonePilotLoader:
             "quarantine": res.quarantine_count,
             "sample_silver": res.silver_records[0] if res.silver_records else None
         }
+
+
+def get_3zone_compliance_rules() -> List[ComplianceCheckRuleModel]:
+    """Quy tắc kiểm tra tuân thủ & chất lượng CỐ ĐỊNH (Backend-only, không thể sửa trên UI, AI không đề xuất)."""
+    return [
+        ComplianceCheckRuleModel(
+            rule_id="CHK-TRIP-FARE",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            target_column="fare_amount",
+            rule_name="Doanh thu & cự ly chuyến đi hợp lệ",
+            rule_code="TC-REV-01",
+            expression="fare_amount > 0 AND trip_distance_km >= 0.1",
+            description="Cước phí phải lớn hơn 0 và cự ly >= 0.1km theo chuẩn IFRS 15 / SOX 404",
+            law_ref="IFRS 15 / SOX Section 404",
+            severity=RuleSeverity.CRITICAL,
+            is_fixed=True
+        ),
+        ComplianceCheckRuleModel(
+            rule_id="CHK-TRIP-GPS",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            target_column="pickup_latitude",
+            rule_name="Giới hạn tọa độ đón khách lãnh thổ VN",
+            rule_code="TC-GEO-01",
+            expression="pickup_latitude BETWEEN 8.0 AND 24.0",
+            description="Tọa độ GPS điểm đón khách phải nằm trong phạm vi lãnh thổ Việt Nam",
+            law_ref="Quy định Vận tải GSM VN",
+            severity=RuleSeverity.HIGH,
+            is_fixed=True
+        ),
+        ComplianceCheckRuleModel(
+            rule_id="CHK-TELEM-TEMP",
+            dataset_id="synthetic_ev_telemetry_ved_ref.csv",
+            target_column="battery_temp_c",
+            rule_name="Ngưỡng nhiệt độ an toàn pack pin EV",
+            rule_code="TC-TEL-01",
+            expression="battery_temp_c BETWEEN -10.0 AND 85.0",
+            description="Nhiệt độ cell pin xe điện VinFast phải nằm trong ngưỡng kỹ thuật an toàn",
+            law_ref="IEC 62660-1 / UN ECE R100",
+            severity=RuleSeverity.CRITICAL,
+            is_fixed=True
+        ),
+        ComplianceCheckRuleModel(
+            rule_id="CHK-TELEM-SOC",
+            dataset_id="synthetic_ev_telemetry_ved_ref.csv",
+            target_column="battery_soc",
+            rule_name="Dung lượng pin xe điện khả dụng (SoC)",
+            rule_code="TC-TEL-02",
+            expression="battery_soc BETWEEN 0.0 AND 100.0",
+            description="Mức pin xe điện phải nằm trong dải 0% đến 100%",
+            law_ref="VinFast EV Telematics Spec",
+            severity=RuleSeverity.CRITICAL,
+            is_fixed=True
+        ),
+        ComplianceCheckRuleModel(
+            rule_id="CHK-CHG-METER",
+            dataset_id="acn_charging_mapped.csv",
+            target_column="meter_kwh_delta",
+            rule_name="Sai số công tơ Modbus trụ sạc V-GREEN",
+            rule_code="TC-CHG-01",
+            expression="abs(meter_kwh_delta - bms_kwh_delta) <= 0.03 * meter_kwh_delta",
+            description="Chênh lệch điện năng giữa đồng hồ trụ sạc và xe không vượt quá 3%",
+            law_ref="SOX 404 & Tiêu chuẩn V-GREEN",
+            severity=RuleSeverity.HIGH,
+            is_fixed=True
+        ),
+        ComplianceCheckRuleModel(
+            rule_id="CHK-FLT-STATUS",
+            dataset_id="fleet_index.csv",
+            target_column="operating_status",
+            rule_name="Trạng thái vận hành xe hợp lệ",
+            rule_code="TC-FLT-01",
+            expression="operating_status IN ('READY', 'IN_SERVICE', 'CHARGING')",
+            description="Trạng thái xe trong đội xe phải thuộc danh mục chuẩn",
+            law_ref="GSM Fleet Management Standard",
+            severity=RuleSeverity.MEDIUM,
+            is_fixed=True
+        )
+    ]
+
+
+def get_3zone_treatment_rules() -> List[DataTreatmentRuleModel]:
+    """Quy tắc xử lý & chuẩn hóa dữ liệu chung (Masking, Hashing, Rounding, Sanitization - AI đề xuất note riêng, sửa được trên UI)."""
+    return [
+        # Active Treatments (Đang áp dụng)
+        DataTreatmentRuleModel(
+            rule_id="TRT-TRIP-DRIVER",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            column_name="driver_id",
+            operation_id="hash_sha256",
+            treatment_name="Mã hóa một chiều Driver ID",
+            params_json={"salt": "gsm_driver_salt_2026"},
+            expression_display="hash_sha256(driver_id)",
+            description="Bí danh hóa mã tài xế đối tác GSM",
+            is_ai_proposed=False,
+            status="active",
+            enforced_by="Nguyễn Quốc Bảo (Lead Platform)"
+        ),
+        DataTreatmentRuleModel(
+            rule_id="TRT-TRIP-GPS",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            column_name="pickup_latitude",
+            operation_id="round_decimal",
+            treatment_name="Làm tròn tọa độ GPS đón khách",
+            params_json={"decimals": 2},
+            expression_display="round_decimal(pickup_latitude, 2)",
+            description="Làm mờ tọa độ GPS đón khách độ chính xác ~1km bảo vệ nơi ở",
+            is_ai_proposed=False,
+            status="active",
+            enforced_by="Nguyễn Quốc Bảo (Lead Platform)"
+        ),
+        # AI Proposed Treatments (Được note riêng biệt, chờ Admin duyệt và có thể sửa biểu thức trên UI)
+        DataTreatmentRuleModel(
+            rule_id="TRT-PROP-PHONE",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            column_name="customer_phone",
+            operation_id="mask_phone",
+            treatment_name="Che mờ số điện thoại khách hàng",
+            params_json={"prefix_len": 3, "suffix_len": 2, "mask_char": "*"},
+            expression_display="mask_phone(customer_phone, prefix=3, suffix=2)",
+            description="Che mờ số điện thoại khách đặt xe",
+            is_ai_proposed=True,
+            ai_rationale="AI phát hiện số điện thoại khách hàng dạng cleartext, đề xuất che mờ bảo vệ dữ liệu theo Nghị định 13/2023.",
+            ai_confidence=0.965,
+            status="pending",
+            enforced_by="AI Treatment Proposer"
+        ),
+        DataTreatmentRuleModel(
+            rule_id="TRT-PROP-NAME",
+            dataset_id="ride_hailing_xanh_sm_trips.csv",
+            column_name="customer_name",
+            operation_id="mask_name",
+            treatment_name="Che mờ họ tên khách hàng",
+            params_json={"keep_first": True, "mask_char": "*"},
+            expression_display="mask_name(customer_name)",
+            description="Che mờ họ tên hành khách",
+            is_ai_proposed=True,
+            ai_rationale="Họ tên khách hàng cần được ẩn danh tên riêng theo quy định bảo vệ dữ liệu cá nhân.",
+            ai_confidence=0.940,
+            status="pending",
+            enforced_by="AI Treatment Proposer"
+        ),
+        DataTreatmentRuleModel(
+            rule_id="TRT-PROP-VIN",
+            dataset_id="synthetic_ev_telemetry_ved_ref.csv",
+            column_name="vehicle_vin",
+            operation_id="to_upper",
+            treatment_name="Chuẩn hóa mã VIN in hoa",
+            params_json={},
+            expression_display="to_upper(vehicle_vin)",
+            description="Chuẩn hóa chuỗi ký tự mã VIN xe",
+            is_ai_proposed=True,
+            ai_rationale="AI phát hiện một số gói tin telemetry có mã VIN chữ thường, đề xuất chuẩn hóa in hoa chuẩn ISO 3779.",
+            ai_confidence=0.980,
+            status="pending",
+            enforced_by="AI Treatment Proposer"
+        )
+    ]
+
