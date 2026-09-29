@@ -1,0 +1,31 @@
+feedback_id,vehicle_vin,scenario_date,assigned_day_index,topic,sentiment,raw_comment_text,subject_zone,trip_id,customer_id
+FB_PII_0001,VF8VNF_0001,2026-01-02,1,service,0,"tôi là Gael Hadaway, bị tính cước sai, email: ghadaway69@liveinternet.ru",EU,XANH_TRIP_0010,CUS_08226
+FB_PII_0002,VF8VNF_0002,2026-01-04,3,app,0,"app không gửi hóa đơn về lgilsthorpe2x@mtv.com, nhờ kiểm tra giúp",EU,XANH_TRIP_0227,CUS_02106
+FB_PII_0003,VF8VNF_0010,2026-01-04,3,vehicle,0,"xe có mùi khó chịu, gọi 896-312-0901 nếu cần thêm thông tin",EU,XANH_TRIP_1591,CUS_07602
+FB_PII_0004,VF8VNF_0011,2026-01-06,5,service,0,"khách Orella Treeby để quên đồ trên xe, sđt 487-948-3094",EU,XANH_TRIP_1801,CUS_00321
+FB_PII_0005,VF8VNF_0014,2026-01-01,0,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 990-974-6647",EU,XANH_TRIP_2217,CUS_02724
+FB_PII_0006,VF8VNF_0015,2026-01-01,0,service,0,"tôi là Tamma Getley, bị tính cước sai, email: tgetleyra@biglobe.ne.jp",EU,XANH_TRIP_2415,CUS_10983
+FB_PII_0007,VF8VNF_0015,2026-01-05,4,app,0,"app không gửi hóa đơn về emouldl8@angelfire.com, nhờ kiểm tra giúp",EU,XANH_TRIP_2462,CUS_06765
+FB_PII_0008,VF8VNF_0018,2026-01-02,1,vehicle,0,"xe có mùi khó chịu, gọi 520-467-6084 nếu cần thêm thông tin",EU,XANH_TRIP_2940,CUS_02205
+FB_PII_0009,VF8VNF_0019,2026-01-02,1,service,0,"khách Marlena Whebell để quên đồ trên xe, sđt 252-136-5544",EU,XANH_TRIP_3097,CUS_08982
+FB_PII_0010,VF8VNF_0019,2026-01-02,1,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 361-744-6617",EU,XANH_TRIP_3100,CUS_05082
+FB_PII_0011,VF8VNF_0019,2026-01-06,5,service,0,"tôi là Haslett Portchmouth, bị tính cước sai, email: hportchmouthlc@businessweek.com",EU,XANH_TRIP_3140,CUS_08769
+FB_PII_0012,VF8VNF_0020,2026-01-06,5,app,0,"app không gửi hóa đơn về mmessierdd@baidu.com, nhờ kiểm tra giúp",EU,XANH_TRIP_3313,CUS_01482
+FB_PII_0013,VF8VNF_0020,2026-01-08,7,vehicle,0,"xe có mùi khó chịu, gọi 206-445-6112 nếu cần thêm thông tin",EU,XANH_TRIP_3327,CUS_01770
+FB_PII_0014,VF8VNF_0021,2026-01-10,9,service,0,"khách Ashil Tynnan để quên đồ trên xe, sđt 531-161-2156",VN,XANH_TRIP_3533,CUS_04537
+FB_PII_0015,VF8VNF_0022,2026-01-01,0,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 425-646-0836",VN,XANH_TRIP_3601,CUS_02419
+FB_PII_0016,VF8VNF_0024,2026-01-04,3,service,0,"tôi là Dalli Matyasik, bị tính cước sai, email: dmatyasikq7@auda.org.au",VN,XANH_TRIP_3982,CUS_05944
+FB_PII_0017,VF8VNF_0032,2026-01-10,9,app,0,"app không gửi hóa đơn về wdegiorgiey@behance.net, nhờ kiểm tra giúp",VN,XANH_TRIP_5455,CUS_05539
+FB_PII_0018,VF8VNF_0034,2026-01-07,6,vehicle,0,"xe có mùi khó chịu, gọi 695-650-9410 nếu cần thêm thông tin",VN,XANH_TRIP_5790,CUS_00166
+FB_PII_0019,VF8VNF_0036,2026-01-04,3,service,0,"khách Katheryn Drohun để quên đồ trên xe, sđt 701-131-6247",VN,XANH_TRIP_6122,CUS_00337
+FB_PII_0020,VF8VNF_0038,2026-01-03,2,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 618-368-7276",VN,XANH_TRIP_6447,CUS_06154
+FB_PII_0021,VF8VNF_0040,2026-01-02,1,service,0,"tôi là Thor Rainey, bị tính cước sai, email: traineyjf@amazon.co.jp",VN,XANH_TRIP_6788,CUS_00700
+FB_PII_0022,VF8VNF_0045,2026-01-05,4,app,0,"app không gửi hóa đơn về yrangerqg@mozilla.org, nhờ kiểm tra giúp",US,XANH_TRIP_7691,CUS_00953
+FB_PII_0023,VF8VNF_0047,2026-01-07,6,vehicle,0,"xe có mùi khó chịu, gọi 952-358-1529 nếu cần thêm thông tin",US,XANH_TRIP_8073,CUS_08495
+FB_PII_0024,VF8VNF_0051,2026-01-09,8,service,0,"khách Ive Reilly để quên đồ trên xe, sđt 713-140-2017",US,XANH_TRIP_8826,CUS_07865
+FB_PII_0025,VF8VNF_0053,2026-01-04,3,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 855-898-8223",US,XANH_TRIP_9066,CUS_03059
+FB_PII_0026,VF8VNF_0054,2026-01-01,0,service,0,"tôi là Alexandros Clawson, bị tính cước sai, email: aclawsonja@google.com.hk",US,XANH_TRIP_9230,CUS_00695
+FB_PII_0027,VF8VNF_0054,2026-01-04,3,app,0,"app không gửi hóa đơn về gwatton1o@histats.com, nhờ kiểm tra giúp",US,XANH_TRIP_9268,CUS_04061
+FB_PII_0028,VF8VNF_0055,2026-01-03,2,vehicle,0,"xe có mùi khó chịu, gọi 423-895-5000 nếu cần thêm thông tin",US,XANH_TRIP_9423,CUS_00407
+FB_PII_0029,VF8VNF_0059,2026-01-04,3,service,0,"khách Ruperto Fresson để quên đồ trên xe, sđt 519-660-8658",US,XANH_TRIP_10115,CUS_07871
+FB_PII_0030,VF8VNF_0059,2026-01-09,8,service,0,"tài xế thái độ kém, liên hệ lại cho tôi qua số 765-981-1437",US,XANH_TRIP_10150,CUS_09311
