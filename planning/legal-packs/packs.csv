@@ -1,0 +1,4 @@
+pack_id,zone,status,laws_note,controls_file
+pack_vn_stub,VN,empty_csv,Nghị định 356/2025/NĐ-CP,vn/pack_vn_controls.csv
+pack_eu_stub,EU,empty_csv,GDPR,eu/pack_eu_controls.csv
+pack_us_stub,US,empty_csv,CCPA,us/pack_us_controls.csv
