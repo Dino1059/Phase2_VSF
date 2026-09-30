@@ -1,6 +1,6 @@
 # DataTrust OS v5 — Operational Trust Console
 
-Governed data-quality + causal RCA for VinGroup-style telemetry (EV / charging / trips), with **Human-in-the-Loop** and **dataset ACL**.
+Governed data-quality + causal RCA for VinGroup-style telemetry (EV / charging / trips), with  **Human-in-the-Loop** and **dataset ACL**.
 
 | | |
 |---|---|

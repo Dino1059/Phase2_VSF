@@ -327,8 +327,8 @@ def _get_all_tables_for_dataset(dataset_key: Optional[str]) -> List[str]:
         if tables:
             return tables
     except Exception:
-        pass
-    return [dataset_key]
+        logger.warning(f"_get_all_tables_for_dataset('{dataset_key}') failed, falling back to canonical tables", exc_info=True)
+    return []
 
 
 def _detect_l1_l4_signals(
@@ -639,7 +639,7 @@ class DataTrustOrchestrator:
         elif all_tables:
             target_tables = all_tables
         else:
-            target_tables = [dataset_key]
+            target_tables = list(CANONICAL_DATA_TABLES)
 
         _notify(progress_callback, "Stage 1: Profiling", f"Profiling {len(target_tables)} target tables: {target_tables}", {"tables": target_tables})
         profile_result = self.profiler.run(dataset_key)
@@ -685,15 +685,15 @@ class DataTrustOrchestrator:
         from src.tools.rule_proposer import RuleProposerTool
         rule_tool = RuleProposerTool()
         for tbl in target_tables:
-            clean_tbl = normalize_table_name(tbl)
             try:
+                clean_tbl = normalize_table_name(tbl)
                 rule_tool.execute({
                     "target_table": clean_tbl,
                     "profile_summary": profile_result.final_answer[:500],
                     "anomaly_findings": anomaly_findings
                 })
             except Exception as r_err:
-                logger.warning(f"Failed proposing rules for table {clean_tbl}: {r_err}")
+                logger.warning(f"Failed proposing rules for table {tbl}: {r_err}")
         result.stages.append({
             "stage": "rule_proposal",
             "agent": "rule_proposer",
