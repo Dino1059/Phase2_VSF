@@ -1,0 +1,305 @@
+// Người dùng, vai trò, đăng nhập, nhật ký kiểm toán, ticket.
+// Cấu hình có phiên bản, ủy quyền, ngoại lệ… thêm ở các bước sau (KE_HOACH.md 9.5, 9.7).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  PENDING // đã đăng ký, chưa xác nhận mã email
+  ACTIVE
+  DISABLED
+
+  @@map("user_status")
+}
+
+enum CodePurpose {
+  REGISTER
+
+  @@map("code_purpose")
+}
+
+/// Vai trò theo rule.md mục 1 (+ ADMIN = Quản trị SoD, KE_HOACH.md mục 1)
+model Role {
+  code        String       @id @db.VarChar(10)
+  name        String       @db.VarChar(100)
+  shortName   String       @map("short_name") @db.VarChar(30)
+  description String?
+  users       UserRole[]
+  steps       TicketStep[]
+
+  @@map("roles")
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  /// Luôn lưu chữ thường (có CHECK trong DB)
+  username           String     @unique @db.VarChar(50)
+  /// Luôn lưu chữ thường (có CHECK trong DB)
+  email              String     @unique @db.VarChar(254)
+  fullName           String     @map("full_name") @db.VarChar(150)
+  passwordHash       String     @map("password_hash")
+  status             UserStatus @default(PENDING)
+  emailVerifiedAt    DateTime?  @map("email_verified_at") @db.Timestamptz
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  roles         UserRole[]         @relation("roleHolder")
+  rolesGranted  UserRole[]         @relation("roleGranter")
+  sessions      Session[]
+  codes         VerificationCode[]
+  tickets       Ticket[]
+  assignedSteps TicketStep[]
+  decisions     StepDecision[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+/// Gán vai trò cho người, có hiệu lực từ–đến (KE_HOACH.md mục 6.2)
+model UserRole {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  roleCode    String    @map("role_code") @db.VarChar(10)
+  validFrom   DateTime  @default(now()) @map("valid_from") @db.Timestamptz
+  validTo     DateTime? @map("valid_to") @db.Timestamptz
+  grantedById String?   @map("granted_by") @db.Uuid
+  note        String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user      User  @relation("roleHolder", fields: [userId], references: [id], onDelete: Restrict)
+  role      Role  @relation(fields: [roleCode], references: [code], onDelete: Restrict)
+  grantedBy User? @relation("roleGranter", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@index([userId, roleCode])
+  @@map("user_roles")
+}
+
+/// Mã xác nhận gửi qua email. Chỉ lưu mã băm.
+model VerificationCode {
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     String      @map("user_id") @db.Uuid
+  purpose    CodePurpose
+  codeHash   String      @map("code_hash") @db.VarChar(64)
+  expiresAt  DateTime    @map("expires_at") @db.Timestamptz
+  attempts   Int         @default(0)
+  consumedAt DateTime?   @map("consumed_at") @db.Timestamptz
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@map("verification_codes")
+}
+
+/// Phiên đăng nhập. Cookie chứa token, DB chỉ lưu SHA-256 của token.
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  ip        String?   @db.VarChar(64)
+  userAgent String?   @map("user_agent") @db.VarChar(512)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Nhật ký kiểm toán — chỉ được ghi thêm.
+/// id, occurred_at, prev_hash, hash do trigger trong DB gán (xem migration audit_log_chain).
+/// Không có khoá ngoại tới users để nhật ký không phụ thuộc dữ liệu người dùng.
+model AuditLog {
+  id          BigInt   @id @default(0)
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorEmail  String?  @map("actor_email") @db.VarChar(254)
+  action      String   @db.VarChar(64)
+  targetType  String?  @map("target_type") @db.VarChar(32)
+  targetId    String?  @map("target_id") @db.VarChar(64)
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @map("user_agent") @db.VarChar(512)
+  details     Json?
+  prevHash    String   @default("") @map("prev_hash") @db.VarChar(64)
+  hash        String   @default("") @db.VarChar(64)
+
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([actorEmail, occurredAt])
+  @@map("audit_log")
+}
+
+/// Đầu chuỗi băm của audit_log — chỉ trigger audit_log_chain() ghi vào. Ứng dụng không có quyền.
+model AuditChainHead {
+  singleton Boolean @id @default(true)
+  lastId    BigInt  @map("last_id")
+  lastHash  String  @map("last_hash") @db.VarChar(64)
+
+  @@map("audit_chain_head")
+}
+
+// ---------------------------------------------------------------- Ticket (KE_HOACH.md 9.5)
+
+enum TicketStatus {
+  OPEN
+  DONE
+  REJECTED
+
+  @@map("ticket_status")
+}
+
+enum StepStatus {
+  WAITING
+  CURRENT
+  DONE
+  REJECTED
+
+  @@map("step_status")
+}
+
+enum StepAction {
+  P
+  R
+  A
+
+  @@map("step_action")
+}
+
+enum DecisionOutcome {
+  SUBMIT // người yêu cầu gửi phiếu (bước 0)
+  APPROVE // R / A đồng ý
+  COMPLETE // P đã thực hiện
+  REJECT
+
+  @@map("decision_outcome")
+}
+
+model Ticket {
+  id          String       @id @default(uuid()) @db.Uuid
+  /// SOD-YYYYMM-NNNN, do DB cấp
+  code        String       @unique @default(dbgenerated("next_ticket_code()")) @db.VarChar(20)
+  requesterId String       @map("requester_id") @db.Uuid
+  typeId      String       @map("type_id") @db.VarChar(20)
+  title       String       @db.VarChar(300)
+  system      String       @db.VarChar(500)
+  priority    String       @db.VarChar(10)
+  level       Int          @db.SmallInt
+  pii         Boolean
+  breakGlass  Boolean      @map("break_glass")
+  acts        Int[]
+  reasons     String[]
+  /// [{ act, name, C: RoleKey[], I: RoleKey[] }]
+  phases      Json
+  /// Nội dung phiếu lúc gửi; formHash = SHA-256 để người duyệt biết mình duyệt đúng bản nào
+  form        Json
+  formHash    String       @map("form_hash") @db.VarChar(64)
+  /// Xung đột SoD được chấp nhận theo ngoại lệ (rỗng nếu không có)
+  conflicts   String[]
+  exceptionId String?      @unique @map("exception_id") @db.VarChar(30)
+  status      TicketStatus @default(OPEN)
+  /// Tăng mỗi lần có quyết định — chống hai người / hai tab xử lý cùng lúc
+  version     Int          @default(0)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  closedAt    DateTime?    @map("closed_at") @db.Timestamptz
+
+  requester     User           @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+  steps         TicketStep[]
+  notifications Notification[]
+
+  @@index([requesterId, createdAt])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketStep {
+  id         String     @id @default(uuid()) @db.Uuid
+  ticketId   String     @map("ticket_id") @db.Uuid
+  idx        Int        @db.SmallInt
+  phase      Int        @db.SmallInt
+  key        String     @db.VarChar(30)
+  roleCode   String     @map("role_code") @db.VarChar(10)
+  action     StepAction
+  acts       String[]
+  assigneeId String?    @map("assignee_id") @db.Uuid
+  /// true = xung đột SoD ở bước này đã được chấp nhận theo ngoại lệ; không bao giờ true ở bước duyệt ngoại lệ
+  sodWaived  Boolean    @default(false) @map("sod_waived")
+  breakGlass Boolean    @default(false) @map("break_glass")
+  status     StepStatus @default(WAITING)
+  slaHours   Float?     @map("sla_hours")
+  startedAt  DateTime?  @map("started_at") @db.Timestamptz
+  dueAt      DateTime?  @map("due_at") @db.Timestamptz
+
+  ticket   Ticket        @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  role     Role          @relation(fields: [roleCode], references: [code], onDelete: Restrict)
+  assignee User?         @relation(fields: [assigneeId], references: [id], onDelete: Restrict)
+  decision StepDecision?
+
+  @@unique([ticketId, idx])
+  @@index([assigneeId, status])
+  @@map("ticket_steps")
+}
+
+/// Quyết định trên một bước — chỉ ghi thêm, mỗi bước tối đa một quyết định.
+/// Trigger step_decision_guard kiểm SoD lần cuối trong DB (KE_HOACH.md 9.3.3).
+model StepDecision {
+  id        String          @id @default(uuid()) @db.Uuid
+  stepId    String          @unique @map("step_id") @db.Uuid
+  actorId   String          @map("actor_id") @db.Uuid
+  outcome   DecisionOutcome
+  comment   String?         @db.VarChar(2000)
+  formHash  String          @map("form_hash") @db.VarChar(64)
+  decidedAt DateTime        @default(now()) @map("decided_at") @db.Timestamptz
+
+  step  TicketStep @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  actor User       @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId])
+  @@map("step_decisions")
+}
+
+// ---------------------------------------------------------------- Thông báo trong app
+
+enum NotificationKind {
+  TASK // bước mới tới lượt người được giao
+  SLA_REMIND // đã dùng ≥ remindPct thời gian SLA
+  SLA_OVERDUE // quá hạn SLA
+  STEP_DONE // người nộp: một bước đã được duyệt / hoàn tất
+  REJECTED // người nộp: ticket bị từ chối
+  DONE // người nộp: ticket hoàn tất
+
+  @@map("notification_kind")
+}
+
+/// Mỗi người chỉ đọc được thông báo của mình. Ứng dụng chỉ được sửa cột read_at.
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  ticketId  String?          @map("ticket_id") @db.Uuid
+  kind      NotificationKind
+  /// info | warn | danger | ok
+  level     String           @db.VarChar(10)
+  message   String           @db.VarChar(500)
+  /// Chống trùng, ví dụ "sla-overdue:<stepId>"
+  dedupeKey String           @map("dedupe_key") @db.VarChar(100)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  readAt    DateTime?        @map("read_at") @db.Timestamptz
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
