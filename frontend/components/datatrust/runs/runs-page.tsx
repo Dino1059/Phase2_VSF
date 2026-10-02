@@ -17,16 +17,12 @@ const format = (value: string) => {
   }
 };
 
-const DATASET_OPTIONS = [
-  { id: 'ride_hailing_xanh_sm_trips.csv', label: 'ride_hailing_xanh_sm_trips.csv (10,382 dòng)' },
-  { id: 'synthetic_ev_telemetry_ved_ref.csv', label: 'synthetic_ev_telemetry_ved_ref.csv (86,400 dòng)' },
-  { id: 'acn_charging_mapped.csv', label: 'acn_charging_mapped.csv (1,331 dòng)' },
-  { id: 'nlp_benchmark_uit_vsfc.csv', label: 'nlp_benchmark_uit_vsfc.csv (500 dòng)' },
-  { id: 'fleet_index.csv', label: 'fleet_index.csv (60 dòng)' },
-];
-
 export function RunsPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [datasetOptions, setDatasetOptions] = useState<Array<{ id: string; label: string }>>([
+    { id: 'ride_hailing_xanh_sm_trips.csv', label: 'ride_hailing_xanh_sm_trips.csv' },
+    { id: 'ALL', label: 'TẤT CẢ CÁC BẢNG (ALL 8 datasets)' },
+  ]);
   const [selectedDatasetFile, setSelectedDatasetFile] = useState('ride_hailing_xanh_sm_trips.csv');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -49,6 +45,16 @@ export function RunsPage() {
 
   useEffect(() => {
     loadRuns();
+    apiBridge.fetchDatasets().then((dsList) => {
+      if (dsList && dsList.length > 0) {
+        const opts = dsList.map((d) => ({
+          id: d.name || `${d.dataset_id}.csv`,
+          label: `${d.name || d.dataset_id} (${d.domain} - ${(d.row_count || 0).toLocaleString('vi-VN')} dòng)`,
+        }));
+        opts.push({ id: 'ALL', label: 'TẤT CẢ CÁC BẢNG (ALL 8 datasets)' });
+        setDatasetOptions(opts);
+      }
+    }).catch((err) => console.warn('Failed to load dataset options:', err));
   }, []);
 
   const handleTriggerAirflow = async () => {
@@ -95,7 +101,7 @@ export function RunsPage() {
             onChange={(e) => setSelectedDatasetFile(e.target.value)}
             className="h-9 rounded-lg border border-slate-200 bg-white px-3 font-mono text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#04D3D4]"
           >
-            {DATASET_OPTIONS.map((opt) => (
+            {datasetOptions.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>

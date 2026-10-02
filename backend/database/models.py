@@ -85,6 +85,8 @@ class DatasetModel(BaseModel):
     description: Optional[str] = None
     retention_days: int = 365
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    row_count: int = 0
+    column_count: int = 0
 
 
 class ColumnModel(BaseModel):
@@ -268,3 +270,115 @@ class AuditTrailModel(BaseModel):
     new_state: Optional[Dict[str, Any]] = None
     record_hash: str
     previous_hash: str
+
+
+# =============================================================================
+# DATA PROFILING MODELS (TASK 2)
+# =============================================================================
+
+class ColumnProfileModel(BaseModel):
+    name: str
+    table: Optional[str] = None
+    dtype: str
+    null_count: int = 0
+    null_pct: float = 0.0
+    unique_count: int = 0
+    distinct_pct: float = 0.0
+    min_val: Optional[Any] = None
+    max_val: Optional[Any] = None
+    mean_val: Optional[float] = None
+    std: Optional[float] = None
+    zeros_count: Optional[int] = 0
+    negative_count: Optional[int] = 0
+    top_values: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    quality_flags: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    anomalies_count: Optional[int] = 0
+
+
+class TableProfileModel(BaseModel):
+    dataset: str
+    table_name: Optional[str] = None
+    total_rows: int = 0
+    columns_count: int = 0
+    health_score: Optional[float] = None
+    signals_summary: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    summary: Optional[str] = None
+    columns: List[ColumnProfileModel] = Field(default_factory=list)
+
+
+class ProfilePayloadResponse(BaseModel):
+    dataset: str
+    sample_size: Optional[int] = None
+    total_rows: int = 0
+    columns_count: int = 0
+    health_score: Optional[float] = None
+    columns: List[ColumnProfileModel] = Field(default_factory=list)
+    tables: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+# =============================================================================
+# WARNING, EVIDENCE & RUN MODELS
+# =============================================================================
+
+class WarningRecordModel(BaseModel):
+    warning_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    run_id: str
+    dataset_id: str
+    source_row_pk: Optional[str] = None
+    signal_lane: str = "LANE_A"
+    signal_layer: Optional[str] = None
+    warning_type: str
+    warning_reason: str
+    score_or_zvalue: Optional[float] = None
+    evidence_json: Dict[str, Any] = Field(default_factory=dict)
+    redacted_record_json: Dict[str, Any] = Field(default_factory=dict)
+    lineage_hash: str
+    detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AuditEvidenceModel(BaseModel):
+    evidence_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    run_id: str
+    dag_id: str = "datatrust_adaptive_pipeline"
+    dataset_id: str
+    digital_signature: str = "SIG-AIRFLOW-3LANE-GSM-IPO-2026"
+    evidence_hash: str
+    previous_hash: Optional[str] = None
+    scanned_count: int = 0
+    silver_count: int = 0
+    quarantine_count: int = 0
+    warning_count: int = 0
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    evidence_payload: Dict[str, Any] = Field(default_factory=dict)
+    jurisdiction_chain: Optional[List[str]] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PipelineRunModel(BaseModel):
+    run_id: str
+    dag_id: str = "datatrust_adaptive_pipeline"
+    dataset_id: str
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    status: str
+    scanned_count: int = 0
+    silver_count: int = 0
+    quarantine_count: int = 0
+    warning_count: int = 0
+    execution_duration_ms: Optional[int] = None
+    error_message: Optional[str] = None
+
+
+class DashboardOverviewModel(BaseModel):
+    total_runs: int = 0
+    total_scanned: int = 0
+    total_silver: int = 0
+    total_quarantine: int = 0
+    total_warning: int = 0
+    average_health_score: float = 100.0
+    datasets_count: int = 0
+    active_rules_count: int = 0
+    latest_run_status: Optional[str] = None
+    ledger_integrity: str = "VERIFIED"
+    last_evidence_hash: Optional[str] = None
+

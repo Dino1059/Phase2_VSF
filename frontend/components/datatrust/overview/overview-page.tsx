@@ -69,7 +69,11 @@ export function OverviewPage() {
 
                 <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                   {Array.from(
-                    new Map(Object.values(datasets).map((ds: DatasetItem) => [ds.filename || ds.id, ds])).values()
+                    new Map(
+                      Object.values(datasets || {})
+                        .filter((ds): ds is DatasetItem => Boolean(ds && (ds.filename || ds.id)))
+                        .map((ds: DatasetItem) => [ds.filename || ds.id, ds])
+                    ).values()
                   ).map((ds: DatasetItem) => {
                     return (
                       <Card
@@ -95,7 +99,7 @@ export function OverviewPage() {
                             {Object.entries(ds.zoneCounts).map(([zone, count]) => (
                               <span key={zone} className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">
                                 <span className={`size-1.5 rounded-full ${zone === 'VN' ? 'bg-red-500' : zone === 'US' ? 'bg-blue-500' : 'bg-amber-500'}`} />
-                                {zone}: {count.toLocaleString()}
+                                {zone}: {(count || 0).toLocaleString()}
                               </span>
                             ))}
                           </div>
@@ -105,7 +109,7 @@ export function OverviewPage() {
                           <div>
                             <span className="text-slate-400">Số dòng:</span>
                             <div className="font-semibold text-slate-800">
-                              {ds.records.toLocaleString()}
+                              {(ds.records || 0).toLocaleString()}
                             </div>
                           </div>
                           <div>

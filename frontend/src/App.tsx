@@ -9,6 +9,7 @@ import { FindingDetail } from '@/components/datatrust/findings/finding-detail';
 import { PipelineRunDetail } from '@/components/datatrust/pipeline/pipeline-run-detail';
 import { findingsDataSource } from '@/lib/data/local-findings-data';
 import { pipelineDataSource } from '@/lib/data/local-pipeline-data';
+import { useAgentStore } from '@/lib/agent-store';
 
 function Load<T>({ load, children }: { load: () => Promise<T>; children: (data: T) => ReactNode }) {
   const [data, setData] = useState<T>();
@@ -54,6 +55,10 @@ function Run() {
 }
 
 export default function App() {
+  useEffect(() => {
+    useAgentStore.getState().syncWithBackend();
+  }, []);
+
   return (
     <AppShell>
       <Routes>

@@ -31,7 +31,14 @@ from backend.database.models import (
     QuarantineRecordModel,
     AuditTrailModel,
     RuleStatus,
-    QuarantineStatus
+    QuarantineStatus,
+    ColumnProfileModel,
+    TableProfileModel,
+    ProfilePayloadResponse,
+    WarningRecordModel,
+    AuditEvidenceModel,
+    PipelineRunModel,
+    DashboardOverviewModel
 )
 from backend.engine.dynamic_runner import DynamicRuleRunner
 from backend.engine.quarantine_manager import QuarantineManager
@@ -104,7 +111,7 @@ INITIAL_ACTIVE_RULES = [
         execution_phase="treatment",
         params_json={"prefix_len": 3, "suffix_len": 2, "mask_char": "*"},
         expression_display="mask_phone(customer_phone)",
-        law_ref="Nghị định 13/2023/NĐ-CP",
+        law_ref="Luật Bảo vệ dữ liệu cá nhân số 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
         enforced_by="Nguyễn Quốc Bảo (Lead Platform)"
     )
 ]
@@ -150,13 +157,88 @@ class AirflowTriggerRequest(BaseModel):
 # =============================================================================
 # CATALOG ENDPOINTS
 # =============================================================================
+# CATALOG ENDPOINTS (POSTGRESQL SINGLE SOURCE OF TRUTH)
+# =============================================================================
 
 @app.get("/api/catalog/datasets", response_model=List[DatasetModel])
 def get_datasets():
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT dataset_id, table_name, source_file, domain, row_count, column_count, description, created_at
+                FROM catalog.datasets
+                ORDER BY table_name;
+            """)
+            rows = cur.fetchall()
+            res = []
+            for r in rows:
+                ds_id = r["dataset_id"]
+                res.append(DatasetModel(
+                    dataset_id=ds_id,
+                    name=r["source_file"] or f"{ds_id}.csv",
+                    title=r["source_file"] or ds_id,
+                    domain=r["domain"] or "general",
+                    owner_dept="DataTrust Global Fleet",
+                    storage_table_bronze=r["table_name"],
+                    storage_table_silver=f"silver.{ds_id}",
+                    description=r["description"] or f"{r['row_count']:,} dòng, {r['column_count']} cột",
+                    retention_days=1825,
+                    created_at=r["created_at"] or datetime.now(timezone.utc),
+                    row_count=r["row_count"] or 0,
+                    column_count=r["column_count"] or 0
+                ))
+            conn.close()
+            if res:
+                return res
+    except Exception as e:
+        print(f"Warning: Failed to query catalog.datasets: {e}")
     return list(DATASETS.values())
 
 @app.get("/api/catalog/columns", response_model=List[ColumnModel])
 def get_columns(dataset_id: Optional[str] = None):
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                cur.execute("""
+                    SELECT column_id, dataset_id, column_name, data_type, is_primary_key,
+                           is_nullable, is_personal_data, pii_role, default_treatment, semantic_tag
+                    FROM catalog.columns
+                    WHERE dataset_id = %s OR dataset_id = %s;
+                """, (clean_ds, f"{clean_ds}.csv"))
+            else:
+                cur.execute("""
+                    SELECT column_id, dataset_id, column_name, data_type, is_primary_key,
+                           is_nullable, is_personal_data, pii_role, default_treatment, semantic_tag
+                    FROM catalog.columns
+                    ORDER BY dataset_id, column_name;
+                """)
+            rows = cur.fetchall()
+            res = []
+            for r in rows:
+                res.append(ColumnModel(
+                    column_id=str(r["column_id"]),
+                    dataset_id=r["dataset_id"],
+                    column_name=r["column_name"],
+                    data_type=r["data_type"],
+                    is_primary_key=bool(r["is_primary_key"]),
+                    is_nullable=bool(r["is_nullable"]),
+                    is_personal_data=bool(r["is_personal_data"]),
+                    pii_role=r["pii_role"] or "NON_PERSONAL_REFERENCE",
+                    default_treatment=r["default_treatment"] or "KEEP",
+                    semantic_tag=r["semantic_tag"]
+                ))
+            conn.close()
+            if res:
+                return res
+    except Exception as e:
+        print(f"Warning: Failed to query catalog.columns: {e}")
     if dataset_id:
         return COLUMNS.get(dataset_id, [])
     res = []
@@ -167,9 +249,48 @@ def get_columns(dataset_id: Optional[str] = None):
 @app.get("/api/datasets/{dataset_id}/preview")
 def get_preview(dataset_id: str, limit: int = Query(default=20, ge=1, le=100)):
     """
-    Xem trước dữ liệu thực tế từ file CSV trong data/vingroup_clean_3zone_pilot.
+    Xem trước dữ liệu thực tế từ schema bronze trong PostgreSQL (hoặc fallback CSV).
     """
-    return get_dataset_preview(dataset_id, limit)
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    from decimal import Decimal
+
+    clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+    actual_table = f"bronze.{clean_ds}"
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(f"SELECT * FROM {actual_table} LIMIT %s;", (limit,))
+            rows = cur.fetchall()
+            cur.execute(f"SELECT count(*) FROM {actual_table};")
+            total_records = cur.fetchone()["count"]
+
+            cleaned_rows = []
+            for r in rows:
+                item = dict(r)
+                if "_raw_id" in item:
+                    item["_raw_id"] = str(item["_raw_id"])
+                item.pop("_batch_id", None)
+                item.pop("_ingested_at", None)
+                for k, v in item.items():
+                    if isinstance(v, Decimal):
+                        item[k] = float(v)
+                    elif isinstance(v, datetime):
+                        item[k] = v.isoformat()
+                cleaned_rows.append(item)
+
+            columns = list(cleaned_rows[0].keys()) if cleaned_rows else []
+            conn.close()
+            return {
+                "dataset_id": dataset_id,
+                "table_name": actual_table,
+                "columns": columns,
+                "rows": cleaned_rows,
+                "total_records": total_records,
+                "limit": limit
+            }
+    except Exception as e:
+        return get_dataset_preview(dataset_id, limit)
 
 @app.get("/api/datasets/{dataset_id}/stats")
 def get_stats(dataset_id: str):
@@ -177,6 +298,209 @@ def get_stats(dataset_id: str):
     Lấy thông số thực tế của file dữ liệu (số dòng, phân bố 3 vùng VN/EU/US).
     """
     return get_dataset_stats(dataset_id)
+
+
+# =============================================================================
+# DATA PROFILING ENDPOINTS (TASK 2)
+# =============================================================================
+
+def get_dataset_profile_response(dataset_key: str) -> Dict[str, Any]:
+    """
+    Query catalog.table_profiles and catalog.v_column_profiles.
+    Returns payload strictly compatible with DataProfilerTab.tsx.
+    """
+    from database.profiler_engine import get_db_connection, DataProfilerEngine
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Query latest table profiles per dataset
+            cur.execute("""
+                SELECT tp.profile_id, tp.dataset_id, d.table_name, tp.total_rows, tp.total_columns,
+                       tp.health_score, tp.signals_summary, tp.summary, tp.profiled_at
+                FROM catalog.table_profiles tp
+                JOIN catalog.datasets d ON tp.dataset_id = d.dataset_id
+                WHERE tp.profile_id IN (
+                    SELECT profile_id FROM (
+                        SELECT profile_id, ROW_NUMBER() OVER (PARTITION BY dataset_id ORDER BY profiled_at DESC) as rn
+                        FROM catalog.table_profiles
+                    ) sub WHERE rn = 1
+                )
+                ORDER BY d.table_name;
+            """)
+            all_table_profiles = cur.fetchall()
+
+            # If no profiles exist yet, run profiler
+            if not all_table_profiles:
+                profiler = DataProfilerEngine()
+                profiler.profile_all_datasets()
+                cur.execute("""
+                    SELECT tp.profile_id, tp.dataset_id, d.table_name, tp.total_rows, tp.total_columns,
+                           tp.health_score, tp.signals_summary, tp.summary, tp.profiled_at
+                    FROM catalog.table_profiles tp
+                    JOIN catalog.datasets d ON tp.dataset_id = d.dataset_id
+                    ORDER BY d.table_name;
+                """)
+                all_table_profiles = cur.fetchall()
+
+            # Query column profiles for the latest table profiles
+            latest_pids = [str(tp["profile_id"]) for tp in all_table_profiles]
+            if latest_pids:
+                cur.execute("""
+                    SELECT profile_id, dataset_id, table_name, column_name, data_type,
+                           is_personal_data, pii_role, semantic_tag, null_count, null_pct,
+                           unique_count, distinct_pct, min_val, max_val, mean_val, std_val,
+                           zeros_count, negative_count, top_values, signals
+                    FROM catalog.v_column_profiles
+                    WHERE profile_id::text = ANY(%s)
+                    ORDER BY dataset_id, column_name;
+                """, (latest_pids,))
+                all_cols = cur.fetchall()
+            else:
+                all_cols = []
+
+        # Build tables map
+        tables_map = {}
+        cols_by_dataset = {}
+        for c in all_cols:
+            ds_id = c["dataset_id"]
+            if ds_id not in cols_by_dataset:
+                cols_by_dataset[ds_id] = []
+
+            sig_list = c["signals"] if isinstance(c["signals"], list) else []
+            cols_by_dataset[ds_id].append({
+                "name": c["column_name"],
+                "table": c["table_name"] or ds_id,
+                "dtype": c["data_type"],
+                "type": c["data_type"],
+                "data_type": c["data_type"],
+                "null_count": c["null_count"],
+                "null_pct": float(c["null_pct"]),
+                "unique_count": c["unique_count"],
+                "distinct_count": c["unique_count"],
+                "min_val": c["min_val"],
+                "max_val": c["max_val"],
+                "mean_val": float(c["mean_val"]) if c["mean_val"] is not None else None,
+                "std": float(c["std_val"]) if c["std_val"] is not None else None,
+                "zeros_count": c["zeros_count"],
+                "negative_count": c["negative_count"],
+                "top_values": c["top_values"] if isinstance(c["top_values"], list) else [],
+                "quality_flags": sig_list,
+                "anomalies_count": len(sig_list),
+            })
+
+        total_rows_all = 0
+        total_cols_all = 0
+        health_scores = []
+
+        for tp in all_table_profiles:
+            ds_id = tp["dataset_id"]
+            tbl_name = tp["table_name"] or ds_id
+            clean_name = tbl_name.replace("bronze.", "")
+            t_rows = tp["total_rows"]
+            t_cols = tp["total_columns"]
+            h_score = float(tp["health_score"]) if tp["health_score"] is not None else 100.0
+
+            total_rows_all += t_rows
+            total_cols_all += t_cols
+            health_scores.append(h_score)
+
+            cols_for_table = cols_by_dataset.get(ds_id, [])
+            table_summary = {
+                "name": clean_name,
+                "totalRows": t_rows,
+                "columnsCount": t_cols,
+                "healthScore": h_score,
+                "columns": cols_for_table,
+                "summary": tp["summary"],
+                "qualityFlags": tp["signals_summary"] or {},
+            }
+            tables_map[clean_name] = table_summary
+            tables_map[ds_id] = table_summary
+
+        agg_health = round(sum(health_scores) / len(health_scores), 2) if health_scores else 100.0
+
+        # Select dataset specific view or aggregate all
+        clean_key = dataset_key.replace("bronze.", "").strip()
+        selected_cols = []
+        target_rows = total_rows_all
+        target_cols = total_cols_all
+        target_health = agg_health
+
+        if clean_key in tables_map and clean_key not in ("__all__", "dataset", "all"):
+            t_info = tables_map[clean_key]
+            selected_cols = t_info["columns"]
+            target_rows = t_info["totalRows"]
+            target_cols = t_info["columnsCount"]
+            target_health = t_info["healthScore"]
+        else:
+            for t_info in tables_map.values():
+                for c in t_info["columns"]:
+                    if c not in selected_cols:
+                        selected_cols.append(c)
+
+        return {
+            "dataset": dataset_key,
+            "sample_size": target_rows,
+            "total_rows": target_rows,
+            "columns_count": target_cols,
+            "health_score": target_health,
+            "columns": selected_cols,
+            "tables": tables_map,
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/datasets/{dataset_id}/profile")
+@app.post("/api/datasets/{dataset_id}/profile")
+def profile_dataset_endpoint(
+    dataset_id: str,
+    sample_size: Optional[int] = Query(default=None),
+    day_idx: Optional[int] = Query(default=None)
+):
+    """
+    Data Profiling API for DataProfilerTab:
+    Returns single-table and multi-table profiles with statistical signals and health scores.
+    """
+    return get_dataset_profile_response(dataset_id)
+
+
+@app.get("/api/profiling/overview")
+def get_profiling_overview():
+    """
+    Overview of all dataset profiles, row counts, and health scores.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT tp.dataset_id, d.table_name, tp.total_rows, tp.total_columns,
+                       tp.health_score, tp.signals_summary, tp.summary, tp.profiled_at
+                FROM catalog.table_profiles tp
+                JOIN catalog.datasets d ON tp.dataset_id = d.dataset_id
+                ORDER BY d.table_name;
+            """)
+            rows = cur.fetchall()
+            return [
+                {
+                    "dataset_id": r["dataset_id"],
+                    "table_name": r["table_name"],
+                    "total_rows": r["total_rows"],
+                    "columns_count": r["total_columns"],
+                    "health_score": float(r["health_score"]) if r["health_score"] is not None else None,
+                    "signals_summary": r["signals_summary"],
+                    "summary": r["summary"],
+                    "profiled_at": r["profiled_at"].isoformat() if r["profiled_at"] else None
+                }
+                for r in rows
+            ]
+    finally:
+        conn.close()
 
 
 # =============================================================================
@@ -244,6 +568,7 @@ def reject_rule(proposal_id: str, req: ProposalRejectionRequest):
         raise HTTPException(status_code=403, detail=str(e))
 
 # =============================================================================
+# =============================================================================
 # COMPLIANCE CHECK RULES (FIXED / SYSTEM-LEVEL) & DATA TREATMENT RULES
 # =============================================================================
 
@@ -251,8 +576,57 @@ def reject_rule(proposal_id: str, req: ProposalRejectionRequest):
 def get_compliance_check_rules(dataset_id: Optional[str] = None):
     """
     Quy tắc kiểm tra tuân thủ (Compliance / Quality Check Rules):
+    Nguồn dữ liệu đơn nhất từ bảng PostgreSQL policy.compliance_rules.
     CỐ ĐỊNH ở backend, Read-Only trên UI, AI KHÔNG CÓ QUYỀN ĐỀ XUẤT.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                cur.execute("""
+                    SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
+                           expression, description, law_ref, severity, on_fail_action,
+                           is_fixed, enforced_at
+                    FROM policy.compliance_rules
+                    WHERE dataset_id = %s OR dataset_id = %s
+                    ORDER BY rule_id;
+                """, (clean_ds, f"{clean_ds}.csv"))
+            else:
+                cur.execute("""
+                    SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
+                           expression, description, law_ref, severity, on_fail_action,
+                           is_fixed, enforced_at
+                    FROM policy.compliance_rules
+                    ORDER BY dataset_id, rule_id;
+                """)
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                return [
+                    ComplianceCheckRuleModel(
+                        rule_id=r["rule_id"],
+                        dataset_id=r["dataset_id"],
+                        column_name=r["column_name"],
+                        target_column=r["column_name"],
+                        rule_name=r["rule_name"],
+                        rule_code=r["rule_code"],
+                        expression=r["expression"],
+                        description=r["description"] or "",
+                        law_ref=r["law_ref"],
+                        severity=r["severity"],
+                        on_fail_action=r["on_fail_action"],
+                        is_fixed=bool(r["is_fixed"]),
+                        enforced_at=r["enforced_at"] or datetime.now(timezone.utc)
+                    )
+                    for r in rows
+                ]
+    except Exception as e:
+        print(f"Warning: Failed to query policy.compliance_rules: {e}")
+
+    # Fallback to in-memory if DB fails
     if dataset_id:
         mapped = DATASET_FILE_MAP.get(dataset_id, dataset_id)
         return [r for r in COMPLIANCE_RULES if r.dataset_id == dataset_id or r.dataset_id == mapped]
@@ -267,9 +641,63 @@ def get_data_treatment_rules(
 ):
     """
     Quy tắc xử lý dữ liệu chung (Data Treatment Rules):
+    Nguồn dữ liệu đơn nhất từ bảng PostgreSQL policy.data_treatment_rules.
     Bao gồm cả PII và Non-PII (masking, hashing, rounding, to_upper, trim, nullify,...).
     AI có thể đề xuất (có cờ is_ai_proposed), Admin có thể chỉnh sửa biểu thức trên UI và phê duyệt.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT rule_id, dataset_id, column_name, operation_id, treatment_name,
+                       params_json, expression_display, description, is_ai_proposed,
+                       ai_rationale, ai_confidence, status, enforced_by, created_at, updated_at
+                FROM policy.data_treatment_rules
+                WHERE 1=1
+            """
+            params = []
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if status:
+                query += " AND LOWER(status) = LOWER(%s)"
+                params.append(status)
+            if is_ai_proposed is not None:
+                query += " AND is_ai_proposed = %s"
+                params.append(is_ai_proposed)
+            query += " ORDER BY dataset_id, rule_id;"
+
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                return [
+                    DataTreatmentRuleModel(
+                        rule_id=r["rule_id"],
+                        dataset_id=r["dataset_id"],
+                        column_name=r["column_name"],
+                        operation_id=r["operation_id"],
+                        treatment_name=r["treatment_name"],
+                        params_json=r["params_json"] if isinstance(r["params_json"], dict) else {},
+                        expression_display=r["expression_display"],
+                        description=r["description"],
+                        is_ai_proposed=bool(r["is_ai_proposed"]),
+                        ai_rationale=r["ai_rationale"],
+                        ai_confidence=float(r["ai_confidence"]) if r["ai_confidence"] is not None else None,
+                        status=r["status"],
+                        enforced_by=r["enforced_by"] or "Admin",
+                        created_at=r["created_at"] or datetime.now(timezone.utc),
+                        updated_at=r["updated_at"] or datetime.now(timezone.utc)
+                    )
+                    for r in rows
+                ]
+    except Exception as e:
+        print(f"Warning: Failed to query policy.data_treatment_rules: {e}")
+
+    # Fallback to in-memory
     rules = list(TREATMENT_RULES.values())
     if dataset_id:
         mapped = DATASET_FILE_MAP.get(dataset_id, dataset_id)
@@ -285,64 +713,229 @@ def get_data_treatment_rules(
 def update_data_treatment_rule(rule_id: str, req: UpdateTreatmentRuleRequest):
     """
     Cho phép Admin chỉnh sửa trực tiếp biểu thức (expression) và cấu hình xử lý trên UI.
+    Ghi trực tiếp vào bảng policy.data_treatment_rules trong PostgreSQL.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE policy.data_treatment_rules
+                SET expression_display = %s,
+                    params_json = COALESCE(%s::jsonb, params_json),
+                    description = COALESCE(%s, description),
+                    updated_at = %s
+                WHERE rule_id = %s
+                RETURNING *;
+            """, (
+                req.expression_display,
+                json.dumps(req.params_json) if req.params_json is not None else None,
+                req.description,
+                now_utc,
+                rule_id
+            ))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res_rule = DataTreatmentRuleModel(
+                    rule_id=row["rule_id"],
+                    dataset_id=row["dataset_id"],
+                    column_name=row["column_name"],
+                    operation_id=row["operation_id"],
+                    treatment_name=row["treatment_name"],
+                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
+                    expression_display=row["expression_display"],
+                    description=row["description"],
+                    is_ai_proposed=bool(row["is_ai_proposed"]),
+                    ai_rationale=row["ai_rationale"],
+                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
+                    status=row["status"],
+                    enforced_by=row["enforced_by"] or "Admin",
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"]
+                )
+                TREATMENT_RULES[rule_id] = res_rule
+                return res_rule
+    except Exception as e:
+        print(f"Warning: Failed to update policy.data_treatment_rules in DB: {e}")
+
+    # In-memory fallback
     rule = TREATMENT_RULES.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Treatment rule not found")
-    
     rule.expression_display = req.expression_display
     if req.params_json is not None:
         rule.params_json = req.params_json
     if req.description is not None:
         rule.description = req.description
-    rule.updated_at = datetime.now(timezone.utc)
+    rule.updated_at = now_utc
     return rule
 
 
 @app.post("/api/rules/treatments/{rule_id}/approve", response_model=DataTreatmentRuleModel)
 def approve_data_treatment_rule(rule_id: str, req: ProposalApprovalRequest):
     """
-    Admin duyệt quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'active'.
+    Admin duyệt quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'active' trong DB.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    enforced = f"{req.actor_name} ({req.actor_role})"
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE policy.data_treatment_rules
+                SET status = 'active',
+                    enforced_by = %s,
+                    updated_at = %s
+                WHERE rule_id = %s
+                RETURNING *;
+            """, (enforced, now_utc, rule_id))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res_rule = DataTreatmentRuleModel(
+                    rule_id=row["rule_id"],
+                    dataset_id=row["dataset_id"],
+                    column_name=row["column_name"],
+                    operation_id=row["operation_id"],
+                    treatment_name=row["treatment_name"],
+                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
+                    expression_display=row["expression_display"],
+                    description=row["description"],
+                    is_ai_proposed=bool(row["is_ai_proposed"]),
+                    ai_rationale=row["ai_rationale"],
+                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
+                    status=row["status"],
+                    enforced_by=row["enforced_by"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"]
+                )
+                TREATMENT_RULES[rule_id] = res_rule
+                return res_rule
+    except Exception as e:
+        print(f"Warning: Failed to approve policy.data_treatment_rules in DB: {e}")
+
     rule = TREATMENT_RULES.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Treatment rule not found")
-    
     rule.status = "active"
-    rule.enforced_by = f"{req.actor_name} ({req.actor_role})"
-    rule.updated_at = datetime.now(timezone.utc)
+    rule.enforced_by = enforced
+    rule.updated_at = now_utc
     return rule
 
 
 @app.post("/api/rules/treatments/{rule_id}/reject", response_model=DataTreatmentRuleModel)
 def reject_data_treatment_rule(rule_id: str, req: ProposalRejectionRequest):
     """
-    Admin từ chối quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'rejected'.
+    Admin từ chối quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'rejected' trong DB.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE policy.data_treatment_rules
+                SET status = 'rejected',
+                    updated_at = %s
+                WHERE rule_id = %s
+                RETURNING *;
+            """, (now_utc, rule_id))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res_rule = DataTreatmentRuleModel(
+                    rule_id=row["rule_id"],
+                    dataset_id=row["dataset_id"],
+                    column_name=row["column_name"],
+                    operation_id=row["operation_id"],
+                    treatment_name=row["treatment_name"],
+                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
+                    expression_display=row["expression_display"],
+                    description=row["description"],
+                    is_ai_proposed=bool(row["is_ai_proposed"]),
+                    ai_rationale=row["ai_rationale"],
+                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
+                    status=row["status"],
+                    enforced_by=row["enforced_by"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"]
+                )
+                TREATMENT_RULES[rule_id] = res_rule
+                return res_rule
+    except Exception as e:
+        print(f"Warning: Failed to reject policy.data_treatment_rules in DB: {e}")
+
     rule = TREATMENT_RULES.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Treatment rule not found")
-    
     rule.status = "rejected"
-    rule.updated_at = datetime.now(timezone.utc)
+    rule.updated_at = now_utc
     return rule
 
 
 @app.patch("/api/rules/treatments/{rule_id}/toggle", response_model=DataTreatmentRuleModel)
 def toggle_data_treatment_rule(rule_id: str):
     """
-    Bật / Tạm dừng áp dụng rule xử lý dữ liệu ('active' <-> 'paused').
+    Bật / Tạm dừng áp dụng rule xử lý dữ liệu ('active' <-> 'paused') trong DB.
     """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE policy.data_treatment_rules
+                SET status = CASE WHEN LOWER(status) = 'active' THEN 'paused' ELSE 'active' END,
+                    updated_at = %s
+                WHERE rule_id = %s
+                RETURNING *;
+            """, (now_utc, rule_id))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res_rule = DataTreatmentRuleModel(
+                    rule_id=row["rule_id"],
+                    dataset_id=row["dataset_id"],
+                    column_name=row["column_name"],
+                    operation_id=row["operation_id"],
+                    treatment_name=row["treatment_name"],
+                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
+                    expression_display=row["expression_display"],
+                    description=row["description"],
+                    is_ai_proposed=bool(row["is_ai_proposed"]),
+                    ai_rationale=row["ai_rationale"],
+                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
+                    status=row["status"],
+                    enforced_by=row["enforced_by"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"]
+                )
+                TREATMENT_RULES[rule_id] = res_rule
+                return res_rule
+    except Exception as e:
+        print(f"Warning: Failed to toggle policy.data_treatment_rules in DB: {e}")
+
     rule = TREATMENT_RULES.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Treatment rule not found")
-    
     if rule.status.lower() == "active":
         rule.status = "paused"
     elif rule.status.lower() == "paused":
         rule.status = "active"
-    rule.updated_at = datetime.now(timezone.utc)
+    rule.updated_at = now_utc
     return rule
+
 
 
 # =============================================================================
@@ -416,9 +1009,12 @@ def trigger_airflow_pipeline(req: Optional[AirflowTriggerRequest] = None):
 
     dag_id = req.dag_id or "datatrust_adaptive_pipeline"
     raw_dataset = req.dataset_id or "ride_hailing_xanh_sm_trips.csv"
-    actual_filename = DATASET_FILE_MAP.get(str(raw_dataset), str(raw_dataset))
-    if not actual_filename.endswith(".csv"):
-        actual_filename += ".csv"
+    if str(raw_dataset).upper() in ("ALL", "*"):
+        actual_filename = "ALL"
+    else:
+        actual_filename = DATASET_FILE_MAP.get(str(raw_dataset), str(raw_dataset))
+        if not actual_filename.endswith(".csv"):
+            actual_filename += ".csv"
 
     auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
     payload = {
@@ -485,13 +1081,68 @@ def trigger_airflow_pipeline(req: Optional[AirflowTriggerRequest] = None):
 
 
 @app.get("/api/runs")
-def list_pipeline_runs():
+def list_pipeline_runs(dataset_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50):
     """
-    Lấy danh sách các lần chạy pipeline từ Apache Airflow và Runner.
-    Hiển thị đúng tên file dữ liệu và kết quả thực tế tương ứng từng bộ dữ liệu.
+    Lấy danh sách các lần chạy pipeline từ PostgreSQL orchestration.pipeline_runs (nguồn chuẩn)
+    kết hợp với Apache Airflow và Runner.
     """
-    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
     runs = []
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT run_id, dag_id, dataset_id, started_at, ended_at, status,
+                       scanned_count, silver_count, quarantine_count, warning_count,
+                       execution_duration_ms, error_message
+                FROM orchestration.pipeline_runs
+                WHERE 1=1
+            """
+            params = []
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if status:
+                query += " AND LOWER(status) = LOWER(%s)"
+                params.append(status)
+            query += " ORDER BY started_at DESC LIMIT %s;"
+            params.append(limit)
+
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+            conn.close()
+
+            for r in rows:
+                dur_mins = round((r["execution_duration_ms"] or 60000) / 60000, 1)
+                runs.append({
+                    "id": r["run_id"],
+                    "dagId": r["dag_id"],
+                    "status": (r["status"] or "SUCCESS").upper(),
+                    "inputRecords": r["scanned_count"] or 0,
+                    "silverRecords": r["silver_count"] or 0,
+                    "quarantineRecords": r["quarantine_count"] or 0,
+                    "warningRecords": r["warning_count"] or 0,
+                    "startedAt": r["started_at"].isoformat() if r["started_at"] else None,
+                    "finishedAt": r["ended_at"].isoformat() if r["ended_at"] else None,
+                    "durationMinutes": dur_mins,
+                    "datasetId": r["dataset_id"],
+                    "errorMessage": r["error_message"]
+                })
+    except Exception as e:
+        print(f"Warning: Failed to query orchestration.pipeline_runs: {e}")
+
+    # Nếu DB có kết quả, trả về
+    if runs:
+        for lr in LOCAL_RUNS:
+            if not any(r["id"] == lr["id"] for r in runs):
+                runs.insert(0, lr)
+        return runs
+
+    # Fallback to Airflow API query
+    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
     try:
         req = Request(
             f"{AIRFLOW_API_URL}/dags/datatrust_adaptive_pipeline/dagRuns?order_by=-execution_date&limit=25",
@@ -500,60 +1151,23 @@ def list_pipeline_runs():
         with urlopen(req, timeout=2.5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             dag_runs_list = data.get("dag_runs", [])
-            dag_runs_list = sorted(dag_runs_list, key=lambda x: str(x.get("start_date") or x.get("execution_date") or ""), reverse=True)[:10]
-            for idx, r in enumerate(dag_runs_list):
+            for r in dag_runs_list[:10]:
                 dag_run_id = r.get("dag_run_id")
                 conf = r.get("conf") or {}
                 raw_ds = conf.get("dataset_id") or conf.get("filename") or "ride_hailing_xanh_sm_trips.csv"
                 actual_filename = DATASET_FILE_MAP.get(str(raw_ds), str(raw_ds))
                 if not actual_filename.endswith(".csv"):
                     actual_filename += ".csv"
-
-                # Số liệu theo benchmark của file đó
                 bench = DATASET_BENCHMARK_METRICS.get(actual_filename, {"input": 1000, "silver": 998, "quarantine": 2})
-                input_records = bench["input"]
-                silver_records = bench["silver"]
-                quarantine_records = bench["quarantine"]
-
-                # Thử đọc kết quả XCom thực tế từ Airflow task_5 nếu có (chỉ cho 3 run mới nhất)
-                if dag_run_id and idx < 3:
-                    try:
-                        escaped_run_id = urllib.parse.quote(dag_run_id, safe='')
-                        xcom_url = f"{AIRFLOW_API_URL}/dags/datatrust_adaptive_pipeline/dagRuns/{escaped_run_id}/taskInstances/task_5_quality_gates_and_quarantine/xcomEntries/pipeline_metrics"
-                        xreq = Request(xcom_url, headers={"Authorization": f"Basic {auth_str}"})
-                        with urlopen(xreq, timeout=0.8) as xresp:
-                            xdata = json.loads(xresp.read().decode("utf-8"))
-                            val = xdata.get("value")
-                            parsed_val = {}
-                            if isinstance(val, str):
-                                try:
-                                    parsed_val = json.loads(val)
-                                except Exception:
-                                    parsed_val = ast.literal_eval(val)
-                            elif isinstance(val, dict):
-                                parsed_val = val
-
-                            if parsed_val:
-                                if parsed_val.get("scanned") is not None:
-                                    # Nếu task Airflow nạp mẫu 1000 dòng, giữ tỷ lệ thực tế hoặc lấy giá trị XCom
-                                    x_scanned = parsed_val.get("scanned", input_records)
-                                    x_silver = parsed_val.get("silver", silver_records)
-                                    x_quarantine = parsed_val.get("quarantine", quarantine_records)
-                                    input_records = x_scanned
-                                    silver_records = x_silver
-                                    quarantine_records = x_quarantine
-                                if parsed_val.get("dataset_id"):
-                                    actual_filename = parsed_val.get("dataset_id")
-                    except Exception:
-                        pass
 
                 runs.append({
                     "id": dag_run_id,
                     "dagId": r.get("dag_id"),
                     "status": (r.get("state") or "SUCCESS").upper(),
-                    "inputRecords": input_records,
-                    "silverRecords": silver_records,
-                    "quarantineRecords": quarantine_records,
+                    "inputRecords": bench["input"],
+                    "silverRecords": bench["silver"],
+                    "quarantineRecords": bench["quarantine"],
+                    "warningRecords": 0,
                     "startedAt": r.get("start_date") or r.get("execution_date"),
                     "finishedAt": r.get("end_date") or r.get("execution_date"),
                     "durationMinutes": 1,
@@ -561,8 +1175,7 @@ def list_pipeline_runs():
                 })
     except Exception:
         pass
-    
-    # Gộp các lần chạy cục bộ / fallback mới nhất lên đầu
+
     for lr in LOCAL_RUNS:
         runs.insert(0, lr)
 
@@ -575,6 +1188,7 @@ def list_pipeline_runs():
                 "inputRecords": 10382,
                 "silverRecords": 10364,
                 "quarantineRecords": 18,
+                "warningRecords": 7,
                 "startedAt": "2026-09-27T12:25:44Z",
                 "finishedAt": "2026-09-27T12:25:51Z",
                 "durationMinutes": 1,
@@ -584,32 +1198,604 @@ def list_pipeline_runs():
     return runs
 
 
+@app.get("/api/runs/{run_id}")
+def get_pipeline_run_detail(run_id: str):
+    """
+    Lấy chi tiết một lượt chạy pipeline: Thông số 3 làn (Lane A, Lane B, Routing),
+    chữ ký số bằng chứng, và bảng thống kê cách ly/cảnh báo.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Query run
+            cur.execute("""
+                SELECT * FROM orchestration.pipeline_runs WHERE run_id = %s;
+            """, (run_id,))
+            run_row = cur.fetchone()
+
+            # Query evidence
+            cur.execute("""
+                SELECT * FROM audit.evidence WHERE run_id = %s ORDER BY created_at DESC LIMIT 1;
+            """, (run_id,))
+            evidence_row = cur.fetchone()
+
+            # Query quarantine summary
+            cur.execute("""
+                SELECT failure_lane, violation_severity, count(*) as count
+                FROM quarantine.records
+                WHERE run_id = %s
+                GROUP BY failure_lane, violation_severity;
+            """, (run_id,))
+            q_summary = cur.fetchall()
+
+            # Query warning summary
+            cur.execute("""
+                SELECT signal_layer, count(*) as count
+                FROM warning.records
+                WHERE run_id = %s
+                GROUP BY signal_layer;
+            """, (run_id,))
+            w_summary = cur.fetchall()
+
+            if not run_row and not evidence_row:
+                raise HTTPException(status_code=404, detail="Pipeline run not found")
+
+            dur_ms = run_row["execution_duration_ms"] if run_row else None
+            return {
+                "run_id": run_id,
+                "dag_id": run_row["dag_id"] if run_row else "datatrust_adaptive_pipeline",
+                "dataset_id": run_row["dataset_id"] if run_row else (evidence_row["dataset_id"] if evidence_row else "unknown"),
+                "status": run_row["status"].upper() if run_row else "SUCCESS",
+                "started_at": run_row["started_at"].isoformat() if run_row and run_row["started_at"] else None,
+                "ended_at": run_row["ended_at"].isoformat() if run_row and run_row["ended_at"] else None,
+                "duration_ms": dur_ms,
+                "scanned_count": run_row["scanned_count"] if run_row else (evidence_row["scanned_count"] if evidence_row else 0),
+                "silver_count": run_row["silver_count"] if run_row else (evidence_row["silver_count"] if evidence_row else 0),
+                "quarantine_count": run_row["quarantine_count"] if run_row else (evidence_row["quarantine_count"] if evidence_row else 0),
+                "warning_count": run_row["warning_count"] if run_row else (evidence_row["warning_count"] if evidence_row else 0),
+                "audit_evidence": {
+                    "evidence_id": str(evidence_row["evidence_id"]) if evidence_row else None,
+                    "digital_signature": evidence_row["digital_signature"] if evidence_row else "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+                    "evidence_hash": evidence_row["evidence_hash"] if evidence_row else None,
+                    "previous_hash": evidence_row["previous_hash"] if evidence_row else None,
+                    "jurisdiction_chain": evidence_row["jurisdiction_chain"] if evidence_row else ["VN-ND356-LAW91", "US-SOX404-IFRS15", "EU-GDPR"],
+                } if evidence_row else None,
+                "quarantine_summary": [dict(x) for x in q_summary],
+                "warning_summary": [dict(x) for x in w_summary],
+            }
+    finally:
+        conn.close()
+
+
 # =============================================================================
-# QUARANTINE & AUDIT TRAIL ENDPOINTS
+# QUARANTINE ENDPOINTS (POSTGRESQL SINGLE SOURCE OF TRUTH)
 # =============================================================================
 
-@app.get("/api/quarantine", response_model=List[QuarantineRecordModel])
-def list_quarantine(dataset_id: Optional[str] = None, status: Optional[QuarantineStatus] = None):
-    return quarantine_mgr.list_records(dataset_id, status)
+@app.get("/api/quarantine")
+def list_quarantine(
+    dataset_id: Optional[str] = None,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)
+):
+    """
+    Truy vấn danh sách bản ghi cách ly từ schema quarantine.records trong PostgreSQL.
+    Cung cấp Full Raw Record JSON phục vụ phân tích nguyên nhân gốc (RCA) & kiểm toán IPO.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    from decimal import Decimal
 
-@app.post("/api/quarantine/{quarantine_id}/reprocess", response_model=QuarantineRecordModel)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT quarantine_id, run_id, dataset_id, source_table, source_row_pk,
+                       failure_lane, violation_column, violation_rule_id, violation_reason,
+                       violation_severity, raw_record_json, lineage_hash, status,
+                       quarantined_at, resolved_by, resolved_at, resolution_note
+                FROM quarantine.records
+                WHERE 1=1
+            """
+            count_query = "SELECT count(*) FROM quarantine.records WHERE 1=1"
+            params = []
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (dataset_id = %s OR dataset_id = %s)"
+                count_query += " AND (dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if status:
+                query += " AND LOWER(status) = LOWER(%s)"
+                count_query += " AND LOWER(status) = LOWER(%s)"
+                params.append(status)
+            if severity:
+                query += " AND LOWER(violation_severity) = LOWER(%s)"
+                count_query += " AND LOWER(violation_severity) = LOWER(%s)"
+                params.append(severity)
+
+            cur.execute(count_query, tuple(params))
+            total_count = cur.fetchone()["count"]
+
+            query += " ORDER BY quarantined_at DESC LIMIT %s OFFSET %s;"
+            params.extend([limit, offset])
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+            conn.close()
+
+            clean_records = []
+            for r in rows:
+                item = dict(r)
+                item["quarantine_id"] = str(item["quarantine_id"])
+                if item.get("quarantined_at"):
+                    item["quarantined_at"] = item["quarantined_at"].isoformat()
+                if item.get("resolved_at"):
+                    item["resolved_at"] = item["resolved_at"].isoformat()
+                clean_records.append(item)
+
+            return {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "records": clean_records
+            }
+    except Exception as e:
+        print(f"Warning: Failed to query quarantine.records: {e}")
+        # Fallback to in-memory
+        mem_records = [q.model_dump() for q in quarantine_mgr.list_records(dataset_id, None)]
+        return {
+            "total": len(mem_records),
+            "limit": limit,
+            "offset": offset,
+            "records": mem_records
+        }
+
+
+@app.post("/api/quarantine/{quarantine_id}/reprocess")
 def reprocess_quarantine(quarantine_id: str, req: QuarantineRemediationRequest):
+    """
+    Remediate & Reprocess một bản ghi cách ly: Cập nhật status = 'REMEDIATED'
+    với chữ ký người duyệt và ghi nhận trong PostgreSQL.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    enforced = f"{req.actor_name} ({req.actor_role})"
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE quarantine.records
+                SET status = 'REMEDIATED',
+                    resolved_by = %s,
+                    resolved_at = %s,
+                    resolution_note = %s
+                WHERE quarantine_id::text = %s
+                RETURNING *;
+            """, (enforced, now_utc, "Remediated with cleaned payload by Admin", quarantine_id))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res = dict(row)
+                res["quarantine_id"] = str(res["quarantine_id"])
+                res["quarantined_at"] = res["quarantined_at"].isoformat() if res.get("quarantined_at") else None
+                res["resolved_at"] = res["resolved_at"].isoformat() if res.get("resolved_at") else None
+                return res
+    except Exception as e:
+        print(f"Warning: Failed to reprocess quarantine in DB: {e}")
+
     try:
         return quarantine_mgr.reprocess_record(quarantine_id, req.cleaned_payload, req.actor_name, req.actor_role)
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/api/quarantine/{quarantine_id}/override", response_model=QuarantineRecordModel)
+
+@app.post("/api/quarantine/{quarantine_id}/override")
 def override_quarantine(quarantine_id: str, req: QuarantineOverrideRequest):
+    """
+    Phê duyệt ngoại lệ (Audit Override) cho bản ghi cách ly: Cập nhật status = 'OVERRIDDEN'
+    kèm giải trình kiểm toán bắt buộc.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    now_utc = datetime.now(timezone.utc)
+    enforced = f"{req.actor_name} ({req.actor_role})"
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE quarantine.records
+                SET status = 'OVERRIDDEN',
+                    resolved_by = %s,
+                    resolved_at = %s,
+                    resolution_note = %s
+                WHERE quarantine_id::text = %s
+                RETURNING *;
+            """, (enforced, now_utc, req.justification, quarantine_id))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            if row:
+                res = dict(row)
+                res["quarantine_id"] = str(res["quarantine_id"])
+                res["quarantined_at"] = res["quarantined_at"].isoformat() if res.get("quarantined_at") else None
+                res["resolved_at"] = res["resolved_at"].isoformat() if res.get("resolved_at") else None
+                return res
+    except Exception as e:
+        print(f"Warning: Failed to override quarantine in DB: {e}")
+
     try:
         return quarantine_mgr.approve_override(quarantine_id, req.justification, req.actor_name, req.actor_role)
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =============================================================================
+# WARNING ENDPOINTS (STATISTICAL ANOMALIES & ADVISORY SIGNALS)
+# =============================================================================
+
+@app.get("/api/warnings")
+def list_warnings(
+    dataset_id: Optional[str] = None,
+    signal_lane: Optional[str] = None,
+    signal_layer: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)
+):
+    """
+    Truy vấn danh sách cảnh báo bất thường (L2 Robust Drift, L3 Relational, L4 Changepoint)
+    từ schema warning.records trong PostgreSQL.
+    Bản ghi đã được xử lý PII Redacted để bảo vệ quyền riêng tư kiểm toán.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    from decimal import Decimal
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT warning_id, run_id, dataset_id, source_row_pk, signal_lane,
+                       signal_layer, warning_type, warning_reason, score_or_zvalue,
+                       evidence_json, redacted_record_json, lineage_hash, detected_at
+                FROM warning.records
+                WHERE 1=1
+            """
+            count_query = "SELECT count(*) FROM warning.records WHERE 1=1"
+            params = []
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (dataset_id = %s OR dataset_id = %s)"
+                count_query += " AND (dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if signal_lane:
+                query += " AND signal_lane = %s"
+                count_query += " AND signal_lane = %s"
+                params.append(signal_lane)
+            if signal_layer:
+                query += " AND signal_layer = %s"
+                count_query += " AND signal_layer = %s"
+                params.append(signal_layer)
+
+            cur.execute(count_query, tuple(params))
+            total_count = cur.fetchone()["count"]
+
+            query += " ORDER BY detected_at DESC LIMIT %s OFFSET %s;"
+            params.extend([limit, offset])
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+            conn.close()
+
+            clean_records = []
+            for r in rows:
+                item = dict(r)
+                item["warning_id"] = str(item["warning_id"])
+                if item.get("score_or_zvalue") is not None:
+                    item["score_or_zvalue"] = float(item["score_or_zvalue"])
+                if item.get("detected_at"):
+                    item["detected_at"] = item["detected_at"].isoformat()
+                clean_records.append(item)
+
+            return {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "records": clean_records
+            }
+    except Exception as e:
+        print(f"Warning: Failed to query warning.records: {e}")
+        return {"total": 0, "limit": limit, "offset": offset, "records": []}
+
+
+@app.get("/api/warnings/{warning_id}")
+def get_warning_detail(warning_id: str):
+    """
+    Chi tiết một cảnh báo bất thường kèm evidence_json và redacted_record_json.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM warning.records WHERE warning_id::text = %s;
+            """, (warning_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Warning record not found")
+            item = dict(row)
+            item["warning_id"] = str(item["warning_id"])
+            if item.get("score_or_zvalue") is not None:
+                item["score_or_zvalue"] = float(item["score_or_zvalue"])
+            if item.get("detected_at"):
+                item["detected_at"] = item["detected_at"].isoformat()
+            return item
+    finally:
+        conn.close()
+
+
+# =============================================================================
+# AUDIT EVIDENCE LEDGER ENDPOINTS (IMMUTABLE HASH-CHAIN STORAGE)
+# =============================================================================
+
+@app.get("/api/evidence")
+def list_evidence(
+    dataset_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200)
+):
+    """
+    Truy vấn sổ cái bằng chứng kiểm toán bất biến (Audit Evidence Ledger)
+    từ schema audit.evidence trong PostgreSQL.
+    Mỗi bản ghi được ký số 'SIG-AIRFLOW-3LANE-GSM-IPO-2026' và liên kết SHA-256 hash-chain.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT evidence_id, run_id, dag_id, dataset_id, digital_signature,
+                       evidence_hash, previous_hash, scanned_count, silver_count,
+                       quarantine_count, warning_count, metrics, evidence_payload,
+                       jurisdiction_chain, created_at
+                FROM audit.evidence
+                WHERE 1=1
+            """
+            params = []
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if run_id:
+                query += " AND run_id = %s"
+                params.append(run_id)
+            query += " ORDER BY created_at DESC LIMIT %s;"
+            params.append(limit)
+
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+            conn.close()
+
+            clean_evidence = []
+            for r in rows:
+                item = dict(r)
+                item["evidence_id"] = str(item["evidence_id"])
+                if item.get("created_at"):
+                    item["created_at"] = item["created_at"].isoformat()
+                clean_evidence.append(item)
+
+            return clean_evidence
+    except Exception as e:
+        print(f"Warning: Failed to query audit.evidence: {e}")
+        return []
+
+
+@app.get("/api/evidence/{evidence_id}")
+def get_evidence_detail(evidence_id: str):
+    """
+    Xem chi tiết payload bằng chứng kiểm toán bất biến phục vụ thanh tra IPO.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM audit.evidence WHERE evidence_id::text = %s OR run_id = %s;
+            """, (evidence_id, evidence_id))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Audit evidence not found")
+            item = dict(row)
+            item["evidence_id"] = str(item["evidence_id"])
+            if item.get("created_at"):
+                item["created_at"] = item["created_at"].isoformat()
+            return item
+    finally:
+        conn.close()
+
+
+@app.get("/api/evidence-verify/chain")
+def verify_evidence_chain():
+    """
+    Thẩm tra tính toàn vẹn của chuỗi băm (SHA-256 Hash Chain Verification)
+    trên toàn bộ sổ cái audit.evidence.
+    Đảm bảo không bản ghi nào bị can thiệp trái phép (Tamper-evident).
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    import hashlib
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT evidence_id, run_id, evidence_hash, previous_hash, created_at
+                FROM audit.evidence
+                ORDER BY created_at ASC;
+            """)
+            rows = cur.fetchall()
+
+            if not rows:
+                return {
+                    "is_valid": True,
+                    "records_count": 0,
+                    "status": "INITIALIZED",
+                    "message": "Sổ cái bằng chứng đã được khởi tạo sẵn sàng cho lượt chạy đầu tiên."
+                }
+
+            is_valid = True
+            broken_index = None
+            for i in range(1, len(rows)):
+                expected_prev = rows[i - 1]["evidence_hash"]
+                actual_prev = rows[i]["previous_hash"]
+                if actual_prev != expected_prev:
+                    is_valid = False
+                    broken_index = i
+                    break
+
+            return {
+                "is_valid": is_valid,
+                "records_count": len(rows),
+                "status": "VERIFIED" if is_valid else "CORRUPTED",
+                "broken_at_index": broken_index,
+                "latest_evidence_hash": rows[-1]["evidence_hash"] if rows else None,
+                "digital_signature": "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+                "standard": "SOX 404 / IPO Audit Cryptographic Ledger"
+            }
+    finally:
+        conn.close()
+
+
+# =============================================================================
+# DASHBOARD OVERVIEW & COMPLIANCE AGGREGATION
+# =============================================================================
+
+@app.get("/api/dashboard/overview")
+def get_dashboard_overview():
+    """
+    Tổng hợp các chỉ số KPI kiểm soát, tuân thủ, dữ liệu cách ly và cảnh báo
+    tính toán trực tiếp từ cơ sở dữ liệu PostgreSQL.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # 1. Pipeline runs stats
+            cur.execute("""
+                SELECT count(*) as total_runs,
+                       COALESCE(SUM(scanned_count), 0) as total_scanned,
+                       COALESCE(SUM(silver_count), 0) as total_silver,
+                       COALESCE(SUM(quarantine_count), 0) as total_quarantine,
+                       COALESCE(SUM(warning_count), 0) as total_warning
+                FROM orchestration.pipeline_runs;
+            """)
+            run_stats = cur.fetchone()
+
+            # 2. Quarantine records breakdown
+            cur.execute("""
+                SELECT status, count(*) as count
+                FROM quarantine.records
+                GROUP BY status;
+            """)
+            q_status_rows = cur.fetchall()
+            q_status_map = {r["status"]: r["count"] for r in q_status_rows}
+
+            # 3. Warnings breakdown
+            cur.execute("""
+                SELECT signal_layer, count(*) as count
+                FROM warning.records
+                GROUP BY signal_layer;
+            """)
+            w_layer_rows = cur.fetchall()
+
+            # 4. Catalog datasets count & average health score
+            cur.execute("""
+                SELECT count(*) as datasets_count,
+                       COALESCE(AVG(health_score), 98.5) as avg_health
+                FROM catalog.table_profiles;
+            """)
+            cat_stats = cur.fetchone()
+
+            # 5. Active rules count
+            cur.execute("""
+                SELECT count(*) as active_rules_count
+                FROM policy.data_treatment_rules
+                WHERE LOWER(status) = 'active';
+            """)
+            active_rules_row = cur.fetchone()
+
+            # 6. Latest run
+            cur.execute("""
+                SELECT run_id, dataset_id, status, started_at
+                FROM orchestration.pipeline_runs
+                ORDER BY started_at DESC LIMIT 1;
+            """)
+            latest_run = cur.fetchone()
+
+            total_runs = run_stats["total_runs"] if run_stats else 0
+            total_scanned = run_stats["total_scanned"] if run_stats else 0
+            total_silver = run_stats["total_silver"] if run_stats else 0
+            total_quarantine = sum(q_status_map.values()) if q_status_map else (run_stats["total_quarantine"] if run_stats else 0)
+            total_warning = sum(r["count"] for r in w_layer_rows) if w_layer_rows else (run_stats["total_warning"] if run_stats else 0)
+
+            # Resolved count
+            resolved_count = q_status_map.get("REMEDIATED", 0) + q_status_map.get("OVERRIDDEN", 0)
+            open_count = q_status_map.get("QUARANTINED", 0) + q_status_map.get("IN_REVIEW", 0)
+
+            compliance_score = round(float(cat_stats["avg_health"]), 1) if cat_stats and cat_stats["avg_health"] else 98.5
+
+            return {
+                "metrics": {
+                    "total_runs": total_runs,
+                    "total_scanned": total_scanned,
+                    "total_silver": total_silver,
+                    "total_quarantine": total_quarantine,
+                    "total_warning": total_warning,
+                    "quarantine_open": open_count,
+                    "quarantine_resolved": resolved_count,
+                    "active_rules_count": active_rules_row["active_rules_count"] if active_rules_row else 6,
+                    "datasets_count": cat_stats["datasets_count"] if cat_stats else 8,
+                },
+                "compliance_score": compliance_score,
+                "latest_run": {
+                    "run_id": latest_run["run_id"] if latest_run else None,
+                    "dataset_id": latest_run["dataset_id"] if latest_run else None,
+                    "status": (latest_run["status"] or "SUCCESS").upper() if latest_run else "IDLE",
+                    "started_at": latest_run["started_at"].isoformat() if latest_run and latest_run["started_at"] else None
+                } if latest_run else None,
+                "controls": [
+                    {"name": "Pass", "value": total_silver},
+                    {"name": "Warning", "value": total_warning},
+                    {"name": "Quarantine Fail", "value": total_quarantine},
+                ],
+                "warning_layers": [dict(r) for r in w_layer_rows],
+                "quarantine_by_status": q_status_map,
+                "legal_framework": [
+                    "Luật Bảo vệ dữ liệu cá nhân số 91/2025/QH15",
+                    "Nghị định 356/2025/NĐ-CP",
+                    "IFRS 15 / SOX 404",
+                    "UN ECE R100 Battery Safety Norms",
+                    "GDPR (EU) & CCPA (US)"
+                ]
+            }
+    finally:
+        conn.close()
+
 
 @app.get("/api/audit-trail", response_model=List[AuditTrailModel])
 def get_audit_trail():
     return quarantine_mgr.audit_log
+

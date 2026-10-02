@@ -33,6 +33,8 @@ from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
 
 
 PILOT_DATA_DIR = Path("data/vingroup_clean_3zone_pilot")
+if not PILOT_DATA_DIR.exists():
+    PILOT_DATA_DIR = Path("data/vingroup_pii_faulty_testset_3zone")
 
 
 # =============================================================================
@@ -271,7 +273,7 @@ def get_dataset_stats(dataset_id: str) -> Dict[str, Any]:
 # =============================================================================
 
 def get_3zone_policies() -> Dict[str, CompliancePolicyModel]:
-    return {
+    policies = {
         "POL-EU-GDPR": CompliancePolicyModel(
             policy_id="POL-EU-GDPR",
             title="EU GDPR Regulation (EU) 2016/679 - Phân Vùng Châu Âu",
@@ -284,16 +286,16 @@ def get_3zone_policies() -> Dict[str, CompliancePolicyModel]:
                 PolicyClauseModel(clause_id="C-EU-02", policy_id="POL-EU-GDPR", clause_number="Article 25", requirement_summary="Làm mờ tọa độ GPS đón khách xuống độ phân giải 2 chữ số thập phân", target_pii_roles=[PiiRoleType.CONTEXTUAL_PERSONAL_DATA], mandated_action=TreatmentActionType.GENERALIZE)
             ]
         ),
-        "POL-VN-ND13": CompliancePolicyModel(
-            policy_id="POL-VN-ND13",
-            title="Nghị Định 13/2023/NĐ-CP - Phân Vùng Việt Nam",
+        "POL-VN-LAW91": CompliancePolicyModel(
+            policy_id="POL-VN-LAW91",
+            title="Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
             jurisdiction="VN",
-            legal_framework="Nghị định 13/2023/NĐ-CP",
-            raw_policy_text="Áp dụng cho đội xe và cuốc xe vùng Việt Nam (Hà Nội: lat 20.95-21.10, lon 105.75-105.90). Yêu cầu che giấu định danh và làm mờ tọa độ di chuyển.",
-            effective_date="2023-07-01",
+            legal_framework="Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
+            raw_policy_text="Áp dụng cho đội xe và cuốc xe vùng Việt Nam (hiệu lực từ 01/01/2026). Yêu cầu bắt buộc che giấu định danh trực tiếp (SĐT, Email, CCCD) và làm mờ tọa độ di chuyển.",
+            effective_date="2026-01-01",
             clauses=[
-                PolicyClauseModel(clause_id="C-VN-01", policy_id="POL-VN-ND13", clause_number="Điều 17.2", requirement_summary="Che mờ hoặc bí danh hóa dữ liệu cá nhân liên lạc", target_pii_roles=[PiiRoleType.DIRECT_IDENTIFIER], mandated_action=TreatmentActionType.PSEUDONYMIZE),
-                PolicyClauseModel(clause_id="C-VN-02", policy_id="POL-VN-ND13", clause_number="Điều 13", requirement_summary="Làm mờ vị trí đón trả khách", target_pii_roles=[PiiRoleType.CONTEXTUAL_PERSONAL_DATA], mandated_action=TreatmentActionType.GENERALIZE)
+                PolicyClauseModel(clause_id="C-VN-01", policy_id="POL-VN-LAW91", clause_number="Điều 17 & NĐ 356", requirement_summary="Che mờ hoặc bí danh hóa dữ liệu cá nhân liên lạc", target_pii_roles=[PiiRoleType.DIRECT_IDENTIFIER], mandated_action=TreatmentActionType.PSEUDONYMIZE),
+                PolicyClauseModel(clause_id="C-VN-02", policy_id="POL-VN-LAW91", clause_number="Điều 13 & NĐ 356", requirement_summary="Làm mờ vị trí đón trả khách", target_pii_roles=[PiiRoleType.CONTEXTUAL_PERSONAL_DATA], mandated_action=TreatmentActionType.GENERALIZE)
             ]
         ),
         "POL-IFRS-15": CompliancePolicyModel(
@@ -319,6 +321,9 @@ def get_3zone_policies() -> Dict[str, CompliancePolicyModel]:
             ]
         )
     }
+    # Backward compatibility alias for legacy tests/references
+    policies["POL-VN-ND13"] = policies["POL-VN-LAW91"]
+    return policies
 
 
 # =============================================================================
@@ -395,7 +400,7 @@ class ThreeZonePilotLoader:
                 params_json={"decimals": 2},
                 expression_display="round_decimal(pickup_latitude, 2)",
                 severity=RuleSeverity.MEDIUM,
-                law_ref="Nghị định 13/2023 & GDPR Art. 25",
+                law_ref="Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
                 enforced_by="Nguyễn Quốc Bảo (Lead Platform)"
             ),
             FieldProcessConfigModel(
@@ -410,7 +415,7 @@ class ThreeZonePilotLoader:
                 params_json={"decimals": 2},
                 expression_display="round_decimal(pickup_longitude, 2)",
                 severity=RuleSeverity.MEDIUM,
-                law_ref="Nghị định 13/2023 & GDPR Art. 25",
+                law_ref="Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
                 enforced_by="Nguyễn Quốc Bảo (Lead Platform)"
             ),
             # 4. Bí danh hóa Driver ID
@@ -627,7 +632,7 @@ def get_3zone_treatment_rules() -> List[DataTreatmentRuleModel]:
             expression_display="mask_phone(customer_phone, prefix=3, suffix=2)",
             description="Che mờ số điện thoại khách đặt xe",
             is_ai_proposed=True,
-            ai_rationale="AI phát hiện số điện thoại khách hàng dạng cleartext, đề xuất che mờ bảo vệ dữ liệu theo Nghị định 13/2023.",
+            ai_rationale="AI phát hiện số điện thoại khách hàng dạng cleartext, đề xuất che mờ bảo vệ dữ liệu theo Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP.",
             ai_confidence=0.965,
             status="pending",
             enforced_by="AI Treatment Proposer"

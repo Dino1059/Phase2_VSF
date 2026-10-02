@@ -32,7 +32,18 @@ export function SlideDownDashboard() {
     resetHomepageFlow,
   } = useAgentStore();
 
-  const dataset = datasets[selectedDatasetId] || datasets.trips;
+  const dataset = datasets[selectedDatasetId] || datasets.trips || Object.values(datasets || {}).find(Boolean) || {
+    id: 'trips',
+    name: 'ride_hailing_xanh_sm_trips.csv',
+    filename: 'ride_hailing_xanh_sm_trips.csv',
+    title: 'ride_hailing_xanh_sm_trips.csv',
+    records: 6902,
+    zones: ['VN', 'US', 'EU'],
+    isProfiled: true,
+    anomalies: 8,
+    proposedRulesCount: 0,
+    proposedRules: [],
+  };
   const cases = complianceCases.filter((c) => c.datasetId === selectedDatasetId);
   const failedCases = cases.filter((c) => c.status === 'failed');
 
@@ -64,7 +75,7 @@ export function SlideDownDashboard() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-600">
-              Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.filename || dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Nghị định 13/2023
+              Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.filename || dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Luật 91/2025/QH15, NĐ 356/2025/NĐ-CP
             </p>
           </div>
         </div>
