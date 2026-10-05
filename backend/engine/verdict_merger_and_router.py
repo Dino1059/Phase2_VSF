@@ -79,7 +79,7 @@ class VerdictMergerAndRouter:
             # Resolve PK
             resolved_pk = pk_col
             if not resolved_pk:
-                for cand in ["trip_id", "record_id", "session_id", "customer_id", "driver_id", "feedback_id", "id"]:
+                for cand in ["trip_id", "record_id", "session_id", "customer_id", "driver_id", "feedback_id", "vehicle_vin", "vin", "id"]:
                     if cand in raw_item:
                         resolved_pk = cand
                         break

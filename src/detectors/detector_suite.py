@@ -45,7 +45,7 @@ class L1toL4DetectorSuite:
         # 1. Determine primary key column
         resolved_pk = pk_col
         if not resolved_pk:
-            for candidate in ["trip_id", "record_id", "session_id", "customer_id", "driver_id", "feedback_id", "id"]:
+            for candidate in ["trip_id", "record_id", "session_id", "customer_id", "driver_id", "feedback_id", "vehicle_vin", "vin", "id"]:
                 if candidate in df.columns:
                     resolved_pk = candidate
                     break

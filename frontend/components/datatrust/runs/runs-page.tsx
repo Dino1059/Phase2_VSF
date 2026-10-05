@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Loader2, Play, Search, Workflow } from 'lucide-react';
+import { ChevronRight, GitFork, Loader2, Play, Search, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { pipelineDataSource } from '@/lib/data/local-pipeline-data';
@@ -207,13 +207,23 @@ export function RunsPage() {
                   </td>
                   <td className="px-4 py-3.5 text-slate-500">{run.durationMinutes} phút</td>
                   <td className="px-4 py-3.5 text-right">
-                    <Link
-                      to={`/runs/${run.id}`}
-                      className="inline-grid size-7 place-items-center rounded-md border border-slate-200 text-slate-400 group-hover:border-[#04D3D4] group-hover:text-slate-950"
-                      aria-label={`Open ${run.id}`}
-                    >
-                      <ChevronRight size={15} />
-                    </Link>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Link
+                        to={`/lineage?run_id=${encodeURIComponent(run.id)}&dataset=${encodeURIComponent((run as any).datasetId || 'ride_hailing_xanh_sm_trips')}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-[#008b74] hover:text-[#008b74]"
+                        title="Xem Dòng dữ liệu (OpenLineage)"
+                      >
+                        <GitFork size={12} />
+                        <span>Lineage</span>
+                      </Link>
+                      <Link
+                        to={`/runs/${run.id}`}
+                        className="inline-grid size-7 place-items-center rounded-md border border-slate-200 text-slate-400 group-hover:border-[#04D3D4] group-hover:text-slate-950"
+                        aria-label={`Open ${run.id}`}
+                      >
+                        <ChevronRight size={15} />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

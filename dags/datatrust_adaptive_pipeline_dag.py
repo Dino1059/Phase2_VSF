@@ -126,7 +126,7 @@ def _load_bronze_dataset_records(context) -> tuple:
         from dags.parallel_evaluation_engine import get_db_connection
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute(f"SELECT * FROM bronze.{table_name} LIMIT 1000;")
+        cur.execute(f"SELECT * FROM bronze.{table_name};")
         colnames = [desc[0] for desc in cur.description]
         db_rows = cur.fetchall()
         from decimal import Decimal
@@ -162,8 +162,6 @@ def _load_bronze_dataset_records(context) -> tuple:
         with open(csv_file, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                if i >= 1000:
-                    break
                 row_dict = dict(row)
                 if "_raw_id" not in row_dict or not row_dict["_raw_id"]:
                     row_dict["_raw_id"] = f"{table_name}_{i}"
@@ -350,6 +348,18 @@ def task_3c_run_lane_c(**context):
     print(f"  -> Warning Lane (Statistical Anomaly / Advisory): {metrics['warning']}")
 
     ti.xcom_push(key='pipeline_metrics', value=metrics)
+
+    # Record actual run-level column transformations
+    try:
+        try:
+            from src.lineage.datatrust_facets import get_actual_run_column_lineage, record_run_column_transformations
+        except ImportError:
+            from datatrust_facets import get_actual_run_column_lineage, record_run_column_transformations
+        col_lineage = get_actual_run_column_lineage(table_name, run_id=run_id)
+        record_run_column_transformations(run_id=run_id, dataset_id=table_name, transformations=col_lineage)
+    except Exception as e:
+        print(f"Notice: Could not record run column transformations: {e}")
+
     return metrics
 
 
@@ -391,6 +401,31 @@ def task_4_emit_audit_evidence(**context):
     evidence_content = f"{previous_hash}:{run_id}:{dataset_id}:{json.dumps(metrics, sort_keys=True, default=str)}"
     evidence_hash = hashlib.sha256(evidence_content.encode("utf-8")).hexdigest()
 
+    # Build standard & custom OpenLineage facets
+    jurisdiction_chain = ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
+    try:
+        try:
+            from src.lineage.datatrust_facets import build_audit_assurance_facet, get_actual_run_column_lineage
+        except ImportError:
+            from datatrust_facets import build_audit_assurance_facet, get_actual_run_column_lineage
+        custom_audit_facet = build_audit_assurance_facet(
+            evidence_hash=evidence_hash,
+            previous_hash=previous_hash,
+            digital_signature="SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+            metrics=metrics,
+            jurisdiction_chain=jurisdiction_chain
+        )
+        actual_columns = get_actual_run_column_lineage(dataset_id, run_id=run_id)
+    except Exception as e:
+        custom_audit_facet = {
+            "_producer": "https://github.com/datatrust-os/datatrust",
+            "_schemaURL": "https://datatrust.org/spec/facets/1-0-0/DataTrustAuditAssuranceFacet.json",
+            "digitalSignature": "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+            "evidenceHash": evidence_hash,
+            "previousHash": previous_hash
+        }
+        actual_columns = []
+
     evidence_payload = {
         "dag_id": dag_id,
         "execution_date": context.get('ts'),
@@ -399,7 +434,9 @@ def task_4_emit_audit_evidence(**context):
         "metrics": metrics,
         "digital_signature": "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
         "previous_hash": previous_hash,
-        "evidence_hash": evidence_hash
+        "evidence_hash": evidence_hash,
+        "dataTrustAuditAssurance": custom_audit_facet,
+        "column_lineage": actual_columns
     }
 
     # 3. Persist directly into audit.evidence ledger
@@ -462,15 +499,27 @@ with DAG(
     tags=['datatrust', 'ipo_assurance', 'privacy', 'data_quality', '3zone_pilot', '3lane_architecture'],
 ) as dag:
 
+    try:
+        from airflow.lineage.entities import Table
+        def _tbl(name: str):
+            return Table(database='airflow', name=name, cluster='postgres')
+    except Exception:
+        def _tbl(name: str):
+            return name
+
     t1 = PythonOperator(
         task_id='task_1_truncate_and_ingest_bronze',
         python_callable=task_1_truncate_and_ingest_bronze,
+        inlets=[_tbl('raw.source_datasets_csv')],
+        outlets=[_tbl('bronze.all_tables')],
         provide_context=True,
     )
 
     t2 = PythonOperator(
         task_id='task_2_data_profiling',
         python_callable=task_2_data_profiling,
+        inlets=[_tbl('bronze.all_tables')],
+        outlets=[_tbl('catalog.dataset_profiles')],
         provide_context=True,
     )
 
@@ -478,18 +527,26 @@ with DAG(
         t3a = PythonOperator(
             task_id='lane_a_l1_l4_detectors',
             python_callable=task_3a_run_lane_a,
+            inlets=[_tbl('bronze.all_tables')],
             provide_context=True,
         )
 
         t3b = PythonOperator(
             task_id='lane_b_hierarchical_policy',
             python_callable=task_3b_run_lane_b,
+            inlets=[_tbl('bronze.all_tables')],
             provide_context=True,
         )
 
         t3c = PythonOperator(
             task_id='lane_c_merge_verdicts_and_route',
             python_callable=task_3c_run_lane_c,
+            inlets=[_tbl('bronze.all_tables')],
+            outlets=[
+                _tbl('silver.compliant_tables'),
+                _tbl('quarantine.quarantine_records'),
+                _tbl('warning.warning_records')
+            ],
             provide_context=True,
         )
 
@@ -499,6 +556,12 @@ with DAG(
     t4 = PythonOperator(
         task_id='task_4_emit_audit_evidence',
         python_callable=task_4_emit_audit_evidence,
+        inlets=[
+            _tbl('silver.compliant_tables'),
+            _tbl('quarantine.quarantine_records'),
+            _tbl('warning.warning_records')
+        ],
+        outlets=[_tbl('audit.evidence')],
         provide_context=True,
     )
 

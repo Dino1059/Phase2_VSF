@@ -293,6 +293,164 @@ def persist_consolidated_results(conn, result: ConsolidatedRunResult):
             if values:
                 execute_values(cur, sql, values)
 
+        elif "charging" in dataset_id:
+            table_name = "silver.acn_charging_mapped"
+            cols = ["session_id", "vehicle_vin", "station_id", "charger_id", "start_time",
+                    "duration_mins", "kwh_consumed", "power_kw", "station_temp_c", "cost_vnd",
+                    "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                sid = r.get("session_id")
+                if sid:
+                    seen[sid] = (
+                        sid, r.get("vehicle_vin"), r.get("station_id"), r.get("charger_id"),
+                        str(r.get("start_time") or ""),
+                        _float_or_none(r.get("duration_mins")), _float_or_none(r.get("kwh_consumed")),
+                        _float_or_none(r.get("power_kw")), _float_or_none(r.get("station_temp_c")),
+                        _float_or_none(r.get("cost_vnd")),
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (session_id) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
+        elif "customers" in dataset_id:
+            table_name = "silver.dim_customers"
+            cols = ["customer_id", "first_name", "last_name", "email", "phone_number",
+                    "created_at", "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                cid = r.get("customer_id")
+                if cid:
+                    seen[cid] = (
+                        cid, r.get("first_name"), r.get("last_name"), r.get("email"), r.get("phone_number"),
+                        str(r.get("created_at") or ""),
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (customer_id) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
+        elif "drivers" in dataset_id:
+            table_name = "silver.dim_drivers"
+            cols = ["driver_id", "vehicle_vin", "first_name", "last_name", "email", "phone_number",
+                    "created_at", "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                did = r.get("driver_id")
+                if did:
+                    seen[did] = (
+                        did, r.get("vehicle_vin"), r.get("first_name"), r.get("last_name"), r.get("email"), r.get("phone_number"),
+                        str(r.get("created_at") or ""),
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (driver_id) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
+        elif "feedback_pii" in dataset_id:
+            table_name = "silver.feedback_pii"
+            cols = ["feedback_id", "vehicle_vin", "trip_id", "customer_id", "scenario_date",
+                    "assigned_day_index", "topic", "sentiment", "raw_comment_text",
+                    "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                fid = r.get("feedback_id")
+                if fid:
+                    seen[fid] = (
+                        fid, r.get("vehicle_vin"), r.get("trip_id"), r.get("customer_id"),
+                        str(r.get("scenario_date") or ""), _int_or_none(r.get("assigned_day_index")),
+                        r.get("topic"), _int_or_none(r.get("sentiment")), r.get("raw_comment_text"),
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (feedback_id) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
+        elif "fleet" in dataset_id:
+            table_name = "silver.fleet_index"
+            cols = ["vehicle_vin", "vehicle_type", "telemetry_equipped",
+                    "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                vin = r.get("vehicle_vin")
+                if vin:
+                    seen[vin] = (
+                        vin, r.get("vehicle_type"),
+                        bool(r.get("telemetry_equipped")) if r.get("telemetry_equipped") is not None else None,
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (vehicle_vin) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
+        elif "synthetic_feedback" in dataset_id or "feedback_scenario" in dataset_id:
+            table_name = "silver.synthetic_feedback_scenario_driven"
+            cols = ["feedback_id", "vehicle_vin", "scenario_date",
+                    "assigned_day_index", "topic", "sentiment", "raw_comment_text",
+                    "subject_zone", "country", "lineage_hash", "_run_id"]
+            seen = {}
+            for r in result.silver_records:
+                fid = r.get("feedback_id")
+                if fid:
+                    seen[fid] = (
+                        fid, r.get("vehicle_vin"), str(r.get("scenario_date") or ""),
+                        _int_or_none(r.get("assigned_day_index")), r.get("topic"),
+                        _int_or_none(r.get("sentiment")), r.get("raw_comment_text"),
+                        r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
+                    )
+            values = list(seen.values())
+            sql = f"""
+                INSERT INTO {table_name} ({', '.join(cols)})
+                VALUES %s
+                ON CONFLICT (feedback_id) DO UPDATE SET
+                    _run_id = EXCLUDED._run_id,
+                    lineage_hash = EXCLUDED.lineage_hash,
+                    _processed_at = CURRENT_TIMESTAMP
+            """
+            if values:
+                execute_values(cur, sql, values)
+
         else:
             # Generic Silver persistence
             table_name = "silver.generic_clean_records"

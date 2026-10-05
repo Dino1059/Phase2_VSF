@@ -75,6 +75,78 @@ CREATE TABLE IF NOT EXISTS silver.acn_charging_mapped (
     _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS silver.dim_customers (
+    customer_id VARCHAR(100) PRIMARY KEY,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(100),
+    phone_number VARCHAR(100),
+    created_at VARCHAR(50),
+    subject_zone VARCHAR(20),
+    country VARCHAR(20),
+    lineage_hash VARCHAR(64) NOT NULL,
+    _run_id VARCHAR(100),
+    _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS silver.dim_drivers (
+    driver_id VARCHAR(100) PRIMARY KEY,
+    vehicle_vin VARCHAR(100),
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(100),
+    phone_number VARCHAR(100),
+    created_at VARCHAR(50),
+    subject_zone VARCHAR(20),
+    country VARCHAR(20),
+    lineage_hash VARCHAR(64) NOT NULL,
+    _run_id VARCHAR(100),
+    _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS silver.feedback_pii (
+    feedback_id VARCHAR(100) PRIMARY KEY,
+    vehicle_vin VARCHAR(100),
+    trip_id VARCHAR(100),
+    customer_id VARCHAR(100),
+    scenario_date VARCHAR(50),
+    assigned_day_index INT,
+    topic VARCHAR(100),
+    sentiment INT,
+    raw_comment_text TEXT,
+    subject_zone VARCHAR(20),
+    country VARCHAR(20),
+    lineage_hash VARCHAR(64) NOT NULL,
+    _run_id VARCHAR(100),
+    _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS silver.fleet_index (
+    vehicle_vin VARCHAR(100) PRIMARY KEY,
+    vehicle_type VARCHAR(50),
+    telemetry_equipped BOOLEAN,
+    subject_zone VARCHAR(20),
+    country VARCHAR(20),
+    lineage_hash VARCHAR(64) NOT NULL,
+    _run_id VARCHAR(100),
+    _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS silver.synthetic_feedback_scenario_driven (
+    feedback_id VARCHAR(100) PRIMARY KEY,
+    vehicle_vin VARCHAR(100),
+    scenario_date VARCHAR(50),
+    assigned_day_index INT,
+    topic VARCHAR(100),
+    sentiment INT,
+    raw_comment_text TEXT,
+    subject_zone VARCHAR(20),
+    country VARCHAR(20),
+    lineage_hash VARCHAR(64) NOT NULL,
+    _run_id VARCHAR(100),
+    _processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS silver.generic_clean_records (
     record_pk VARCHAR(100) NOT NULL,
     dataset_id VARCHAR(100) NOT NULL,

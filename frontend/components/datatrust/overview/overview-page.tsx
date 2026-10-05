@@ -50,7 +50,7 @@ export function OverviewPage() {
                       Chọn dataset. AI Agent lo toàn bộ phần còn lại.
                     </h2>
                     <p className="text-xs text-slate-700 leading-relaxed">
-                      AI Agent sẽ tự động nạp dữ liệu, thực thi kiểm tra 4 tầng (L1 Deterministic → L2 Statistical Outlier → L3 Multivariate → L4 Change Point), trích xuất vi phạm và chuẩn bị các đề xuất Rule khắc phục để bạn thẩm định.
+                      AI Agent tự động nạp Bronze Ingestion, chạy Profiling Engine, phân tích song song 3 Làn (Lane A L1-L4 // Lane B Chính sách Luật 91/2025/QH15 & GDPR → Lane C Router), trích xuất vi phạm và tạo chữ ký số kiểm toán IPO.
                     </p>
                   </div>
                 </div>
@@ -63,7 +63,7 @@ export function OverviewPage() {
                     Datasets sẵn sàng thẩm tra
                   </h3>
                   <span className="text-[11px] text-slate-500">
-                    Bấm vào card để chọn và chạy luồng L1-L4
+                    Bấm vào card để chọn và chạy Pipeline chuẩn IPO
                   </span>
                 </div>
 
@@ -77,7 +77,7 @@ export function OverviewPage() {
                   ).map((ds: DatasetItem) => {
                     return (
                       <Card
-                        key={ds.id}
+                        key={ds.filename || ds.id}
                         onClick={() => selectDataset(ds.id)}
                         className={`cursor-pointer rounded-2xl border p-4.5 transition-all duration-200 bg-white`}
                       >
@@ -159,46 +159,51 @@ export function OverviewPage() {
                 </div>
               </div>
 
-              {/* 4-Level Pipeline Architecture Preview Card */}
+              {/* 4-Task & 3-Lane Architecture Preview Card */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
-                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3">
-                  Kiến trúc luồng kiểm soát dữ liệu 4 tầng trong DataTrust OS
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Kiến trúc Pipeline Kiểm soát & Tuân thủ Dữ liệu Chuẩn IPO (Airflow Adaptive 3-Lane)
+                  </h4>
+                  <span className="text-[10px] font-mono text-[#007460] bg-[#e6f6f2] px-2 py-0.5 rounded font-bold border border-[#b2e2d5]">
+                    Airflow DAG: datatrust_adaptive_pipeline
+                  </span>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-4 text-xs">
                   <div className="rounded-xl border border-slate-100 bg-[#f8faf9] p-3.5">
                     <span className="rounded-md bg-slate-950 px-2 py-0.5 text-[10px] font-mono font-extrabold text-[#04D3D4]">
-                      L1 · Deterministic
+                      Task 1 · Ingestion
                     </span>
-                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Quy tắc cố định</h5>
+                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Bronze & Catalog</h5>
                     <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
-                      Kiểm tra Null, Schema, giới hạn dải số học và quét PII cleartext.
+                      Nạp dữ liệu thô vào schema bronze và đăng ký danh mục quản trị catalog.
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-[#f8faf9] p-3.5">
                     <span className="rounded-md bg-slate-950 px-2 py-0.5 text-[10px] font-mono font-extrabold text-[#04D3D4]">
-                      L2 · Statistical Outlier
+                      Task 2 · Profiling
                     </span>
-                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Phát hiện ngoại lai</h5>
+                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Thống kê & Health Score</h5>
                     <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
-                      Sử dụng Median, MAD và Robust Z-score để phát hiện độ lệch chuẩn.
+                      Đo lường schema, phân bổ giá trị, null-rate và tính điểm chất lượng bảng.
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-[#f8faf9] p-3.5">
                     <span className="rounded-md bg-slate-950 px-2 py-0.5 text-[10px] font-mono font-extrabold text-[#04D3D4]">
-                      L3 · Multivariate
+                      Task 3 · Parallel 3-Lane
                     </span>
-                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Tương quan đa biến</h5>
+                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Lane A // Lane B → Lane C</h5>
                     <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
-                      Tính phần dư hồi quy tuyến tính giữa các trường tương quan.
+                      Lane A L1-L4 chạy song song Lane B Policy (Luật 91, GDPR) và hội tụ tại Lane C Router.
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-[#f8faf9] p-3.5">
                     <span className="rounded-md bg-slate-950 px-2 py-0.5 text-[10px] font-mono font-extrabold text-[#04D3D4]">
-                      L4 · Change Point
+                      Task 4 · Audit Evidence
                     </span>
-                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Độ trôi chuỗi thời gian</h5>
+                    <h5 className="mt-2 font-bold text-slate-900 text-xs">Sổ cái Bất biến IPO</h5>
                     <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
-                      CUSUM & PELT phát hiện thay đổi chế độ và dịch chuyển dữ liệu.
+                      Ký số SIG-AIRFLOW-3LANE & băm chuỗi SHA-256 lưu trữ chứng cứ kiểm toán.
                     </p>
                   </div>
                 </div>

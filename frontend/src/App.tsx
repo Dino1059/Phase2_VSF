@@ -5,6 +5,7 @@ import { OverviewPage } from '@/components/datatrust/overview/overview-page';
 import { RunsPage } from '@/components/datatrust/runs/runs-page';
 import { RuleApprovalPage } from '@/components/datatrust/rules/rule-approval-page';
 import { ResultsPage } from '@/components/datatrust/results/results-page';
+import { LineagePage } from '@/components/datatrust/lineage/lineage-page';
 import { FindingDetail } from '@/components/datatrust/findings/finding-detail';
 import { PipelineRunDetail } from '@/components/datatrust/pipeline/pipeline-run-detail';
 import { findingsDataSource } from '@/lib/data/local-findings-data';
@@ -66,6 +67,7 @@ export default function App() {
         <Route path="/overview" element={<OverviewPage />} />
         <Route path="/runs" element={<RunsPage />} />
         <Route path="/runs/:id" element={<Run />} />
+        <Route path="/lineage" element={<LineagePage />} />
         <Route path="/rules" element={<RuleApprovalPage />} />
         <Route path="/results" element={<ResultsPage />} />
         <Route path="/findings/:id" element={<Finding />} />

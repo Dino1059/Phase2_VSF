@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Workflow,
   X,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -25,6 +26,8 @@ export function SlideDownDashboard() {
     selectedDatasetId,
     datasets,
     complianceCases,
+    pipelineLevels,
+    returnToPipelineRunner,
     approveRule,
     rejectRule,
     simulateDryRun,
@@ -57,6 +60,33 @@ export function SlideDownDashboard() {
 
   return (
     <div className="space-y-5 animate-in fade-in-50 slide-in-from-top-6 duration-500">
+      {/* Alert Banner if viewing historical results while in-flight run is running */}
+      {pipelineLevels.viewingHistoricalResult && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-lg bg-amber-200 text-amber-900 shrink-0">
+              <ShieldAlert size={18} />
+            </div>
+            <div className="text-xs">
+              <p className="font-bold">
+                Lần chạy hiện tại ({pipelineLevels.inFlightRunId || 'run_in_flight'}) đang được xử lý trong nền
+              </p>
+              <p className="mt-0.5 text-amber-800">
+                Hệ thống đang hiển thị kết quả từ lần chạy gần nhất đã hoàn tất ({pipelineLevels.historicalRunId || 'RUN-HISTORICAL-BASE'}). Kết quả mới sẽ tự động cập nhật khi pipeline hoàn thành.
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={returnToPipelineRunner}
+            size="sm"
+            className="h-8 shrink-0 bg-amber-900 text-white hover:bg-amber-950 text-xs font-bold gap-1.5 cursor-pointer shadow-2xs"
+          >
+            <Workflow size={13} />
+            <span>Quay lại theo dõi tiến trình</span>
+          </Button>
+        </div>
+      )}
+
       {/* Top Completion Banner */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#04D3D4]/30 bg-gradient-to-r from-[#04D3D4]/10 via-[#FFC402]/10 to-white p-4 shadow-xs">
         <div className="flex items-center gap-3">
@@ -66,13 +96,21 @@ export function SlideDownDashboard() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">
-                {currentRole === 'auditor'
-                  ? 'Dashboard Kết Quả Kiểm Tra Tuân Thủ & Bằng Chứng'
-                  : 'Dashboard Kết Quả Kiểm Tra & Đề Xuất Giải Pháp (HITL)'}
+                {pipelineLevels.viewingHistoricalResult
+                  ? 'Kết Quả Lần Chạy Gần Nhất (Đang Xử Lý Run Mới)'
+                  : (currentRole === 'auditor'
+                    ? 'Dashboard Kết Quả Kiểm Tra Tuân Thủ & Bằng Chứng'
+                    : 'Dashboard Kết Quả Kiểm Tra & Đề Xuất Giải Pháp (HITL)')}
               </h2>
-              <span className="rounded-full bg-[#04D3D4]/20 border border-[#04D3D4]/40 px-2 py-0.5 text-[10px] font-extrabold text-slate-950">
-                L1-L4 Hoàn tất
-              </span>
+              {pipelineLevels.viewingHistoricalResult ? (
+                <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-amber-900">
+                  Run mới đang xử lý
+                </span>
+              ) : (
+                <span className="rounded-full bg-[#04D3D4]/20 border border-[#04D3D4]/40 px-2 py-0.5 text-[10px] font-extrabold text-slate-950">
+                  Pipeline 3 Làn Hoàn tất
+                </span>
+              )}
             </div>
             <p className="mt-0.5 text-xs text-slate-600">
               Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.filename || dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Luật 91/2025/QH15, NĐ 356/2025/NĐ-CP
@@ -81,11 +119,23 @@ export function SlideDownDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
+          {pipelineLevels.viewingHistoricalResult && (
+            <Button
+              onClick={returnToPipelineRunner}
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 border-amber-300 bg-white text-xs font-semibold text-amber-900 hover:bg-amber-50 cursor-pointer"
+            >
+              <Workflow size={13} />
+              <span>Tiến trình</span>
+            </Button>
+          )}
+
           <Button
             onClick={resetHomepageFlow}
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-300"
+            className="h-8 gap-1.5 border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-300 cursor-pointer"
           >
             <RotateCcw size={13} />
             <span>Chạy lại</span>
@@ -94,7 +144,7 @@ export function SlideDownDashboard() {
           <Link to="/results">
             <Button
               size="sm"
-              className="h-8 gap-1.5 bg-[#04D3D4] text-xs font-bold text-slate-950 hover:bg-[#03b8b9] shadow-xs"
+              className="h-8 gap-1.5 bg-[#04D3D4] text-xs font-bold text-slate-950 hover:bg-[#03b8b9] shadow-xs cursor-pointer"
             >
               <span>Xem Findings</span>
               <ArrowRight size={13} />

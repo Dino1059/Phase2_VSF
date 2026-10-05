@@ -4,6 +4,7 @@ import type { ComponentProps } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import {
   CheckSquare,
+  GitFork,
   LayoutGrid,
   Menu,
   PanelLeftClose,
@@ -28,6 +29,7 @@ interface NavItem {
 const navigation: NavItem[] = [
   { label: 'Tổng quan', href: '/overview', icon: LayoutGrid },
   { label: 'Lần chạy', href: '/runs', icon: RotateCw },
+  { label: 'Dòng dữ liệu', href: '/lineage', icon: GitFork },
   {
     label: 'Quản lý rule',
     href: '/rules',
@@ -57,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const getBreadcrumbTitle = () => {
     if (pathname.startsWith('/overview') || pathname === '/') return 'Tổng quan';
     if (pathname.startsWith('/runs')) return 'Lần chạy';
+    if (pathname.startsWith('/lineage')) return 'Dòng dữ liệu (Lineage)';
     if (pathname.startsWith('/rules')) return 'Quản lý rule';
     if (pathname.startsWith('/results')) return 'Kết quả';
     return 'Tổng quan';
