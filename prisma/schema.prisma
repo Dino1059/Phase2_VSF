@@ -32,6 +32,7 @@ model Role {
   description String?
   users       UserRole[]
   steps       TicketStep[]
+  delegations Delegation[]
 
   @@map("roles")
 }
@@ -53,32 +54,44 @@ model User {
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
-  roles         UserRole[]         @relation("roleHolder")
-  rolesGranted  UserRole[]         @relation("roleGranter")
-  sessions      Session[]
-  codes         VerificationCode[]
-  tickets       Ticket[]
-  assignedSteps TicketStep[]
-  decisions     StepDecision[]
-  notifications Notification[]
+  roles               UserRole[]         @relation("roleHolder")
+  rolesGranted        UserRole[]         @relation("roleGranter")
+  configsProposed     ConfigVersion[]    @relation("configProposer")
+  configsDecided      ConfigVersion[]    @relation("configDecider")
+  sessions            Session[]
+  codes               VerificationCode[]
+  tickets             Ticket[]
+  assignedSteps       TicketStep[]
+  decisions           StepDecision[]     @relation("decisionActor")
+  decisionsOnBehalf   StepDecision[]     @relation("decisionOnBehalf")
+  revisions           TicketRevision[]
+  delegationsGiven    Delegation[]       @relation("delegator")
+  delegationsReceived Delegation[]       @relation("delegate")
+  notifications       Notification[]
 
   @@map("users")
 }
 
 /// Gán vai trò cho người, có hiệu lực từ–đến (KE_HOACH.md mục 6.2)
 model UserRole {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @map("user_id") @db.Uuid
-  roleCode    String    @map("role_code") @db.VarChar(10)
-  validFrom   DateTime  @default(now()) @map("valid_from") @db.Timestamptz
-  validTo     DateTime? @map("valid_to") @db.Timestamptz
-  grantedById String?   @map("granted_by") @db.Uuid
-  note        String?
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  roleCode        String    @map("role_code") @db.VarChar(10)
+  validFrom       DateTime  @default(now()) @map("valid_from") @db.Timestamptz
+  validTo         DateTime? @map("valid_to") @db.Timestamptz
+  grantedById     String?   @map("granted_by") @db.Uuid
+  note            String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  /// Phiếu RBAC đã hoàn tất cho phép cấp vai trò này. Bắt buộc với mọi vai trò trừ REQ (trigger user_role_guard)
+  ticketId        String?   @map("ticket_id") @db.Uuid
+  /// Phiếu RBAC đã hoàn tất cho phép thu hồi (đặt valid_to) vai trò này
+  revokedTicketId String?   @map("revoked_ticket_id") @db.Uuid
 
-  user      User  @relation("roleHolder", fields: [userId], references: [id], onDelete: Restrict)
-  role      Role  @relation(fields: [roleCode], references: [code], onDelete: Restrict)
-  grantedBy User? @relation("roleGranter", fields: [grantedById], references: [id], onDelete: Restrict)
+  user          User    @relation("roleHolder", fields: [userId], references: [id], onDelete: Restrict)
+  role          Role    @relation(fields: [roleCode], references: [code], onDelete: Restrict)
+  grantedBy     User?   @relation("roleGranter", fields: [grantedById], references: [id], onDelete: Restrict)
+  ticket        Ticket? @relation("roleGrantTicket", fields: [ticketId], references: [id], onDelete: Restrict)
+  revokedTicket Ticket? @relation("roleRevokeTicket", fields: [revokedTicketId], references: [id], onDelete: Restrict)
 
   @@index([userId, roleCode])
   @@map("user_roles")
@@ -154,8 +167,14 @@ model AuditChainHead {
 
 enum TicketStatus {
   OPEN
+  /// Người xử lý trả lại, chờ người yêu cầu bổ sung. SLA tạm dừng, không ai quyết định được
+  RETURNED
   DONE
   REJECTED
+  /// Người yêu cầu huỷ (hoặc phiếu bị thay bằng phiếu mới khi bổ sung làm đổi chuỗi duyệt)
+  CANCELLED
+  /// Quá số ngày cấu hình không ai xử lý, Admin đóng kèm lý do. Không bao giờ là duyệt
+  EXPIRED
 
   @@map("ticket_status")
 }
@@ -182,45 +201,73 @@ enum DecisionOutcome {
   APPROVE // R / A đồng ý
   COMPLETE // P đã thực hiện
   REJECT
+  RETURN // trả lại để bổ sung; bước vẫn giữ nguyên, chờ phiên bản nội dung mới
 
   @@map("decision_outcome")
 }
 
 model Ticket {
-  id          String       @id @default(uuid()) @db.Uuid
+  id              String       @id @default(uuid()) @db.Uuid
   /// SOD-YYYYMM-NNNN, do DB cấp
-  code        String       @unique @default(dbgenerated("next_ticket_code()")) @db.VarChar(20)
-  requesterId String       @map("requester_id") @db.Uuid
-  typeId      String       @map("type_id") @db.VarChar(20)
-  title       String       @db.VarChar(300)
-  system      String       @db.VarChar(500)
-  priority    String       @db.VarChar(10)
-  level       Int          @db.SmallInt
-  pii         Boolean
-  breakGlass  Boolean      @map("break_glass")
-  acts        Int[]
-  reasons     String[]
+  code            String       @unique @default(dbgenerated("next_ticket_code()")) @db.VarChar(20)
+  requesterId     String       @map("requester_id") @db.Uuid
+  typeId          String       @map("type_id") @db.VarChar(20)
+  title           String       @db.VarChar(300)
+  system          String       @db.VarChar(500)
+  priority        String       @db.VarChar(10)
+  level           Int          @db.SmallInt
+  pii             Boolean
+  breakGlass      Boolean      @map("break_glass")
+  acts            Int[]
+  reasons         String[]
   /// [{ act, name, C: RoleKey[], I: RoleKey[] }]
-  phases      Json
+  phases          Json
   /// Nội dung phiếu lúc gửi; formHash = SHA-256 để người duyệt biết mình duyệt đúng bản nào
-  form        Json
-  formHash    String       @map("form_hash") @db.VarChar(64)
+  form            Json
+  formHash        String       @map("form_hash") @db.VarChar(64)
   /// Xung đột SoD được chấp nhận theo ngoại lệ (rỗng nếu không có)
-  conflicts   String[]
-  exceptionId String?      @unique @map("exception_id") @db.VarChar(30)
-  status      TicketStatus @default(OPEN)
+  conflicts       String[]
+  exceptionId     String?      @unique @map("exception_id") @db.VarChar(30)
+  status          TicketStatus @default(OPEN)
   /// Tăng mỗi lần có quyết định — chống hai người / hai tab xử lý cùng lúc
-  version     Int          @default(0)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  closedAt    DateTime?    @map("closed_at") @db.Timestamptz
+  version         Int          @default(0)
+  /// Phiên bản nội dung phiếu (1 = bản gửi đầu). Tăng mỗi lần người yêu cầu bổ sung
+  rev             Int          @default(1)
+  /// Phiên bản cấu hình (SLA, ma trận…) lúc tạo. Cố định suốt đời phiếu
+  configVersionId String       @map("config_version_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  closedAt        DateTime?    @map("closed_at") @db.Timestamptz
 
-  requester     User           @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+  requester     User             @relation(fields: [requesterId], references: [id], onDelete: Restrict)
   steps         TicketStep[]
+  configVersion ConfigVersion    @relation(fields: [configVersionId], references: [id], onDelete: Restrict)
+  slaEvents     SlaEvent[]
+  revisions     TicketRevision[]
   notifications Notification[]
+  rolesGranted  UserRole[]       @relation("roleGrantTicket")
+  rolesRevoked  UserRole[]       @relation("roleRevokeTicket")
 
   @@index([requesterId, createdAt])
   @@index([status])
   @@map("tickets")
+}
+
+/// Mỗi phiên bản nội dung phiếu (gửi lần đầu và mỗi lần bổ sung). Chỉ ghi thêm.
+/// tickets.form / form_hash luôn bằng phiên bản mới nhất.
+model TicketRevision {
+  id        String   @id @default(uuid()) @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  rev       Int
+  form      Json
+  formHash  String   @map("form_hash") @db.VarChar(64)
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  ticket  Ticket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  creator User   @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([ticketId, rev])
+  @@map("ticket_revisions")
 }
 
 model TicketStep {
@@ -241,30 +288,37 @@ model TicketStep {
   startedAt  DateTime?  @map("started_at") @db.Timestamptz
   dueAt      DateTime?  @map("due_at") @db.Timestamptz
 
-  ticket   Ticket        @relation(fields: [ticketId], references: [id], onDelete: Restrict)
-  role     Role          @relation(fields: [roleCode], references: [code], onDelete: Restrict)
-  assignee User?         @relation(fields: [assigneeId], references: [id], onDelete: Restrict)
-  decision StepDecision?
+  ticket    Ticket         @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  role      Role           @relation(fields: [roleCode], references: [code], onDelete: Restrict)
+  assignee  User?          @relation(fields: [assigneeId], references: [id], onDelete: Restrict)
+  decisions StepDecision[]
+  slaEvents SlaEvent[]
 
   @@unique([ticketId, idx])
   @@index([assigneeId, status])
   @@map("ticket_steps")
 }
 
-/// Quyết định trên một bước — chỉ ghi thêm, mỗi bước tối đa một quyết định.
+/// Quyết định trên một bước — chỉ ghi thêm, mỗi bước tối đa một quyết định cho mỗi phiên bản nội dung.
 /// Trigger step_decision_guard kiểm SoD lần cuối trong DB (KE_HOACH.md 9.3.3).
 model StepDecision {
-  id        String          @id @default(uuid()) @db.Uuid
-  stepId    String          @unique @map("step_id") @db.Uuid
-  actorId   String          @map("actor_id") @db.Uuid
-  outcome   DecisionOutcome
-  comment   String?         @db.VarChar(2000)
-  formHash  String          @map("form_hash") @db.VarChar(64)
-  decidedAt DateTime        @default(now()) @map("decided_at") @db.Timestamptz
+  id           String          @id @default(uuid()) @db.Uuid
+  stepId       String          @map("step_id") @db.Uuid
+  actorId      String          @map("actor_id") @db.Uuid
+  outcome      DecisionOutcome
+  comment      String?         @db.VarChar(2000)
+  formHash     String          @map("form_hash") @db.VarChar(64)
+  /// Phiên bản nội dung phiếu mà quyết định này áp dụng (tickets.rev lúc quyết định)
+  rev          Int             @default(1)
+  /// Có giá trị khi quyết định do người được ủy quyền đưa ra: người được giao bước. Trigger DB tự điền
+  onBehalfOfId String?         @map("on_behalf_of") @db.Uuid
+  decidedAt    DateTime        @default(now()) @map("decided_at") @db.Timestamptz
 
-  step  TicketStep @relation(fields: [stepId], references: [id], onDelete: Restrict)
-  actor User       @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  step     TicketStep @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  actor    User       @relation("decisionActor", fields: [actorId], references: [id], onDelete: Restrict)
+  onBehalf User?      @relation("decisionOnBehalf", fields: [onBehalfOfId], references: [id], onDelete: Restrict)
 
+  @@unique([stepId, rev])
   @@index([actorId])
   @@map("step_decisions")
 }
@@ -278,6 +332,12 @@ enum NotificationKind {
   STEP_DONE // người nộp: một bước đã được duyệt / hoàn tất
   REJECTED // người nộp: ticket bị từ chối
   DONE // người nộp: ticket hoàn tất
+  RETURNED // người nộp: phiếu bị trả lại, cần bổ sung
+  CANCELLED // người đang xử lý: phiếu đã bị huỷ
+  DELEGATION // người nhận ủy quyền: được ủy quyền một vai trò
+  ROLE_CHANGED // người được cấp / thu hồi vai trò qua phiếu RBAC
+  CONFIG // đề xuất đổi cấu hình chờ CISO duyệt, hoặc kết quả duyệt
+  EXPIRED // phiếu bị Admin đóng vì quá hạn không ai xử lý
 
   @@map("notification_kind")
 }
@@ -302,4 +362,97 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+// ---------------------------------------------------------------- Ủy quyền vắng mặt (KE_HOACH.md luồng 5)
+
+/// Người được giao bước (delegator) ủy quyền cho người CÙNG vai trò trong một khoảng thời gian.
+/// Chỉ ghi thêm; thu hồi bằng cách đặt revoked_at. Không ủy quyền bắc cầu: người nhận chỉ xử lý bước đang giao cho delegator.
+model Delegation {
+  id          String    @id @default(uuid()) @db.Uuid
+  delegatorId String    @map("delegator_id") @db.Uuid
+  delegateId  String    @map("delegate_id") @db.Uuid
+  roleCode    String    @map("role_code") @db.VarChar(10)
+  validFrom   DateTime  @map("valid_from") @db.Timestamptz
+  validTo     DateTime  @map("valid_to") @db.Timestamptz
+  reason      String    @db.VarChar(500)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz
+
+  delegator User @relation("delegator", fields: [delegatorId], references: [id], onDelete: Restrict)
+  delegate  User @relation("delegate", fields: [delegateId], references: [id], onDelete: Restrict)
+  role      Role @relation(fields: [roleCode], references: [code], onDelete: Restrict)
+
+  @@index([delegateId, roleCode])
+  @@index([delegatorId])
+  @@map("delegations")
+}
+
+// ---------------------------------------------------------------- Cấu hình có phiên bản (KE_HOACH.md 1.1, 9.5)
+
+enum ConfigStatus {
+  PROPOSED // Admin đề xuất, chờ CISO duyệt
+  ACTIVE // đang hiệu lực (đúng một dòng)
+  REJECTED
+  SUPERSEDED // từng hiệu lực, đã bị phiên bản mới thay
+  CANCELLED // người đề xuất rút lại
+
+  @@map("config_status")
+}
+
+/// Mỗi dòng là một phiên bản cấu hình đầy đủ. Admin đề xuất (PROPOSED), người khác giữ vai trò CISO duyệt thì mới ACTIVE.
+/// Trigger config_version_guard chặn tự duyệt và chặn sửa nội dung đã đề xuất.
+model ConfigVersion {
+  id           String       @id @default(uuid()) @db.Uuid
+  /// Số phiên bản hiển thị: 1, 2, 3…
+  seq          Int          @unique @default(autoincrement())
+  config       Json
+  status       ConfigStatus @default(PROPOSED)
+  reason       String       @db.VarChar(1000)
+  /// Phiên bản đang hiệu lực lúc đề xuất. Đề xuất cũ (đã có phiên bản khác lên thay) không duyệt được nữa
+  baseSeq      Int?         @map("base_seq")
+  proposedById String?      @map("proposed_by") @db.Uuid
+  proposedAt   DateTime     @default(now()) @map("proposed_at") @db.Timestamptz
+  decidedById  String?      @map("decided_by") @db.Uuid
+  decidedAt    DateTime?    @map("decided_at") @db.Timestamptz
+  decisionNote String?      @map("decision_note") @db.VarChar(1000)
+  activatedAt  DateTime?    @map("activated_at") @db.Timestamptz
+
+  proposer User?    @relation("configProposer", fields: [proposedById], references: [id], onDelete: Restrict)
+  decider  User?    @relation("configDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  tickets  Ticket[]
+
+  @@index([status])
+  @@map("config_versions")
+}
+
+// ---------------------------------------------------------------- SLA chạy nền (BUILD_PLAN 4.5)
+
+enum SlaLevel {
+  REMIND // đạt mốc nhắc
+  OVERDUE // quá hạn: báo người dự phòng và Admin
+  CRITICAL // quá mốc nghiêm trọng: báo CISO và Auditor, ghi nhận vi phạm
+  STALE // quá số ngày không ai xử lý: Admin có thể đóng phiếu
+
+  @@map("sla_level")
+}
+
+/// Mỗi mốc SLA của một bước (theo phiên bản nội dung) chỉ xảy ra một lần: UNIQUE (step_id, rev, level).
+/// Chỉ ghi thêm. Nhờ đó job chạy lặp lại bao nhiêu lần cũng không báo trùng.
+model SlaEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  stepId    String   @map("step_id") @db.Uuid
+  rev       Int
+  level     SlaLevel
+  /// Phần trăm thời hạn SLA đã dùng lúc ghi nhận
+  pct       Float
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  ticket Ticket     @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  step   TicketStep @relation(fields: [stepId], references: [id], onDelete: Restrict)
+
+  @@unique([stepId, rev, level])
+  @@index([ticketId])
+  @@map("sla_events")
 }

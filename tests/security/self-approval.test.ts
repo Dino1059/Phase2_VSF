@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import type { CurrentUser } from "@/lib/auth/session";
 import { TicketError, decideStep, parseForm } from "@/lib/tickets/service";
 import { getTicket } from "@/lib/tickets/queries";
-import { asUser, current, form, meta, newTicket, reload } from "./helpers";
+import { asUser, current, form, meta, newTicket, ownerDb, reload } from "./helpers";
 
 /** Chờ decideStep bị chặn với thông báo khớp `msg` */
 async function denied(p: Promise<unknown>, msg: RegExp) {
@@ -75,12 +75,15 @@ test("T9: bị rút vai trò thì không duyệt được nữa", async () => {
   const step = current(t);
   const assignee = await asUser((await prisma.user.findUniqueOrThrow({ where: { id: step.assigneeId! } })).username);
   const role = await prisma.userRole.findFirstOrThrow({ where: { userId: assignee.id, roleCode: step.roleCode } });
-  await prisma.userRole.update({ where: { id: role.id }, data: { validTo: new Date() } });
+  // Quản trị DB rút vai trò. Tài khoản ứng dụng không tự làm được (xem rbac-ticket.test.ts), nên dùng tài khoản chủ sở hữu.
+  const owner = ownerDb();
+  await owner.userRole.update({ where: { id: role.id }, data: { validTo: new Date() } });
   try {
     // Phiên cũ vẫn nghĩ là còn vai trò → lớp service cho qua, trigger DB phải chặn
     await denied(decideStep(assignee, { ticketId: t.id, stepId: step.id, version: t.version, approve: true, comment: "" }, meta), /không còn giữ vai trò/);
   } finally {
-    await prisma.userRole.update({ where: { id: role.id }, data: { validTo: null } });
+    await owner.userRole.update({ where: { id: role.id }, data: { validTo: null } });
+    await owner.$disconnect();
   }
 });
 

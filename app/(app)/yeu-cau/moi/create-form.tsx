@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
-import { previewAction, submitAction } from "@/app/actions/tickets";
+import { previewAction, reviseAction, submitAction } from "@/app/actions/tickets";
 import type { Preview } from "@/lib/tickets/service";
 import { ROLES, VERB, actName } from "@/lib/sod/catalog";
 import { informedRoles } from "@/lib/sod/chain";
@@ -12,6 +12,7 @@ import {
 import { fmtDate } from "@/lib/format";
 import { Badge } from "@/app/ui/badges";
 import PhieuButton from "@/app/ui/phieu-button";
+import PhanDenHView from "@/app/ui/phan-d-h-view";
 import Signature from "./signature";
 
 type Errors = [string, string][];
@@ -27,8 +28,11 @@ function Row({ label, bad, children }: { label: ReactNode; bad?: boolean; childr
 }
 const Req = () => <i>*</i>;
 
-export default function CreateForm({ fullName, email }: { fullName: string; email: string }) {
-  const [d, setD] = useState<TicketForm>(() => emptyForm(fullName, email));
+type Revise = { ticketId: string; version: number; form: TicketForm };
+
+/** `revise` có giá trị = đang bổ sung phiếu bị trả lại: điền sẵn nội dung cũ, gửi bằng reviseAction. */
+export default function CreateForm({ fullName, email, revise }: { fullName: string; email: string; revise?: Revise }) {
+  const [d, setD] = useState<TicketForm>(() => revise?.form ?? emptyForm(fullName, email));
   const [errors, setErrors] = useState<Errors>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, startTransition] = useTransition();
@@ -73,7 +77,7 @@ export default function CreateForm({ fullName, email }: { fullName: string; emai
     e.preventDefault();
     if (!checkForm()) return;
     startTransition(async () => {
-      const r = await submitAction(d); // thành công thì server chuyển sang trang chi tiết
+      const r = revise ? await reviseAction(revise.ticketId, revise.version, d) : await submitAction(d); // thành công thì server chuyển sang trang chi tiết
       if (r?.errors.length) showErrors(r.errors);
     });
   };
@@ -257,6 +261,8 @@ export default function CreateForm({ fullName, email }: { fullName: string; emai
           <Signature onChange={(v) => set("signature", v)} />
         </div>
 
+        <PhanDenHView form={d} />
+
         <div id="errBox">
           {errors.length > 0 && (
             <div className="alert bad" role="alert">
@@ -266,7 +272,7 @@ export default function CreateForm({ fullName, email }: { fullName: string; emai
           )}
         </div>
         <div className="row">
-          <button type="submit" className="btn primary" disabled={pending}>{pending ? "Đang gửi…" : "Gửi phiếu"}</button>
+          <button type="submit" className="btn primary" disabled={pending}>{pending ? "Đang gửi…" : revise ? "Gửi bản bổ sung" : "Gửi phiếu"}</button>
           <PhieuButton
             label="Xem trước & in phiếu"
             before={checkForm}
@@ -275,7 +281,7 @@ export default function CreateForm({ fullName, email }: { fullName: string; emai
             exception={{ id: null, conflicts: draftConflicts }}
           />
           <span className="spacer" />
-          <button type="button" className="btn" onClick={() => confirm("Xoá toàn bộ nội dung đã điền?") && (setD(emptyForm(fullName, email)), setErrors([]))}>
+          <button type="button" className="btn" onClick={() => confirm(revise ? "Quay về nội dung phiên bản trước?" : "Xoá toàn bộ nội dung đã điền?") && (setD(revise?.form ?? emptyForm(fullName, email)), setErrors([]))}>
             Làm lại
           </button>
         </div>

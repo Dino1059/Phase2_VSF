@@ -93,6 +93,8 @@ section { margin-bottom: 32px; }
 .st-open { background: var(--primary-soft); color: var(--primary); }
 .st-done { background: var(--ok-soft); color: var(--ok); }
 .st-rejected { background: var(--bad-soft); color: var(--bad); }
+.st-returned { background: var(--warn-soft); color: var(--warn); }
+.st-cancelled { background: var(--soft); color: var(--muted); }
 .st-breach { background: var(--bad-soft); color: var(--bad); }
 
 /* Forms */
@@ -140,6 +142,7 @@ textarea { resize: vertical; min-height: 70px; }
 .alert { border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .alert.ok { background: var(--ok-soft); color: #17744a; }
 .alert.bad { background: var(--bad-soft); color: #a63a3a; }
+.alert.warn { background: var(--warn-soft); color: var(--warn); }
 .alert.info { background: var(--primary-soft); color: #294fb8; }
 
 /* Ticket list */
@@ -211,6 +214,9 @@ body.has-modal { overflow: hidden; }
 .phieu .ph-t.kv th { background: #f2f2f2; }
 .phieu .ph-t .hd, .phieu .ph-t tr.hd th { background: #d9d9d9; text-align: center; font-weight: 700; }
 .phieu .ph-t.grid td { height: 24px; }
+.phieu .ph-t tr.tall td { height: 44px; }
+.phieu .ph-note { font-style: italic; margin: -2px 0 6px; }
+.phieu .ph-note.after { margin: 4px 0 0; }
 .phieu .c { text-align: center; }
 .phieu .o { white-space: nowrap; margin-right: 10px; }
 .phieu .cb { font-family: 'Segoe UI Symbol', 'Apple Symbols', 'DejaVu Sans', sans-serif; }

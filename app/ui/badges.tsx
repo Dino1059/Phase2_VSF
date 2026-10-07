@@ -14,7 +14,15 @@ export const roleName = (code: string) => ROLES[code as RoleKey]?.name ?? code;
 type StatusInput = { status: string; overdue?: boolean };
 export function StatusBadge({ status, overdue }: StatusInput) {
   if (status === "OPEN" && overdue) return <span className="status st-breach">Quá SLA</span>;
-  const [cls, label] = { OPEN: ["st-open", "Đang xử lý"], DONE: ["st-done", "Hoàn tất"], REJECTED: ["st-rejected", "Từ chối"] }[status] ?? ["", status];
+  const [cls, label] =
+    {
+      OPEN: ["st-open", "Đang xử lý"],
+      RETURNED: ["st-returned", "Chờ bổ sung"],
+      DONE: ["st-done", "Hoàn tất"],
+      REJECTED: ["st-rejected", "Từ chối"],
+      CANCELLED: ["st-cancelled", "Đã huỷ"],
+      EXPIRED: ["st-cancelled", "Hết hạn"],
+    }[status] ?? ["", status];
   return <span className={`status ${cls}`}>{label}</span>;
 }
 

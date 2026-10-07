@@ -2,21 +2,25 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
 import { ACTIVITIES, CONFLICT_PAIRS, LETTERS, ROLES, ROLE_KEYS, type Letter } from "@/lib/sod/catalog";
 import { phaseSteps } from "@/lib/sod/chain";
+import { activeConfig } from "@/lib/config/queries";
 import { Badge } from "@/app/ui/badges";
 
 export const metadata = { title: "Ma trận SoD · SoD Flow" };
 
 export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">) {
   await requireUser();
+  const cfg = await activeConfig(); // ma trận của phiên bản cấu hình đang hiệu lực
   const hd = Number((await searchParams).hd);
   const sel = ACTIVITIES.find((a) => a.id === hd);
-  const ps = sel && phaseSteps(sel.id);
+  const ps = sel && phaseSteps(sel.id, {}, cfg.config.matrix);
   const short = (r: keyof typeof ROLES) => ROLES[r].short;
 
   return (
     <>
       <h1>Ma trận SoD</h1>
-      <p className="sub">Bấm vào một hoạt động để xem thứ tự xử lý được sinh ra.</p>
+      <p className="sub">
+        Bấm vào một hoạt động để xem thứ tự xử lý được sinh ra. Phiên bản cấu hình đang hiệu lực: <b>{cfg.seq}</b>. Phiếu đã tạo giữ ma trận lúc tạo.
+      </p>
       <div className="legend" style={{ marginBottom: 12 }}>
         {(Object.entries(LETTERS) as [Letter, string][]).map(([k, v]) => (
           <span key={k}>
@@ -43,7 +47,7 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
                       {a.name}
                     </Link>
                   </td>
-                  {[...a.m].map((l, i) => (
+                  {[...cfg.config.matrix[a.id]].map((l, i) => (
                     <td key={i}>
                       <Badge l={l as Letter} />
                     </td>

@@ -1,5 +1,5 @@
 // Phân loại phiếu → các hoạt động kiểm soát trong ma trận (chuyển từ classify() của bản mẫu).
-import { ACTIVITIES, ROLES, SOD_CONFIG, VERB, actName, letter, ticketType, type Letter, type RoleKey, type TicketType } from "./catalog";
+import { ACTIVITIES, DEFAULT_MATRIX, ROLES, SOD_CONFIG, VERB, actName, letter, ticketType, type Letter, type RoleKey, type TicketType } from "./catalog";
 import { LOAI_PHIEU, formLevel, formPii, type TicketForm } from "./form";
 
 /** Nâng vai trò trong một hoạt động theo quy tắc ngoại lệ: { actId: { role: letter } } */
@@ -15,7 +15,7 @@ export type Classification = {
   breakGlass: boolean;
 };
 
-export function classify(d: TicketForm): Classification {
+export function classify(d: TicketForm, matrix: readonly string[] = DEFAULT_MATRIX): Classification {
   const revoke = d.loaiPhieu === "revoke";
   const type = ticketType(revoke ? "offboard" : "access");
   const acts: number[] = [...type.acts];
@@ -42,10 +42,10 @@ export function classify(d: TicketForm): Classification {
 
   // QT 5.4: Level 2 hoặc PII cần DPO rà soát; Level 3 cần CISO phê duyệt
   const ensure = (role: RoleKey, need: string, why: string) => {
-    if (acts.some((a) => need.includes(letter(a, role)) || need.includes(mods[a]?.[role] ?? "-"))) return;
+    if (acts.some((a) => need.includes(letter(a, role, matrix)) || need.includes(mods[a]?.[role] ?? "-"))) return;
     const target =
-      acts.find((a) => ACTIVITIES[a].kind === "approval" && !"XP".includes(letter(a, role))) ??
-      acts.find((a) => !"XP".includes(letter(a, role)));
+      acts.find((a) => ACTIVITIES[a].kind === "approval" && !"XP".includes(letter(a, role, matrix))) ??
+      acts.find((a) => !"XP".includes(letter(a, role, matrix)));
     if (target === undefined) return;
     (mods[target] ??= {})[role] = need[0] as Letter;
     reasons.push(`${why} → ${ROLES[role].name} ${VERB[need[0] as "R" | "A"].toLowerCase()} ở “${actName(target)}”`);

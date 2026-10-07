@@ -5,7 +5,7 @@ import { Seg, TicketList } from "@/app/ui/badges";
 
 export const metadata = { title: "Tickets · SoD Flow" };
 
-const STATUSES = { OPEN: "Đang xử lý", DONE: "Hoàn tất", REJECTED: "Từ chối" } as const;
+const STATUSES = { OPEN: "Đang xử lý", RETURNED: "Chờ bổ sung", DONE: "Hoàn tất", REJECTED: "Từ chối", CANCELLED: "Đã huỷ", EXPIRED: "Hết hạn" } as const;
 type Status = keyof typeof STATUSES;
 
 export default async function MyTickets({ searchParams }: PageProps<"/yeu-cau">) {

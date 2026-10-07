@@ -38,6 +38,12 @@ export default async function Overview() {
         )}
       </div>
 
+      {c.mineReturned > 0 && (
+        <Link href="/yeu-cau?trang-thai=RETURNED" className="alert warn" style={{ display: "block", marginTop: 20, color: "inherit", textDecoration: "none" }}>
+          <b>{c.mineReturned} phiếu của bạn đang chờ bổ sung.</b> Bấm để xem lý do bị trả lại và gửi bản bổ sung.
+        </Link>
+      )}
+
       <section className="grid g4" style={{ marginTop: 20 }}>
         {[
           ["Yêu cầu của tôi đang xử lý", c.mineOpen, "/yeu-cau?trang-thai=OPEN"],

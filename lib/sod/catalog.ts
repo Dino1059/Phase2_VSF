@@ -57,11 +57,15 @@ export const ACTIVITIES: Activity[] = [
 ];
 export const EXCEPTION_ACTIVITY = 15;
 
+/** Ma trận mặc định (phiên bản cấu hình 1). Phiên bản đang hiệu lực nằm trong bảng config_versions. */
+export const DEFAULT_MATRIX: readonly string[] = ACTIVITIES.map((a) => a.m);
+
 /** Mã hoạt động: số = dòng ma trận, 'init' = khởi tạo ticket, 'bg' = hậu kiểm break-glass */
 export type ActKey = number | "init" | "bg";
 export const actName = (a: ActKey) =>
   a === "bg" ? "Hậu kiểm break-glass" : a === "init" ? "Khởi tạo ticket" : ACTIVITIES[a].name;
-export const letter = (actId: number, role: RoleKey) => ACTIVITIES[actId].m[ROLE_KEYS.indexOf(role)] as Letter;
+export const letter = (actId: number, role: RoleKey, matrix: readonly string[] = DEFAULT_MATRIX) =>
+  matrix[actId][ROLE_KEYS.indexOf(role)] as Letter;
 
 // Loại ticket → chuỗi hoạt động (KE_HOACH.md mục 3). Phiếu hiện tại dùng 'access' và 'offboard'.
 const TICKET_TYPES = [
@@ -102,6 +106,8 @@ export const SOD_CONFIG = {
   escalatePct: 100,
   criticalPct: 200,
   retentionDays: 1825,
+  delegationMaxDays: 30, // ủy quyền vắng mặt tối đa [Cần chốt]
+  staleCloseDays: 7, // quá số ngày này không ai xử lý thì Admin đóng phiếu "hết hạn" (BUILD_PLAN 4.5)
   // Cấp thẩm quyền: số nhỏ duyệt trước, số lớn chốt sau
   rank: { REQ: 0, DEV: 1, OPS: 1, IAM: 2, LM: 3, REL: 3, SO: 4, DPO: 5, CISO: 6, AUD: 9 } as Record<RoleKey, number>,
 };

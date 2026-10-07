@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { logout } from "@/app/actions/auth";
 import type { CurrentUser } from "@/lib/auth/session";
-import { canSubmitTicket, canViewAuditLog, hasRole, seesAllTickets } from "@/lib/authz/policy";
+import { canSubmitTicket, canViewAuditLog, canViewConfig, hasRole, seesAllTickets } from "@/lib/authz/policy";
 import { listNotifications, syncSlaNotifications } from "@/lib/notify/service";
 import Bell from "./bell";
 import Nav from "./nav";
@@ -14,9 +14,10 @@ export default async function Topbar({ user }: { user: CurrentUser }) {
   const links: [string, string][] = [["/", "Tổng quan"]];
   if (canSubmitTicket(user)) links.push(["/yeu-cau/moi", "Tạo phiếu"]);
   links.push(["/yeu-cau", seesAllTickets(user) ? "Tickets" : "Yêu cầu của tôi"]);
-  if (HANDLER_ROLES.some((r) => hasRole(user, r))) links.push(["/hop-viec", "Hộp việc"]);
+  if (HANDLER_ROLES.some((r) => hasRole(user, r))) links.push(["/hop-viec", "Hộp việc"], ["/uy-quyen", "Ủy quyền"]);
   links.push(["/ma-tran", "Ma trận"]);
-  if (canViewAuditLog(user)) links.push(["/nhat-ky", "Nhật ký"]);
+  if (canViewConfig(user)) links.push(["/quan-tri", "Quản trị"]);
+  if (canViewAuditLog(user)) links.push(["/nhat-ky", "Nhật ký"], ["/nhat-ky/bang-chung", "Bằng chứng"]);
 
   await syncSlaNotifications(user.id);
   const notifications = await listNotifications(user.id);

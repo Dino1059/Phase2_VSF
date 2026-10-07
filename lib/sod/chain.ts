@@ -2,7 +2,7 @@
 //   approval: R → A → P (duyệt xong mới được thực thi)
 //   work:     P → R → A (làm xong thì rà soát, nghiệm thu)
 //   Trong R và A: cấp thấp → cao, người cao nhất chốt cuối. Auditor luôn cuối mỗi hoạt động.
-import { ACTIVITIES, ROLE_KEYS, SOD_CONFIG, actName, letter, type ActKey, type RoleKey, type StepAction } from "./catalog";
+import { ACTIVITIES, DEFAULT_MATRIX, ROLE_KEYS, SOD_CONFIG, actName, letter, type ActKey, type RoleKey, type StepAction } from "./catalog";
 import { classify, type Classification, type Mods } from "./classify";
 import { autoAssign, type Person } from "./conflicts";
 import type { TicketForm } from "./form";
@@ -19,8 +19,8 @@ type ChainStep = {
 export type Phase = { act: ActKey; name: string; C: RoleKey[]; I: RoleKey[] };
 export type Chain = { requestor: string; steps: ChainStep[]; phases: Phase[]; classification: Classification };
 
-export function phaseSteps(actId: number, mods: Mods[number] = {}) {
-  const L = (r: RoleKey) => mods[r] ?? letter(actId, r);
+export function phaseSteps(actId: number, mods: Mods[number] = {}, matrix: readonly string[] = DEFAULT_MATRIX) {
+  const L = (r: RoleKey) => mods[r] ?? letter(actId, r, matrix);
   const byRank = (a: RoleKey, b: RoleKey) => SOD_CONFIG.rank[a] - SOD_CONFIG.rank[b];
   const pick = (l: StepAction) =>
     ROLE_KEYS.filter((r) => r !== "AUD" && L(r) === l && !(l === "P" && r === "REQ")).sort(byRank);
@@ -39,15 +39,18 @@ export function phaseSteps(actId: number, mods: Mods[number] = {}) {
 }
 
 /** Dựng chuỗi xử lý và tự gán người không xung đột. `people` = người dùng đang có hiệu lực, theo thứ tự ưu tiên. */
-export function buildChain(d: TicketForm, requestor: string, people: Person[]): Chain {
-  const cl = classify(d);
+export const buildChain = (d: TicketForm, requestor: string, people: Person[], matrix: readonly string[] = DEFAULT_MATRIX): Chain =>
+  buildChainFor(classify(d, matrix), requestor, people, matrix);
+
+/** Như buildChain nhưng từ một phân loại có sẵn (phiếu RBAC không đi qua classify của phiếu cấp quyền). */
+export function buildChainFor(cl: Classification, requestor: string, people: Person[], matrix: readonly string[] = DEFAULT_MATRIX): Chain {
   const steps: ChainStep[] = [{ key: "init", role: "REQ", action: "P", acts: ["init"], phase: 0, assignee: requestor }];
   const phases: Phase[] = [{ act: "init", name: actName("init"), C: [], I: [] }];
   let prev: ChainStep[] = [];
   let prevKind: string | null = null;
   for (const a of cl.acts) {
     const kind = ACTIVITIES[a].kind;
-    const ps = phaseSteps(a, cl.mods[a]);
+    const ps = phaseSteps(a, cl.mods[a], matrix);
     const phase = phases.push({ act: a, name: actName(a), C: ps.C, I: ps.I }) - 1;
     const cur: ChainStep[] = [];
     for (const [role, action] of ps.seq) {
@@ -75,8 +78,8 @@ export function buildChain(d: TicketForm, requestor: string, people: Person[]): 
 }
 
 /** Số giờ SLA của một bước */
-export const slaHours = (step: Pick<ChainStep, "action" | "breakGlass">, priorityFactor: number) =>
-  step.breakGlass ? SOD_CONFIG.breakGlassHours : SOD_CONFIG.sla[step.action] * priorityFactor;
+export const slaHours = (step: Pick<ChainStep, "action" | "breakGlass">, priorityFactor: number, sla: Record<StepAction, number> = SOD_CONFIG.sla) =>
+  step.breakGlass ? SOD_CONFIG.breakGlassHours : sla[step.action] * priorityFactor;
 
 /** Vai trò chỉ nhận thông báo khi ticket hoàn tất */
 export const informedRoles = (phases: Phase[]) => [...new Set(phases.flatMap((p) => p.I))];

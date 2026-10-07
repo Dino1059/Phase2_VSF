@@ -24,15 +24,34 @@ const LABELS: Record<string, string> = {
   [AuditAction.StepRejected]: "Từ chối",
   [AuditAction.TicketDone]: "Ticket hoàn tất",
   [AuditAction.DecisionDenied]: "Thao tác bị chặn",
+  [AuditAction.TicketReturned]: "Trả lại để bổ sung",
+  [AuditAction.TicketRevised]: "Bổ sung phiên bản mới",
+  [AuditAction.TicketCancelled]: "Huỷ phiếu",
+  [AuditAction.TicketExpired]: "Đóng phiếu hết hạn",
+  [AuditAction.SlaCritical]: "Quá mốc SLA nghiêm trọng",
+  [AuditAction.RoleGranted]: "Cấp vai trò",
+  [AuditAction.RoleRevoked]: "Thu hồi vai trò",
+  [AuditAction.DelegationCreated]: "Ủy quyền",
+  [AuditAction.DelegationRevoked]: "Thu hồi ủy quyền",
+  [AuditAction.DelegationDenied]: "Ủy quyền bị chặn",
+  [AuditAction.ConfigProposed]: "Đề xuất đổi cấu hình",
+  [AuditAction.ConfigApproved]: "Duyệt đổi cấu hình",
+  [AuditAction.ConfigRejected]: "Từ chối đổi cấu hình",
+  [AuditAction.ConfigWithdrawn]: "Rút đề xuất cấu hình",
+  [AuditAction.ConfigDenied]: "Đổi cấu hình bị chặn",
+  [AuditAction.EvidenceViewed]: "Xem bằng chứng",
+  [AuditAction.EvidenceExported]: "Xuất bằng chứng",
 };
-const BAD = new Set<string>([AuditAction.LoginFailure, AuditAction.AccountLocked, AuditAction.VerifyFailure, AuditAction.DecisionDenied]);
+const BAD = new Set<string>([AuditAction.LoginFailure, AuditAction.AccountLocked, AuditAction.VerifyFailure, AuditAction.DecisionDenied, AuditAction.DelegationDenied, AuditAction.ConfigDenied, AuditAction.SlaCritical]);
 
 const GROUPS: Record<string, string[] | undefined> = {
   all: undefined,
   login: [AuditAction.LoginSuccess, AuditAction.LoginFailure, AuditAction.AccountLocked, AuditAction.Logout],
-  failed: [AuditAction.LoginFailure, AuditAction.AccountLocked, AuditAction.VerifyFailure, AuditAction.DecisionDenied],
+  failed: [AuditAction.LoginFailure, AuditAction.AccountLocked, AuditAction.VerifyFailure, AuditAction.DecisionDenied, AuditAction.DelegationDenied, AuditAction.ConfigDenied],
   register: [AuditAction.Register, AuditAction.CodeSent, AuditAction.VerifySuccess, AuditAction.VerifyFailure],
-  ticket: [AuditAction.TicketSubmitted, AuditAction.StepApproved, AuditAction.StepCompleted, AuditAction.StepRejected, AuditAction.TicketDone, AuditAction.DecisionDenied],
+  ticket: [AuditAction.TicketSubmitted, AuditAction.StepApproved, AuditAction.StepCompleted, AuditAction.StepRejected, AuditAction.TicketDone, AuditAction.DecisionDenied, AuditAction.TicketReturned, AuditAction.TicketRevised, AuditAction.TicketCancelled, AuditAction.TicketExpired, AuditAction.SlaCritical, AuditAction.RoleGranted, AuditAction.RoleRevoked],
+  config: [AuditAction.ConfigProposed, AuditAction.ConfigApproved, AuditAction.ConfigRejected, AuditAction.ConfigWithdrawn, AuditAction.ConfigDenied, AuditAction.DelegationCreated, AuditAction.DelegationRevoked, AuditAction.DelegationDenied],
+  evidence: [AuditAction.EvidenceViewed, AuditAction.EvidenceExported, AuditAction.AuditViewed],
 };
 
 const fmt = (d: Date) =>
@@ -89,6 +108,8 @@ export default async function AuditPage({ searchParams }: PageProps<"/nhat-ky">)
             <option value="failed">Chỉ thất bại</option>
             <option value="register">Đăng ký / xác nhận</option>
             <option value="ticket">Ticket</option>
+            <option value="config">Cấu hình / ủy quyền</option>
+            <option value="evidence">Xem / xuất bằng chứng</option>
             <option value="all">Tất cả</option>
           </select>
         </div>
