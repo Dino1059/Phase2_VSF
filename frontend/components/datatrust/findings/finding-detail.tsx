@@ -1,415 +1,647 @@
 'use client';
-import { useState } from 'react';
-import type { ComponentProps } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
-  Check,
-  CheckCircle2,
-  Clock3,
-  Copy,
-  Download,
-  Link2,
-  Lock,
-  SlidersHorizontal,
+  X,
+  ShieldAlert,
   Sparkles,
+  Wand2,
+  CheckCircle2,
+  ShieldCheck,
+  Database,
+  Code2,
+  History,
+  Copy,
+  Check,
+  Loader2,
+  FileText,
+  Lock,
+  CheckCheck,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import type { FindingDetail as FindingDetailModel } from '@/lib/data/findings-types';
-import { SeverityBadge, StateBadge } from './finding-badges';
+import { apiBridge, type FindingDetailData } from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
 
-function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {
-  return <RouterLink to={href} {...props} />;
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('vi-VN', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+};
+
+interface FindingDetailModalProps {
+  findingId: string;
+  onClose: () => void;
+  onStatusUpdated?: () => void;
 }
 
-const displayDate = (value: string) =>
-  new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+export function FindingDetailModal({
+  findingId,
+  onClose,
+  onStatusUpdated,
+}: FindingDetailModalProps) {
+  const currentRole = useAgentStore((s) => s.currentRole);
+  const isAuditor = currentRole === 'auditor';
 
-export function FindingDetail({ finding }: { finding: FindingDetailModel }) {
-  const { currentRole } = useAgentStore();
-  const [activeTab, setActiveTab] = useState<'agentic' | 'evidence' | 'history' | 'related'>('agentic');
-  const [copiedPayload, setCopiedPayload] = useState(false);
-  const [appliedRule, setAppliedRule] = useState(false);
-  const [status, setStatus] = useState(finding.status);
+  const [detail, setDetail] = useState<FindingDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'samples' | 'rule' | 'history'>('overview');
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  const copyEvidence = async (data: unknown) => {
-    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopiedPayload(true);
-    setTimeout(() => setCopiedPayload(false), 2000);
+  // Remediation / Override Sub-modal
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overrideJustification, setOverrideJustification] = useState('');
+  const [showRemediateModal, setShowRemediateModal] = useState(false);
+  const [cleanedPayloadStr, setCleanedPayloadStr] = useState('');
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiBridge.fetchFindingDetail(findingId);
+      setDetail(data);
+      if (data.sample_records && data.sample_records.length > 0) {
+        setCleanedPayloadStr(JSON.stringify(data.sample_records[0].raw_record_json, null, 2));
+      }
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Không thể nạp chi tiết Finding');
+    } finally {
+      setLoading(false);
+    }
+  }, [findingId]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  const copyToClipboard = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const handleDownload = () => {
-    const dataStr =
-      'data:text/json;charset=utf-8,' +
-      encodeURIComponent(
-        JSON.stringify(
-          {
-            finding_id: finding.id,
-            title: finding.title,
-            control: finding.control,
-            severity: finding.severity,
-            status,
-            assigned_to: finding.assignedTo,
-            ai_analysis: {
-              impact: finding.impact,
-              domain: finding.domain,
-            },
-            root_cause: finding.issueDescription,
-            evidence: finding.evidence,
-            recommended_actions: finding.recommendedActions,
-            exported_at: new Date().toISOString(),
-          },
-          null,
-          2
-        )
-      );
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `finding-${finding.id}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  // Fixed Action 1: Yêu cầu AI giải thích (Connects to Left Pane AI Companion)
+  const handleAskAIExplain = () => {
+    if (!detail) return;
+    const prompt = `Yêu cầu AI giải thích nguyên nhân gốc rễ và căn cứ pháp lý của Finding ${detail.finding_id} (${detail.rule_id} trên cột ${detail.column_name} thuộc dataset ${detail.dataset_id}). Lý do ghi nhận: "${detail.reason}".`;
+    
+    // Add to chat store
+    const store = useAgentStore.getState();
+    const newMsg = {
+      id: `MSG-${Date.now()}`,
+      sender: 'user' as const,
+      text: prompt,
+      timestamp: 'Vừa xong',
+    };
+    useAgentStore.setState({
+      chatMessages: [...store.chatMessages, newMsg],
+    });
+
+    setActionSuccessMsg('Đã gửi câu hỏi sang AI Companion (Khung hội thoại bên trái)!');
+    setTimeout(() => setActionSuccessMsg(null), 4000);
+  };
+
+  // Fixed Action 2: Đề xuất quy tắc khắc phục
+  const handleAskAIProposeRule = () => {
+    if (!detail) return;
+    const prompt = `Đề xuất quy tắc chuẩn hóa/xử lý (Data Treatment Rule) khắc phục vấn đề kiểm toán ${detail.finding_id} (${detail.rule_id}) cho cột ${detail.column_name} thuộc bảng ${detail.dataset_id}.`;
+    
+    const store = useAgentStore.getState();
+    const newMsg = {
+      id: `MSG-${Date.now()}`,
+      sender: 'user' as const,
+      text: prompt,
+      timestamp: 'Vừa xong',
+    };
+    useAgentStore.setState({
+      chatMessages: [...store.chatMessages, newMsg],
+    });
+
+    setActionSuccessMsg('Đã yêu cầu Rule Proposer Agent soạn thảo quy tắc khắc phục!');
+    setTimeout(() => setActionSuccessMsg(null), 4000);
+  };
+
+  // Fixed Action 3: Khắc phục & Reprocess
+  const handleExecuteRemediate = async () => {
+    if (isAuditor || !detail) return;
+    if (!detail.sample_records || detail.sample_records.length === 0) {
+      alert('Không có bản ghi cách ly nào để khắc phục.');
+      return;
+    }
+    try {
+      const qId = detail.sample_records[0].quarantine_id;
+      const parsed = JSON.parse(cleanedPayloadStr);
+      await apiBridge.reprocessQuarantine(qId, parsed, 'DataTrust Admin', 'ADMIN');
+      await apiBridge.updateFindingStatus(detail.finding_id, 'REMEDIATED', 'Đã khắc phục bản ghi dữ liệu');
+      setShowRemediateModal(false);
+      setActionSuccessMsg('Đã khắc phục và cập nhật trạng thái REMEDIATED thành công!');
+      loadDetail();
+      onStatusUpdated?.();
+    } catch (err: any) {
+      alert(`Lỗi khắc phục: ${err.message}`);
+    }
+  };
+
+  // Fixed Action 4: Phê duyệt Ngoại lệ (Override)
+  const handleExecuteOverride = async () => {
+    if (isAuditor || !detail) return;
+    if (!overrideJustification.trim()) {
+      alert('Vui lòng nhập giải trình kiểm toán bắt buộc.');
+      return;
+    }
+    try {
+      if (detail.sample_records && detail.sample_records.length > 0) {
+        const qId = detail.sample_records[0].quarantine_id;
+        await apiBridge.overrideQuarantine(qId, overrideJustification, 'DataTrust Admin', 'ADMIN');
+      }
+      await apiBridge.updateFindingStatus(detail.finding_id, 'OVERRIDDEN', overrideJustification);
+      setShowOverrideModal(false);
+      setActionSuccessMsg('Đã phê duyệt ngoại lệ OVERRIDDEN kèm giải trình kiểm toán!');
+      loadDetail();
+      onStatusUpdated?.();
+    } catch (err: any) {
+      alert(`Lỗi ngoại lệ: ${err.message}`);
+    }
+  };
+
+  // Fixed Action 5: Cập nhật Trạng thái (OPEN -> IN_REVIEW -> RESOLVED)
+  const handleToggleStatus = async () => {
+    if (isAuditor || !detail) return;
+    setIsUpdatingStatus(true);
+    try {
+      const targetStatus = detail.status === 'OPEN' ? 'IN_REVIEW' : 'RESOLVED';
+      await apiBridge.updateFindingStatus(detail.finding_id, targetStatus, 'Cập nhật bởi Admin');
+      setActionSuccessMsg(`Đã cập nhật trạng thái Finding thành: ${targetStatus}`);
+      loadDetail();
+      onStatusUpdated?.();
+    } catch (err: any) {
+      alert(`Lỗi cập nhật: ${err.message}`);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   return (
-    <section className="page-enter mx-auto max-w-[1360px] space-y-6">
-      {/* Back Link */}
-      <div>
-        <Link
-          href="/results?tab=findings"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition"
-        >
-          <ArrowLeft size={14} /> Quay lại danh sách Finding
-        </Link>
-      </div>
-
-      {/* Header Banner */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-[#e2ece8] pb-5">
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-bold text-slate-900 bg-[#04D3D4]/20 px-2.5 py-0.5 rounded-md border border-[#04D3D4]/40">
-              {finding.id}
-            </span>
-            <SeverityBadge value={finding.severity} />
-            <StateBadge value={status} />
-            <Badge tone="slate">{finding.domain}</Badge>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-            {finding.title}
-          </h1>
-          <p className="text-xs text-slate-500">
-            Kiểm soát liên quan: <strong className="text-slate-800">{finding.control.id} · {finding.control.name}</strong> · Phân công: <span className="font-medium text-slate-700">{finding.assignedTo}</span> · Ngày phát hiện: {displayDate(finding.createdAt)}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownload}
-            className="h-9 px-3 text-xs gap-1.5"
-          >
-            <Download size={14} /> Tải hồ sơ (.JSON)
-          </Button>
-
-          {status !== 'REMEDIATED' ? (
-            <Button
-              variant="xanhsm"
-              size="sm"
-              onClick={() => setStatus('REMEDIATED')}
-              className="h-9 px-4 text-xs font-bold gap-1.5 bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+      <div
+        className="w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-900/90">
+          <div className="flex items-center gap-3">
+            <span
+              className={`grid size-10 place-items-center rounded-xl font-bold ${
+                detail?.severity === 'CRITICAL'
+                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+              }`}
             >
-              <CheckCircle2 size={14} /> Đánh dấu đã xử lý
-            </Button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-              <Check size={14} strokeWidth={2.5} /> Đã khắc phục & Lưu vết
+              <ShieldAlert className="size-5" />
             </span>
-          )}
-        </div>
-      </div>
-
-      {/* Segmented Tabs (Agentic View as default) */}
-      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab('agentic')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition ${
-            activeTab === 'agentic'
-              ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Sparkles size={14} />
-          Phân tích AI & Hành động (Core)
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('evidence')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition ${
-            activeTab === 'evidence'
-              ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Lock size={14} />
-          Bằng chứng số liệu ({finding.evidence.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition ${
-            activeTab === 'history'
-              ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Clock3 size={14} />
-          Lịch sử thẩm tra ({finding.history.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('related')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg transition ${
-            activeTab === 'related'
-              ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Link2 size={14} />
-          Findings liên quan ({finding.related.length})
-        </button>
-      </div>
-
-      {/* TAB 1: 4 AGENTIC PILLARS */}
-      {activeTab === 'agentic' && (
-        <div className="space-y-5">
-          {/* PILLAR 1: AI ANALYSIS */}
-          <Card className="rounded-xl border border-[#04D3D4]/30 bg-[#04D3D4]/5 p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-900">
-                <Sparkles size={15} className="text-[#04D3D4]" />
-                1. Phân Tích & Đánh Giá Rủi Ro Từ AI Agent (AI Analysis)
-              </span>
-              <span className="text-[11px] font-semibold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
-                Độ tin cậy: 98%
-              </span>
-            </div>
-            
-            <p className="text-xs text-slate-700 leading-relaxed font-medium">
-              AI Agent đã thực hiện kiểm tra đối soát tự động tiêu chuẩn <strong>{finding.control.id} ({finding.control.name})</strong>: {finding.control.evaluationMessage}.
-            </p>
-
-            <div className="rounded-lg bg-white p-3.5 border border-slate-200 space-y-1.5">
-              <span className="text-[11px] font-bold text-slate-500 uppercase">Tác động kiểm toán (Impact Assessment):</span>
-              <p className="text-xs text-slate-800 leading-relaxed font-medium">{finding.impact}</p>
-            </div>
-          </Card>
-
-          {/* PILLAR 2: EVIDENCE PREVIEW */}
-          <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
-                <Lock size={15} className="text-[#04D3D4]" />
-                2. Bằng Chứng Mật Mã & Bản Ghi Nguồn (Evidence)
-              </span>
-              <button
-                type="button"
-                onClick={() => setActiveTab('evidence')}
-                className="text-xs font-semibold text-slate-700 hover:text-[#04D3D4] hover:underline flex items-center gap-1"
-              >
-                Xem chi tiết {finding.evidence.length} bằng chứng <ArrowLeft size={12} className="rotate-180" />
-              </button>
-            </div>
-
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-200">
-                  <tr>
-                    <th className="px-4 py-2.5">Mã bằng chứng</th>
-                    <th className="px-4 py-2.5">Hệ thống nguồn</th>
-                    <th className="px-4 py-2.5">Loại bằng chứng</th>
-                    <th className="px-4 py-2.5">Thời gian bắt</th>
-                    <th className="px-4 py-2.5">Đối tượng</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {finding.evidence.slice(0, 3).map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-mono font-bold text-slate-900">{item.id}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-700">{item.source}</td>
-                      <td className="px-4 py-2.5">
-                        <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                          {item.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{displayDate(item.capturedAt)}</td>
-                      <td className="px-4 py-2.5 font-mono text-slate-600">{item.linkedObject}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* PILLAR 3: SUGGESTED ACTIONS */}
-          <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
-              <SlidersHorizontal size={15} className="text-[#04D3D4]" />
-              3. Hành Động Đề Xuất Từ AI Agent (Suggested Action & Remediation)
-            </span>
-
-            {/* Recommended Steps */}
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-600">Kế hoạch hành động từng bước:</span>
-              <ol className="space-y-2">
-                {finding.recommendedActions.map((action, index) => (
-                  <li key={action} className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-700">
-                    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#04D3D4]/20 text-[11px] font-bold text-slate-950 mt-0.5">
-                      {index + 1}
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white font-mono">{findingId}</h2>
+                {detail && (
+                  <>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        detail.severity === 'CRITICAL'
+                          ? 'bg-rose-500/20 text-rose-300'
+                          : 'bg-amber-500/20 text-amber-300'
+                      }`}
+                    >
+                      {detail.severity}
                     </span>
-                    <span>{action}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            {/* AI 1-Click Action Box (Chỉ hiển thị cho Admin) */}
-            {currentRole === 'admin' && (
-              <div className="rounded-lg border border-[#cbebe2] bg-[#f0f9f6] p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <strong className="block text-xs font-bold text-slate-900">
-                    ⚡ 1-Click Áp dụng Rule kiểm soát tự động
-                  </strong>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Tự động biên dịch quy tắc kiểm soát và cập nhật vào Ingestion Pipeline.
-                  </p>
-                </div>
-                <Button
-                  variant="xanhsm"
-                  size="sm"
-                  onClick={() => {
-                    setAppliedRule(true);
-                    setTimeout(() => setAppliedRule(false), 3000);
-                  }}
-                  disabled={appliedRule}
-                  className="text-xs font-semibold gap-1.5 shrink-0"
-                >
-                  {appliedRule ? <Check size={13} /> : <Sparkles size={13} />}
-                  {appliedRule ? 'Đã kích hoạt rule vào Pipeline!' : 'Áp dụng Rule ngay'}
-                </Button>
-              </div>
-            )}
-          </Card>
-        </div>
-      )}
-
-      {/* TAB 2: DETAILED EVIDENCE */}
-      {activeTab === 'evidence' && (
-        <div className="space-y-4">
-          {finding.evidence.map((item) => (
-            <Card key={item.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-[#007460] bg-[#e6f6f2] px-2 py-0.5 rounded border border-[#bfe7dc]">
-                      {item.id}
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        detail.status === 'OPEN'
+                          ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          : detail.status === 'IN_REVIEW'
+                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      }`}
+                    >
+                      {detail.status}
                     </span>
-                    <strong className="text-xs font-bold text-slate-900">{item.source} · {item.type}</strong>
-                  </div>
-                  <p className="text-xs text-slate-500">Mã tham chiếu: <code className="font-mono text-slate-700">{item.reference}</code></p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => copyEvidence(item.rawEvent)}
-                  className="text-xs gap-1.5 self-start sm:self-auto"
-                >
-                  {copiedPayload ? <Check size={13} /> : <Copy size={13} />}
-                  {copiedPayload ? 'Đã sao chép' : 'Sao chép raw JSON'}
-                </Button>
+                  </>
+                )}
               </div>
-
-              {/* Raw JSON viewer */}
-              <div className="rounded-lg border border-slate-800 bg-[#0c1917] p-3.5 overflow-x-auto max-h-60">
-                <pre className="font-mono text-xs text-emerald-300 leading-relaxed whitespace-pre">
-                  {JSON.stringify(item.rawEvent, null, 2)}
-                </pre>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs text-slate-500">
-                <div><span>Tác nhân:</span> <strong className="block text-slate-700">{item.actor}</strong></div>
-                <div><span>Đối tượng:</span> <strong className="block text-slate-700 font-mono">{item.linkedObject}</strong></div>
-                <div><span>Thời gian:</span> <span className="block text-slate-700">{displayDate(item.capturedAt)}</span></div>
-                <div><span>Kết quả kiểm soát:</span> <strong className="block text-[#007460] font-mono">{item.controlResultId}</strong></div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* TAB 3: PROCESSING HISTORY */}
-      {activeTab === 'history' && (
-        <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-          <div className="space-y-4">
-            {finding.history.map((item, index) => (
-              <div key={`${item.label}-${index}`} className="flex gap-4">
-                <div className="flex flex-col items-center">
-                  <span
-                    className={`grid size-7 place-items-center rounded-full text-xs ${
-                      item.tone === 'green'
-                        ? 'bg-emerald-50 text-emerald-600'
-                        : item.tone === 'amber'
-                        ? 'bg-amber-50 text-amber-600'
-                        : 'bg-[#e6f6f2] text-[#007460]'
-                    }`}
-                  >
-                    {item.tone === 'green' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
-                  </span>
-                  {index < finding.history.length - 1 && <span className="h-10 w-px bg-slate-200" />}
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-xs font-bold text-slate-800">{item.label}</p>
-                  <p className="text-xs text-slate-600">{item.detail}</p>
-                  <p className="text-[11px] text-slate-500">{displayDate(item.occurredAt)}</p>
-                </div>
-              </div>
-            ))}
+              <p className="text-xs text-slate-400">
+                {detail?.dataset_id} · Cột: <strong className="text-cyan-400 font-mono">{detail?.column_name}</strong> · Phát hiện: {formatDateTime(detail?.detected_at)}
+              </p>
+            </div>
           </div>
-        </Card>
-      )}
 
-      {/* TAB 4: RELATED FINDINGS */}
-      {activeTab === 'related' && (
-        <Card className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
-          {finding.related.length > 0 ? (
-            finding.related.map((item) => (
-              <Link
-                key={item.id}
-                href={`/findings/${item.id}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 hover:border-[#04D3D4] hover:bg-[#04D3D4]/5 transition"
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {/* Action success alert */}
+        {actionSuccessMsg && (
+          <div className="bg-cyan-500/10 border-b border-cyan-500/20 px-6 py-2.5 text-xs text-cyan-300 flex items-center gap-2">
+            <CheckCircle2 className="size-4 text-cyan-400 shrink-0" />
+            <span>{actionSuccessMsg}</span>
+          </div>
+        )}
+
+        {/* RBAC Auditor Notice */}
+        {isAuditor && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2 text-[11px] text-amber-300 flex items-center gap-2">
+            <Lock className="size-3.5 text-amber-400 shrink-0" />
+            <span>Chế độ Chỉ đọc (Auditor): Các nút Khắc phục, Ngoại lệ và Đổi trạng thái bị vô hiệu hóa.</span>
+          </div>
+        )}
+
+        {/* Tab Header */}
+        <div className="flex border-b border-slate-800 bg-slate-900/50 px-6 text-xs font-semibold">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`py-3 px-4 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'overview'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <FileText className="size-3.5" />
+            <span>1. Tổng quan & Tác động</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('samples')}
+            className={`py-3 px-4 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'samples'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Database className="size-3.5" />
+            <span>2. Mẫu bản ghi vi phạm ({detail?.sample_records?.length || 0})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('rule')}
+            className={`py-3 px-4 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'rule'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Code2 className="size-3.5" />
+            <span>3. Định nghĩa Quy tắc</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-3 px-4 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'history'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <History className="size-3.5" />
+            <span>4. Lịch sử Kiểm toán</span>
+          </button>
+        </div>
+
+        {/* Tab Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {loading ? (
+            <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+              <Loader2 className="size-6 animate-spin text-cyan-400" />
+              <span>Đang tải thông tin chi tiết từ cơ sở dữ liệu…</span>
+            </div>
+          ) : error ? (
+            <div className="p-4 rounded-xl bg-rose-500/10 text-rose-300 text-xs border border-rose-500/30 flex items-center justify-between">
+              <span>{error}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={loadDetail}
+                className="h-7 text-xs border-rose-500/40 text-rose-200 hover:bg-rose-500/20"
               >
-                <div className="flex items-center gap-2.5">
-                  <Link2 className="text-[#04D3D4]" size={16} />
-                  <div>
-                    <span className="font-mono text-xs font-bold text-slate-900">{item.id}</span>
-                    <p className="text-xs font-semibold text-slate-800">{item.title}</p>
+                Thử lại
+              </Button>
+            </div>
+          ) : detail ? (
+            <>
+              {/* TAB 1: OVERVIEW & IMPACT */}
+              {activeTab === 'overview' && (
+                <div className="space-y-4 text-xs">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-2">
+                    <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
+                      Lý do Vi phạm Ghi nhận:
+                    </span>
+                    <p className="text-sm font-medium text-white leading-relaxed">{detail.reason}</p>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-2">
+                      <span className="text-[11px] font-bold text-slate-400">Chính sách Áp dụng (Policy):</span>
+                      <p className="text-xs font-semibold text-cyan-300">{detail.policy_name || 'Quy chuẩn Chất lượng & Tuân thủ'}</p>
+                      <p className="text-[11px] font-mono text-slate-400">Mã chính sách: {detail.policy_id || 'POL-DEFAULT'}</p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-2">
+                      <span className="text-[11px] font-bold text-slate-400">Căn cứ Pháp lý (Law Standard):</span>
+                      <p className="text-xs font-semibold text-emerald-400">{detail.law_ref || 'Luật 91/2025/QH15 & Nghị định 13/2023/NĐ-CP'}</p>
+                      <p className="text-[11px] text-slate-400">Tiêu chuẩn kiểm toán: SOX Section 404 / IPO Compliance</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400">Tác động Dữ liệu (Impact & Quarantine):</span>
+                    <p className="text-xs text-slate-300">
+                      Có <strong className="text-rose-400 font-mono">{detail.failed_record_count} bản ghi</strong> đã bị ngắt khỏi luồng sản xuất và chuyển sang làn Quarantine.
+                      {detail.impact && <> {detail.impact}</>}
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <SeverityBadge value={item.severity} />
-                  <StateBadge value={item.status} />
+              )}
+
+              {/* TAB 2: SAMPLE RECORDS (RAW RECORD JSON VIEW) */}
+              {activeTab === 'samples' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Mẫu bản ghi bị cách ly thực tế từ bảng <code className="text-cyan-400 font-mono">quarantine.records</code></span>
+                    <span>Hiển thị tối đa 10 bản ghi</span>
+                  </div>
+
+                  {(!detail.sample_records || detail.sample_records.length === 0) ? (
+                    <div className="p-8 text-center text-xs text-slate-500 rounded-xl border border-slate-800">
+                      Không có bản ghi cách ly mẫu nào liên kết trực tiếp với Finding này.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {detail.sample_records.map((rec, idx) => (
+                        <div key={rec.quarantine_id} className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs space-y-2">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-cyan-400">Mẫu #{idx + 1}</span>
+                              <span className="text-slate-500 font-mono text-[11px]">ID: {rec.quarantine_id}</span>
+                              {rec.source_row_pk && (
+                                <span className="bg-slate-800 px-2 py-0.5 rounded text-[10px] font-mono text-slate-300">
+                                  PK: {rec.source_row_pk}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => copyToClipboard(JSON.stringify(rec.raw_record_json, null, 2), idx)}
+                              className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] transition-colors"
+                            >
+                              {copiedIndex === idx ? (
+                                <Check className="size-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="size-3.5" />
+                              )}
+                              <span>Sao chép JSON</span>
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-rose-400 font-bold uppercase">Lý do cách ly:</span>
+                            <p className="text-xs text-rose-300 font-mono">{rec.violation_reason}</p>
+                          </div>
+
+                          <div className="mt-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
+                              Raw Record Payload (JSON):
+                            </span>
+                            <pre className="p-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-slate-200 overflow-x-auto max-h-48 leading-relaxed">
+                              {JSON.stringify(rec.raw_record_json, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </Link>
-            ))
-          ) : (
-            <p className="py-6 text-center text-xs text-slate-400">Không có finding liên quan.</p>
-          )}
-        </Card>
+              )}
+
+              {/* TAB 3: RULE DEFINITION */}
+              {activeTab === 'rule' && (
+                <div className="space-y-4 text-xs">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white text-sm">Mã quy tắc: {detail.rule_id}</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        {detail.rule_definition?.status || 'ACTIVE'}
+                      </span>
+                    </div>
+
+                    {detail.rule_definition ? (
+                      <div className="space-y-2 pt-2 border-t border-slate-800">
+                        <div>
+                          <span className="text-slate-400 text-[11px]">Tên quy tắc:</span>
+                          <p className="font-semibold text-white">{detail.rule_definition.treatment_name}</p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px]">Hàm thực thi (Operation ID):</span>
+                          <p className="font-mono text-cyan-400">{detail.rule_definition.operation_id}</p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px]">Biểu thức Logic (Expression):</span>
+                          <pre className="p-2 rounded bg-slate-900 font-mono text-cyan-300 text-[11px] mt-1 border border-slate-800">
+                            {detail.rule_definition.expression_display}
+                          </pre>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px]">Cán bộ thực thi chính sách:</span>
+                          <p className="text-slate-200">{detail.rule_definition.enforced_by || 'DataTrust Admin'}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-slate-400 text-xs py-2">
+                        Quy tắc lõi của hệ thống (Built-in Pipeline Gate).
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: AUDIT HISTORY */}
+              {activeTab === 'history' && (
+                <div className="space-y-4 text-xs">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+                    <span className="font-bold text-white text-sm block border-b border-slate-800 pb-2">
+                      Nhật ký Vòng đời Vấn đề (Lifecycle Audit Trail)
+                    </span>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-3">
+                        <span className="size-2 rounded-full bg-rose-400 mt-1.5 shrink-0" />
+                        <div>
+                          <p className="font-semibold text-white">Phát hiện Vi phạm lần đầu</p>
+                          <p className="text-slate-400 text-[11px]">{formatDateTime(detail.detected_at)} bởi Airflow Pipeline Lane C</p>
+                        </div>
+                      </div>
+
+                      {detail.resolved_at && (
+                        <div className="flex items-start gap-3">
+                          <span className="size-2 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                          <div>
+                            <p className="font-semibold text-emerald-300">Cập nhật Trạng thái: {detail.status}</p>
+                            <p className="text-slate-400 text-[11px]">{formatDateTime(detail.resolved_at)}</p>
+                            {detail.resolved_by && (
+                              <p className="text-slate-400 text-[11px]">Người thực hiện: {detail.resolved_by}</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+
+        {/* 5 NÚT THAO TÁC CỐ ĐỊNH Ở ĐÁY MODAL (SPEC 08 FIXED ACTION BUTTONS) */}
+        <div className="border-t border-slate-800 px-6 py-4 bg-slate-950/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Button 1: Yêu cầu AI giải thích */}
+            <Button
+              size="sm"
+              onClick={handleAskAIExplain}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs gap-1.5"
+            >
+              <Sparkles className="size-3.5" />
+              <span>1. Yêu cầu AI Giải thích</span>
+            </Button>
+
+            {/* Button 2: Đề xuất quy tắc khắc phục */}
+            <Button
+              size="sm"
+              onClick={handleAskAIProposeRule}
+              className="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs gap-1.5"
+            >
+              <Wand2 className="size-3.5" />
+              <span>2. Đề xuất Rule Khắc phục</span>
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Button 3: Khắc phục & Reprocess */}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isAuditor}
+              onClick={() => setShowRemediateModal(true)}
+              className="border-emerald-600/50 text-emerald-400 hover:bg-emerald-950/30 text-xs disabled:opacity-50 gap-1.5"
+            >
+              <RefreshCw className="size-3.5" />
+              <span>3. Khắc phục & Chạy lại</span>
+            </Button>
+
+            {/* Button 4: Phê duyệt Ngoại lệ */}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isAuditor}
+              onClick={() => setShowOverrideModal(true)}
+              className="border-amber-600/50 text-amber-400 hover:bg-amber-950/30 text-xs disabled:opacity-50 gap-1.5"
+            >
+              <ShieldCheck className="size-3.5" />
+              <span>4. Phê duyệt Ngoại lệ (Override)</span>
+            </Button>
+
+            {/* Button 5: Chuyển trạng thái */}
+            <Button
+              size="sm"
+              disabled={isAuditor || isUpdatingStatus}
+              onClick={handleToggleStatus}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs disabled:opacity-50 gap-1.5"
+            >
+              <CheckCheck className="size-3.5 text-cyan-400" />
+              <span>5. {detail?.status === 'OPEN' ? 'Chuyển Xem xét' : 'Đóng Vấn đề'}</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* OVERRIDE JUSTIFICATION MODAL */}
+      {showOverrideModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 space-y-4">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <ShieldCheck className="size-4 text-amber-400" />
+              Phê duyệt Ngoại lệ Kiểm toán (Audit Override)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Nhập giải trình lý do nghiệp vụ cho phép bản ghi này được thông qua (ghi vĩnh viễn vào nhật ký kiểm toán):
+            </p>
+            <textarea
+              rows={3}
+              value={overrideJustification}
+              onChange={(e) => setOverrideJustification(e.target.value)}
+              placeholder="Giải trình kiểm toán: Cuốc xe thử nghiệm nội bộ hoặc có chứng từ hợp lệ..."
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 p-3 text-xs text-white focus:outline-none focus:border-cyan-500"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => setShowOverrideModal(false)}>
+                Hủy
+              </Button>
+              <Button size="sm" onClick={handleExecuteOverride} className="bg-amber-500 text-slate-950 font-bold hover:bg-amber-400">
+                Xác nhận Ngoại lệ
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
-    </section>
+
+      {/* REMEDIATE CLEANED PAYLOAD MODAL */}
+      {showRemediateModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 space-y-4">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <RefreshCw className="size-4 text-emerald-400" />
+              Khắc phục & Chạy lại Dữ liệu Cách ly (Remediate)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Chỉnh sửa giá trị vi phạm trong JSON bên dưới trước khi đưa lại vào luồng xử lý:
+            </p>
+            <textarea
+              rows={7}
+              value={cleanedPayloadStr}
+              onChange={(e) => setCleanedPayloadStr(e.target.value)}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 p-3 font-mono text-xs text-cyan-300 focus:outline-none focus:border-cyan-500"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => setShowRemediateModal(false)}>
+                Hủy
+              </Button>
+              <Button size="sm" onClick={handleExecuteRemediate} className="bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400">
+                Lưu & Chạy lại
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Standalone page wrapper for route /findings/:id
+export function FindingDetail({ finding }: { finding?: any }) {
+  const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const findingId = finding?.id || finding?.finding_id || id;
+
+  return (
+    <FindingDetailModal
+      findingId={findingId}
+      onClose={() => navigate(-1)}
+      onStatusUpdated={() => {}}
+    />
   );
 }

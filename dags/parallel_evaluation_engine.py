@@ -520,23 +520,93 @@ def persist_consolidated_results(conn, result: ConsolidatedRunResult):
         """
         execute_values(cur, w_sql, w_values)
 
-    # 4. Upsert Pipeline Run tracking
+    # 4. Upsert Pipeline Run tracking with not_evaluated_count
+    not_eval = max(0, result.scanned_count - result.silver_count - result.quarantine_count)
     cur.execute("""
         INSERT INTO orchestration.pipeline_runs 
-        (run_id, dag_id, dataset_id, started_at, ended_at, status, scanned_count, silver_count, quarantine_count, warning_count)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        (run_id, dag_id, dataset_id, started_at, ended_at, status, scanned_count, silver_count, quarantine_count, warning_count, not_evaluated_count, current_step, current_step_progress)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (run_id) DO UPDATE SET
             ended_at = EXCLUDED.ended_at,
             status = EXCLUDED.status,
             scanned_count = EXCLUDED.scanned_count,
             silver_count = EXCLUDED.silver_count,
             quarantine_count = EXCLUDED.quarantine_count,
-            warning_count = EXCLUDED.warning_count;
+            warning_count = EXCLUDED.warning_count,
+            not_evaluated_count = EXCLUDED.not_evaluated_count,
+            current_step = EXCLUDED.current_step,
+            current_step_progress = EXCLUDED.current_step_progress;
     """, (
         run_id, "datatrust_adaptive_pipeline", dataset_id,
         datetime.now(timezone.utc), datetime.now(timezone.utc), "SUCCESS",
-        result.scanned_count, result.silver_count, result.quarantine_count, result.warning_count
+        result.scanned_count, result.silver_count, result.quarantine_count, result.warning_count,
+        not_eval, "SILVER", 100
     ))
+
+    # 5. Aggregate Findings into audit.findings & audit.finding_quarantine_records
+    if result.quarantine_records:
+        try:
+            cur.execute("""
+                INSERT INTO audit.findings (
+                    finding_id, run_id, dataset_id, rule_id, policy_id, policy_name, law_ref,
+                    column_name, severity, status, reason, impact, failed_record_count, detected_at
+                )
+                SELECT 
+                    'F-' || substring(md5(q.run_id || coalesce(q.violation_rule_id, '') || coalesce(q.violation_column, '')) from 1 for 10) as finding_id,
+                    q.run_id,
+                    q.dataset_id,
+                    coalesce(q.violation_rule_id, 'UNKNOWN_RULE') as rule_id,
+                    coalesce(cr.law_ref, 'LAW-91-GDPR') as policy_id,
+                    coalesce(cr.rule_name, 'Quy tắc kiểm soát dữ liệu') as policy_name,
+                    coalesce(cr.law_ref, 'Luật 91/2025/QH15 & GDPR') as law_ref,
+                    coalesce(q.violation_column, 'DATA_INTEGRITY') as column_name,
+                    coalesce(q.violation_severity, 'HIGH') as severity,
+                    'OPEN' as status,
+                    min(q.violation_reason) as reason,
+                    'Vi phạm an toàn dữ liệu và kiểm toán IPO: ' || coalesce(cr.description, min(q.violation_reason)) as impact,
+                    count(*) as failed_record_count,
+                    CURRENT_TIMESTAMP as detected_at
+                FROM quarantine.records q
+                LEFT JOIN policy.compliance_rules cr 
+                    ON (cr.rule_id = q.violation_rule_id OR cr.column_name = q.violation_column)
+                WHERE q.run_id = %s
+                GROUP BY q.run_id, q.dataset_id, q.violation_rule_id, q.violation_column, q.violation_severity, cr.law_ref, cr.rule_name, cr.description
+                ON CONFLICT (finding_id) DO UPDATE SET
+                    failed_record_count = EXCLUDED.failed_record_count,
+                    reason = EXCLUDED.reason;
+            """, (run_id,))
+
+            # Link individual quarantine records
+            cur.execute("""
+                INSERT INTO audit.finding_quarantine_records (finding_id, quarantine_id)
+                SELECT 
+                    f.finding_id,
+                    q.quarantine_id
+                FROM quarantine.records q
+                JOIN audit.findings f 
+                    ON f.run_id = q.run_id 
+                    AND f.rule_id = coalesce(q.violation_rule_id, 'UNKNOWN_RULE')
+                    AND f.column_name = coalesce(q.violation_column, 'DATA_INTEGRITY')
+                WHERE q.run_id = %s
+                ON CONFLICT (finding_id, quarantine_id) DO NOTHING;
+            """, (run_id,))
+        except Exception as e_find:
+            print(f"Notice: Findings aggregation: {e_find}")
+
+    # 6. Update step states in orchestration.pipeline_run_steps
+    try:
+        cur.execute("""
+            INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)
+            VALUES (%s, 'EVALUATION', 3, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (run_id, step_name) DO UPDATE SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP;
+        """, (run_id,))
+        cur.execute("""
+            INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)
+            VALUES (%s, 'SILVER', 4, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (run_id, step_name) DO UPDATE SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP;
+        """, (run_id,))
+    except Exception as e_step:
+        print(f"Notice: Step tracking: {e_step}")
 
     conn.commit()
 

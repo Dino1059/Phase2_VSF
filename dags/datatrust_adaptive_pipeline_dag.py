@@ -110,6 +110,20 @@ def resolve_target_dataset(conf: Optional[Dict[str, Any]]) -> Tuple[Optional[str
     return clean_name, actual_filename
 
 
+def get_canonical_run_id(context: dict) -> str:
+    """Extracts consistent canonical run ID across Airflow and DataTrust OS."""
+    dag_run = context.get('dag_run')
+    if dag_run and getattr(dag_run, 'conf', None):
+        conf = dag_run.conf or {}
+        if conf.get('app_run_id'):
+            return str(conf['app_run_id'])
+        if conf.get('run_id'):
+            return str(conf['run_id'])
+    if dag_run and getattr(dag_run, 'run_id', None):
+        return str(dag_run.run_id)
+    return str(context.get('run_id') or f"RUN-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}")
+
+
 def _load_bronze_dataset_records(context) -> tuple:
     """Loads batch of bronze records either from PostgreSQL bronze schema or data directory."""
     dag_run = context.get('dag_run')
@@ -203,7 +217,8 @@ def task_1_truncate_and_ingest_bronze(**context):
         dag_run = context.get('dag_run')
         conf = dag_run.conf if dag_run else {}
         target_tbl, _ = resolve_target_dataset(conf)
-        batch_id = f"batch_{dag_run.run_id}" if dag_run else None
+        canonical_run_id = get_canonical_run_id(context)
+        batch_id = canonical_run_id
 
         if target_tbl:
             print(f"[TASK 1] Single-Table Mode: Only truncating & ingesting bronze.{target_tbl}")
@@ -215,6 +230,24 @@ def task_1_truncate_and_ingest_bronze(**context):
         print(f"Task 1 Complete: Ingested {len(summary)} dataset(s), Total {total_rows:,} records into schema bronze.")
         context['ti'].xcom_push(key='bronze_ingest_summary', value=summary)
         context['ti'].xcom_push(key='total_ingested_records', value=total_rows)
+
+        # Update step tracking in DB
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)
+                VALUES (%s, 'INGEST', 1, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (run_id, step_name) DO UPDATE SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP;
+            """, (canonical_run_id,))
+            cur.execute("""
+                UPDATE orchestration.pipeline_runs
+                SET current_step = 'BRONZE', current_step_progress = 30
+                WHERE run_id = %s;
+            """, (canonical_run_id,))
+            conn.commit()
+        except Exception as e_step:
+            print(f"Notice: Step tracking Task 1: {e_step}")
+
         return summary
     finally:
         conn.close()
@@ -237,7 +270,7 @@ def task_2_data_profiling(**context):
         except ImportError:
             from database.profiler_engine import DataProfilerEngine, ProfilingConfig
 
-    run_id = context.get('run_id') or f"run_{uuid.uuid4().hex[:8]}"
+    run_id = get_canonical_run_id(context)
     profiler = DataProfilerEngine(config=ProfilingConfig())
 
     dag_run = context.get('dag_run')
@@ -266,6 +299,26 @@ def task_2_data_profiling(**context):
                 "health_score": r["health_score"],
                 "signals_summary": r["signals_summary"]
             }
+
+    # Record step tracking in DB
+    try:
+        from dags.parallel_evaluation_engine import get_db_connection
+        conn_p = get_db_connection()
+        cur_p = conn_p.cursor()
+        cur_p.execute("""
+            INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)
+            VALUES (%s, 'BRONZE', 2, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (run_id, step_name) DO UPDATE SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP;
+        """, (run_id,))
+        cur_p.execute("""
+            UPDATE orchestration.pipeline_runs
+            SET current_step = 'EVALUATION', current_step_progress = 60
+            WHERE run_id = %s;
+        """, (run_id,))
+        conn_p.commit()
+        conn_p.close()
+    except Exception as e_step:
+        print(f"Notice: Step tracking Task 2: {e_step}")
 
     context['ti'].xcom_push(key='profiling_summary', value=summary_map)
     return summary_map
@@ -332,7 +385,7 @@ def task_3c_run_lane_c(**context):
     lane_a_data = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_a_l1_l4_detectors', key='lane_a_results') or {}
     lane_b_data = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_b_hierarchical_policy', key='lane_b_results') or []
 
-    run_id = f"run_{context.get('run_id', uuid.uuid4().hex[:8])}"
+    run_id = get_canonical_run_id(context)
     metrics = execute_lane_c_merge_and_persist(
         dataset_id=table_name,
         records=records,
@@ -375,7 +428,7 @@ def task_4_emit_audit_evidence(**context):
 
     ti = context['ti']
     metrics = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_c_merge_verdicts_and_route', key='pipeline_metrics') or {}
-    run_id = str(context.get('run_id') or f"run_{uuid.uuid4().hex[:8]}")
+    run_id = get_canonical_run_id(context)
     dag_id = context.get('dag').dag_id if context.get('dag') else "datatrust_adaptive_pipeline"
     dataset_id = str(metrics.get('dataset_id') or "ride_hailing_xanh_sm_trips")
 
@@ -403,6 +456,7 @@ def task_4_emit_audit_evidence(**context):
 
     # Build standard & custom OpenLineage facets
     jurisdiction_chain = ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
+    signer_marker = "SIG-AIRFLOW-3LANE-GSM-IPO-2026"
     try:
         try:
             from src.lineage.datatrust_facets import build_audit_assurance_facet, get_actual_run_column_lineage
@@ -411,7 +465,7 @@ def task_4_emit_audit_evidence(**context):
         custom_audit_facet = build_audit_assurance_facet(
             evidence_hash=evidence_hash,
             previous_hash=previous_hash,
-            digital_signature="SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+            digital_signature=signer_marker,
             metrics=metrics,
             jurisdiction_chain=jurisdiction_chain
         )
@@ -420,7 +474,7 @@ def task_4_emit_audit_evidence(**context):
         custom_audit_facet = {
             "_producer": "https://github.com/datatrust-os/datatrust",
             "_schemaURL": "https://datatrust.org/spec/facets/1-0-0/DataTrustAuditAssuranceFacet.json",
-            "digitalSignature": "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+            "digitalSignature": signer_marker,
             "evidenceHash": evidence_hash,
             "previousHash": previous_hash
         }
@@ -432,7 +486,7 @@ def task_4_emit_audit_evidence(**context):
         "run_id": run_id,
         "dataset_id": dataset_id,
         "metrics": metrics,
-        "digital_signature": "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+        "digital_signature": signer_marker,
         "previous_hash": previous_hash,
         "evidence_hash": evidence_hash,
         "dataTrustAuditAssurance": custom_audit_facet,
@@ -443,23 +497,38 @@ def task_4_emit_audit_evidence(**context):
     if conn is not None:
         try:
             from psycopg2.extras import Json
+            cur = conn.cursor()
             cur.execute("""
                 INSERT INTO audit.evidence 
                 (run_id, dag_id, dataset_id, digital_signature, evidence_hash, previous_hash,
                  scanned_count, silver_count, quarantine_count, warning_count, metrics, evidence_payload, jurisdiction_chain)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """, (
-                run_id, dag_id, dataset_id, "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+                run_id, dag_id, dataset_id, signer_marker,
                 evidence_hash, previous_hash,
                 metrics.get("scanned", 0), metrics.get("silver", 0),
                 metrics.get("quarantine", 0), metrics.get("warning", 0),
                 Json(metrics), Json(evidence_payload),
                 ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
             ))
+
+            # Record Step 5 completion in orchestration.pipeline_run_steps
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)
+                VALUES (%s, 'EVIDENCE', 5, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (run_id, step_name) DO UPDATE SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP;
+            """, (run_id,))
+            cur.execute("""
+                UPDATE orchestration.pipeline_runs
+                SET current_step = 'COMPLETED', current_step_progress = 100, status = 'SUCCESS', ended_at = CURRENT_TIMESTAMP,
+                    execution_duration_ms = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at)) * 1000
+                WHERE run_id = %s;
+            """, (run_id,))
             conn.commit()
             print("Successfully recorded audit evidence into audit.evidence ledger table.")
         except Exception as e:
-            print(f"Warning: Failed to persist to audit.evidence: {e}")
+            print(f"Error: Failed to persist to audit.evidence: {e}")
+            raise RuntimeError(f"Audit evidence persistence failed: {e}") from e
         finally:
             conn.close()
 

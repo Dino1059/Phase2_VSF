@@ -1,214 +1,461 @@
-import type { ComponentProps } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle2, Database, FileText, ShieldAlert, Timer, XCircle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+'use client';
+
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Database,
+  FileText,
+  ShieldAlert,
+  XCircle,
+  Clock,
+  Loader2,
+  ShieldCheck,
+  AlertCircle,
+  HelpCircle,
+  Activity,
+  Layers,
+  Copy,
+  Check,
+  Play
+} from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { PipelineStatusBadge } from './pipeline-status';
-import type {
-  PipelineRunDetail as Detail,
-  PipelineRuleResult,
-  PipelineFinding,
-  PipelineEvidence,
-} from '@/lib/data/pipeline-types';
+import { StartRunModal } from './start-run-modal';
+import { apiBridge, type PipelineRunDetail as DetailType } from '@/lib/api-bridge';
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('vi-VN', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+};
 
-function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {
-  return <RouterLink to={href} {...props} />;
-}
+export function PipelineRunDetail({ runId: propRunId }: { runId?: string }) {
+  const { id: paramRunId } = useParams<{ id: string }>();
+  const runId = propRunId || paramRunId || '';
+  const navigate = useNavigate();
 
-const format = (value: string) =>
-  new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  const [detail, setDetail] = useState<DetailType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [showStartModal, setShowStartModal] = useState(false);
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-export function PipelineRunDetail({ run }: { run: Detail }) {
-  const counts = [
-    { label: 'Bản ghi đầu vào (Raw)', value: run.inputRecords, icon: Database },
-    { label: 'Bản ghi Sạch (Silver)', value: run.silverRecords, icon: CheckCircle2 },
-    { label: 'Bản ghi Cách ly (Quarantine)', value: run.quarantineRecords, icon: ShieldAlert },
-    { label: 'Thời lượng', value: `${run.durationMinutes} phút`, icon: Timer },
-  ];
+  const fetchDetail = useCallback(async () => {
+    if (!runId) return;
+    try {
+      const data = await apiBridge.fetchPipelineRunDetail(runId);
+      setDetail(data);
+      setError(null);
+      return data;
+    } catch (err: any) {
+      setError(err.message || 'Không thể nạp thông tin lượt chạy');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    fetchDetail();
+
+    // Auto-polling nếu lượt chạy đang trong tiến trình
+    const startPolling = () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      pollTimerRef.current = setInterval(async () => {
+        const d = await fetchDetail();
+        if (d && (d.status === 'SUCCESS' || d.status === 'FAILED')) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        }
+      }, 3500);
+    };
+
+    startPolling();
+
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, [fetchDetail]);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loading && !detail) {
+    return (
+      <div className="grid min-h-[50vh] place-items-center text-sm text-slate-400">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="size-8 animate-spin text-cyan-400" />
+          <p className="font-medium text-slate-300">Đang truy vấn dữ liệu lượt chạy {runId} từ PostgreSQL…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !detail) {
+    return (
+      <div className="mx-auto max-w-4xl p-6">
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-6 text-sm text-rose-300">
+          <div className="flex items-center gap-2 font-bold text-base text-rose-200">
+            <XCircle className="size-5" /> Không tìm thấy lượt chạy
+          </div>
+          <p className="mt-2 text-slate-300">{error || `Lượt chạy '${runId}' không tồn tại trong cơ sở dữ liệu.`}</p>
+          <div className="mt-4">
+            <Link
+              to="/runs"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300"
+            >
+              <ArrowLeft className="size-3.5" /> Trở lại danh sách lượt chạy
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isCompleted = detail.status === 'SUCCESS' || detail.status === 'COMPLETED';
+  const isRunning = detail.status === 'RUNNING' || detail.status === 'PENDING';
 
   return (
-    <section className="page-enter mx-auto max-w-[1360px] space-y-6">
+    <section className="page-enter mx-auto max-w-[1360px] space-y-6 pb-12">
+      {/* Header & Breadcrumb */}
       <div>
         <Link
-          href="/runs"
-          className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900"
+          to="/runs"
+          className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
         >
-          <ArrowLeft size={14} /> Trở lại danh sách lần chạy
+          <ArrowLeft className="size-3.5" /> Trở lại danh sách lượt chạy
         </Link>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">{run.id}</h1>
-              <PipelineStatusBadge status={run.status} />
+
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight text-white font-mono flex items-center gap-2">
+                {detail.run_id}
+                <button
+                  onClick={() => copyToClipboard(detail.run_id)}
+                  title="Sao chép Run ID"
+                  className="text-slate-400 hover:text-cyan-400 transition-colors p-1"
+                >
+                  {copied ? <Check className="size-4 text-emerald-400" /> : <Copy className="size-4" />}
+                </button>
+              </h1>
+              <PipelineStatusBadge status={detail.status as any} />
+              {isRunning && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-xs font-medium text-cyan-400 border border-cyan-500/20 animate-pulse">
+                  <Activity className="size-3" /> Đang thực thi theo thời gian thực
+                </span>
+              )}
             </div>
-            <p className="mt-1 text-sm text-slate-500">
-              DAG: <strong className="text-slate-700">{run.dagId}</strong> · Bắt đầu lúc {format(run.startedAt)}
+
+            <p className="text-xs text-slate-400">
+              DAG Airflow: <strong className="text-slate-200">{detail.dag_id}</strong>
+              {detail.airflow_dag_run_id && (
+                <> · DagRun: <span className="font-mono text-cyan-400">{detail.airflow_dag_run_id}</span></>
+              )}
+              {' '}· Bắt đầu: <strong className="text-slate-200">{formatDateTime(detail.started_at)}</strong>
+              {detail.ended_at && (
+                <> · Kết thúc: <strong className="text-slate-200">{formatDateTime(detail.ended_at)}</strong></>
+              )}
             </p>
-            {run.datasetId && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#e6f6f2] px-2.5 py-1 text-xs font-mono font-medium text-[#007460] border border-[#b2e2d5]">
-                <Database size={13} />
-                <span>File dữ liệu: <strong>{run.datasetId}</strong></span>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-2.5 py-1 text-xs font-mono font-medium text-slate-200 border border-slate-700">
+                <Database className="size-3 text-cyan-400" />
+                <span>Dataset: <strong>{detail.dataset_id}</strong></span>
               </div>
+              <div className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300 border border-slate-700">
+                <ShieldCheck className="size-3 text-emerald-400" />
+                <span>Tiêu chuẩn: SOX 404 / Luật 91/2025/QH15</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Action Navigation */}
+          <div className="flex flex-wrap items-center gap-2 sm:self-center">
+            {isCompleted && (
+              <>
+                <Button
+                  onClick={() => navigate(`/runs/${detail.run_id}/results`)}
+                  className="bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 shadow-md shadow-cyan-500/20 gap-1.5"
+                >
+                  <FileText className="size-4" />
+                  <span>Xem Kết quả Phân tích (KPIs)</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/runs/${detail.run_id}/findings`)}
+                  className="border-slate-700 text-slate-200 hover:bg-slate-800 gap-1.5"
+                >
+                  <ShieldAlert className="size-4 text-amber-400" />
+                  <span>Danh sách Findings ({detail.findings_summary?.total || 0})</span>
+                </Button>
+              </>
             )}
+            <Button
+              variant="outline"
+              onClick={() => setShowStartModal(true)}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800 gap-1.5"
+            >
+              <Play className="size-3.5 fill-slate-300" />
+              <span>Chạy lại</span>
+            </Button>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {counts.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Card key={item.label} className="rounded-xl border-[#e2ece8] bg-white p-5 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500">{item.label}</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-900">
-                    {typeof item.value === 'number' ? item.value.toLocaleString('vi-VN') : item.value}
-                  </p>
-                </div>
-                <span className="grid size-10 place-items-center rounded-lg bg-[#e6f6f2] text-[#007460]">
-                  <Icon size={18} />
-                </span>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+      {/* STEP 3 / SPEC 06: STEPPER 5 BƯỚC THỰC THI */}
+      <Card className="rounded-2xl border-slate-800 bg-slate-900/90 p-6 shadow-xl">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+          <div>
+            <h2 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+              <Layers className="size-4 text-cyan-400" />
+              Tiến trình 5 Bước Kiểm toán (Pipeline Stepper)
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Khớp nối chuẩn 5 nhiệm vụ tuần tự & song song của Apache Airflow DAG
+            </p>
+          </div>
+          <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded border border-cyan-500/20">
+            {detail.steps?.filter((s) => s.status === 'COMPLETED').length || 0} / 5 Hoàn tất
+          </span>
+        </div>
 
-      <Card className="rounded-xl border-[#e2ece8] bg-white p-5 shadow-2xs">
-        <CardTitle className="text-sm font-semibold text-slate-800">
-          Luồng phân tách dữ liệu (Raw → Silver & Quarantine)
-        </CardTitle>
-        <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-          <Flow value={run.inputRecords} label="Dữ liệu thô (Raw)" />
-          <ArrowRight className="self-center text-slate-300" />
-          <Flow value={run.silverRecords} label="Dữ liệu sạch (Silver)" tone="green" />
-          <ArrowRight className="self-center text-slate-300" />
-          <Flow value={run.quarantineRecords} label="Dữ liệu cách ly (Quarantine)" tone="amber" />
+        <div className="grid gap-3 md:grid-cols-5 relative">
+          {(detail.steps || []).map((step) => {
+            const isDone = step.status === 'COMPLETED';
+            const isStepRunning = step.status === 'RUNNING';
+            const isFailed = step.status === 'FAILED';
+
+            return (
+              <div
+                key={step.step_name}
+                className={`relative rounded-xl p-4 border transition-all ${
+                  isStepRunning
+                    ? 'border-cyan-500/80 bg-cyan-950/20 shadow-md shadow-cyan-500/10'
+                    : isDone
+                    ? 'border-emerald-500/40 bg-emerald-950/10'
+                    : isFailed
+                    ? 'border-rose-500/60 bg-rose-950/20'
+                    : 'border-slate-800 bg-slate-800/30 opacity-70'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-mono font-bold text-slate-400">
+                    BƯỚC 0{step.step_order}
+                  </span>
+                  {isStepRunning && <Loader2 className="size-4 animate-spin text-cyan-400" />}
+                  {isDone && <CheckCircle2 className="size-4 text-emerald-400" />}
+                  {isFailed && <XCircle className="size-4 text-rose-400" />}
+                  {!isStepRunning && !isDone && !isFailed && (
+                    <Clock className="size-4 text-slate-500" />
+                  )}
+                </div>
+
+                <h3 className="text-xs font-bold text-white line-clamp-1">{step.title}</h3>
+                <p className="text-[11px] font-mono text-cyan-400 mt-0.5">{step.step_name}</p>
+
+                <div className="mt-3 pt-2 border-t border-slate-800/60 text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Trạng thái:</span>
+                  <span
+                    className={`font-semibold ${
+                      isDone
+                        ? 'text-emerald-400'
+                        : isStepRunning
+                        ? 'text-cyan-400 animate-pulse'
+                        : isFailed
+                        ? 'text-rose-400'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    {step.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="rounded-xl border-[#e2ece8] bg-white p-5 shadow-2xs">
-          <div className="flex items-center justify-between border-b border-[#f0f4f2] pb-3">
-            <CardTitle className="text-sm font-semibold text-slate-800">Kết quả đánh giá Rule</CardTitle>
-            <div className="flex gap-2">
-              <Badge tone="green">{run.rulePassCount} đạt</Badge>
-              <Badge tone="red">{run.ruleFailCount} vi phạm</Badge>
+      {/* 6 THẺ CHỈ SỐ KIỂM TOÁN (KPI METRICS) */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Tổng quét (Scanned)</p>
+              <p className="mt-1 text-xl font-bold text-white font-mono">
+                {(detail.metrics?.scanned || 0).toLocaleString('vi-VN')}
+              </p>
             </div>
-          </div>
-          <div className="mt-4 space-y-2">
-            {run.rules.length ? (
-              run.rules.map((rule: PipelineRuleResult) => (
-                <div key={rule.id} className="flex gap-3 rounded-lg border border-[#e2ece8] bg-[#fbfdfc] p-3">
-                  {rule.status === 'PASS' ? (
-                    <CheckCircle2 className="shrink-0 text-emerald-600 mt-0.5" size={17} />
-                  ) : (
-                    <XCircle className="shrink-0 text-red-500 mt-0.5" size={17} />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-900">
-                      {rule.controlId} · {rule.name}
-                    </p>
-                    <p className="mt-1 truncate text-[11px] text-slate-500">{rule.message}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <Empty text="Không có kết quả kiểm soát liên kết." />
-            )}
+            <span className="grid size-9 place-items-center rounded-lg bg-slate-800 text-slate-300">
+              <Database className="size-4 text-cyan-400" />
+            </span>
           </div>
         </Card>
 
-        <Card className="rounded-xl border-[#e2ece8] bg-white p-5 shadow-2xs">
-          <div className="flex items-center justify-between border-b border-[#f0f4f2] pb-3">
-            <CardTitle className="text-sm font-semibold text-slate-800">Phát hiện liên quan (Findings)</CardTitle>
-            <span className="text-[11px] text-slate-400">{run.findings.length} phát hiện</span>
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Sạch (Silver Pass)</p>
+              <p className="mt-1 text-xl font-bold text-emerald-400 font-mono">
+                {(detail.metrics?.silver || 0).toLocaleString('vi-VN')}
+              </p>
+            </div>
+            <span className="grid size-9 place-items-center rounded-lg bg-emerald-500/10 text-emerald-400">
+              <CheckCircle2 className="size-4" />
+            </span>
           </div>
-          <div className="mt-4 space-y-2">
-            {run.findings.length ? (
-              run.findings.map((finding: PipelineFinding) => (
-                <Link
-                  key={finding.id}
-                  href={`/results?tab=findings`}
-                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[#fbfdfc] p-3 hover:bg-[#04D3D4]/10 transition"
-                >
-                  <ShieldAlert className="text-red-500" size={16} />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-mono text-xs font-bold text-slate-900">{finding.id}</p>
-                    <p className="truncate text-[11px] text-slate-500">{finding.title}</p>
-                  </div>
-                  <Badge tone={finding.status === 'OPEN' ? 'red' : 'green'}>
-                    {finding.status.replace('_', ' ')}
-                  </Badge>
-                </Link>
-              ))
-            ) : (
-              <Empty text="Không có phát hiện vi phạm nào trong lần chạy này." />
-            )}
+        </Card>
+
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Cách ly (Quarantine)</p>
+              <p className="mt-1 text-xl font-bold text-rose-400 font-mono">
+                {(detail.metrics?.quarantine || 0).toLocaleString('vi-VN')}
+              </p>
+            </div>
+            <span className="grid size-9 place-items-center rounded-lg bg-rose-500/10 text-rose-400">
+              <ShieldAlert className="size-4" />
+            </span>
+          </div>
+        </Card>
+
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Cảnh báo (Warnings)</p>
+              <p className="mt-1 text-xl font-bold text-amber-400 font-mono">
+                {(detail.metrics?.warning || 0).toLocaleString('vi-VN')}
+              </p>
+            </div>
+            <span className="grid size-9 place-items-center rounded-lg bg-amber-500/10 text-amber-400">
+              <AlertCircle className="size-4" />
+            </span>
+          </div>
+        </Card>
+
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Chưa đánh giá</p>
+              <p className="mt-1 text-xl font-bold text-slate-300 font-mono">
+                {(detail.metrics?.not_evaluated || 0).toLocaleString('vi-VN')}
+              </p>
+            </div>
+            <span className="grid size-9 place-items-center rounded-lg bg-slate-800 text-slate-400">
+              <HelpCircle className="size-4" />
+            </span>
+          </div>
+        </Card>
+
+        <Card className="rounded-xl border-slate-800 bg-slate-900/80 p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-medium text-slate-400">Vấn đề (Findings)</p>
+              <p className="mt-1 text-xl font-bold text-cyan-400 font-mono">
+                {detail.findings_summary?.total || 0}
+              </p>
+            </div>
+            <span className="grid size-9 place-items-center rounded-lg bg-cyan-500/10 text-cyan-400">
+              <FileText className="size-4" />
+            </span>
           </div>
         </Card>
       </div>
 
-      <Card className="rounded-xl border-slate-200 bg-white p-5 shadow-2xs">
-        <div className="flex items-center justify-between border-b border-[#f0f4f2] pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-800">Bằng chứng liên kết (Evidence)</CardTitle>
-          <span className="text-[11px] text-slate-400">{run.evidence.length} mục bằng chứng</span>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {run.evidence.length ? (
-            run.evidence.map((item: PipelineEvidence) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-[#fbfdfc] p-4">
-                <span className="grid size-9 place-items-center rounded-lg bg-[#04D3D4]/15 text-slate-950 font-bold">
-                  <FileText size={16} />
-                </span>
-                <div className="min-w-0">
-                  <p className="font-mono text-xs font-bold text-slate-900">{item.id}</p>
-                  <p className="truncate text-[11px] text-slate-500">
-                    {item.type} · {item.source}
-                  </p>
-                  <p className="mt-1 truncate font-mono text-[10px] text-slate-400">{item.reference}</p>
-                </div>
+      {/* BẰNG CHỨNG KIỂM TOÁN SỔ CÁI BẤT BIẾN (AUDIT EVIDENCE LEDGER) */}
+      {detail.evidence && (
+        <Card className="rounded-2xl border-cyan-500/30 bg-slate-900/90 p-5 shadow-xl">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid size-8 place-items-center rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <ShieldCheck className="size-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-white tracking-tight">
+                  Bằng chứng Kiểm toán Bất biến (SOX 404 / IPO Hash Ledger)
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Ghi nhận tự động vào bảng audit.evidence với SHA-256 liên kết chuỗi
+                </p>
               </div>
-            ))
+            </div>
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+              <CheckCircle2 className="size-3.5" /> Chữ ký Hợp lệ: {detail.evidence.digital_signature}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 text-xs">
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-1">
+              <span className="text-[11px] text-slate-400 font-semibold">Evidence SHA-256 Hash:</span>
+              <p className="font-mono text-cyan-300 break-all text-[11px]">{detail.evidence.evidence_hash}</p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-1">
+              <span className="text-[11px] text-slate-400 font-semibold">Previous Hash (Liên kết khối):</span>
+              <p className="font-mono text-slate-400 break-all text-[11px]">
+                {detail.evidence.previous_hash || 'GENESIS_EVIDENCE_HASH_GSM_IPO_2026'}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* EVENT TIMELINE LOG (NHẬT KÝ SỰ KIỆN THỜI GIAN THỰC) */}
+      <Card className="rounded-2xl border-slate-800 bg-slate-900/90 p-5 shadow-xl">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+          <CardTitle className="text-xs font-bold text-white tracking-tight flex items-center gap-2">
+            <Activity className="size-4 text-cyan-400" />
+            Nhật ký Sự kiện Lượt chạy (Pipeline Event Timeline)
+          </CardTitle>
+          <span className="text-[11px] text-slate-400 font-mono">
+            {detail.events?.length || 0} sự kiện ghi nhận
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {(!detail.events || detail.events.length === 0) ? (
+            <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center text-xs text-slate-500">
+              Chưa có sự kiện thời gian thực nào được ghi nhận cho lượt chạy này.
+            </div>
           ) : (
-            <Empty text="Không có bằng chứng kiểm toán được liên kết." />
+            <div className="divide-y divide-slate-800/60 max-h-60 overflow-y-auto pr-1">
+              {detail.events.map((evt) => (
+                <div key={evt.event_id} className="py-2.5 flex items-start justify-between gap-4 text-xs">
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-800 text-cyan-400 border border-slate-700">
+                      {evt.step_name || 'SYSTEM'}
+                    </span>
+                    <div>
+                      <p className="text-slate-200 font-medium">{evt.message}</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-mono shrink-0">
+                    {formatDateTime(evt.created_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </Card>
+
+      <StartRunModal
+        isOpen={showStartModal}
+        onClose={() => setShowStartModal(false)}
+        defaultDatasetId={detail.dataset_id}
+      />
     </section>
   );
 }
-
-function Flow({
-  value,
-  label,
-  tone = 'blue',
-}: {
-  value: number;
-  label: string;
-  tone?: 'blue' | 'green' | 'amber';
-}) {
-  return (
-    <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-4 text-center">
-      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
-      <p
-        className={
-          tone === 'green'
-            ? 'mt-1 text-xl font-bold text-emerald-700'
-            : tone === 'amber'
-            ? 'mt-1 text-xl font-bold text-amber-600'
-            : 'mt-1 text-xl font-bold text-slate-900'
-        }
-      >
-        {value.toLocaleString('vi-VN')}
-      </p>
-    </div>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return <p className="py-8 text-center text-xs text-slate-400">{text}</p>;
-}
-

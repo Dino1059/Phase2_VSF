@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { pipelineDataSource } from '@/lib/data/local-pipeline-data';
 import type { PipelineRun } from '@/lib/data/pipeline-types';
 import { PipelineStatusBadge } from '@/components/datatrust/pipeline/pipeline-status';
+import { StartRunModal } from '@/components/datatrust/pipeline/start-run-modal';
 import { apiBridge } from '@/lib/api-bridge';
 
 const format = (value: string) => {
@@ -28,6 +29,7 @@ export function RunsPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isTriggering, setIsTriggering] = useState(false);
   const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
+  const [showStartModal, setShowStartModal] = useState(false);
 
   const loadRuns = async () => {
     try {
@@ -96,6 +98,13 @@ export function RunsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => setShowStartModal(true)}
+            className="h-9 gap-1.5 px-3 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9] shadow-xs cursor-pointer"
+          >
+            <Play size={14} className="fill-slate-950" />
+            <span>Khởi chạy Pipeline mới</span>
+          </Button>
           <select
             value={selectedDatasetFile}
             onChange={(e) => setSelectedDatasetFile(e.target.value)}
@@ -110,10 +119,11 @@ export function RunsPage() {
           <Button
             onClick={handleTriggerAirflow}
             disabled={isTriggering}
-            className="h-9 gap-1.5 px-3 text-xs font-bold bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9] shadow-xs"
+            variant="outline"
+            className="h-9 gap-1.5 px-3 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 shadow-xs cursor-pointer"
           >
             {isTriggering ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            <span>Kích hoạt Airflow Run</span>
+            <span>Chạy nhanh</span>
           </Button>
         </div>
       </div>
@@ -209,6 +219,25 @@ export function RunsPage() {
                   <td className="px-4 py-3.5 text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       <Link
+                        to={`/runs/${run.id}/results`}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-[#04D3D4] hover:text-[#04D3D4]"
+                        title="Xem Báo cáo Kết quả (KPIs & Quy tắc)"
+                      >
+                        <span>Kết quả</span>
+                      </Link>
+                      <Link
+                        to={`/runs/${run.id}/findings`}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-amber-400 hover:text-amber-600"
+                        title="Xem Danh sách Vấn đề phát hiện"
+                      >
+                        <span>Vấn đề</span>
+                        {run.quarantineRecords > 0 && (
+                          <span className="rounded-full bg-red-100 text-red-700 px-1 text-[9px] font-bold">
+                            {run.quarantineRecords}
+                          </span>
+                        )}
+                      </Link>
+                      <Link
                         to={`/lineage?run_id=${encodeURIComponent(run.id)}&dataset=${encodeURIComponent((run as any).datasetId || 'ride_hailing_xanh_sm_trips')}`}
                         className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-[#008b74] hover:text-[#008b74]"
                         title="Xem Dòng dữ liệu (OpenLineage)"
@@ -220,6 +249,7 @@ export function RunsPage() {
                         to={`/runs/${run.id}`}
                         className="inline-grid size-7 place-items-center rounded-md border border-slate-200 text-slate-400 group-hover:border-[#04D3D4] group-hover:text-slate-950"
                         aria-label={`Open ${run.id}`}
+                        title="Xem Stepper và Giám sát tiến độ"
                       >
                         <ChevronRight size={15} />
                       </Link>
@@ -235,6 +265,12 @@ export function RunsPage() {
           Tổng cộng {filteredRuns.length} lần chạy pipeline
         </div>
       </Card>
+
+      <StartRunModal
+        isOpen={showStartModal}
+        onClose={() => setShowStartModal(false)}
+        onRunStarted={() => loadRuns()}
+      />
     </div>
   );
 }

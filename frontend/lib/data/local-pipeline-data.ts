@@ -32,11 +32,13 @@ export class LocalCsvPipelineDataSource implements PipelineDataSource {
       const detail = await apiBridge.fetchPipelineRunDetail(id).catch(() => null);
       if (detail) {
         const dataset = detail.dataset_id || 'ride_hailing_xanh_sm_trips.csv';
-        const qCount = detail.quarantine_count || 0;
-        const wCount = detail.warning_count || 0;
-        const sCount = detail.silver_count || 0;
-        const inCount = detail.scanned_count || (sCount + qCount);
+        const metrics = (detail as any).metrics || {};
+        const qCount = metrics.quarantine ?? (detail as any).quarantine_count ?? 0;
+        const wCount = metrics.warning ?? (detail as any).warning_count ?? 0;
+        const sCount = metrics.silver ?? (detail as any).silver_count ?? 0;
+        const inCount = metrics.scanned ?? (detail as any).scanned_count ?? (sCount + qCount);
         const durMins = detail.duration_ms ? Math.round(detail.duration_ms / 60000) : 1;
+        const ev = (detail as any).evidence || (detail as any).audit_evidence;
 
         return {
           id: detail.run_id,
@@ -78,13 +80,13 @@ export class LocalCsvPipelineDataSource implements PipelineDataSource {
               status: 'OPEN' as FindingState,
             }
           ] : [],
-          evidence: detail.audit_evidence ? [
+          evidence: ev ? [
             {
-              id: detail.audit_evidence.evidence_id || `EVID-${id.slice(-6).toUpperCase()}`,
+              id: ev.evidence_id || `EVID-${id.slice(-6).toUpperCase()}`,
               type: 'Immutable Ledger SHA-256 Chain',
               source: 'PostgreSQL audit.evidence',
               capturedAt: detail.started_at || new Date().toISOString(),
-              reference: `Chữ ký số: ${detail.audit_evidence.digital_signature} | Hash: ${detail.audit_evidence.evidence_hash?.slice(0, 16)}...`,
+              reference: `Chữ ký số: ${ev.digital_signature || 'N/A'} | Hash: ${(ev.evidence_hash || '').slice(0, 16)}...`,
             }
           ] : [],
         };

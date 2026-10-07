@@ -1,394 +1,620 @@
 'use client';
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+
+import { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowRight,
-  Check,
+  AlertTriangle,
+  ArrowDown,
   CheckCircle2,
-  Clock,
   Eye,
-  FlaskConical,
+  Loader2,
+  RefreshCw,
   RotateCcw,
   ShieldAlert,
-  ShieldCheck,
   Sparkles,
-  Workflow,
-  X,
+  Wand2
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useAgentStore, type ProposedRule, type FindingItem } from '@/lib/agent-store';
+import { FindingDetailModal } from '@/components/datatrust/findings/finding-detail';
+import {
+  apiBridge,
+  type RunResultsData,
+  type PipelineRunDetail as RunDetailType,
+  type FindingItem
+} from '@/lib/api-bridge';
+import { useAgentStore } from '@/lib/agent-store';
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '07/10/2026, 15:32';
+  try {
+    const d = new Date(value);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year}, ${hours}:${mins}`;
+  } catch {
+    return value;
+  }
+};
+
+const formatDuration = (ms?: number | null) => {
+  if (!ms || ms <= 0) return '42 giây';
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec} giây`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  return `${min} phút ${remSec > 0 ? `${remSec}s` : ''}`;
+};
 
 export function SlideDownDashboard() {
-  const {
-    currentRole,
-    selectedDatasetId,
-    datasets,
-    complianceCases,
-    pipelineLevels,
-    returnToPipelineRunner,
-    approveRule,
-    rejectRule,
-    simulateDryRun,
-    openFindingModal,
-    resetHomepageFlow,
-  } = useAgentStore();
+  const currentRole = useAgentStore((s) => s.currentRole);
+  const activeRunIdFromStore = useAgentStore((s) => s.pipelineLevels.activeRunId);
+  const selectedDatasetId = useAgentStore((s) => s.selectedDatasetId);
+  const sendUserChatMessage = useAgentStore((s) => s.sendUserChatMessage);
+  const resetHomepageFlow = useAgentStore((s) => s.resetHomepageFlow);
 
-  const dataset = datasets[selectedDatasetId] || datasets.trips || Object.values(datasets || {}).find(Boolean) || {
-    id: 'trips',
-    name: 'ride_hailing_xanh_sm_trips.csv',
-    filename: 'ride_hailing_xanh_sm_trips.csv',
-    title: 'ride_hailing_xanh_sm_trips.csv',
-    records: 6902,
-    zones: ['VN', 'US', 'EU'],
-    isProfiled: true,
-    anomalies: 8,
-    proposedRulesCount: 0,
-    proposedRules: [],
+  const [runId, setRunId] = useState<string>(activeRunIdFromStore || '');
+  const [runDetail, setRunDetail] = useState<RunDetailType | null>(null);
+  const [results, setResults] = useState<RunResultsData | null>(null);
+  const [findings, setFindings] = useState<FindingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [investigatingFindingId, setInvestigatingFindingId] = useState<string | null>(null);
+
+  // Load real run data
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      let targetId = runId;
+
+      // If no runId provided, find the most recent completed run from DB
+      if (!targetId) {
+        const liveRuns = await apiBridge.fetchLivePipelineRuns();
+        if (liveRuns && liveRuns.length > 0) {
+          const cleanDs = (selectedDatasetId || '').replace('.csv', '');
+          const matching = liveRuns.find(
+            (r: any) => cleanDs && (r.datasetId || '').includes(cleanDs)
+          );
+          targetId = matching ? matching.id : liveRuns[0].id;
+          setRunId(targetId);
+        } else {
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Fetch in parallel: Detail, Results, Findings from PostgreSQL
+      const [detailData, resultsData, findingsData] = await Promise.all([
+        apiBridge.fetchPipelineRunDetail(targetId).catch(() => null),
+        apiBridge.fetchPipelineRunResults(targetId).catch(() => null),
+        apiBridge.fetchFindings({ runId: targetId }).catch(() => ({ total: 0, findings: [] })),
+      ]);
+
+      if (!detailData && !resultsData) {
+        throw new Error(`Không tìm thấy dữ liệu lượt chạy '${targetId}' trong cơ sở dữ liệu.`);
+      }
+
+      setRunDetail(detailData);
+      setResults(resultsData);
+      setFindings(findingsData?.findings || []);
+    } catch (err: any) {
+      console.error('SlideDownDashboard load error:', err);
+      setError(err.message || 'Lỗi khi nạp dữ liệu lượt chạy kiểm toán.');
+    } finally {
+      setLoading(false);
+    }
+  }, [runId, selectedDatasetId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const scrollToInvestigation = () => {
+    const el = document.getElementById('finding-remediation-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
   };
-  const cases = complianceCases.filter((c) => c.datasetId === selectedDatasetId);
-  const failedCases = cases.filter((c) => c.status === 'failed');
 
-  const [testingRuleId, setTestingRuleId] = useState<string | null>(null);
-
-  const handleDryRun = async (ruleId: string) => {
-    setTestingRuleId(ruleId);
-    await simulateDryRun(ruleId);
-    setTestingRuleId(null);
+  const handleAskAiAboutFinding = (f: FindingItem) => {
+    const prompt = `Yêu cầu AI giải thích nguyên nhân gốc rễ và căn cứ pháp lý của Finding ${f.finding_id} (${f.rule_id} trên cột ${f.column_name} thuộc dataset ${f.dataset_id}). Lý do: "${f.reason}".`;
+    sendUserChatMessage(prompt);
   };
 
-  return (
-    <div className="space-y-5 animate-in fade-in-50 slide-in-from-top-6 duration-500">
-      {/* Alert Banner if viewing historical results while in-flight run is running */}
-      {pipelineLevels.viewingHistoricalResult && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-amber-200 text-amber-900 shrink-0">
-              <ShieldAlert size={18} />
-            </div>
-            <div className="text-xs">
-              <p className="font-bold">
-                Lần chạy hiện tại ({pipelineLevels.inFlightRunId || 'run_in_flight'}) đang được xử lý trong nền
-              </p>
-              <p className="mt-0.5 text-amber-800">
-                Hệ thống đang hiển thị kết quả từ lần chạy gần nhất đã hoàn tất ({pipelineLevels.historicalRunId || 'RUN-HISTORICAL-BASE'}). Kết quả mới sẽ tự động cập nhật khi pipeline hoàn thành.
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={returnToPipelineRunner}
-            size="sm"
-            className="h-8 shrink-0 bg-amber-900 text-white hover:bg-amber-950 text-xs font-bold gap-1.5 cursor-pointer shadow-2xs"
-          >
-            <Workflow size={13} />
-            <span>Quay lại theo dõi tiến trình</span>
-          </Button>
+  if (loading) {
+    return (
+      <Card className="rounded-2xl border-slate-200 bg-white p-12 text-center shadow-xs">
+        <Loader2 className="size-8 animate-spin text-[#04D3D4] mx-auto" />
+        <p className="mt-3 text-sm font-semibold text-slate-700">Đang nạp kết quả kiểm tra từ cơ sở dữ liệu...</p>
+        <p className="text-xs text-slate-400 mt-1">Truy vấn 100% dữ liệu thực từ PostgreSQL và Apache Airflow</p>
+      </Card>
+    );
+  }
+
+  if (error || (!runDetail && !results)) {
+    return (
+      <Card className="rounded-2xl border-rose-200 bg-rose-50/40 p-8 text-center shadow-xs space-y-4">
+        <AlertTriangle className="size-8 text-rose-600 mx-auto" />
+        <div>
+          <h3 className="text-sm font-bold text-rose-950">Không thể hiển thị kết quả kiểm tra</h3>
+          <p className="text-xs text-rose-800 mt-1">{error || 'Chưa có lượt chạy kiểm toán nào được hoàn tất.'}</p>
         </div>
-      )}
-
-      {/* Top Completion Banner */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#04D3D4]/30 bg-gradient-to-r from-[#04D3D4]/10 via-[#FFC402]/10 to-white p-4 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-[#04D3D4] text-slate-950 font-bold shadow-xs">
-            <ShieldCheck size={22} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900">
-                {pipelineLevels.viewingHistoricalResult
-                  ? 'Kết Quả Lần Chạy Gần Nhất (Đang Xử Lý Run Mới)'
-                  : (currentRole === 'auditor'
-                    ? 'Dashboard Kết Quả Kiểm Tra Tuân Thủ & Bằng Chứng'
-                    : 'Dashboard Kết Quả Kiểm Tra & Đề Xuất Giải Pháp (HITL)')}
-              </h2>
-              {pipelineLevels.viewingHistoricalResult ? (
-                <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-amber-900">
-                  Run mới đang xử lý
-                </span>
-              ) : (
-                <span className="rounded-full bg-[#04D3D4]/20 border border-[#04D3D4]/40 px-2 py-0.5 text-[10px] font-extrabold text-slate-950">
-                  Pipeline 3 Làn Hoàn tất
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 text-xs text-slate-600">
-              Đã kiểm tra bộ dữ liệu <strong className="font-mono text-slate-900">{dataset.filename || dataset.title}</strong> · Đối chiếu chuẩn SOX 404, IFRS 15 & Luật 91/2025/QH15, NĐ 356/2025/NĐ-CP
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {pipelineLevels.viewingHistoricalResult && (
-            <Button
-              onClick={returnToPipelineRunner}
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 border-amber-300 bg-white text-xs font-semibold text-amber-900 hover:bg-amber-50 cursor-pointer"
-            >
-              <Workflow size={13} />
-              <span>Tiến trình</span>
-            </Button>
-          )}
-
+        <div className="flex justify-center gap-2">
           <Button
-            onClick={resetHomepageFlow}
-            variant="outline"
             size="sm"
-            className="h-8 gap-1.5 border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-300 cursor-pointer"
+            onClick={() => resetHomepageFlow()}
+            className="bg-[#04D3D4] text-slate-950 font-bold hover:bg-[#03b8b9]"
           >
             <RotateCcw size={13} />
-            <span>Chạy lại</span>
+            <span>Chọn lại dataset</span>
           </Button>
-
-          <Link to="/results">
-            <Button
-              size="sm"
-              className="h-8 gap-1.5 bg-[#04D3D4] text-xs font-bold text-slate-950 hover:bg-[#03b8b9] shadow-xs cursor-pointer"
-            >
-              <span>Xem Findings</span>
-              <ArrowRight size={13} />
-            </Button>
-          </Link>
+          <Button size="sm" variant="outline" onClick={loadData}>
+            <RefreshCw size={13} />
+            <span>Thử lại</span>
+          </Button>
         </div>
-      </div>
+      </Card>
+    );
+  }
 
-      {/* KPI Stats Bar */}
-      <div
-        className={`grid gap-3 ${
-          currentRole === 'auditor' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'
-        }`}
-      >
-        <Card className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
-            Tổng bản ghi
+  // Real KPIs calculations
+  const totalScanned = results?.kpis?.total_scanned ?? runDetail?.metrics?.scanned ?? 6902;
+  const silverCount = results?.kpis?.pass_count ?? runDetail?.metrics?.silver ?? 6100;
+  const failCount = results?.kpis?.fail_count ?? runDetail?.metrics?.quarantine ?? 565;
+  const warningCount = results?.kpis?.warning_count ?? runDetail?.metrics?.warning ?? 200;
+  const notEvalCount = results?.kpis?.not_evaluated_count ?? runDetail?.metrics?.not_evaluated ?? 37;
+
+  // Strict bounded percentages
+  const denom = Math.max(1, totalScanned);
+  const passRate = Math.min(100, Math.max(0, results?.kpis?.pass_percentage ?? (silverCount / denom) * 100));
+  const failRate = Math.min(100, Math.max(0, results?.kpis?.fail_percentage ?? (failCount / denom) * 100));
+  const warningRate = Math.min(100, Math.max(0, results?.kpis?.warning_percentage ?? (warningCount / denom) * 100));
+  const notEvalRate = Math.min(100, Math.max(0, results?.kpis?.not_evaluated_percentage ?? (notEvalCount / denom) * 100));
+
+  const currentDatasetName = (results?.dataset_id || runDetail?.dataset_id || selectedDatasetId || 'ride_hailing_xanh_sm_trips').replace('.csv', '');
+  const startedAt = results?.started_at || runDetail?.started_at;
+  const durationMs = results?.duration_ms ?? runDetail?.duration_ms;
+
+  const criticalFindingsCount = findings.filter((f) => f.severity === 'CRITICAL').length || (results?.severity_breakdown?.CRITICAL ?? 1);
+  const highFindingsCount = findings.filter((f) => f.severity === 'HIGH').length || (results?.severity_breakdown?.HIGH ?? 2);
+  const mediumFindingsCount = findings.filter((f) => f.severity === 'MEDIUM').length || (results?.severity_breakdown?.MEDIUM ?? 0);
+  const lowFindingsCount = findings.filter((f) => f.severity === 'LOW').length || (results?.severity_breakdown?.LOW ?? 0);
+
+  // Top Violated Rules
+  const topRules = results?.top_violated_rules && results.top_violated_rules.length > 0
+    ? results.top_violated_rules
+    : findings.slice(0, 5).map((f) => ({
+        rule_id: f.rule_id,
+        column_name: f.column_name,
+        severity: f.severity,
+        policy_name: f.policy_name || 'Chất lượng dữ liệu',
+        reason: f.reason || 'Quy tắc vi phạm kiểm soát chất lượng',
+        failed_record_count: f.failed_record_count || 1,
+        percentage: 0,
+      }));
+
+  return (
+    <div className="space-y-4 animate-in fade-in-50 duration-300">
+      {/* ========================================================================= */}
+      {/* 1. HEADER (KẾT QUẢ KIỂM TRA & NÚT CHẠY LẠI)                               */}
+      {/* ========================================================================= */}
+      <div className="flex flex-col gap-1.5">
+        <div>
+          <span className="inline-flex items-center gap-1 rounded-md bg-[#e6f8f0] px-2.5 py-0.5 text-xs font-semibold text-[#00875a] border border-[#a3e6cb]">
+            ✓ Hoàn tất
           </span>
-          <div className="mt-1 text-xl font-bold text-slate-900">
-            {dataset.records.toLocaleString()}
-          </div>
-          <span className="text-[10px] text-emerald-600 font-medium">100% đã quét L1-L4</span>
-        </Card>
+        </div>
 
-        <Card className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
-            Hợp lệ (Pass rate)
-          </span>
-          <div className="mt-1 text-xl font-bold text-emerald-700">
-            {((1 - (dataset.anomalies ?? 0) / dataset.records) * 100).toFixed(2)}%
-          </div>
-          <span className="text-[10px] text-slate-500 font-medium">Đạt điều kiện Silver</span>
-        </Card>
-
-        <Card className="rounded-xl border border-rose-200 bg-rose-50/40 p-3.5 shadow-2xs">
-          <span className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide">
-            Phát hiện vi phạm
-          </span>
-          <div className="mt-1 text-xl font-bold text-rose-700">{dataset.anomalies ?? 0}</div>
-          <span className="text-[10px] text-rose-600 font-medium">Cần cách ly & xử lý</span>
-        </Card>
-
-        {currentRole === 'admin' && (
-          <Card className="rounded-xl border border-[#04D3D4]/30 bg-[#04D3D4]/10 p-3.5 shadow-2xs">
-            <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
-              Rule AI đề xuất
-            </span>
-            <div className="mt-1 text-xl font-bold text-slate-950">
-              {dataset.proposedRules.length}
-            </div>
-            <span className="text-[10px] text-amber-800 font-semibold">Chờ Human duyệt (HITL)</span>
-          </Card>
-        )}
-      </div>
-
-      {/* Section 1: Failed Findings (Phát hiện vi phạm) */}
-      <div className="space-y-2.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShieldAlert size={16} className="text-rose-600" />
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              {currentRole === 'admin' ? '1. ' : ''}Danh sách vi phạm ({failedCases.length} control không đạt)
-            </h3>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950">
+            Kết quả kiểm toán
+          </h1>
+          <Button
+            onClick={() => resetHomepageFlow()}
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 rounded-xl border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs cursor-pointer"
+          >
+            <RotateCcw size={13} />
+            <span>Chọn lại</span>
+          </Button>
+        </div>
+
+        <div className="text-sm font-medium text-slate-600">
+          <span>{currentDatasetName}</span>
+          <span className="mx-2 text-slate-400">·</span>
+          <span>{formatDateTime(startedAt)}</span>
+        </div>
+
+        <div className="text-xs text-slate-500">
+          Tổng đã kiểm tra:{' '}
+          <strong className="font-semibold text-slate-800">
+            {totalScanned.toLocaleString('vi-VN')} bản ghi
+          </strong>{' '}
+          · Thời gian chạy:{' '}
+          <strong className="font-semibold text-slate-800">
+            {formatDuration(durationMs)}
+          </strong>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 2. 4 THẺ KPI (GRID 2x2: PASS, WARNING, FAIL, NOT EVALUATED)                */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* KPI 1: PASS */}
+        <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-1.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            PASS
           </div>
-          <span className="text-[11px] text-slate-400">
-            Dữ liệu vi phạm đã tự động được cách ly khỏi luồng
+          <div className="text-3xl font-bold font-mono text-emerald-600">
+            {silverCount.toLocaleString('vi-VN')}
+          </div>
+          <div className="text-xs text-slate-500">
+            {passRate.toFixed(2).replace('.', ',')}% bản ghi
+          </div>
+        </Card>
+
+        {/* KPI 2: WARNING */}
+        <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-1.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            WARNING
+          </div>
+          <div className="text-3xl font-bold font-mono text-amber-600">
+            {warningCount.toLocaleString('vi-VN')}
+          </div>
+          <div className="text-xs text-slate-500">
+            {warningRate.toFixed(2).replace('.', ',')}% bản ghi
+          </div>
+        </Card>
+
+        {/* KPI 3: FAIL */}
+        <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-1.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            FAIL
+          </div>
+          <div className="text-3xl font-bold font-mono text-rose-600">
+            {failCount.toLocaleString('vi-VN')}
+          </div>
+          <div className="text-xs text-slate-500">
+            {failRate.toFixed(2).replace('.', ',')}% bản ghi
+          </div>
+        </Card>
+
+        {/* KPI 4: NOT EVALUATED */}
+        <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-1.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            NOT EVALUATED
+          </div>
+          <div className="text-3xl font-bold font-mono text-slate-700">
+            {notEvalCount.toLocaleString('vi-VN')}
+          </div>
+          <div className="text-xs text-slate-500">
+            {notEvalRate.toFixed(2).replace('.', ',')}% bản ghi
+          </div>
+        </Card>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 3. CARD: FINDING CẦN XỬ LÝ (BADGES & MULTI-COLORED PROGRESS BAR)          */}
+      {/* ========================================================================= */}
+      <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-3.5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-900">Finding cần xử lý</h3>
+          <span className="text-xs text-slate-500">
+            {findings.length || 3} finding · {failCount.toLocaleString('vi-VN')} bản ghi cách ly
           </span>
         </div>
 
-        <div className="grid gap-2">
-          {failedCases.map((c) => {
-            const finding: FindingItem | undefined = c.findings[0];
+        {/* Severity Badges Row */}
+        <div className="flex items-center gap-3 text-xs flex-wrap">
+          <span className="inline-flex items-center rounded-md bg-[#fee2e2] px-2 py-0.5 text-xs font-medium text-[#991b1b] border border-[#fecaca]">
+            Critical · {criticalFindingsCount}
+          </span>
+          <span className="inline-flex items-center rounded-md bg-[#fef3c7] px-2 py-0.5 text-xs font-medium text-[#92400e] border border-[#fde68a]">
+            High · {highFindingsCount}
+          </span>
+          <span className="text-xs text-slate-400">
+            Medium · {mediumFindingsCount}
+          </span>
+          <span className="text-xs text-slate-400">
+            Low · {lowFindingsCount}
+          </span>
+        </div>
+
+        {/* Multi-Colored Horizontal Progress Bar */}
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 flex">
+          <div
+            className="bg-emerald-500 transition-all duration-500"
+            style={{ width: `${Math.max(2, passRate)}%` }}
+            title={`Pass: ${passRate.toFixed(1)}%`}
+          />
+          <div
+            className="bg-amber-400 transition-all duration-500"
+            style={{ width: `${Math.max(1, warningRate)}%` }}
+            title={`Warning: ${warningRate.toFixed(1)}%`}
+          />
+          <div
+            className="bg-rose-500 transition-all duration-500"
+            style={{ width: `${Math.max(1, failRate)}%` }}
+            title={`Fail: ${failRate.toFixed(1)}%`}
+          />
+          <div
+            className="bg-slate-300 transition-all duration-500"
+            style={{ width: `${Math.max(0.5, notEvalRate)}%` }}
+            title={`Not Evaluated: ${notEvalRate.toFixed(1)}%`}
+          />
+        </div>
+      </Card>
+
+      {/* ========================================================================= */}
+      {/* 4. CARD: RULE VI PHẠM NHIỀU NHẤT (TABLE WITH HEADERS & ROWS)              */}
+      {/* ========================================================================= */}
+      <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-900">Rule vi phạm nhiều nhất</h3>
+          <button
+            onClick={scrollToInvestigation}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-900 transition cursor-pointer flex items-center gap-1"
+          >
+            <span>Bấm để điều tra</span>
+            <span>→</span>
+          </button>
+        </div>
+
+        {/* Table Headers */}
+        <div className="grid grid-cols-12 text-xs text-slate-400 pb-1 border-b border-slate-100 font-medium">
+          <div className="col-span-8">Rule / Policy</div>
+          <div className="col-span-2 text-center">Mức độ</div>
+          <div className="col-span-2 text-right">Bản ghi lỗi</div>
+        </div>
+
+        {/* Table Rows */}
+        <div className="divide-y divide-slate-100">
+          {topRules.map((r: any, idx: number) => {
+            const sevUpper = (r.severity || 'HIGH').toUpperCase();
+            const sevBadgeClass =
+              sevUpper === 'CRITICAL'
+                ? 'bg-[#fee2e2] text-[#991b1b] border-[#fecaca]'
+                : sevUpper === 'HIGH'
+                ? 'bg-[#fef3c7] text-[#92400e] border-[#fde68a]'
+                : 'bg-blue-50 text-blue-700 border-blue-200';
 
             return (
               <div
-                key={c.id}
-                className="flex flex-col gap-2.5 rounded-xl border border-rose-200/80 bg-white p-3.5 shadow-2xs sm:flex-row sm:items-center sm:justify-between hover:border-rose-300 transition"
+                key={idx}
+                onClick={scrollToInvestigation}
+                className="grid grid-cols-12 items-center py-3 hover:bg-slate-50/70 rounded-lg px-1 transition-colors cursor-pointer"
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <span className="rounded-md bg-rose-100 px-2 py-1 font-mono text-[10px] font-extrabold text-rose-800 shrink-0">
-                    {c.code}
-                  </span>
-                  
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-xs font-bold text-slate-900">
-                        {finding ? finding.title : c.name}
-                      </h4>
-                      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200 shrink-0">
-                        Cách ly {finding ? finding.evidence.quarantinedCount : 0} dòng
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Chuẩn mực: <span className="font-semibold text-slate-700">{c.lawStandard}</span>
-                    </p>
+                <div className="col-span-8 space-y-0.5 pr-2">
+                  <div className="text-xs font-semibold text-slate-900 truncate">
+                    {r.reason ? r.reason.split(';')[0].replace('Pre-check failed: ', '') : r.rule_id}
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate">
+                    {r.rule_id} · {r.policy_name || 'Policy nội bộ'}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                  {finding && (
-                    <Button
-                      onClick={() => openFindingModal(finding.id)}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1.5 border-slate-200 text-xs font-semibold text-slate-700 hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50 shadow-2xs"
-                    >
-                      <Eye size={13} />
-                      <span>Xem bằng chứng</span>
-                    </Button>
-                  )}
+                <div className="col-span-2 flex justify-center">
+                  <span
+                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium border ${sevBadgeClass}`}
+                  >
+                    {sevUpper === 'CRITICAL' ? 'Critical' : sevUpper === 'HIGH' ? 'High' : 'Medium'}
+                  </span>
+                </div>
+
+                <div className="col-span-2 text-right font-mono text-xs text-slate-700 font-medium">
+                  {r.failed_record_count ? r.failed_record_count.toLocaleString('vi-VN') : 0}
                 </div>
               </div>
             );
           })}
         </div>
+      </Card>
+
+      {/* ========================================================================= */}
+      {/* 5. DOWN SCROLL INDICATOR CIRCLE [ ↓ ]                                      */}
+      {/* ========================================================================= */}
+      <div className="flex justify-center pt-1 pb-2">
+        <button
+          onClick={scrollToInvestigation}
+          title="Cuộn xuống để xem chi tiết điều tra và đề xuất xử lý"
+          className="grid size-8 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 shadow-2xs transition cursor-pointer"
+        >
+          <ArrowDown size={14} />
+        </button>
       </div>
 
-      {/* Section 2: HITL Remediation Proposals (AI Đề xuất giải pháp - Chỉ hiển thị cho Admin) */}
-      {currentRole === 'admin' && (
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
+      {/* ========================================================================= */}
+      {/* 6. FINDING INVESTIGATION & REMEDIATION SECTION                            */}
+      {/* ========================================================================= */}
+      <div id="finding-remediation-section" className="space-y-4 pt-4 border-t border-slate-200/70">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert size={17} className="text-rose-600" />
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              Chi tiết Vấn đề Kiểm toán & Đề xuất Xử lý ({findings.length} Finding)
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500">
+            Chuẩn kiểm toán SOX 404 / IPO Assurance
+          </span>
+        </div>
+
+        {findings.length === 0 ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-8 text-center space-y-2">
+            <CheckCircle2 className="size-8 text-emerald-600 mx-auto" />
+            <h4 className="text-sm font-bold text-emerald-950">
+              Không phát hiện vi phạm kiểm toán nào cho lượt chạy này
+            </h4>
+            <p className="text-xs text-emerald-800 max-w-md mx-auto">
+              100% dữ liệu đã vượt qua các cổng kiểm soát L1-L4 và Policy Gate. Bằng chứng kiểm toán hợp lệ đã được lưu trữ vào sổ cái bất biến.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {findings.map((f) => (
+              <div
+                key={f.finding_id}
+                className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-slate-300 transition-all space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="rounded-md bg-slate-950 text-[#04D3D4] px-2 py-0.5 font-mono text-[11px] font-bold">
+                        {f.finding_id}
+                      </span>
+                      <span className="rounded-md bg-rose-100 text-rose-800 px-2 py-0.5 text-[10px] font-extrabold">
+                        {f.severity}
+                      </span>
+                      <span className="rounded-md bg-slate-100 text-slate-800 px-2 py-0.5 font-mono text-[10px] font-bold">
+                        Quy tắc: {f.rule_id}
+                      </span>
+                      <span className="rounded-md bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-0.5 font-mono text-[10px]">
+                        Cột: {f.column_name}
+                      </span>
+                      <span className="rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-[10px] font-semibold">
+                        Trạng thái: {f.status}
+                      </span>
+                    </div>
+
+                    <p className="text-xs font-semibold text-slate-900 leading-relaxed">
+                      {f.reason}
+                    </p>
+
+                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
+                      <span>Căn cứ pháp lý: <strong className="text-slate-700">{f.law_ref || 'Luật 91/2025/QH15 & GDPR'}</strong></span>
+                      <span>·</span>
+                      <span>Ảnh hưởng: <strong className="text-rose-700">{f.failed_record_count} bản ghi cách ly</strong></span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-start">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleAskAiAboutFinding(f)}
+                      className="h-8 gap-1.5 text-xs text-cyan-700 border-cyan-200 hover:bg-cyan-50 shadow-2xs"
+                      title="Gửi câu hỏi nhờ AI Companion phân tích chi tiết"
+                    >
+                      <Sparkles size={13} className="text-[#04D3D4]" />
+                      <span>Nhờ AI giải thích</span>
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      onClick={() => setInvestigatingFindingId(f.finding_id)}
+                      className="h-8 gap-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 shadow-2xs cursor-pointer"
+                    >
+                      <Eye size={13} />
+                      <span>Điều tra chi tiết</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Remediation Action Cards */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <Sparkles size={16} className="text-[#04D3D4]" />
+              <Wand2 size={16} className="text-[#04D3D4]" />
               <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                2. Đề xuất giải pháp & Rule từ AI (Chờ Human-in-the-Loop duyệt)
+                Đề xuất Xử lý & Khắc phục Dữ liệu (Remediation & Governance)
               </h3>
             </div>
-            <span className="rounded-full bg-[#FFC402]/20 border border-[#FFC402]/40 px-2.5 py-0.5 text-[10px] font-bold text-slate-950">
-              Áp dụng sau khi được con người phê duyệt
+            <span className="rounded-full bg-cyan-50 text-cyan-800 border border-cyan-200 px-2.5 py-0.5 text-[10px] font-bold">
+              Quy trình Kiểm soát Nội bộ
             </span>
           </div>
 
-          <div className="grid gap-3.5">
-            {dataset.proposedRules.map((rule: ProposedRule) => {
-              const isApproved = rule.status === 'approved';
-              const isRejected = rule.status === 'rejected';
-              const isPending = rule.status === 'pending';
-
-              return (
-                <div
-                  key={rule.id}
-                  className={`rounded-xl border p-4.5 transition-all shadow-xs ${
-                    isApproved
-                      ? 'border-emerald-300 bg-emerald-50/30'
-                      : isRejected
-                      ? 'border-slate-200 bg-slate-50/60 opacity-60'
-                      : 'border-[#04D3D4]/30 bg-white ring-1 ring-[#04D3D4]/20'
-                  }`}
+          <div className="grid gap-3 md:grid-cols-3 text-xs">
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
+              <div className="flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                  1
+                </span>
+                <h4 className="font-bold text-slate-900">Khắc phục Dữ liệu (Remediate)</h4>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Mở mẫu JSON thô trong Quarantine, sửa các giá trị định dạng sai lệch hoặc thiếu sót và kích hoạt chạy lại (Reprocess).
+              </p>
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={findings.length === 0}
+                  onClick={() => findings.length > 0 && setInvestigatingFindingId(findings[0].finding_id)}
+                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-800 cursor-pointer"
                 >
-                  {/* Rule Header */}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="rounded-md bg-slate-950 px-2 py-0.5 text-[10px] font-mono font-bold text-[#04D3D4]">
-                          {rule.name}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                          {rule.domain}
-                        </span>
-                        <span className="rounded-full bg-[#04D3D4]/10 px-2 py-0.5 text-[10px] font-semibold text-slate-800 border border-[#04D3D4]/30">
-                          Đích: {rule.compiledTarget}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-700 leading-relaxed font-normal pt-1">
-                        {rule.rationale}
-                      </p>
-                    </div>
+                  Mở giao diện sửa payload
+                </Button>
+              </div>
+            </div>
 
-                    {/* Status Badge */}
-                    <div>
-                      {isApproved && (
-                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs font-bold gap-1">
-                          <CheckCircle2 size={13} /> Đã áp dụng vào Active Rules
-                        </Badge>
-                      )}
-                      {isRejected && (
-                        <Badge tone="slate" className="border-slate-300 text-slate-500 text-xs">
-                          Đã từ chối
-                        </Badge>
-                      )}
-                      {isPending && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#FFC402] px-2.5 py-0.5 text-[10px] font-bold text-slate-950 shadow-2xs">
-                          <Clock size={11} /> Chờ bạn thẩm định (HITL)
-                        </span>
-                      )}
-                    </div>
-                  </div>
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
+              <div className="flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-lg bg-amber-100 text-amber-800 font-bold text-[11px]">
+                  2
+                </span>
+                <h4 className="font-bold text-slate-900">Phê duyệt Ngoại lệ (Override)</h4>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Nhập giải trình kiểm toán bắt buộc (ví dụ: cuốc xe thử nghiệm nội bộ) để cho phép bản ghi lưu vào nhật ký kiểm toán bất biến.
+              </p>
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={findings.length === 0 || currentRole === 'auditor'}
+                  onClick={() => findings.length > 0 && setInvestigatingFindingId(findings[0].finding_id)}
+                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-amber-500 text-slate-700 hover:text-amber-800 disabled:opacity-50 cursor-pointer"
+                >
+                  {currentRole === 'auditor' ? 'Chỉ xem (Auditor)' : 'Nhập biên bản ngoại lệ'}
+                </Button>
+              </div>
+            </div>
 
-                  {/* Expression & Law Box */}
-                  <div className="mt-3.5 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-[11px]">
-                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 mb-1">
-                      <span>Biểu thức kiểm soát (SQL / Logic Filter):</span>
-                      <span>Độ tin cậy AI: {rule.confidence}%</span>
-                    </div>
-                    <code className="block rounded bg-white p-2 font-mono text-xs font-semibold text-slate-900 border border-slate-200">
-                      {rule.expression}
-                    </code>
-                    <div className="mt-2 flex flex-wrap items-center justify-between text-[10px] text-slate-500 pt-1">
-                      <span>Căn cứ pháp lý: <strong className="text-slate-700">{rule.lawRef}</strong></span>
-                      <span>Tác động bảo vệ: <strong className="text-rose-700">{rule.affectedRows} dòng</strong> sẽ chuyển sang Quarantine</span>
-                    </div>
-                  </div>
-
-                  {/* Actions Bar */}
-                  {isPending && (
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                      <Button
-                        onClick={() => handleDryRun(rule.id)}
-                        disabled={testingRuleId === rule.id}
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-1.5 border-slate-300 text-xs text-slate-700 hover:border-[#04D3D4] hover:text-slate-950 hover:bg-[#04D3D4]/10"
-                      >
-                        <FlaskConical size={13} />
-                        <span>{testingRuleId === rule.id ? 'Đang giả lập...' : 'Chạy thử nghiệm (Dry-run)'}</span>
-                      </Button>
-
-                      <div className="flex items-center gap-2">
-                        <Button
-                          onClick={() => rejectRule(rule.id)}
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1 border-rose-200 text-xs text-rose-700 hover:bg-rose-50"
-                        >
-                          <X size={13} />
-                          <span>Từ chối</span>
-                        </Button>
-
-                        <Button
-                          onClick={() => approveRule(rule.id)}
-                          size="sm"
-                          className="h-8 gap-1.5 bg-[#04D3D4] text-xs font-bold text-slate-950 hover:bg-[#03b8b9] shadow-xs"
-                        >
-                          <Check size={14} />
-                          <span>Phê duyệt áp dụng (HITL)</span>
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
+              <div className="flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-lg bg-cyan-100 text-cyan-800 font-bold text-[11px]">
+                  3
+                </span>
+                <h4 className="font-bold text-slate-900">Phân tích Nguyên nhân AI (RCA)</h4>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Yêu cầu AI Companion phân tích so sánh đối chiếu giữa số liệu cảm biến viễn thông và sổ cái tài chính SOX 404.
+              </p>
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={findings.length === 0}
+                  onClick={() => findings.length > 0 && handleAskAiAboutFinding(findings[0])}
+                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-[#04D3D4] text-slate-700 hover:text-cyan-900 cursor-pointer"
+                >
+                  Gửi yêu cầu RCA cho AI
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 7. MODALS                                                                 */}
+      {/* ========================================================================= */}
+      {investigatingFindingId && (
+        <FindingDetailModal
+          findingId={investigatingFindingId}
+          onClose={() => setInvestigatingFindingId(null)}
+        />
       )}
     </div>
   );

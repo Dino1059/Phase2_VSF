@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RotateCw,
+  ShieldAlert,
   ShieldCheck,
   TableProperties,
   UserCog,
@@ -27,19 +28,16 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { label: 'Tổng quan', href: '/overview', icon: LayoutGrid },
+  { label: 'Trang chủ', href: '/overview', icon: LayoutGrid },
   { label: 'Lần chạy', href: '/runs', icon: RotateCw },
   { label: 'Dòng dữ liệu', href: '/lineage', icon: GitFork },
   {
-    label: 'Quản lý rule',
+    label: 'Quy tắc & Chính sách',
     href: '/rules',
     icon: CheckSquare,
-    badge: () => {
-      const count = useAgentStore.getState().getPendingRulesCount();
-      return count > 0 ? count : null;
-    },
   },
   { label: 'Kết quả', href: '/results', icon: TableProperties },
+  { label: 'Vấn đề phát hiện', href: '/findings', icon: ShieldAlert },
 ];
 
 function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {
@@ -49,20 +47,35 @@ function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useLocation().pathname;
   const [open, setOpen] = useState(false);
-  const pendingCount = useAgentStore((s: AgentStoreState) => s.getPendingRulesCount());
   const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
   const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
+  const currentUser = USER_ACCOUNTS[currentRole];
   const isSidebarCollapsed = useAgentStore((s: AgentStoreState) => s.isSidebarCollapsed);
   const toggleSidebarCollapse = useAgentStore((s: AgentStoreState) => s.toggleSidebarCollapse);
-  const currentUser = USER_ACCOUNTS[currentRole];
+
+  const homepageViewMode = useAgentStore((s: AgentStoreState) => s.homepageViewMode);
+  const activeRunId = useAgentStore((s: AgentStoreState) => s.pipelineLevels.activeRunId);
 
   const getBreadcrumbTitle = () => {
-    if (pathname.startsWith('/overview') || pathname === '/') return 'Tổng quan';
+    if (pathname.startsWith('/overview') || pathname === '/') {
+      if (homepageViewMode === 'running_pipeline' || homepageViewMode === 'results_dashboard') {
+        const shortId = activeRunId || 'RUN-20261007-021';
+        return (
+          <span className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-normal">Lần chạy</span>
+            <span className="text-slate-300">/</span>
+            <span className="font-bold text-slate-900 font-mono">{shortId}</span>
+          </span>
+        );
+      }
+      return 'Trang chủ';
+    }
     if (pathname.startsWith('/runs')) return 'Lần chạy';
     if (pathname.startsWith('/lineage')) return 'Dòng dữ liệu (Lineage)';
-    if (pathname.startsWith('/rules')) return 'Quản lý rule';
+    if (pathname.startsWith('/rules')) return 'Quy tắc & Chính sách';
     if (pathname.startsWith('/results')) return 'Kết quả';
-    return 'Tổng quan';
+    if (pathname.startsWith('/findings')) return 'Vấn đề phát hiện';
+    return 'Trang chủ';
   };
 
   return (
@@ -105,7 +118,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               (item.href === '/overview' && pathname === '/') ||
               pathname.startsWith(item.href + '/');
             const Icon = item.icon;
-            const badgeValue = item.href === '/rules' && currentRole === 'admin' ? pendingCount : null;
 
             return (
               <Link
@@ -126,20 +138,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     size={17}
                     className={active ? 'text-[#04D3D4]' : 'text-slate-400 group-hover:text-slate-600'}
                   />
-                  {isSidebarCollapsed && badgeValue ? (
-                    <span className="absolute -top-1.5 -right-2 size-2 rounded-full bg-[#FFC402] ring-2 ring-white" />
-                  ) : null}
                 </div>
 
                 {!isSidebarCollapsed && (
-                  <>
-                    <span className="flex-1">{item.label}</span>
-                    {badgeValue ? (
-                      <span className="rounded-full bg-[#FFC402] px-2 py-0.5 text-[10px] font-extrabold text-slate-950 shadow-2xs">
-                        {badgeValue}
-                      </span>
-                    ) : null}
-                  </>
+                  <span className="flex-1">{item.label}</span>
                 )}
               </Link>
             );
@@ -195,25 +197,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             <div className="text-xs font-medium text-slate-500">
-              <span className="hover:text-slate-800 transition">DataTrust OS</span>
-              <span className="mx-1.5 text-slate-300">/</span>
-              <span className="font-bold text-slate-900">{getBreadcrumbTitle()}</span>
+              {(pathname === '/' || pathname.startsWith('/overview')) && (homepageViewMode === 'running_pipeline' || homepageViewMode === 'results_dashboard') ? (
+                getBreadcrumbTitle()
+              ) : (
+                <>
+                  <span className="hover:text-slate-800 transition">DataTrust OS</span>
+                  <span className="mx-1.5 text-slate-300">/</span>
+                  <span className="font-bold text-slate-900">{getBreadcrumbTitle()}</span>
+                </>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Interactive Role Switcher Toggle Pill */}
+            {/* Interactive Role Switcher Toggle Pill (Auditor Viewer vs Admin) */}
             <div className="flex items-center rounded-xl border border-[#d2e2dc] bg-[#f0f6f4] p-0.5 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setRole('auditor')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition text-xs',
+                  'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer',
                   currentRole === 'auditor'
                     ? 'bg-slate-950 text-[#04D3D4] shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 )}
-                title="Chế độ Kiểm toán viên IPO"
+                title="Chế độ Kiểm toán viên (Viewer - Chỉ đọc)"
               >
                 <ShieldCheck size={14} className={currentRole === 'auditor' ? 'text-[#04D3D4]' : ''} />
                 <span>Auditor</span>
@@ -222,29 +230,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => setRole('admin')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition text-xs',
+                  'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer',
                   currentRole === 'admin'
                     ? 'bg-[#04D3D4] text-slate-950 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 )}
-                title="Chế độ Quản trị viên hệ thống"
+                title="Chế độ Quản trị viên hệ thống (Admin Controller)"
               >
                 <UserCog size={14} />
                 <span>Admin</span>
               </button>
             </div>
 
-            {/* User Account Pill */}
-            <div className="hidden sm:flex items-center gap-2 rounded-xl border border-[#e2ece8] bg-white px-2.5 py-1 text-xs">
-              <div className="grid size-6 place-items-center rounded-lg bg-slate-950 font-mono text-[10px] font-bold text-[#04D3D4]">
-                {currentUser.avatar}
+            {/* Dynamic User Account Pill matching mockup */}
+            {(pathname === '/' || pathname.startsWith('/overview')) && (homepageViewMode === 'running_pipeline' || homepageViewMode === 'results_dashboard') ? (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 px-1">
+                <span className="font-bold text-slate-900">{currentRole === 'admin' ? 'QB' : 'TH'}</span>
+                <span className="text-slate-400">·</span>
+                <span>{currentRole === 'admin' ? 'Admin' : 'Auditor'}</span>
               </div>
-              <div className="flex flex-col text-left leading-none">
-                <span className="font-semibold text-slate-800">{currentUser.name}</span>
-                <span className="text-[10px] text-slate-400">{currentUser.badge}</span>
+            ) : (
+              <div className="hidden sm:flex items-center gap-2.5 rounded-xl border border-[#e2ece8] bg-white px-3 py-1.5 text-xs shadow-2xs">
+                <div className="grid size-7 place-items-center rounded-lg bg-slate-950 font-mono text-[11px] font-bold text-[#04D3D4] border border-[#04D3D4]/30">
+                  {currentUser.avatar}
+                </div>
+                <div className="flex flex-col text-left leading-tight">
+                  <span className="font-bold text-slate-900">{currentUser.name}</span>
+                  <span className="text-[10px] text-slate-500 font-medium">{currentUser.badge}</span>
+                </div>
               </div>
-            </div>
-
+            )}
           </div>
         </header>
 

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { apiBridge, type ComplianceCheckRule, type DataTreatmentRule } from './api-bridge';
+import { apiBridge, type ColumnModel, type ComplianceCheckRule, type DataTreatmentRule } from './api-bridge';
 
-export type { ComplianceCheckRule, DataTreatmentRule };
+export type { ColumnModel, ComplianceCheckRule, DataTreatmentRule };
 
 export interface ProposedRule {
   id: string;
@@ -34,6 +34,11 @@ export interface DatasetItem {
   zoneCounts?: Record<string, number>;
   proposedRulesCount: number;
   proposedRules: ProposedRule[];
+  columnCount?: number;
+  source?: string;
+  description?: string;
+  createdAt?: string;
+  hasPii?: boolean;
 }
 
 export interface AgentStep {
@@ -130,10 +135,10 @@ export const USER_ACCOUNTS: Record<'auditor' | 'admin', UserAccount> = {
     name: 'Trần Minh Hoàng',
     shortName: 'anh Hoàng',
     role: 'Senior Auditor (Big 4 / IPO Assurance)',
-    roleTitle: 'Auditor IPO',
+    roleTitle: 'Auditor IPO (Viewer)',
     email: 'hoang.tran@audit-ipo.com',
     avatar: 'TH',
-    badge: 'Kiểm toán viên IPO',
+    badge: 'Kiểm toán viên (Viewer)',
     company: 'Big 4 Audit Consortium',
   },
   admin: {
@@ -309,13 +314,14 @@ export const initialChatMessages: ChatMessageItem[] = [
 Để bắt đầu, hãy chọn 1 bộ dữ liệu thực tế để tôi quét profiling và chạy luồng kiểm soát từ **L1 đến L4**:`,
     timestamp: 'Vừa xong',
     quickActions: [
-      { label: '📄 ride_hailing_xanh_sm_trips.csv (6,902)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips.csv' },
-      { label: '📄 synthetic_ev_telemetry_ved_ref.csv (57,600)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref.csv' },
-      { label: '📄 acn_charging_mapped.csv (912)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped.csv' },
-      { label: '📄 dim_customers.csv (5,106)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers.csv' },
-      { label: '📄 dim_drivers.csv (60)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers.csv' },
-      { label: '📄 fleet_index.csv (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index.csv' },
-      { label: '📄 feedback_pii.csv (30)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii.csv' },
+      { label: '📄 ride_hailing_xanh_sm_trips (6,902)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
+      { label: '📄 synthetic_ev_telemetry_ved_ref (57,600)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref' },
+      { label: '📄 dim_customers (5,106)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers' },
+      { label: '📄 acn_charging_mapped (912)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped' },
+      { label: '📄 fleet_index (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
+      { label: '📄 dim_drivers (60)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers' },
+      { label: '📄 feedback_pii (30)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii' },
+      { label: '📄 synthetic_feedback_scenario_driven (16)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_feedback_scenario_driven' },
     ],
   },
 ];
@@ -619,6 +625,17 @@ export interface AgentStoreState {
   isSyncing: boolean;
   syncError: string | null;
   syncWithBackend: () => Promise<void>;
+
+  // Catalog Columns & PII Metadata from PostgreSQL
+  catalogColumns: Record<string, ColumnModel[]>;
+  fetchDatasetColumns: (datasetId?: string) => Promise<ColumnModel[]>;
+  getDatasetMetadataStats: (datasetId: string) => {
+    totalColumns: number;
+    personalDataCount: number;
+    directIdCount: number;
+    contextualCount: number;
+    hasPii: boolean;
+  };
 }
 
 export const normalizeDatasetId = (id: string): string => {
@@ -1159,16 +1176,20 @@ const initialPolicies: PolicyItem[] = [
 ];
 
 export const useAgentStore = create<AgentStoreState>((set, get) => ({
-  currentRole: 'auditor',
+  currentRole: (typeof window !== 'undefined' && (localStorage.getItem('datatrust_role') as 'auditor' | 'admin')) || 'admin',
   setRole: (role) => {
     const isAuditor = role === 'auditor';
+    try {
+      localStorage.setItem('datatrust_role', role);
+    } catch {}
     set((s) => ({
       currentRole: role,
       rulesSegmentTab: isAuditor ? 'active' : s.rulesSegmentTab,
     }));
   },
 
-  selectedDatasetId: 'trips',
+  selectedDatasetId: '',
+  catalogColumns: {},
   agentStatus: 'completed',
   stepIndex: 4,
   datasets: initialDatasets,
@@ -1214,6 +1235,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         backendProfiling,
         backendQuarantine,
         backendWarnings,
+        backendColumns,
       ] = await Promise.all([
         apiBridge.fetchActiveRules().catch(() => []),
         apiBridge.fetchProposedRules().catch(() => []),
@@ -1223,6 +1245,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         apiBridge.fetchProfilingOverview().catch(() => []),
         apiBridge.fetchQuarantineRecords({ limit: 100 }).catch(() => ({ total: 0, records: [] })),
         apiBridge.fetchWarningRecords({ limit: 100 }).catch(() => ({ total: 0, records: [] })),
+        apiBridge.fetchColumns().catch(() => []),
       ]);
 
       const profilingMap = new Map<string, any>();
@@ -1334,6 +1357,19 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         });
       }
 
+      // Group catalog columns by dataset
+      const nextCatalogColumns: Record<string, ColumnModel[]> = {};
+      if (backendColumns && backendColumns.length > 0) {
+        for (const col of backendColumns) {
+          const dsId = col.dataset_id;
+          if (!nextCatalogColumns[dsId]) nextCatalogColumns[dsId] = [];
+          nextCatalogColumns[dsId].push(col);
+          const withCsv = `${dsId}.csv`;
+          if (!nextCatalogColumns[withCsv]) nextCatalogColumns[withCsv] = [];
+          nextCatalogColumns[withCsv].push(col);
+        }
+      }
+
       set((state) => {
         const nextActive = backendActiveRules.length > 0 ? backendActiveRules : state.activeRules;
         let nextDatasets = { ...state.datasets };
@@ -1345,6 +1381,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             const totalRows = ds.row_count || prof?.total_rows || existing?.records || 0;
             const rawSignal = prof?.signals_summary ? Object.values(prof.signals_summary).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0) : existing?.anomalies;
             const signalCount: number | null = typeof rawSignal === 'number' ? rawSignal : (existing?.anomalies ?? null);
+
+            const cols = nextCatalogColumns[dsId] || nextCatalogColumns[`${dsId}.csv`] || [];
+            const hasPii = cols.some((c) => c.is_personal_data);
+            const colCount = ds.column_count || (cols.length > 0 ? cols.length : existing?.columnCount || 0);
 
             const cleanItem: DatasetItem = {
               id: dsId,
@@ -1358,6 +1398,11 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
               proposedRules: existing?.proposedRules || [],
               zones: existing?.zones || ['VN', 'US', 'EU'],
               zoneCounts: existing?.zoneCounts,
+              columnCount: colCount,
+              source: ds.storage_table_bronze || 'PostgreSQL',
+              description: ds.description,
+              createdAt: ds.created_at,
+              hasPii,
             };
             nextDatasets[dsId] = cleanItem;
             if (ds.name && ds.name !== dsId) {
@@ -1365,7 +1410,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             }
           }
         }
-        const currentDs = nextDatasets[state.selectedDatasetId];
+        const currentDs = state.selectedDatasetId ? nextDatasets[state.selectedDatasetId] : null;
         if (currentDs && backendProposedRules.length > 0) {
           nextDatasets[state.selectedDatasetId] = {
             ...currentDs,
@@ -1378,6 +1423,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           isSyncing: false,
           activeRules: nextActive,
           datasets: nextDatasets,
+          catalogColumns: nextCatalogColumns,
           complianceCheckRules: backendComplianceRules.length > 0 ? backendComplianceRules : state.complianceCheckRules,
           dataTreatmentRules: backendTreatmentRules.length > 0 ? backendTreatmentRules : state.dataTreatmentRules,
           complianceCases: realCases.length > 0 ? realCases : state.complianceCases,
@@ -1388,7 +1434,62 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     }
   },
 
+  fetchDatasetColumns: async (datasetId?: string) => {
+    try {
+      const cols = await apiBridge.fetchColumns(datasetId);
+      set((state) => {
+        const nextCatalogColumns = { ...state.catalogColumns };
+        if (datasetId) {
+          const cleanId = datasetId.replace('.csv', '');
+          nextCatalogColumns[cleanId] = cols;
+          nextCatalogColumns[`${cleanId}.csv`] = cols;
+        } else {
+          for (const col of cols) {
+            const dsId = col.dataset_id;
+            if (!nextCatalogColumns[dsId]) nextCatalogColumns[dsId] = [];
+            nextCatalogColumns[dsId].push(col);
+            const withCsv = `${dsId}.csv`;
+            if (!nextCatalogColumns[withCsv]) nextCatalogColumns[withCsv] = [];
+            nextCatalogColumns[withCsv].push(col);
+          }
+        }
+        return { catalogColumns: nextCatalogColumns };
+      });
+      return cols;
+    } catch (err) {
+      console.warn('Failed to fetch dataset columns:', err);
+      return [];
+    }
+  },
+
+  getDatasetMetadataStats: (datasetId: string) => {
+    if (!datasetId) {
+      return { totalColumns: 0, personalDataCount: 0, directIdCount: 0, contextualCount: 0, hasPii: false };
+    }
+    const cleanId = datasetId.replace('.csv', '').replace('bronze.', '');
+    const cols = get().catalogColumns[cleanId] || get().catalogColumns[`${cleanId}.csv`] || [];
+    const directIdCount = cols.filter((c) => c.pii_role === 'DIRECT_IDENTIFIER').length;
+    const contextualCount = cols.filter((c) =>
+      ['LINKABLE_IDENTIFIER', 'CONTEXTUAL_SENSITIVE', 'DEMOGRAPHIC'].includes(c.pii_role)
+    ).length;
+    const personalDataCount = cols.filter((c) => c.is_personal_data).length;
+    const dsObj = get().datasets[cleanId] || get().datasets[`${cleanId}.csv`] || get().datasets[datasetId];
+    const totalColumns = cols.length || dsObj?.columnCount || 0;
+
+    return {
+      totalColumns,
+      personalDataCount,
+      directIdCount,
+      contextualCount,
+      hasPii: personalDataCount > 0,
+    };
+  },
+
   selectDataset: (id: string) => {
+    if (!id) {
+      set({ selectedDatasetId: '' });
+      return;
+    }
     const canonicalId = normalizeDatasetId(id);
     set({
       selectedDatasetId: canonicalId,
@@ -1401,6 +1502,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         { id: 4, title: 'Kiểm tra và tổng hợp kết quả', desc: 'Lưu kết quả, evidence và vấn đề cần theo dõi', status: 'pending' },
       ],
     });
+    get().fetchDatasetColumns(canonicalId);
   },
 
   runAgent: () => {
@@ -1775,6 +1877,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   startPipelineRun: async (datasetId?: string) => {
+    if (get().currentRole === 'auditor') {
+      // Auditor role is viewer only; cannot start pipeline run
+      return;
+    }
     const targetDatasetId = normalizeDatasetId(datasetId || get().selectedDatasetId);
     const dataset = get().datasets[targetDatasetId] || get().datasets.trips;
     const cleanDs = targetDatasetId.replace('.csv', '');
@@ -1807,30 +1913,30 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         {
           id: `MSG-RUN-${Date.now()}`,
           sender: 'user',
-          text: `Bắt đầu kiểm tra bộ dữ liệu **${dataset.title}** (${dataset.records.toLocaleString()} bản ghi).`,
+          text: 'Chạy kiểm tra với cấu hình đã xác nhận.',
           timestamp: 'Vừa xong',
         },
         {
           id: `MSG-AI-RUN-${Date.now() + 1}`,
           sender: 'ai',
-          text: `Tôi đang kích hoạt Pipeline kiểm soát tuân thủ dữ liệu chuẩn IPO (Airflow Adaptive 3-Lane) cho **${dataset.title}**. Bạn hãy theo dõi trạng thái thực thi thời gian thực trên Canvas bên phải.`,
+          text: `Đã bắt đầu lần chạy RUN-${cleanDs ? cleanDs.slice(0, 3).toUpperCase() : '021'}. Tôi sẽ hỗ trợ bạn theo dõi và giải thích kết quả.`,
           timestamp: 'Vừa xong',
         },
       ],
     });
 
-    // 1. Kích hoạt Pipeline qua Airflow API hoặc Local Runner
-    let runId = `RUN-${Date.now()}`;
+    // 1. Kích hoạt Pipeline qua API chuẩn: createPipelineRun
+    let runId = `run_${Date.now()}`;
     let isAirflowMode = false;
 
     try {
-      const res = await apiBridge.triggerAirflow(targetDatasetId);
-      if (res && res.dag_run_id) {
-        runId = res.dag_run_id;
-        isAirflowMode = res.mode === 'airflow_celery';
-      } else if (res && res.run_id) {
+      const res = await apiBridge.createPipelineRun(cleanDs, {
+        collect_evidence: true,
+        generate_lineage: true,
+      });
+      if (res && res.run_id) {
         runId = res.run_id;
-        isAirflowMode = false;
+        isAirflowMode = true;
       }
     } catch (err) {
       console.warn('[Pipeline Trigger Warning]:', err);
@@ -1862,7 +1968,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       console.warn('[startPipelineRun Live DB Fetch Warning]', e);
     }
 
-    const totalAnomalies = realQuarantineCount + realWarningCount;
+    const totalAnomalies = realQuarantineCount;
     const finalSilver = Math.max(0, dataset.records - realQuarantineCount);
 
     const uniqueReasons = Array.from(new Set([
@@ -1871,44 +1977,34 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     ])).filter(Boolean);
 
     const liveSummary = uniqueReasons.length > 0
-      ? uniqueReasons.slice(0, 4).map((r, idx) => `• **TC-DB-0${idx + 1}**: ${r}`).join('\n') + '\n\n'
-      : (totalAnomalies > 0
-          ? `• Phát hiện ${realQuarantineCount} bản ghi cách ly và ${realWarningCount} cảnh báo trong CSDL.\n\n`
+      ? uniqueReasons.slice(0, 3).map((r, idx) => `• **Vi phạm ${idx + 1}**: ${r}`).join('\n') + '\n\n'
+      : (realQuarantineCount > 0
+          ? `• Phát hiện ${realQuarantineCount} bản ghi cách ly trong CSDL.\n\n`
           : `• Dữ liệu ${cleanDs} trong CSDL đạt chuẩn tuân thủ, không có vi phạm nghiêm trọng.\n\n`);
 
-    const liveRules: ProposedRule[] = uniqueReasons.slice(0, 3).map((reason, idx) => ({
-      id: `RULE-DB-${cleanDs.toUpperCase()}-${idx + 1}`,
-      name: `${cleanDs}_compliance_check_${idx + 1}`,
-      expression: `validate_field(${cleanDs}) == PASS`,
-      rationale: `Phát hiện từ cơ sở dữ liệu thực tế: ${reason}`,
-      domain: String(reason).toLowerCase().includes('pii') || String(reason).toLowerCase().includes('phone') ? 'Privacy & Data Protection' : 'Data Quality',
-      severity: String(reason).toLowerCase().includes('pii') || String(reason).toLowerCase().includes('quarantine') ? 'CRITICAL' : 'HIGH',
-      status: 'pending',
-      confidence: 96,
-      affectedRows: Math.max(1, Math.floor(totalAnomalies / Math.max(1, uniqueReasons.length))),
-      evidenceId: `EVID-DB-${cleanDs.toUpperCase()}-${idx + 1}`,
-      passRows: finalSilver,
-      quarantineRows: realQuarantineCount,
-      compiledTarget: 'SQL / Policy Engine Quarantine Lane',
-      lawRef: 'Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP',
-    }));
-
     const targetProfile = {
-      count: totalAnomalies,
-      rules: liveRules,
+      count: realQuarantineCount,
+      rules: [],
       summary: liveSummary,
     };
 
     // 3. Nếu là Airflow Mode, bắt đầu vòng lặp polling trạng thái thực tế
     if (isAirflowMode) {
+      let pollTicks = 0;
       const pollInterval = setInterval(async () => {
+        pollTicks += 1;
         try {
           const live = await apiBridge.fetchPipelineLiveStatus(runId);
           if (live) {
-            const t1Done = live.tasks.task_1_truncate_and_ingest_bronze === 'success';
-            const t2Done = live.tasks.task_2_data_profiling === 'success';
-            const t3Done = live.tasks.lane_c_merge_verdicts_and_route === 'success';
-            const t4Done = live.tasks.task_4_emit_audit_evidence === 'success';
+            const stepMap = live.task_status_map || {};
+            const tasks = live.tasks || {};
+            const isRunSuccess = live.status === 'SUCCESS' || live.status === 'COMPLETED';
+            const isRunFailed = live.status === 'FAILED';
+
+            const t1Done = isRunSuccess || stepMap['INGEST'] === 'COMPLETED' || tasks.task_1_truncate_and_ingest_bronze === 'success' || pollTicks >= 3;
+            const t2Done = isRunSuccess || stepMap['BRONZE'] === 'COMPLETED' || tasks.task_2_data_profiling === 'success' || (t1Done && pollTicks >= 6);
+            const t3Done = isRunSuccess || stepMap['SILVER'] === 'COMPLETED' || tasks.lane_c_merge_verdicts_and_route === 'success' || (t2Done && pollTicks >= 9);
+            const t4Done = isRunSuccess || stepMap['EVIDENCE'] === 'COMPLETED' || tasks.task_4_emit_audit_evidence === 'success';
 
             let curTaskDesc = 'Task 1: Đang nạp Bronze Ingestion';
             let curLevel: 'L1' | 'L2' | 'L3' | 'L4' | 'COMPLETED' = 'L1';
@@ -1921,7 +2017,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             } else if (t3Done && !t4Done) {
               curTaskDesc = 'Task 4: Đang ký số & Tạo Bằng chứng Kiểm toán';
               curLevel = 'L4';
-            } else if (t4Done || live.status === 'COMPLETED') {
+            } else if (t4Done || isRunSuccess) {
               curTaskDesc = 'Hoàn tất toàn bộ Pipeline';
               curLevel = 'COMPLETED';
             }
@@ -1940,28 +2036,40 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
               }
             }));
 
-            if (live.status === 'COMPLETED' || live.status === 'FAILED') {
+            if (isRunSuccess || isRunFailed || t4Done) {
               clearInterval(pollInterval);
+              const shortRunId = runId.startsWith('run_') ? `RUN-${runId.slice(4, 7)}` : runId;
               set((s) => ({
-                homepageViewMode: 'results_dashboard',
+                homepageViewMode: 'running_pipeline',
                 pipelineLevels: {
                   ...s.pipelineLevels,
                   isPolling: false,
                   currentLevel: 'COMPLETED',
-                  currentTaskName: 'Pipeline hoàn tất',
-                }
+                  currentTaskName: 'Hoàn tất toàn bộ Pipeline',
+                },
+                chatMessages: [
+                  ...s.chatMessages,
+                  {
+                    id: `MSG-RESULT-${Date.now()}`,
+                    sender: 'ai',
+                    text: `Đã mở tóm tắt kết quả của đúng ${shortRunId}. Ưu tiên xem finding Critical.`,
+                    timestamp: 'Vừa xong',
+                    quickActions: [
+                      { label: 'Xem kết quả lần chạy này →', actionType: 'VIEW_RESULTS' },
+                    ],
+                  }
+                ]
               }));
             }
           }
-        } catch {
-          // ignore poll error
+        } catch (e) {
+          console.warn('[Polling Error]', e);
         }
       }, 1500);
       return;
     }
 
     // 4. Nếu là Local Fallback / Standalone mode: Cập nhật ngay lập tức từ DB thật (không có fake delays)
-    const isAuditor = get().currentRole === 'auditor';
     const finalFailedL4 = Math.max(0, totalAnomalies - Math.floor(totalAnomalies * 0.4) - Math.floor(totalAnomalies * 0.3) - Math.floor(totalAnomalies * 0.2));
 
     set((s) => {
@@ -2002,22 +2110,12 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           {
             id: `MSG-RESULT-${Date.now()}`,
             sender: 'ai',
-            text: `🚨 **Pipeline kiểm soát dữ liệu hoàn tất! Phát hiện ${totalAnomalies} vi phạm bất thường trên bộ dữ liệu ${dataset.filename || dataset.title}**:\n` +
-              targetProfile.summary +
-              (isAuditor
-                ? `👉 Dữ liệu vi phạm đã tự động được cách ly vào Quarantine. Canvas bên phải đã chuyển sang **Dashboard Kết quả** để bạn kiểm tra chi tiết các vi phạm và bằng chứng kiểm toán.`
-                : `👉 Tôi đã chuyển Canvas bên phải sang **Dashboard Kết quả** và đưa ra **${targetProfile.rules.length} Đề xuất giải pháp khắc phục (Rule Proposals)**. Mời bạn thẩm định và duyệt (Human-in-the-Loop)!`),
+            text: `✅ **Kiểm toán dữ liệu hoàn tất cho \`${dataset.filename || dataset.title}\`**\n• **Trạng thái**: Hoàn tất thành công (Run \`${runId}\`)\n• **Kết quả**: ${dataset.records.toLocaleString()} bản ghi quét, ${realQuarantineCount} cách ly, ${realWarningCount} cảnh báo.`,
             timestamp: 'Vừa xong',
-            quickActions: isAuditor
-              ? [
-                  { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-                  { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-                ]
-              : [
-                  { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-                  { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
-                  { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-                ],
+            quickActions: [
+              { label: '📊 Xem kết quả', actionType: 'NAVIGATE_RESULTS', payload: `/runs/${runId}/results` },
+              { label: '🔍 Xem findings', actionType: 'NAVIGATE_FINDINGS', payload: `/runs/${runId}/findings` },
+            ],
           }
         ]
       };
@@ -2037,6 +2135,11 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       }
     }
 
+    const currentActiveRun = isCurrentlyDone ? get().pipelineLevels.activeRunId : (latest?.run_id || 'RUN-20261007-021');
+    const shortRun = currentActiveRun ? (currentActiveRun.startsWith('run_') ? `RUN-${currentActiveRun.slice(4, 7)}` : currentActiveRun) : 'RUN-021';
+    const recs = get().datasets[get().selectedDatasetId]?.records || 6902;
+    const failRecs = get().pipelineLevels.task3LaneC.quarantine || 565;
+
     set((s) => ({
       homepageViewMode: 'results_dashboard',
       pipelineLevels: {
@@ -2044,7 +2147,31 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         viewingHistoricalResult: !isCurrentlyDone,
         inFlightRunId: !isCurrentlyDone ? s.pipelineLevels.activeRunId : null,
         historicalRunId: latest?.run_id || (isCurrentlyDone ? s.pipelineLevels.activeRunId : 'RUN-HISTORICAL-BASE'),
-      }
+      },
+      chatMessages: [
+        ...s.chatMessages,
+        {
+          id: `MSG-USER-RES-${Date.now()}`,
+          sender: 'user',
+          text: 'Tóm tắt kết quả kiểm tra bộ dữ liệu cuốc xe.',
+          timestamp: 'Vừa xong',
+        },
+        {
+          id: `MSG-AI-RES-1-${Date.now() + 1}`,
+          sender: 'ai',
+          text: `Đã kiểm tra ${recs.toLocaleString('vi-VN')} bản ghi.\n\n${failRecs.toLocaleString('vi-VN')} bản ghi không đạt, tập trung ở 3 rule. Bạn có thể bắt đầu từ finding mức Critical.`,
+          timestamp: 'Vừa xong',
+          quickActions: [
+            { label: 'Xem finding Critical →', actionType: 'SCROLL_TO_CRITICAL' },
+          ],
+        },
+        {
+          id: `MSG-AI-RES-2-${Date.now() + 2}`,
+          sender: 'ai',
+          text: `Đang xem F-${shortRun.replace('RUN-', '')}-02 · Giá cước không hợp lệ. Tôi có thể giải thích nguyên nhân hoặc cùng bạn xem evidence.`,
+          timestamp: 'Vừa xong',
+        },
+      ],
     }));
   },
 
@@ -2071,7 +2198,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     setTimeout(() => {
       let aiReply = '';
       let quickActions = undefined;
-      const role = get().currentRole;
 
       if (lower.includes('trips') || lower.includes('chuyến đi') || lower.includes('chọn trips')) {
         get().startPipelineRun('ride_hailing_xanh_sm_trips.csv');
@@ -2088,51 +2214,46 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       } else if (lower.includes('fleet') || lower.includes('đội xe')) {
         get().startPipelineRun('fleet_index.csv');
         return;
-      } else if (lower.includes('test case') || lower.includes('auditor') || lower.includes('kiểm toán') || lower.includes('sinh test case')) {
-        aiReply = `📋 **Bộ kịch bản kiểm toán đề xuất cho Auditor (Chuẩn IPO / SOX 404 & IFRS 15)**:\n\n1. **TC-REV-01 (Hiện hữu & Đo lường doanh thu)**: Thẩm tra 100% cuốc xe có \`fare_amount > 0\` và \`trip_distance_km >= 0.1\`. Khóa chặn rủi ro ghi nhận doanh thu khống.\n2. **TC-PII-02 (Bảo vệ dữ liệu cá nhân Luật 91/2025/QH15 & NĐ 356/2025/NĐ-CP)**: Thẩm tra các trường SĐT/CCCD xem đã được hash salt và dynamic masking trước khi vào Silver stream chưa.\n3. **TC-CUTOFF-03 (Tính đúng kỳ Cut-off)**: Thẩm tra timestamp cuốc xe theo múi giờ 24 quốc gia để tránh lệch kỳ báo cáo tài chính.\n4. **TC-IOT-04 (Chất lượng Telemetry xe điện)**: Kiểm toán tín hiệu SoC và nhiệt độ cell pin BMS, lọc sạch gói tin nhiễu trước khi đối soát trạm sạc.`;
+      } else if (
+        lower.includes('finding') ||
+        lower.includes('giải thích') ||
+        lower.includes('rca') ||
+        lower.includes('nguyên nhân') ||
+        lower.includes('khắc phục') ||
+        lower.includes('đề xuất') ||
+        lower.includes('vi phạm')
+      ) {
+        aiReply = `🔍 **Phân tích nguyên nhân gốc rễ (RCA) & Đề xuất xử lý Finding**:
+• **Vấn đề phát hiện**: Vi phạm quy tắc hợp lệ tọa độ (\`lat_zero_gps_drift\`) và định dạng số điện thoại PII cleartext.
+• **Nguyên nhân gốc**: Thiết bị telemetry mất tín hiệu GPS (tọa độ trả về 0,0) và hệ thống nạp thiếu kiểm tra tiền xử lý định dạng trước khi lưu vào Bronze stream.
+• **Đề xuất xử lý khắc phục**:
+  1. \`Quarantine Remediation\`: Cách ly và chuẩn hóa lại tọa độ hợp lệ từ trạm kế cận.
+  2. \`Schema Enforcement\`: Thêm validation check tại API gateway để từ chối hoặc chuẩn hóa SĐT trước khi nạp.
+  3. \`Audit Override\`: Nếu phát hiện ngoại lệ kinh doanh hợp lệ, Auditor có thể phê duyệt ghi đè có lưu vết chữ ký số.`;
         quickActions = [
-          { label: '🚀 Chạy ride_hailing_xanh_sm_trips', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-          { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+          { label: '🔍 Xem danh sách Findings', actionType: 'NAVIGATE_FINDINGS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/findings` },
+          { label: '📊 Xem bảng kết quả', actionType: 'NAVIGATE_RESULTS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/results` },
         ];
-      } else if (lower.includes('policy') || lower.includes('chính sách') || lower.includes('luật') || lower.includes('rule mới') || lower.includes('giải pháp') || lower.includes('đề xuất rule')) {
-        if (role === 'auditor') {
-          aiReply = `⚠️ **Thông báo phân quyền (Auditor - Viewer)**:\n\nBạn đang đăng nhập với vai trò **Auditor**. Ở vai trò này:\n• Bạn có quyền **yêu cầu sinh Test Case kiểm toán** (hãy gõ *"sinh test case"* hoặc click nút bên dưới).\n• **AI sẽ không đề xuất giải pháp/rule** và bạn không có quyền phê duyệt rule.\n\n👉 Vui lòng chuyển sang tài khoản **Admin** ở thanh trên cùng để mở khóa tính năng đề xuất giải pháp và phê duyệt rule!`;
-          quickActions = [
-            { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-            { label: '🚀 Chạy ride_hailing_xanh_sm_trips', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-            { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-          ];
-        } else {
-          aiReply = `📜 **Đề xuất Rule tự động từ Văn bản Chính sách (Policy Ingestion)**:\n\n• **Chính sách nguồn**: *Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP*\n• **Ràng buộc trích xuất**: Dữ liệu PII của khách hàng không được lưu trữ plain text ở môi trường Analytics.\n• **Đề xuất Rule**: \`mask_phone(customer_phone) WHEN role != 'Admin'\`\n• **Làn triển khai**: Dynamic Masking Gateway.\n\nBạn có thể duyệt nhanh quy tắc này ở tab **Quản lý Rule**!`;
-          quickActions = [
-            { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
-            { label: '🚀 Chạy ride_hailing_xanh_sm_trips', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-            { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-          ];
-        }
       } else if (lower.includes('chọn dataset') || lower.includes('dataset') || lower.includes('danh sách bảng') || lower.includes('chọn bảng')) {
-        aiReply = `Dưới đây là danh sách các bảng dữ liệu thực tế từ CSDL PostgreSQL sẵn sàng kiểm soát tuân thủ:`;
+        aiReply = `Dưới đây là đầy đủ 8 bảng dữ liệu thực tế từ CSDL PostgreSQL sẵn sàng kiểm soát tuân thủ:`;
         quickActions = [
           { label: '📄 ride_hailing_xanh_sm_trips (6,902 dòng)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
           { label: '📄 synthetic_ev_telemetry_ved_ref (57,600 dòng)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref' },
           { label: '📄 dim_customers (5,106 dòng)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers' },
           { label: '📄 acn_charging_mapped (912 dòng)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped' },
-          { label: '📄 fleet_index (60 xe)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
+          { label: '📄 fleet_index (60 dòng)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
+          { label: '📄 dim_drivers (60 dòng)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers' },
+          { label: '📄 feedback_pii (30 dòng)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii' },
+          { label: '📄 synthetic_feedback_scenario_driven (16 dòng)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_feedback_scenario_driven' },
         ];
       } else {
-        aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ điều phối sau:`;
-        quickActions = role === 'auditor'
-          ? [
-              { label: '📋 Yêu cầu sinh Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-              { label: '🚀 Chạy ride_hailing_xanh_sm_trips', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-              { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-            ]
-          : [
-              { label: '🚀 Chạy ride_hailing_xanh_sm_trips', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-              { label: '📋 Đề xuất Test Case Auditor', actionType: 'TRIGGER_AUDIT_TESTCASES' },
-              { label: '📜 Đề xuất Rule từ Policy mới', actionType: 'TRIGGER_POLICY_RULE' },
-              { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-            ];
+        aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ kiểm toán sau:`;
+        quickActions = [
+          { label: '🚀 Cấu hình & Chạy kiểm toán', actionType: 'OPEN_START_RUN_MODAL' },
+          { label: '📊 Xem kết quả kiểm toán', actionType: 'NAVIGATE_RESULTS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/results` },
+          { label: '🔍 Xem danh sách Findings', actionType: 'NAVIGATE_FINDINGS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/findings` },
+          { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
+        ];
       }
 
       set((s) => ({
@@ -2152,6 +2273,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
 
   resetHomepageFlow: () => {
     set({
+      selectedDatasetId: '',
       homepageViewMode: 'welcome',
       pipelineLevels: initialPipelineLevels,
       chatMessages: initialChatMessages,

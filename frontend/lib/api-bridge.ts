@@ -99,6 +99,146 @@ export interface AuditEvidenceItem {
   created_at: string;
 }
 
+function getUserRoleHeader(): Record<string, string> {
+  try {
+    const role = localStorage.getItem('datatrust_role') || 'admin';
+    return { 'X-User-Role': role };
+  } catch {
+    return { 'X-User-Role': 'admin' };
+  }
+}
+
+export interface PipelineRunStep {
+  step_id?: string;
+  step_name: 'INGEST' | 'BRONZE' | 'EVALUATION' | 'SILVER' | 'EVIDENCE' | string;
+  step_order: number;
+  title: string;
+  status: 'WAITING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  started_at?: string | null;
+  ended_at?: string | null;
+  error_message?: string | null;
+}
+
+export interface PipelineRunDetail {
+  run_id: string;
+  airflow_dag_run_id?: string;
+  dag_id: string;
+  dataset_id: string;
+  status: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  current_step: string;
+  current_step_progress: number;
+  options: Record<string, any>;
+  metrics: {
+    scanned: number;
+    silver: number;
+    quarantine: number;
+    warning: number;
+    not_evaluated: number;
+  };
+  steps: PipelineRunStep[];
+  events: Array<{
+    event_id: string;
+    step_name: string;
+    event_type: string;
+    message: string;
+    payload?: any;
+    created_at?: string;
+  }>;
+  findings_summary: {
+    total: number;
+    critical: number;
+    high: number;
+  };
+  evidence?: {
+    evidence_id: string;
+    digital_signature: string;
+    evidence_hash: string;
+    previous_hash?: string;
+    jurisdiction_chain?: string[];
+    created_at?: string;
+  } | null;
+}
+
+export interface RunResultsData {
+  run_id: string;
+  dataset_id: string;
+  status: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  kpis: {
+    total_scanned: number;
+    pass_count: number;
+    pass_percentage: number;
+    fail_count: number;
+    fail_percentage: number;
+    warning_count: number;
+    warning_percentage: number;
+    not_evaluated_count: number;
+    not_evaluated_percentage: number;
+  };
+  severity_breakdown: {
+    CRITICAL: number;
+    HIGH: number;
+    MEDIUM: number;
+    LOW: number;
+  };
+  lane_breakdown: Record<string, number>;
+  top_violated_rules: Array<{
+    rule_id: string;
+    column_name: string;
+    severity: string;
+    policy_name: string;
+    reason: string;
+    failed_record_count: number;
+    percentage: number;
+  }>;
+}
+
+export interface FindingItem {
+  finding_id: string;
+  run_id: string;
+  dataset_id: string;
+  rule_id: string;
+  policy_id?: string;
+  policy_name?: string;
+  law_ref?: string;
+  column_name: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  status: 'OPEN' | 'IN_REVIEW' | 'REMEDIATED' | 'OVERRIDDEN' | 'RESOLVED';
+  reason: string;
+  impact?: string;
+  failed_record_count: number;
+  detected_at: string;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  run_started_at?: string | null;
+}
+
+export interface FindingDetailData extends FindingItem {
+  sample_records: Array<{
+    quarantine_id: string;
+    source_row_pk?: string;
+    violation_severity: string;
+    violation_reason: string;
+    raw_record_json: Record<string, any>;
+    status: string;
+    quarantined_at?: string;
+  }>;
+  rule_definition?: {
+    rule_id: string;
+    treatment_name: string;
+    operation_id: string;
+    expression_display: string;
+    description?: string;
+    status: string;
+    enforced_by?: string;
+  } | null;
+}
+
 export interface DashboardOverview {
   metrics: {
     total_runs: number;
@@ -139,24 +279,45 @@ export interface DatasetCatalogItem {
   column_count?: number;
 }
 
+export interface ColumnModel {
+  column_id: string;
+  dataset_id: string;
+  column_name: string;
+  data_type: string;
+  is_primary_key: boolean;
+  is_nullable: boolean;
+  is_personal_data: boolean;
+  pii_role: string;
+  default_treatment: string;
+  semantic_tag?: string | null;
+  description?: string | null;
+  created_at?: string;
+}
+
 export interface PipelineLiveStatusResponse {
   run_id: string;
+  airflow_dag_run_id?: string;
   mode?: string;
-  status: 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  status: 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SUCCESS' | string;
   dag_state?: string;
+  current_step?: string;
+  current_step_progress?: number;
   metrics?: {
     scanned: number;
     silver: number;
     quarantine: number;
     warning: number;
+    not_evaluated?: number;
   };
-  tasks: {
-    task_1_truncate_and_ingest_bronze: string;
-    task_2_data_profiling: string;
-    lane_a_l1_l4_detectors: string;
-    lane_b_hierarchical_policy: string;
-    lane_c_merge_verdicts_and_route: string;
-    task_4_emit_audit_evidence: string;
+  task_status_map?: Record<string, string>;
+  tasks?: {
+    task_1_truncate_and_ingest_bronze?: string;
+    task_2_data_profiling?: string;
+    lane_a_l1_l4_detectors?: string;
+    lane_b_hierarchical_policy?: string;
+    lane_c_merge_verdicts_and_route?: string;
+    task_4_emit_audit_evidence?: string;
+    [key: string]: string | undefined;
   };
 }
 
@@ -543,6 +704,19 @@ export const apiBridge = {
   },
 
   /**
+   * Lấy danh sách cột và thông tin PII từ Data Catalog trong PostgreSQL
+   */
+  async fetchColumns(datasetId?: string): Promise<ColumnModel[]> {
+    const cleanId = datasetId ? datasetId.replace('.csv', '') : undefined;
+    const url = cleanId
+      ? `${API_ROOT}/catalog/columns?dataset_id=${encodeURIComponent(cleanId)}`
+      : `${API_ROOT}/catalog/columns`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp catalog columns`);
+    return res.json();
+  },
+
+  /**
    * Lấy danh sách Quarantine Records (với Full Raw JSON cho RCA)
    */
   async fetchQuarantineRecords(params?: {
@@ -691,11 +865,115 @@ export const apiBridge = {
   },
 
   /**
-   * Lấy chi tiết một lần chạy pipeline kèm thông số 3 làn và chữ ký số
+   * Step 3 / Spec 06: Khởi chạy Pipeline kiểm toán mới qua POST /api/runs
    */
-  async fetchPipelineRunDetail(runId: string): Promise<any> {
-    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}`, { signal: AbortSignal.timeout(3000) });
+  async createPipelineRun(datasetId: string, options?: Record<string, any>): Promise<{
+    run_id: string;
+    airflow_dag_run_id: string;
+    dataset_id: string;
+    status: string;
+    message: string;
+  }> {
+    const roleHeaders = getUserRoleHeader();
+    const res = await fetch(`${API_ROOT}/runs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...roleHeaders,
+      },
+      body: JSON.stringify({
+        dataset_id: datasetId,
+        collect_evidence: options?.collect_evidence ?? true,
+        generate_lineage: options?.generate_lineage ?? true,
+        options,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi khởi chạy pipeline HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Step 3 / Spec 06: Chi tiết một lần chạy pipeline kèm thông số 5 bước Stepper
+   */
+  async fetchPipelineRunDetail(runId: string): Promise<PipelineRunDetail> {
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp chi tiết run`);
+    return res.json();
+  },
+
+  /**
+   * Step 4 / Spec 07: Lấy kết quả phân tích tổng quan lần chạy (4 KPI %, Top Violated Rules)
+   */
+  async fetchPipelineRunResults(runId: string): Promise<RunResultsData> {
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/results`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp kết quả phân tích`);
+    return res.json();
+  },
+
+  /**
+   * Step 5 / Spec 08: Lấy danh sách Findings với 6 bộ lọc
+   */
+  async fetchFindings(params?: {
+    runId?: string;
+    datasetId?: string;
+    ruleId?: string;
+    severity?: string;
+    status?: string;
+    column?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ total: number; limit: number; offset: number; findings: FindingItem[] }> {
+    let url = params?.runId ? `${API_ROOT}/runs/${encodeURIComponent(params.runId)}/findings` : `${API_ROOT}/findings`;
+    const qp = new URLSearchParams();
+    if (params?.datasetId) qp.append('dataset_id', params.datasetId);
+    if (params?.ruleId) qp.append('rule_id', params.ruleId);
+    if (params?.severity) qp.append('severity', params.severity);
+    if (params?.status) qp.append('status', params.status);
+    if (params?.column) qp.append('column', params.column);
+    if (params?.search) qp.append('search', params.search);
+    if (params?.limit) qp.append('limit', String(params.limit));
+    if (params?.offset) qp.append('offset', String(params.offset));
+    if (qp.toString()) url += `?${qp.toString()}`;
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp danh sách Findings`);
+    return res.json();
+  },
+
+  /**
+   * Step 5 / Spec 08: Lấy chi tiết một Finding kèm bản ghi cách ly thực tế
+   */
+  async fetchFindingDetail(findingId: string): Promise<FindingDetailData> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp chi tiết Finding`);
+    return res.json();
+  },
+
+  /**
+   * Step 5 / Spec 08: Cập nhật trạng thái Finding (RBAC: Auditor cấm)
+   */
+  async updateFindingStatus(findingId: string, status: string, note?: string): Promise<any> {
+    const roleHeaders = getUserRoleHeader();
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...roleHeaders,
+      },
+      body: JSON.stringify({ status, note }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi cập nhật trạng thái Finding HTTP ${res.status}`);
+    }
     return res.json();
   },
 

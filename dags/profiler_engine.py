@@ -34,13 +34,22 @@ class ProfilingConfig:
     max_score: float = 100.0
 
 
+_cached_db_host = None
+
+
 def get_db_connection():
     """Establish PostgreSQL connection with automatic fallback for Docker and host environments."""
-    hosts = [
-        os.getenv("POSTGRES_HOST", "postgres"),
-        "localhost",
-        "127.0.0.1",
-    ]
+    global _cached_db_host
+    env_host = os.getenv("POSTGRES_HOST")
+
+    if _cached_db_host:
+        hosts = [_cached_db_host]
+    elif env_host:
+        hosts = [env_host, "127.0.0.1", "localhost", "postgres"]
+    else:
+        # Default priority: 127.0.0.1 / localhost first for local execution, then postgres for docker
+        hosts = ["127.0.0.1", "localhost", "postgres"]
+
     port = int(os.getenv("POSTGRES_PORT", "5432"))
     user = os.getenv("POSTGRES_USER", "airflow")
     password = os.getenv("POSTGRES_PASSWORD", "airflow")
@@ -55,14 +64,37 @@ def get_db_connection():
                 user=user,
                 password=password,
                 dbname=dbname,
-                connect_timeout=3
+                connect_timeout=2
             )
+            _cached_db_host = host
+            return conn
+        except Exception as e:
+            last_error = e
+            if _cached_db_host == host:
+                _cached_db_host = None
+            continue
+
+    # Fallback retry all hosts if cached host failed
+    fallback_hosts = ["127.0.0.1", "localhost", "postgres"]
+    for host in fallback_hosts:
+        if host in hosts:
+            continue
+        try:
+            conn = psycopg2.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                dbname=dbname,
+                connect_timeout=2
+            )
+            _cached_db_host = host
             return conn
         except Exception as e:
             last_error = e
             continue
 
-    raise ConnectionError(f"Could not connect to PostgreSQL on any host {hosts}: {last_error}")
+    raise ConnectionError(f"Could not connect to PostgreSQL on any host: {last_error}")
 
 
 class DataProfilerEngine:
@@ -175,7 +207,7 @@ class DataProfilerEngine:
 
                 for col in catalog_cols:
                     c_id = col["column_id"]
-                    c_name = col["column_name"]
+                    c_name = str(col["column_name"]).strip()
                     is_pii = col["is_personal_data"]
                     pii_role = col["pii_role"]
                     sem_tag = col["semantic_tag"]

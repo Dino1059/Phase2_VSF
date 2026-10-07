@@ -382,3 +382,53 @@ class DashboardOverviewModel(BaseModel):
     ledger_integrity: str = "VERIFIED"
     last_evidence_hash: Optional[str] = None
 
+
+# =============================================================================
+# AI AGENT TRACE, DECISION RECORD & PREVENTIVE ALERT MODELS
+# =============================================================================
+
+class DecisionRecordModel(BaseModel):
+    """Căn cứ quyết định của Agent trong từng bước ReAct (Chuẩn SOX-404 / IPO Audit)."""
+    decision_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    selected_action: str
+    claim: str = ""
+    evidence_refs: List[str] = Field(default_factory=list)
+    contradicting_evidence_refs: List[str] = Field(default_factory=list)
+    source_query_hashes: List[str] = Field(default_factory=list)
+    confidence_method: str = "heuristic_grounding"
+    confidence: float = 1.0
+    alternative_considered: Optional[str] = None
+    stop_continue_reason: str = ""
+
+
+class AgentTraceModel(BaseModel):
+    """Bản ghi vết từng bước suy nghĩ ReAct của Agent (Thay thế DuckDB agent_traces)."""
+    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    agent_type: str
+    step_index: int
+    thought: str
+    action: str
+    tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+    observation: Optional[str] = None
+    tokens_used: int = 0
+    duration_ms: int = 0
+    decision: Optional[DecisionRecordModel] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PreventiveAlertModel(BaseModel):
+    """Cảnh báo xu hướng trôi dữ liệu sớm và đề xuất phòng ngừa theo chuẩn HITL."""
+    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    dataset_id: str
+    column_name: str
+    signal_layer: str = "L2"  # L2, L3, L4
+    drift_metric: str = "robust_zscore_drift"
+    current_value: float
+    warning_threshold: float
+    predicted_risk: str = "Nguy cơ vi phạm L1 Sensor trong các chu kỳ vận hành tới"
+    recommended_proposal_id: Optional[str] = None
+    detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+

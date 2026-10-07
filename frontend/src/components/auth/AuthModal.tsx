@@ -63,7 +63,7 @@ export const AuthModal: React.FC = () => {
       label: 'Data Steward',
       email: 'steward@datatrust.os',
       department: 'Data Quality',
-      desc: 'Rule proposals, HITL approvals, quarantine triage & telemetry inspection.',
+      desc: 'Finding remediation proposals, HITL approvals, quarantine triage & telemetry inspection.',
       icon: Shield,
       color: 'var(--electric-green, #10b981)',
     },

@@ -341,7 +341,9 @@ class ThreeZonePilotLoader:
         file_path = self.data_dir / filename
         if not file_path.exists():
             raise FileNotFoundError(f"Không tìm thấy file: {file_path}")
-        return pd.read_csv(file_path)
+        df = pd.read_csv(file_path)
+        df.columns = [c.strip() for c in df.columns]
+        return df.map(lambda x: x.strip() if isinstance(x, str) else x)
 
     def initialize_pilot_environment(self) -> Dict[str, Any]:
         """

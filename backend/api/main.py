@@ -4,7 +4,7 @@ Exposes REST APIs for Data Catalog, Policies, Dynamic Process Engine, Quarantine
 Strictly enforces RBAC: ADMIN = Approver / Controller; AUDITOR = View-Only.
 """
 
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from urllib.request import Request, urlopen
@@ -14,6 +14,7 @@ import ast
 from datetime import datetime, timezone
 import base64
 import json
+import uuid
 from pydantic import BaseModel
 
 from backend.database.models import (
@@ -38,11 +39,15 @@ from backend.database.models import (
     WarningRecordModel,
     AuditEvidenceModel,
     PipelineRunModel,
-    DashboardOverviewModel
+    DashboardOverviewModel,
+    AgentTraceModel,
+    PreventiveAlertModel,
+    DecisionRecordModel
 )
 from backend.engine.dynamic_runner import DynamicRuleRunner
 from backend.engine.quarantine_manager import QuarantineManager
 from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
+from backend.ai.agents.orchestrator import DataTrustAgentOrchestrator
 from backend.ingestion.load_3zone_pilot import (
     get_3zone_datasets,
     get_3zone_columns,
@@ -74,6 +79,9 @@ app.add_middleware(
 quarantine_mgr = QuarantineManager()
 runner = DynamicRuleRunner(quarantine_manager=quarantine_mgr)
 agent = PolicyRuleProposerAgent()
+orchestrator = DataTrustAgentOrchestrator()
+# Share proposals cache so endpoints stay in sync
+orchestrator.rule_proposer_agent.proposals = agent.proposals
 
 # Real 3-Zone Pilot Datasets, Columns & Policies
 DATASETS: Dict[str, DatasetModel] = get_3zone_datasets()
@@ -148,10 +156,25 @@ class PipelineRunRequest(BaseModel):
     bronze_records: List[Dict[str, Any]]
     run_id: Optional[str] = None
 
+class CreatePipelineRunRequest(BaseModel):
+    dataset_id: str
+    collect_evidence: Optional[bool] = True
+    generate_lineage: Optional[bool] = True
+    options: Optional[Dict[str, Any]] = None
+
 class AirflowTriggerRequest(BaseModel):
     dag_id: Optional[str] = "datatrust_adaptive_pipeline"
     dataset_id: Optional[str] = "trips"
     conf: Optional[Dict[str, Any]] = None
+
+class AgentChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+class AgentPreventiveScanRequest(BaseModel):
+    dataset_id: str = "trips"
+    columns: Optional[List[str]] = None
 
 
 # =============================================================================
@@ -710,11 +733,21 @@ def get_data_treatment_rules(
 
 
 @app.put("/api/rules/treatments/{rule_id}", response_model=DataTreatmentRuleModel)
-def update_data_treatment_rule(rule_id: str, req: UpdateTreatmentRuleRequest):
+def update_data_treatment_rule(
+    rule_id: str,
+    req: UpdateTreatmentRuleRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Cho phép Admin chỉnh sửa trực tiếp biểu thức (expression) và cấu hình xử lý trên UI.
-    Ghi trực tiếp vào bảng policy.data_treatment_rules trong PostgreSQL.
+    RBAC: Auditor là Chỉ đọc, không có quyền sửa quy tắc.
     """
+    if x_user_role and x_user_role.lower() == "auditor":
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền chỉnh sửa quy tắc xử lý."
+        )
+
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
     now_utc = datetime.now(timezone.utc)
@@ -776,10 +809,21 @@ def update_data_treatment_rule(rule_id: str, req: UpdateTreatmentRuleRequest):
 
 
 @app.post("/api/rules/treatments/{rule_id}/approve", response_model=DataTreatmentRuleModel)
-def approve_data_treatment_rule(rule_id: str, req: ProposalApprovalRequest):
+def approve_data_treatment_rule(
+    rule_id: str,
+    req: ProposalApprovalRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Admin duyệt quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'active' trong DB.
+    RBAC: Auditor là Chỉ đọc, không có quyền duyệt quy tắc.
     """
+    if req.actor_role == UserRole.AUDITOR or (x_user_role and x_user_role.lower() == "auditor"):
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền phê duyệt quy tắc."
+        )
+
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
     now_utc = datetime.now(timezone.utc)
@@ -831,10 +875,21 @@ def approve_data_treatment_rule(rule_id: str, req: ProposalApprovalRequest):
 
 
 @app.post("/api/rules/treatments/{rule_id}/reject", response_model=DataTreatmentRuleModel)
-def reject_data_treatment_rule(rule_id: str, req: ProposalRejectionRequest):
+def reject_data_treatment_rule(
+    rule_id: str,
+    req: ProposalRejectionRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Admin từ chối quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'rejected' trong DB.
+    RBAC: Auditor là Chỉ đọc, không có quyền từ chối quy tắc.
     """
+    if req.actor_role == UserRole.AUDITOR or (x_user_role and x_user_role.lower() == "auditor"):
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền thao tác trên quy tắc."
+        )
+
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
     now_utc = datetime.now(timezone.utc)
@@ -987,28 +1042,30 @@ def get_airflow_status():
             "dag_id": "datatrust_adaptive_pipeline"
         }
 
-LOCAL_RUNS: List[Dict[str, Any]] = []
+# =============================================================================
+# RUN MANAGEMENT & AIRFLOW ORCHESTRATION (100% REAL DATA FROM POSTGRESQL & AIRFLOW)
+# =============================================================================
 
-DATASET_BENCHMARK_METRICS = {
-    "ride_hailing_xanh_sm_trips.csv": {"input": 10382, "silver": 10364, "quarantine": 18},
-    "synthetic_ev_telemetry_ved_ref.csv": {"input": 86400, "silver": 86372, "quarantine": 28},
-    "acn_charging_mapped.csv": {"input": 1331, "silver": 1322, "quarantine": 9},
-    "nlp_benchmark_uit_vsfc.csv": {"input": 500, "silver": 494, "quarantine": 6},
-    "fleet_index.csv": {"input": 60, "silver": 60, "quarantine": 0},
-}
-
-
-@app.post("/api/airflow/trigger")
-def trigger_airflow_pipeline(req: Optional[AirflowTriggerRequest] = None):
+@app.post("/api/runs")
+def create_pipeline_run(
+    req: CreatePipelineRunRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
-    Kích hoạt Airflow DAG datatrust_adaptive_pipeline qua Airflow REST API với tên file dataset thực tế.
-    Nếu Airflow chưa online, tự động kích hoạt fallback local DynamicRuleRunner.
+    Step 3 / Spec 06: Khởi chạy một lượt chạy pipeline kiểm toán mới qua Apache Airflow.
+    Bảo vệ RBAC: Auditor là vai trò Chỉ đọc (Read-only), không được phép khởi chạy.
+    Khởi tạo canonical run_id và ghi nhận đầy đủ vòng đời vào orchestration.pipeline_runs.
     """
-    if req is None:
-        req = AirflowTriggerRequest()
+    if x_user_role and x_user_role.lower() == "auditor":
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền khởi chạy Pipeline."
+        )
 
-    dag_id = req.dag_id or "datatrust_adaptive_pipeline"
-    raw_dataset = req.dataset_id or "ride_hailing_xanh_sm_trips.csv"
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor, Json
+
+    raw_dataset = req.dataset_id or "ride_hailing_xanh_sm_trips"
     if str(raw_dataset).upper() in ("ALL", "*"):
         actual_filename = "ALL"
     else:
@@ -1016,11 +1073,58 @@ def trigger_airflow_pipeline(req: Optional[AirflowTriggerRequest] = None):
         if not actual_filename.endswith(".csv"):
             actual_filename += ".csv"
 
-    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
-    payload = {
-        "conf": req.conf or {"dataset_id": actual_filename, "filename": actual_filename}
+    run_id = f"run_{uuid.uuid4().hex[:12]}"
+    dag_run_id = f"app_{run_id}"
+    dag_id = "datatrust_adaptive_pipeline"
+
+    options_payload = {
+        "collect_evidence": req.collect_evidence,
+        "generate_lineage": req.generate_lineage,
+        **(req.options or {})
     }
-    
+
+    # 1. Khởi tạo bản ghi PENDING/RUNNING trong PostgreSQL
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_runs 
+                (run_id, dag_id, dataset_id, started_at, status, airflow_dag_run_id, options_json, current_step, current_step_progress)
+                VALUES (%s, %s, %s, NOW(), 'RUNNING', %s, %s, 'INGEST', 10);
+            """, (run_id, dag_id, actual_filename, dag_run_id, Json(options_payload)))
+
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_run_steps
+                (run_id, step_name, step_order, status, started_at)
+                VALUES (%s, 'INGEST', 1, 'RUNNING', NOW());
+            """, (run_id,))
+
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_run_events
+                (run_id, step_name, event_type, message, payload)
+                VALUES (%s, 'INGEST', 'INFO', 'Lượt chạy kiểm toán được khởi tạo', %s);
+            """, (run_id, Json({"dataset_id": actual_filename, "dag_run_id": dag_run_id})))
+
+            conn.commit()
+    except Exception as e:
+        if conn and not conn.closed:
+            conn.close()
+        raise HTTPException(status_code=500, detail=f"Lỗi khởi tạo lượt chạy trong PostgreSQL: {e}")
+
+    # 2. Kích hoạt Apache Airflow REST API với Canonical Run ID
+    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
+    target_param_id = "ALL" if actual_filename == "ALL" else actual_filename.replace(".csv", "")
+    conf_payload = {
+        "app_run_id": run_id,
+        "dataset_id": target_param_id,
+        "filename": actual_filename,
+        **options_payload
+    }
+    payload = {
+        "dag_run_id": dag_run_id,
+        "conf": conf_payload
+    }
+
     try:
         request_obj = Request(
             f"{AIRFLOW_API_URL}/dags/{dag_id}/dagRuns",
@@ -1034,57 +1138,68 @@ def trigger_airflow_pipeline(req: Optional[AirflowTriggerRequest] = None):
         with urlopen(request_obj, timeout=5.0) as resp:
             res_data = json.loads(resp.read().decode("utf-8"))
             return {
-                "mode": "airflow_celery",
-                "status": "triggered",
-                "dag_run_id": res_data.get("dag_run_id"),
-                "state": res_data.get("state"),
-                "execution_date": res_data.get("execution_date"),
-                "conf": res_data.get("conf"),
+                "run_id": run_id,
+                "airflow_dag_run_id": dag_run_id,
                 "dataset_id": actual_filename,
+                "status": "RUNNING",
+                "execution_date": res_data.get("execution_date"),
                 "message": f"Đã kích hoạt Airflow DAG {dag_id} cho dataset {actual_filename} thành công!"
             }
     except Exception as e:
-        # Tự động Fallback về DynamicRuleRunner nếu Airflow chưa khả dụng
-        dataset_id = actual_filename
-        bench = DATASET_BENCHMARK_METRICS.get(actual_filename, {"input": 100, "silver": 98, "quarantine": 2})
-        sample_bronze = [
-            {"record_id": f"FALLBACK_{i:04d}", "dataset_file": actual_filename, "customer_phone": "0987654321", "customer_name": "Nguyễn Văn A", "pickup_latitude": 21.028511, "fare_amount": 120000.0, "trip_distance_km": 5.4}
-            for i in range(10)
-        ]
-        sample_bronze.append({"record_id": "ERR_REC_01", "fare_amount": 0.0, "trip_distance_km": 0.0, "battery_temp_c": 75.0, "battery_soc": -5.0})
-        
-        fallback_res = runner.run_pipeline(dataset_id, sample_bronze)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        local_run_item = {
-            "id": fallback_res.run_id,
-            "dagId": "local_adaptive_runner",
-            "status": "SUCCESS",
-            "inputRecords": bench["input"],
-            "silverRecords": bench["silver"],
-            "quarantineRecords": bench["quarantine"],
-            "startedAt": now_iso,
-            "finishedAt": now_iso,
-            "durationMinutes": 1,
-            "datasetId": actual_filename
-        }
-        LOCAL_RUNS.insert(0, local_run_item)
-        return {
-            "mode": "local_fallback",
-            "status": "completed",
-            "reason": f"Airflow chưa phản hồi ({str(e)}). Đã chạy kiểm tra dự phòng cho {actual_filename}.",
-            "run_id": fallback_res.run_id,
-            "dataset_id": actual_filename,
-            "scanned_count": bench["input"],
-            "silver_count": bench["silver"],
-            "quarantine_count": bench["quarantine"]
-        }
+        # Cập nhật FAILED trong DB và trả về HTTP 503 - Tuyệt đối không sinh dữ liệu giả
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE orchestration.pipeline_runs
+                    SET status = 'FAILED', error_message = %s, ended_at = NOW()
+                    WHERE run_id = %s;
+                """, (f"Airflow connection/execution failed: {str(e)}", run_id))
+                cur.execute("""
+                    UPDATE orchestration.pipeline_run_steps
+                    SET status = 'FAILED', ended_at = NOW(), error_message = %s
+                    WHERE run_id = %s AND step_name = 'INGEST';
+                """, (str(e), run_id))
+                conn.commit()
+        except Exception:
+            pass
+        finally:
+            if conn and not conn.closed:
+                conn.close()
+        raise HTTPException(
+            status_code=503,
+            detail=f"Dịch vụ Apache Airflow không khả dụng hoặc lỗi kích hoạt: {str(e)}"
+        )
+    finally:
+        if conn and not conn.closed:
+            conn.close()
+
+
+@app.post("/api/airflow/trigger")
+def trigger_airflow_pipeline(
+    req: Optional[AirflowTriggerRequest] = None,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
+    """
+    Endpoint tương thích ngược chuyển tiếp sang logic POST /api/runs chuẩn.
+    """
+    if req is None:
+        req = AirflowTriggerRequest()
+    create_req = CreatePipelineRunRequest(
+        dataset_id=req.dataset_id or "ride_hailing_xanh_sm_trips",
+        options=req.conf
+    )
+    return create_pipeline_run(create_req, x_user_role=x_user_role)
 
 
 @app.get("/api/runs")
-def list_pipeline_runs(dataset_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50):
+def list_pipeline_runs(
+    dataset_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50
+):
     """
-    Lấy danh sách các lần chạy pipeline từ PostgreSQL orchestration.pipeline_runs (nguồn chuẩn)
-    kết hợp với Apache Airflow và Runner.
+    Lấy danh sách các lần chạy pipeline 100% từ PostgreSQL orchestration.pipeline_runs.
+    Không dùng mock data, benchmark ảo hay fallback fake run.
     """
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
@@ -1096,7 +1211,8 @@ def list_pipeline_runs(dataset_id: Optional[str] = None, status: Optional[str] =
             query = """
                 SELECT run_id, dag_id, dataset_id, started_at, ended_at, status,
                        scanned_count, silver_count, quarantine_count, warning_count,
-                       execution_duration_ms, error_message
+                       not_evaluated_count, execution_duration_ms, error_message,
+                       airflow_dag_run_id, current_step, current_step_progress
                 FROM orchestration.pipeline_runs
                 WHERE 1=1
             """
@@ -1125,84 +1241,26 @@ def list_pipeline_runs(dataset_id: Optional[str] = None, status: Optional[str] =
                     "silverRecords": r["silver_count"] or 0,
                     "quarantineRecords": r["quarantine_count"] or 0,
                     "warningRecords": r["warning_count"] or 0,
+                    "notEvaluatedRecords": r.get("not_evaluated_count") or 0,
                     "startedAt": r["started_at"].isoformat() if r["started_at"] else None,
                     "finishedAt": r["ended_at"].isoformat() if r["ended_at"] else None,
                     "durationMinutes": dur_mins,
                     "datasetId": r["dataset_id"],
+                    "currentStep": r.get("current_step") or "INGEST",
+                    "currentStepProgress": r.get("current_step_progress") or 0,
                     "errorMessage": r["error_message"]
                 })
+            return runs
     except Exception as e:
-        print(f"Warning: Failed to query orchestration.pipeline_runs: {e}")
-
-    # Nếu DB có kết quả, trả về
-    if runs:
-        for lr in LOCAL_RUNS:
-            if not any(r["id"] == lr["id"] for r in runs):
-                runs.insert(0, lr)
-        return runs
-
-    # Fallback to Airflow API query
-    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
-    try:
-        req = Request(
-            f"{AIRFLOW_API_URL}/dags/datatrust_adaptive_pipeline/dagRuns?order_by=-execution_date&limit=25",
-            headers={"Authorization": f"Basic {auth_str}"}
-        )
-        with urlopen(req, timeout=2.5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            dag_runs_list = data.get("dag_runs", [])
-            for r in dag_runs_list[:10]:
-                dag_run_id = r.get("dag_run_id")
-                conf = r.get("conf") or {}
-                raw_ds = conf.get("dataset_id") or conf.get("filename") or "ride_hailing_xanh_sm_trips.csv"
-                actual_filename = DATASET_FILE_MAP.get(str(raw_ds), str(raw_ds))
-                if not actual_filename.endswith(".csv"):
-                    actual_filename += ".csv"
-                bench = DATASET_BENCHMARK_METRICS.get(actual_filename, {"input": 1000, "silver": 998, "quarantine": 2})
-
-                runs.append({
-                    "id": dag_run_id,
-                    "dagId": r.get("dag_id"),
-                    "status": (r.get("state") or "SUCCESS").upper(),
-                    "inputRecords": bench["input"],
-                    "silverRecords": bench["silver"],
-                    "quarantineRecords": bench["quarantine"],
-                    "warningRecords": 0,
-                    "startedAt": r.get("start_date") or r.get("execution_date"),
-                    "finishedAt": r.get("end_date") or r.get("execution_date"),
-                    "durationMinutes": 1,
-                    "datasetId": actual_filename
-                })
-    except Exception:
-        pass
-
-    for lr in LOCAL_RUNS:
-        runs.insert(0, lr)
-
-    if not runs:
-        runs = [
-            {
-                "id": "AIRFLOW-MANUAL-001",
-                "dagId": "datatrust_adaptive_pipeline",
-                "status": "SUCCESS",
-                "inputRecords": 10382,
-                "silverRecords": 10364,
-                "quarantineRecords": 18,
-                "warningRecords": 7,
-                "startedAt": "2026-09-27T12:25:44Z",
-                "finishedAt": "2026-09-27T12:25:51Z",
-                "durationMinutes": 1,
-                "datasetId": "ride_hailing_xanh_sm_trips.csv"
-            }
-        ]
-    return runs
+        print(f"Error querying orchestration.pipeline_runs: {e}")
+        return []
 
 
 @app.get("/api/runs/{run_id}")
 def get_pipeline_run_detail(run_id: str):
     """
-    Lấy chi tiết một lượt chạy pipeline: Thông số 3 làn (Lane A, Lane B, Routing),
-    chữ ký số bằng chứng, và bảng thống kê cách ly/cảnh báo.
+    Step 3 / Spec 06: Chi tiết lượt chạy pipeline từ PostgreSQL.
+    Bao gồm 5 bước của Stepper, 6 Thẻ Chỉ số, Nhật ký Sự kiện Timeline, và Bằng chứng Kiểm toán.
     """
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
@@ -1210,62 +1268,479 @@ def get_pipeline_run_detail(run_id: str):
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Query run
+            # 1. Truy vấn run metadata
             cur.execute("""
-                SELECT * FROM orchestration.pipeline_runs WHERE run_id = %s;
-            """, (run_id,))
+                SELECT * FROM orchestration.pipeline_runs 
+                WHERE run_id = %s OR airflow_dag_run_id = %s;
+            """, (run_id, run_id))
             run_row = cur.fetchone()
+            if not run_row:
+                raise HTTPException(status_code=404, detail=f"Không tìm thấy lượt chạy '{run_id}'.")
 
-            # Query evidence
+            real_run_id = run_row["run_id"]
+
+            # 2. Truy vấn các bước trong Stepper
             cur.execute("""
-                SELECT * FROM audit.evidence WHERE run_id = %s ORDER BY created_at DESC LIMIT 1;
-            """, (run_id,))
+                SELECT step_id, step_name, step_order, status, started_at, ended_at, error_message
+                FROM orchestration.pipeline_run_steps
+                WHERE run_id = %s
+                ORDER BY step_order ASC;
+            """, (real_run_id,))
+            steps = cur.fetchall()
+
+            default_steps = [
+                {"step_name": "INGEST", "step_order": 1, "title": "Ingest Bronze", "status": "WAITING"},
+                {"step_name": "BRONZE", "step_order": 2, "title": "Data Profiling", "status": "WAITING"},
+                {"step_name": "EVALUATION", "step_order": 3, "title": "Parallel Evaluation (L1-L4 & Policy)", "status": "WAITING"},
+                {"step_name": "SILVER", "step_order": 4, "title": "Merge & Route Silver/Quarantine", "status": "WAITING"},
+                {"step_name": "EVIDENCE", "step_order": 5, "title": "Emit Audit Evidence", "status": "WAITING"},
+            ]
+            full_steps = []
+            for ds in default_steps:
+                matching = next((s for s in steps if s["step_name"] == ds["step_name"]), None)
+                if matching:
+                    full_steps.append({
+                        "step_id": str(matching.get("step_id", "")),
+                        "step_name": matching["step_name"],
+                        "step_order": matching["step_order"],
+                        "title": ds["title"],
+                        "status": matching["status"],
+                        "started_at": matching["started_at"].isoformat() if matching.get("started_at") else None,
+                        "ended_at": matching["ended_at"].isoformat() if matching.get("ended_at") else None,
+                        "error_message": matching.get("error_message")
+                    })
+                else:
+                    st = "COMPLETED" if run_row["status"] == "SUCCESS" else "WAITING"
+                    full_steps.append({
+                        "step_id": "",
+                        "step_name": ds["step_name"],
+                        "step_order": ds["step_order"],
+                        "title": ds["title"],
+                        "status": st,
+                        "started_at": run_row["started_at"].isoformat() if run_row["started_at"] else None,
+                        "ended_at": run_row["ended_at"].isoformat() if run_row["ended_at"] else None,
+                        "error_message": None
+                    })
+
+            # 3. Truy vấn sự kiện dòng thời gian
+            cur.execute("""
+                SELECT event_id, step_name, event_type, message, payload, created_at
+                FROM orchestration.pipeline_run_events
+                WHERE run_id = %s
+                ORDER BY created_at ASC;
+            """, (real_run_id,))
+            events = [
+                {
+                    "event_id": str(e["event_id"]),
+                    "step_name": e["step_name"],
+                    "event_type": e["event_type"],
+                    "message": e["message"],
+                    "payload": e["payload"],
+                    "created_at": e["created_at"].isoformat() if e["created_at"] else None
+                }
+                for e in cur.fetchall()
+            ]
+
+            # 4. Truy vấn bằng chứng kiểm toán
+            cur.execute("""
+                SELECT evidence_id, digital_signature, evidence_hash, previous_hash, jurisdiction_chain, created_at
+                FROM audit.evidence WHERE run_id = %s ORDER BY created_at DESC LIMIT 1;
+            """, (real_run_id,))
             evidence_row = cur.fetchone()
 
-            # Query quarantine summary
+            # 5. Truy vấn tổng hợp Finding
             cur.execute("""
-                SELECT failure_lane, violation_severity, count(*) as count
-                FROM quarantine.records
-                WHERE run_id = %s
-                GROUP BY failure_lane, violation_severity;
-            """, (run_id,))
-            q_summary = cur.fetchall()
+                SELECT count(*) as total,
+                       count(CASE WHEN severity = 'CRITICAL' THEN 1 END) as critical_count,
+                       count(CASE WHEN severity = 'HIGH' THEN 1 END) as high_count
+                FROM audit.findings WHERE run_id = %s;
+            """, (real_run_id,))
+            finding_counts = cur.fetchone()
 
-            # Query warning summary
-            cur.execute("""
-                SELECT signal_layer, count(*) as count
-                FROM warning.records
-                WHERE run_id = %s
-                GROUP BY signal_layer;
-            """, (run_id,))
-            w_summary = cur.fetchall()
+            scanned = run_row.get("scanned_count") or 0
+            silver = run_row.get("silver_count") or 0
+            quarantine = run_row.get("quarantine_count") or 0
+            warning = run_row.get("warning_count") or 0
+            not_eval = run_row.get("not_evaluated_count") or max(0, scanned - silver - quarantine)
 
-            if not run_row and not evidence_row:
-                raise HTTPException(status_code=404, detail="Pipeline run not found")
+            dur_detail_ms = run_row.get("execution_duration_ms")
+            if not dur_detail_ms and run_row.get("started_at") and run_row.get("ended_at"):
+                dur_detail_ms = int((run_row["ended_at"] - run_row["started_at"]).total_seconds() * 1000)
 
-            dur_ms = run_row["execution_duration_ms"] if run_row else None
             return {
-                "run_id": run_id,
-                "dag_id": run_row["dag_id"] if run_row else "datatrust_adaptive_pipeline",
-                "dataset_id": run_row["dataset_id"] if run_row else (evidence_row["dataset_id"] if evidence_row else "unknown"),
-                "status": run_row["status"].upper() if run_row else "SUCCESS",
-                "started_at": run_row["started_at"].isoformat() if run_row and run_row["started_at"] else None,
-                "ended_at": run_row["ended_at"].isoformat() if run_row and run_row["ended_at"] else None,
-                "duration_ms": dur_ms,
-                "scanned_count": run_row["scanned_count"] if run_row else (evidence_row["scanned_count"] if evidence_row else 0),
-                "silver_count": run_row["silver_count"] if run_row else (evidence_row["silver_count"] if evidence_row else 0),
-                "quarantine_count": run_row["quarantine_count"] if run_row else (evidence_row["quarantine_count"] if evidence_row else 0),
-                "warning_count": run_row["warning_count"] if run_row else (evidence_row["warning_count"] if evidence_row else 0),
-                "audit_evidence": {
+                "run_id": real_run_id,
+                "airflow_dag_run_id": run_row.get("airflow_dag_run_id"),
+                "dag_id": run_row.get("dag_id"),
+                "dataset_id": run_row.get("dataset_id"),
+                "status": run_row.get("status"),
+                "started_at": run_row["started_at"].isoformat() if run_row.get("started_at") else None,
+                "ended_at": run_row["ended_at"].isoformat() if run_row.get("ended_at") else None,
+                "duration_ms": dur_detail_ms,
+                "current_step": run_row.get("current_step") or "INGEST",
+                "current_step_progress": run_row.get("current_step_progress") or 0,
+                "options": run_row.get("options_json") or {},
+                "metrics": {
+                    "scanned": scanned,
+                    "silver": silver,
+                    "quarantine": quarantine,
+                    "warning": warning,
+                    "not_evaluated": not_eval,
+                },
+                "steps": full_steps,
+                "events": events,
+                "findings_summary": {
+                    "total": finding_counts["total"] if finding_counts else 0,
+                    "critical": finding_counts["critical_count"] if finding_counts else 0,
+                    "high": finding_counts["high_count"] if finding_counts else 0,
+                },
+                "evidence": {
                     "evidence_id": str(evidence_row["evidence_id"]) if evidence_row else None,
-                    "digital_signature": evidence_row["digital_signature"] if evidence_row else "SIG-AIRFLOW-3LANE-GSM-IPO-2026",
+                    "digital_signature": evidence_row["digital_signature"] if evidence_row else None,
                     "evidence_hash": evidence_row["evidence_hash"] if evidence_row else None,
                     "previous_hash": evidence_row["previous_hash"] if evidence_row else None,
-                    "jurisdiction_chain": evidence_row["jurisdiction_chain"] if evidence_row else ["VN-ND356-LAW91", "US-SOX404-IFRS15", "EU-GDPR"],
-                } if evidence_row else None,
-                "quarantine_summary": [dict(x) for x in q_summary],
-                "warning_summary": [dict(x) for x in w_summary],
+                    "jurisdiction_chain": evidence_row["jurisdiction_chain"] if evidence_row else ["GLOBAL", "VN"],
+                    "created_at": evidence_row["created_at"].isoformat() if evidence_row and evidence_row["created_at"] else None
+                } if evidence_row else None
             }
+    finally:
+        conn.close()
+
+
+@app.get("/api/runs/{run_id}/results")
+def get_run_results(run_id: str):
+    """
+    Step 4 / Spec 07: Trả về kết quả tổng quan lần chạy gồm 4 KPI Cards %,
+    biểu đồ phân bổ vi phạm, top violated rules, và phân tích rủi ro.
+    100% dữ liệu thực từ PostgreSQL.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM orchestration.pipeline_runs 
+                WHERE run_id = %s OR airflow_dag_run_id = %s;
+            """, (run_id, run_id))
+            run_row = cur.fetchone()
+            if not run_row:
+                raise HTTPException(status_code=404, detail=f"Không tìm thấy lượt chạy '{run_id}'")
+
+            real_run_id = run_row["run_id"]
+            scanned = run_row.get("scanned_count") or 0
+            silver = run_row.get("silver_count") or 0
+            quarantine = run_row.get("quarantine_count") or 0
+            warning = run_row.get("warning_count") or 0
+            not_eval = run_row.get("not_evaluated_count") or max(0, scanned - silver - quarantine)
+
+            total_denom = max(1, scanned)
+            pass_pct = round((silver / total_denom) * 100, 2)
+            fail_pct = round((quarantine / total_denom) * 100, 2)
+            warning_pct = round((warning / total_denom) * 100, 2)
+            not_eval_pct = round((not_eval / total_denom) * 100, 2)
+
+            # Query Top Violated Rules từ audit.findings hoặc quarantine.records
+            cur.execute("""
+                SELECT rule_id, column_name, severity, policy_name, reason, failed_record_count
+                FROM audit.findings
+                WHERE run_id = %s
+                ORDER BY failed_record_count DESC
+                LIMIT 5;
+            """, (real_run_id,))
+            top_rules_rows = cur.fetchall()
+
+            if not top_rules_rows:
+                cur.execute("""
+                    SELECT violation_rule_id as rule_id, violation_column as column_name,
+                           violation_severity as severity, violation_reason as reason,
+                           count(*) as failed_record_count
+                    FROM quarantine.records
+                    WHERE run_id = %s
+                    GROUP BY violation_rule_id, violation_column, violation_severity, violation_reason
+                    ORDER BY count(*) DESC
+                    LIMIT 5;
+                """, (real_run_id,))
+                top_rules_rows = cur.fetchall()
+
+            top_violated_rules = []
+            for r in top_rules_rows:
+                cnt = r["failed_record_count"]
+                top_violated_rules.append({
+                    "rule_id": r["rule_id"],
+                    "column_name": r.get("column_name") or "ALL",
+                    "severity": r.get("severity") or "HIGH",
+                    "policy_name": r.get("policy_name") or "Compliance Policy",
+                    "reason": r.get("reason") or "Quy tắc vi phạm kiểm soát chất lượng",
+                    "failed_record_count": cnt,
+                    "percentage": round((cnt / total_denom) * 100, 2)
+                })
+
+            # Phân bổ mức độ nghiêm trọng
+            cur.execute("""
+                SELECT violation_severity, count(*) as count
+                FROM quarantine.records
+                WHERE run_id = %s
+                GROUP BY violation_severity;
+            """, (real_run_id,))
+            sev_rows = cur.fetchall()
+            severity_breakdown = {
+                "CRITICAL": 0,
+                "HIGH": 0,
+                "MEDIUM": 0,
+                "LOW": 0
+            }
+            for s in sev_rows:
+                k = (s["violation_severity"] or "HIGH").upper()
+                if k in severity_breakdown:
+                    severity_breakdown[k] = s["count"]
+
+            # Phân bổ theo làn
+            cur.execute("""
+                SELECT failure_lane, count(*) as count
+                FROM quarantine.records
+                WHERE run_id = %s
+                GROUP BY failure_lane;
+            """, (real_run_id,))
+            lane_rows = cur.fetchall()
+            lane_breakdown = {r["failure_lane"]: r["count"] for r in lane_rows}
+
+            dur_ms = run_row.get("execution_duration_ms")
+            if not dur_ms and run_row.get("started_at") and run_row.get("ended_at"):
+                dur_ms = int((run_row["ended_at"] - run_row["started_at"]).total_seconds() * 1000)
+
+            return {
+                "run_id": real_run_id,
+                "dataset_id": run_row.get("dataset_id"),
+                "status": run_row.get("status"),
+                "started_at": run_row["started_at"].isoformat() if run_row.get("started_at") else None,
+                "ended_at": run_row["ended_at"].isoformat() if run_row.get("ended_at") else None,
+                "duration_ms": dur_ms,
+                "kpis": {
+                    "total_scanned": scanned,
+                    "pass_count": silver,
+                    "pass_percentage": pass_pct,
+                    "fail_count": quarantine,
+                    "fail_percentage": fail_pct,
+                    "warning_count": warning,
+                    "warning_percentage": warning_pct,
+                    "not_evaluated_count": not_eval,
+                    "not_evaluated_percentage": not_eval_pct,
+                },
+                "severity_breakdown": severity_breakdown,
+                "lane_breakdown": lane_breakdown,
+                "top_violated_rules": top_violated_rules
+            }
+    finally:
+        conn.close()
+
+
+@app.get("/api/findings")
+@app.get("/api/runs/{run_id}/findings")
+def list_findings(
+    run_id: Optional[str] = None,
+    dataset_id: Optional[str] = None,
+    rule_id: Optional[str] = None,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    column: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)
+):
+    """
+    Step 5 / Spec 08: Danh sách các Findings (vấn đề kiểm toán tổng hợp)
+    với 6 bộ lọc: Run, Dataset, Rule, Severity, Status, Column, và Search text.
+    100% dữ liệu thực từ PostgreSQL audit.findings.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT f.finding_id, f.run_id, f.dataset_id, f.rule_id, f.policy_id,
+                       f.policy_name, f.law_ref, f.column_name, f.severity, f.status,
+                       f.reason, f.impact, f.failed_record_count, f.detected_at,
+                       f.resolved_at, f.resolved_by,
+                       r.started_at as run_started_at
+                FROM audit.findings f
+                LEFT JOIN orchestration.pipeline_runs r ON f.run_id = r.run_id
+                WHERE 1=1
+            """
+            count_query = "SELECT count(*) FROM audit.findings f LEFT JOIN orchestration.pipeline_runs r ON f.run_id = r.run_id WHERE 1=1"
+            params = []
+
+            if run_id:
+                query += " AND (f.run_id = %s OR r.airflow_dag_run_id = %s)"
+                count_query += " AND (f.run_id = %s OR r.airflow_dag_run_id = %s)"
+                params.extend([run_id, run_id])
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " AND (f.dataset_id = %s OR f.dataset_id = %s)"
+                count_query += " AND (f.dataset_id = %s OR f.dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            if rule_id:
+                query += " AND LOWER(f.rule_id) = LOWER(%s)"
+                count_query += " AND LOWER(f.rule_id) = LOWER(%s)"
+                params.append(rule_id)
+            if severity:
+                query += " AND LOWER(f.severity) = LOWER(%s)"
+                count_query += " AND LOWER(f.severity) = LOWER(%s)"
+                params.append(severity)
+            if status:
+                query += " AND LOWER(f.status) = LOWER(%s)"
+                count_query += " AND LOWER(f.status) = LOWER(%s)"
+                params.append(status)
+            if column:
+                query += " AND LOWER(f.column_name) = LOWER(%s)"
+                count_query += " AND LOWER(f.column_name) = LOWER(%s)"
+                params.append(column)
+            if search:
+                term = f"%{search}%"
+                query += " AND (f.reason ILIKE %s OR f.rule_id ILIKE %s OR f.policy_name ILIKE %s)"
+                count_query += " AND (f.reason ILIKE %s OR f.rule_id ILIKE %s OR f.policy_name ILIKE %s)"
+                params.extend([term, term, term])
+
+            cur.execute(count_query, tuple(params))
+            total_count = cur.fetchone()["count"]
+
+            query += " ORDER BY f.detected_at DESC LIMIT %s OFFSET %s;"
+            p_exec = list(params)
+            p_exec.extend([limit, offset])
+            cur.execute(query, tuple(p_exec))
+            rows = cur.fetchall()
+
+            clean_findings = []
+            for r in rows:
+                item = dict(r)
+                if item.get("detected_at"):
+                    item["detected_at"] = item["detected_at"].isoformat()
+                if item.get("resolved_at"):
+                    item["resolved_at"] = item["resolved_at"].isoformat()
+                if item.get("run_started_at"):
+                    item["run_started_at"] = item["run_started_at"].isoformat()
+                clean_findings.append(item)
+
+            return {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "findings": clean_findings
+            }
+    finally:
+        conn.close()
+
+
+@app.get("/api/findings/{finding_id}")
+def get_finding_detail(finding_id: str):
+    """
+    Step 5 / Spec 08: Chi tiết một Finding gồm thông tin rule, policy,
+    mẫu dữ liệu cách ly thực tế (Raw Record JSON), và cấu hình rule.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT f.*, r.started_at as run_started_at, r.status as run_status
+                FROM audit.findings f
+                LEFT JOIN orchestration.pipeline_runs r ON f.run_id = r.run_id
+                WHERE f.finding_id = %s;
+            """, (finding_id,))
+            finding = cur.fetchone()
+            if not finding:
+                raise HTTPException(status_code=404, detail=f"Không tìm thấy Finding '{finding_id}'.")
+
+            res = dict(finding)
+            if res.get("detected_at"):
+                res["detected_at"] = res["detected_at"].isoformat()
+            if res.get("resolved_at"):
+                res["resolved_at"] = res["resolved_at"].isoformat()
+            if res.get("run_started_at"):
+                res["run_started_at"] = res["run_started_at"].isoformat()
+
+            # Mẫu bản ghi cách ly thực tế
+            cur.execute("""
+                SELECT q.quarantine_id, q.source_row_pk, q.violation_severity,
+                       q.violation_reason, q.raw_record_json, q.status, q.quarantined_at
+                FROM audit.finding_quarantine_records fqr
+                JOIN quarantine.records q ON fqr.quarantine_id = q.quarantine_id
+                WHERE fqr.finding_id = %s
+                LIMIT 10;
+            """, (finding_id,))
+            q_rows = cur.fetchall()
+
+            if not q_rows:
+                cur.execute("""
+                    SELECT quarantine_id, source_row_pk, violation_severity,
+                           violation_reason, raw_record_json, status, quarantined_at
+                    FROM quarantine.records
+                    WHERE run_id = %s AND (violation_rule_id = %s OR violation_column = %s)
+                    LIMIT 10;
+                """, (res["run_id"], res["rule_id"], res["column_name"]))
+                q_rows = cur.fetchall()
+
+            sample_records = []
+            for q in q_rows:
+                qi = dict(q)
+                qi["quarantine_id"] = str(qi["quarantine_id"])
+                if qi.get("quarantined_at"):
+                    qi["quarantined_at"] = qi["quarantined_at"].isoformat()
+                sample_records.append(qi)
+            res["sample_records"] = sample_records
+
+            # Định nghĩa rule tương ứng
+            cur.execute("""
+                SELECT rule_id, treatment_name, operation_id, expression_display, description, status, enforced_by
+                FROM policy.data_treatment_rules
+                WHERE rule_id = %s;
+            """, (res["rule_id"],))
+            rule_row = cur.fetchone()
+            res["rule_definition"] = dict(rule_row) if rule_row else None
+
+            return res
+    finally:
+        conn.close()
+
+
+@app.patch("/api/findings/{finding_id}/status")
+def update_finding_status(
+    finding_id: str,
+    payload: Dict[str, Any],
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
+    """
+    Cập nhật trạng thái xử lý của Finding. RBAC: Auditor là Chỉ đọc, không được cập nhật.
+    """
+    if x_user_role and x_user_role.lower() == "auditor":
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền thay đổi trạng thái Finding."
+        )
+
+    new_status = payload.get("status", "IN_REVIEW")
+    note = payload.get("note", "")
+    actor = payload.get("actor_name", "DataTrust Admin")
+
+    from database.profiler_engine import get_db_connection
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE audit.findings
+                SET status = %s, resolved_at = NOW(), resolved_by = %s
+                WHERE finding_id = %s
+                RETURNING finding_id;
+            """, (new_status, f"{actor} ({note})", finding_id))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Không tìm thấy Finding '{finding_id}'.")
+            conn.commit()
+            return {"finding_id": finding_id, "status": new_status, "updated_by": actor}
     finally:
         conn.close()
 
@@ -1273,144 +1748,108 @@ def get_pipeline_run_detail(run_id: str):
 @app.get("/api/pipeline/runs/{run_id}/live-status")
 def get_pipeline_live_status(run_id: str):
     """
-    Truy vấn trạng thái thời gian thực của từng Task trong Pipeline:
-    - Task 1: Ingest Bronze
-    - Task 2: Data Profiling Engine
-    - Task 3A: Lane A (L1-L4 Reliability Suite)
-    - Task 3B: Lane B (Hierarchical Policy Engine)
-    - Task 3C: Lane C (Verdict Merger & 3-Way Router)
-    - Task 4: Immutable Audit Evidence
-    Nguồn: Apache Airflow taskInstances API nếu đang chạy, hoặc DB / Local fallback.
+    Truy vấn trạng thái thời gian thực của từng Task trong Pipeline từ PostgreSQL và Airflow API.
+    Không fake completed run.
     """
-    # 1. Kiểm tra trong Airflow API nếu Airflow online
-    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
-    dag_id = "datatrust_adaptive_pipeline"
-    try:
-        # Check DAG run state
-        req_dag = Request(
-            f"{AIRFLOW_API_URL}/dags/{dag_id}/dagRuns/{run_id}",
-            headers={"Authorization": f"Basic {auth_str}"}
-        )
-        with urlopen(req_dag, timeout=1.5) as resp:
-            dag_data = json.loads(resp.read().decode("utf-8"))
-            dag_state = (dag_data.get("state") or "running").upper()
-
-            # Query task instances
-            req_tasks = Request(
-                f"{AIRFLOW_API_URL}/dags/{dag_id}/dagRuns/{run_id}/taskInstances",
-                headers={"Authorization": f"Basic {auth_str}"}
-            )
-            with urlopen(req_tasks, timeout=1.5) as resp_tasks:
-                task_data = json.loads(resp_tasks.read().decode("utf-8"))
-                ti_list = task_data.get("task_instances", [])
-                tasks_map = {t["task_id"]: (t.get("state") or "queued") for t in ti_list}
-
-                return {
-                    "run_id": run_id,
-                    "mode": "airflow",
-                    "status": "COMPLETED" if dag_state == "SUCCESS" else ("FAILED" if dag_state == "FAILED" else "RUNNING"),
-                    "dag_state": dag_state,
-                    "tasks": {
-                        "task_1_truncate_and_ingest_bronze": tasks_map.get("task_1_truncate_and_ingest_bronze", "queued"),
-                        "task_2_data_profiling": tasks_map.get("task_2_data_profiling", "queued"),
-                        "lane_a_l1_l4_detectors": tasks_map.get("task_3_parallel_evaluation.lane_a_l1_l4_detectors", "queued"),
-                        "lane_b_hierarchical_policy": tasks_map.get("task_3_parallel_evaluation.lane_b_hierarchical_policy", "queued"),
-                        "lane_c_merge_verdicts_and_route": tasks_map.get("task_3_parallel_evaluation.lane_c_merge_verdicts_and_route", "queued"),
-                        "task_4_emit_audit_evidence": tasks_map.get("task_4_emit_audit_evidence", "queued"),
-                    }
-                }
-    except Exception:
-        pass
-
-    # 2. Kiểm tra trong PostgreSQL DB orchestration.pipeline_runs
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM orchestration.pipeline_runs WHERE run_id = %s;", (run_id,))
-            row = cur.fetchone()
-            if row:
-                st = (row.get("status") or "SUCCESS").upper()
-                is_done = st == "SUCCESS"
-                return {
-                    "run_id": run_id,
-                    "mode": "database",
-                    "status": "COMPLETED" if is_done else st,
-                    "dag_state": st,
-                    "metrics": {
-                        "scanned": row.get("scanned_count") or 0,
-                        "silver": row.get("silver_count") or 0,
-                        "quarantine": row.get("quarantine_count") or 0,
-                        "warning": row.get("warning_count") or 0,
-                    },
-                    "tasks": {
-                        "task_1_truncate_and_ingest_bronze": "success" if is_done else "failed",
-                        "task_2_data_profiling": "success" if is_done else "failed",
-                        "lane_a_l1_l4_detectors": "success" if is_done else "failed",
-                        "lane_b_hierarchical_policy": "success" if is_done else "failed",
-                        "lane_c_merge_verdicts_and_route": "success" if is_done else "failed",
-                        "task_4_emit_audit_evidence": "success" if is_done else "failed",
-                    }
-                }
-    except Exception:
-        pass
 
-    # 3. Kiểm tra trong LOCAL_RUNS
-    for lr in LOCAL_RUNS:
-        if lr["id"] == run_id:
-            return {
-                "run_id": run_id,
-                "mode": "local_fallback",
-                "status": "COMPLETED",
-                "dag_state": "SUCCESS",
-                "metrics": {
-                    "scanned": lr.get("inputRecords", 0),
-                    "silver": lr.get("silverRecords", 0),
-                    "quarantine": lr.get("quarantineRecords", 0),
-                    "warning": lr.get("warningRecords", 0),
-                },
-                "tasks": {
-                    "task_1_truncate_and_ingest_bronze": "success",
-                    "task_2_data_profiling": "success",
-                    "lane_a_l1_l4_detectors": "success",
-                    "lane_b_hierarchical_policy": "success",
-                    "lane_c_merge_verdicts_and_route": "success",
-                    "task_4_emit_audit_evidence": "success",
-                }
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT run_id, airflow_dag_run_id, status, scanned_count, silver_count,
+                       quarantine_count, warning_count, not_evaluated_count,
+                       current_step, current_step_progress
+                FROM orchestration.pipeline_runs
+                WHERE run_id = %s OR airflow_dag_run_id = %s;
+            """, (run_id, run_id))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Không tìm thấy lượt chạy '{run_id}' trong cơ sở dữ liệu.")
+
+            real_run_id = row["run_id"]
+            cur.execute("""
+                SELECT step_name, status, started_at, ended_at, error_message
+                FROM orchestration.pipeline_run_steps
+                WHERE run_id = %s ORDER BY step_order ASC;
+            """, (real_run_id,))
+            steps = cur.fetchall()
+
+            task_status_map = {s["step_name"]: s["status"] for s in steps}
+            overall_status = (row.get("status") or "RUNNING").upper()
+            cur_step = (row.get("current_step") or "INGEST").upper()
+
+            # Kiểm tra trạng thái trực tiếp từ Airflow REST API nếu DB đang ghi nhận RUNNING
+            dag_run_id = row.get("airflow_dag_run_id")
+            if dag_run_id and overall_status == "RUNNING":
+                try:
+                    auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
+                    req = Request(
+                        f"{AIRFLOW_API_URL}/dags/datatrust_adaptive_pipeline/dagRuns/{dag_run_id}",
+                        headers={"Authorization": f"Basic {auth_str}"}
+                    )
+                    with urlopen(req, timeout=1.5) as resp:
+                        af_data = json.loads(resp.read().decode("utf-8"))
+                        af_state = (af_data.get("state") or "").upper()
+                        if af_state == "SUCCESS":
+                            overall_status = "SUCCESS"
+                        elif af_state == "FAILED":
+                            overall_status = "FAILED"
+                except Exception:
+                    pass
+
+            is_overall_success = overall_status in ("SUCCESS", "COMPLETED")
+
+            ingest_done = is_overall_success or task_status_map.get("INGEST") == "COMPLETED" or cur_step in ("BRONZE", "EVALUATION", "SILVER", "EVIDENCE", "COMPLETED")
+            bronze_done = is_overall_success or task_status_map.get("BRONZE") == "COMPLETED" or cur_step in ("EVALUATION", "SILVER", "EVIDENCE", "COMPLETED")
+            eval_done = is_overall_success or task_status_map.get("EVALUATION") == "COMPLETED" or cur_step in ("SILVER", "EVIDENCE", "COMPLETED")
+            silver_done = is_overall_success or task_status_map.get("SILVER") == "COMPLETED" or cur_step in ("EVIDENCE", "COMPLETED")
+            evidence_done = is_overall_success or task_status_map.get("EVIDENCE") == "COMPLETED" or cur_step == "COMPLETED"
+
+            tasks_compatibility = {
+                "task_1_truncate_and_ingest_bronze": "success" if ingest_done else ("running" if cur_step == "INGEST" else "queued"),
+                "task_2_data_profiling": "success" if bronze_done else ("running" if ingest_done and not bronze_done else "queued"),
+                "lane_a_l1_l4_detectors": "success" if eval_done else ("running" if bronze_done and not eval_done else "queued"),
+                "lane_b_hierarchical_policy": "success" if eval_done else ("running" if bronze_done and not eval_done else "queued"),
+                "lane_c_merge_verdicts_and_route": "success" if silver_done else ("running" if eval_done and not silver_done else "queued"),
+                "task_4_emit_audit_evidence": "success" if evidence_done else ("running" if silver_done and not evidence_done else "queued"),
             }
 
-    # 4. Fallback mặc định
-    return {
-        "run_id": run_id,
-        "mode": "unknown",
-        "status": "COMPLETED",
-        "dag_state": "SUCCESS",
-        "tasks": {
-            "task_1_truncate_and_ingest_bronze": "success",
-            "task_2_data_profiling": "success",
-            "lane_a_l1_l4_detectors": "success",
-            "lane_b_hierarchical_policy": "success",
-            "lane_c_merge_verdicts_and_route": "success",
-            "task_4_emit_audit_evidence": "success",
-        }
-    }
+            return {
+                "run_id": real_run_id,
+                "airflow_dag_run_id": row.get("airflow_dag_run_id"),
+                "status": overall_status,
+                "current_step": cur_step,
+                "current_step_progress": 100 if is_overall_success else (row.get("current_step_progress") or 0),
+                "metrics": {
+                    "scanned": row.get("scanned_count") or 0,
+                    "silver": row.get("silver_count") or 0,
+                    "quarantine": row.get("quarantine_count") or 0,
+                    "warning": row.get("warning_count") or 0,
+                    "not_evaluated": row.get("not_evaluated_count") or 0
+                },
+                "steps": [dict(s) for s in steps],
+                "task_status_map": task_status_map,
+                "tasks": tasks_compatibility
+            }
+    finally:
+        conn.close()
 
 
 @app.get("/api/pipeline/latest-completed")
 def get_latest_completed_pipeline_run(dataset_id: Optional[str] = None):
     """
-    Trả về kết quả lần chạy pipeline gần nhất đã hoàn tất (SUCCESS).
-    Phục vụ tính năng 'Xem kết quả gần nhất' khi một lần chạy mới đang được xử lý trong nền.
+    Trả về kết quả lần chạy pipeline gần nhất đã hoàn tất (SUCCESS) từ PostgreSQL.
     """
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             query = """
                 SELECT run_id, dag_id, dataset_id, started_at, ended_at, status,
-                       scanned_count, silver_count, quarantine_count, warning_count
+                       scanned_count, silver_count, quarantine_count, warning_count, not_evaluated_count
                 FROM orchestration.pipeline_runs
                 WHERE status = 'SUCCESS'
             """
@@ -1422,47 +1861,22 @@ def get_latest_completed_pipeline_run(dataset_id: Optional[str] = None):
             query += " ORDER BY started_at DESC LIMIT 1;"
             cur.execute(query, tuple(params))
             row = cur.fetchone()
-            if row:
-                return {
-                    "run_id": row["run_id"],
-                    "dataset_id": row["dataset_id"],
-                    "status": "SUCCESS",
-                    "scanned_count": row["scanned_count"] or 0,
-                    "silver_count": row["silver_count"] or 0,
-                    "quarantine_count": row["quarantine_count"] or 0,
-                    "warning_count": row["warning_count"] or 0,
-                    "started_at": row["started_at"].isoformat() if row["started_at"] else None,
-                    "ended_at": row["ended_at"].isoformat() if row["ended_at"] else None
-                }
-    except Exception:
-        pass
-
-    # Fallback to LOCAL_RUNS
-    if LOCAL_RUNS:
-        lr = LOCAL_RUNS[0]
-        return {
-            "run_id": lr["id"],
-            "dataset_id": lr.get("datasetId", "ride_hailing_xanh_sm_trips.csv"),
-            "status": "SUCCESS",
-            "scanned_count": lr.get("inputRecords", 0),
-            "silver_count": lr.get("silverRecords", 0),
-            "quarantine_count": lr.get("quarantineRecords", 0),
-            "warning_count": lr.get("warningRecords", 0),
-            "started_at": lr.get("startedAt"),
-            "ended_at": lr.get("finishedAt")
-        }
-
-    return {
-        "run_id": "RUN-HISTORICAL-BASE",
-        "dataset_id": dataset_id or "ride_hailing_xanh_sm_trips.csv",
-        "status": "SUCCESS",
-        "scanned_count": 10382,
-        "silver_count": 10364,
-        "quarantine_count": 18,
-        "warning_count": 7,
-        "started_at": "2026-09-28T08:00:00Z",
-        "ended_at": "2026-09-28T08:01:15Z"
-    }
+            if not row:
+                raise HTTPException(status_code=404, detail="Không có lần chạy nào đã hoàn thành trong hệ thống.")
+            return {
+                "run_id": row["run_id"],
+                "dataset_id": row["dataset_id"],
+                "status": "SUCCESS",
+                "scanned_count": row["scanned_count"] or 0,
+                "silver_count": row["silver_count"] or 0,
+                "quarantine_count": row["quarantine_count"] or 0,
+                "warning_count": row["warning_count"] or 0,
+                "not_evaluated_count": row.get("not_evaluated_count") or 0,
+                "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+                "ended_at": row["ended_at"].isoformat() if row["ended_at"] else None
+            }
+    finally:
+        conn.close()
 
 
 # =============================================================================
@@ -1550,11 +1964,22 @@ def list_quarantine(
 
 
 @app.post("/api/quarantine/{quarantine_id}/reprocess")
-def reprocess_quarantine(quarantine_id: str, req: QuarantineRemediationRequest):
+def reprocess_quarantine(
+    quarantine_id: str,
+    req: QuarantineRemediationRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Remediate & Reprocess một bản ghi cách ly: Cập nhật status = 'REMEDIATED'
     với chữ ký người duyệt và ghi nhận trong PostgreSQL.
+    RBAC: Auditor là Chỉ đọc, không có quyền xử lý bản ghi cách ly.
     """
+    if x_user_role and x_user_role.lower() == "auditor":
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền khắc phục bản ghi cách ly."
+        )
+
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
     now_utc = datetime.now(timezone.utc)
@@ -1591,11 +2016,22 @@ def reprocess_quarantine(quarantine_id: str, req: QuarantineRemediationRequest):
 
 
 @app.post("/api/quarantine/{quarantine_id}/override")
-def override_quarantine(quarantine_id: str, req: QuarantineOverrideRequest):
+def override_quarantine(
+    quarantine_id: str,
+    req: QuarantineOverrideRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Phê duyệt ngoại lệ (Audit Override) cho bản ghi cách ly: Cập nhật status = 'OVERRIDDEN'
     kèm giải trình kiểm toán bắt buộc.
+    RBAC: Auditor là Chỉ đọc, không có quyền ngoại lệ bản ghi cách ly.
     """
+    if x_user_role and x_user_role.lower() == "auditor":
+        raise HTTPException(
+            status_code=403,
+            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền phê duyệt ngoại lệ."
+        )
+
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
     now_utc = datetime.now(timezone.utc)
@@ -2025,5 +2461,125 @@ def get_lineage_runs():
     """Returns list of runs with lineage metadata."""
     from backend.lineage.lineage_service import LineageService
     return LineageService.get_lineage_runs()
+
+
+# =============================================================================
+# AI AGENT MULTI-AGENT, HITL & REAL-TIME WEBSOCKET ENDPOINTS
+# =============================================================================
+
+@app.websocket("/ws")
+@app.websocket("/ws/agent")
+async def agent_websocket(websocket: WebSocket, token: Optional[str] = None, session_id: Optional[str] = None):
+    """
+    WebSocket endpoint for live ReAct thought streaming and interactive agent messaging.
+    """
+    await websocket.accept()
+
+    async def stream_trace(trace: AgentTraceModel):
+        try:
+            await websocket.send_json({
+                "type": "trace",
+                "step_index": trace.step_index,
+                "agent_type": trace.agent_type,
+                "thought": trace.thought,
+                "action": trace.action,
+                "observation": trace.observation,
+                "decision": trace.decision.model_dump() if trace.decision else None,
+                "tokens_used": trace.tokens_used,
+                "duration_ms": trace.duration_ms
+            })
+        except Exception:
+            pass
+
+    orchestrator.register_step_listener(stream_trace)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg_data = json.loads(data) if data.strip().startswith("{") else {"message": data}
+            except Exception:
+                msg_data = {"message": data}
+
+            result = await orchestrator.chat(
+                message=msg_data.get("message", ""),
+                session_id=msg_data.get("session_id"),
+                context=msg_data.get("context")
+            )
+            await websocket.send_json({"type": "response", "data": result})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        orchestrator.unregister_step_listener(stream_trace)
+
+
+@app.post("/api/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    """
+    Direct REST endpoint for user chat interaction with DataTrust Multi-Agent System.
+    """
+    res = await orchestrator.chat(
+        message=req.message,
+        session_id=req.session_id,
+        context=req.context
+    )
+    return res
+
+
+@app.get("/api/agent/traces/{session_id}")
+def get_agent_traces(session_id: str):
+    """
+    Retrieves all persistent ReAct steps for an active agent reasoning session.
+    """
+    traces = orchestrator.react_engine.get_traces_for_session(session_id)
+    return [t.model_dump() for t in traces]
+
+
+@app.post("/api/agent/diagnose/{quarantine_id}")
+async def diagnose_quarantine_record(quarantine_id: str):
+    """
+    4-Tier root-cause causal diagnosis for a specific quarantined record.
+    """
+    rec = quarantine_mgr.records.get(quarantine_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy bản ghi cách ly với ID: {quarantine_id}")
+    res = await orchestrator.diagnose_quarantine(rec)
+    return res
+
+
+@app.get("/api/agent/preventive-alerts", response_model=List[PreventiveAlertModel])
+def get_preventive_alerts():
+    """
+    Fetches proactive early-warning drift alerts (L2-L4 signals before hard L1 failures).
+    """
+    alerts = orchestrator.preventive_guard_agent.get_all_alerts()
+    if not alerts:
+        # Trigger an initial baseline scan to populate early-warning alerts for dashboard
+        alerts = orchestrator.scan_preventive_alerts("trips", ["fare_amount", "trip_distance_km"])
+    return alerts
+
+
+@app.post("/api/agent/preventive-scan", response_model=List[PreventiveAlertModel])
+def trigger_preventive_scan(req: AgentPreventiveScanRequest):
+    """
+    Triggers an on-demand preventive drift scan for specific columns.
+    """
+    cols = req.columns or ["fare_amount", "trip_distance_km", "pickup_latitude"]
+    return orchestrator.scan_preventive_alerts(req.dataset_id, cols)
+
+
+@app.post("/api/agent/dry-run/{proposal_id}")
+def dry_run_proposal(proposal_id: str, sample_size: int = 100):
+    """
+    Pure read-only dry-run simulation of a proposed rule.
+    DOES NOT modify Lane B configuration.
+    """
+    prop = agent.proposals.get(proposal_id) or orchestrator.rule_proposer_agent.proposals.get(proposal_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy đề xuất: {proposal_id}")
+    res = orchestrator.rule_proposer_agent.dry_run_tool.execute({
+        "proposal": prop.model_dump(),
+        "sample_size": sample_size
+    })
+    return res
 
 
