@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
-from backend.engine.hierarchical_policy_processor import LaneBVerdict
+from backend.engine.hierarchical_policy_processor import LaneBVerdict, PolicyViolation
+from backend.engine.jurisdiction_config import JurisdictionHierarchyConfig
 
 
 @dataclass
@@ -89,6 +90,62 @@ class VerdictMergerAndRouter:
             status_a = res_a.get("status", "PASS")
             verdict_b = lane_b_map.get(pk_val)
             status_b = verdict_b.status if verdict_b else "PASS"
+            resolver = JurisdictionHierarchyConfig()
+            jurisdiction_chain = (
+                list(verdict_b.jurisdiction_chain)
+                if verdict_b and verdict_b.jurisdiction_chain
+                else resolver.resolve_chain(
+                    raw_item.get("subject_zone") or raw_item.get("zone"),
+                    raw_item.get("country") or raw_item.get("subject_jurisdiction"),
+                )
+            )
+            normalized_zone = (
+                verdict_b.normalized_zone
+                if (
+                    verdict_b
+                    and verdict_b.normalized_zone
+                    and not (
+                        verdict_b.normalized_zone == "GLOBAL"
+                        and len(jurisdiction_chain) > 1
+                    )
+                )
+                else (jurisdiction_chain[1] if len(jurisdiction_chain) > 1 else "GLOBAL")
+            )
+            policy_violations = []
+            if verdict_b:
+                for violation in verdict_b.violations:
+                    policy_violations.append(
+                        violation.to_dict()
+                        if isinstance(violation, PolicyViolation)
+                        else dict(violation)
+                    )
+
+            primary_violation = policy_violations[0] if policy_violations else {}
+            reliability_violation = {
+                "rule_id": "DATA_RELIABILITY_ANOMALY",
+                "column_name": "SENSOR_OR_LEDGER",
+                "reason": "; ".join(res_a.get("evidence", []))
+                or "Violated L1 physical or ledger constraints",
+                "severity": "CRITICAL",
+                "jurisdiction": "GLOBAL",
+                "policy_id": "POL-DATA-RELIABILITY",
+                "policy_name": "Data Reliability Control",
+                "law_ref": None,
+            }
+            jurisdiction_metadata = {
+                "subject_zone": normalized_zone,
+                "country": jurisdiction_chain[-1] if len(jurisdiction_chain) > 2 else None,
+                "jurisdiction_chain": jurisdiction_chain,
+                "applied_policy_ids": list(verdict_b.applied_policy_ids) if verdict_b else [],
+                "policy_id": primary_violation.get("policy_id"),
+                "policy_name": primary_violation.get("policy_name"),
+                "law_ref": primary_violation.get("law_ref"),
+                "matched_policy_id": primary_violation.get("policy_id"),
+                "matched_policy_name": primary_violation.get("policy_name"),
+                "matched_law_ref": primary_violation.get("law_ref"),
+                "policy_snapshot": primary_violation or None,
+                "policy_violations": policy_violations,
+            }
 
             # =====================================================================
             # A/B COMBINATION MATRIX & PRECEDENCE (FAIL > WARNING > PASS)
@@ -106,14 +163,22 @@ class VerdictMergerAndRouter:
                     "source_table": f"bronze.{dataset_id}",
                     "source_row_pk": pk_val,
                     "failure_lane": "BOTH",
-                    "violation_column": "MULTIPLE",
-                    "violation_rule_id": "RELIABILITY_AND_POLICY_VIOLATION",
+                    "violation_column": primary_violation.get("column_name", "MULTIPLE"),
+                    "violation_rule_id": primary_violation.get("rule_id", "RELIABILITY_AND_POLICY_VIOLATION"),
                     "violation_reason": "; ".join(fail_reasons) or "Violated both Data Reliability & Compliance Policy",
                     "violation_severity": "CRITICAL",
                     "raw_record_json": raw_item,  # Full raw record
                     "lineage_hash": lineage,
                     "status": "QUARANTINED",
-                    "quarantined_at": datetime.now(timezone.utc).isoformat()
+                    "quarantined_at": datetime.now(timezone.utc).isoformat(),
+                    **{
+                        **jurisdiction_metadata,
+                        "applied_policy_ids": [
+                            "POL-DATA-RELIABILITY",
+                            *[item for item in jurisdiction_metadata["applied_policy_ids"] if item != "POL-DATA-RELIABILITY"],
+                        ],
+                        "policy_violations": [reliability_violation, *policy_violations],
+                    },
                 }
                 result.quarantine_records.append(quar_rec)
                 result.findings.append({
@@ -121,7 +186,10 @@ class VerdictMergerAndRouter:
                     "record_pk": pk_val,
                     "dataset_id": dataset_id,
                     "type": "COMPLIANCE_AND_RELIABILITY_BREACH",
-                    "reasons": fail_reasons
+                    "reasons": fail_reasons,
+                    "subject_zone": normalized_zone,
+                    "jurisdiction_chain": jurisdiction_chain,
+                    "policy_violations": [reliability_violation, *policy_violations],
                 })
 
             elif status_a == "FAIL" and status_b != "FAIL":
@@ -144,7 +212,18 @@ class VerdictMergerAndRouter:
                     "raw_record_json": raw_item,
                     "lineage_hash": lineage,
                     "status": "QUARANTINED",
-                    "quarantined_at": datetime.now(timezone.utc).isoformat()
+                    "quarantined_at": datetime.now(timezone.utc).isoformat(),
+                    **{
+                        **jurisdiction_metadata,
+                        "policy_id": "POL-DATA-RELIABILITY",
+                        "policy_name": "Data Reliability Control",
+                        "law_ref": None,
+                        "matched_policy_id": None,
+                        "matched_policy_name": None,
+                        "matched_law_ref": None,
+                        "policy_snapshot": None,
+                        "policy_violations": [reliability_violation],
+                    },
                 }
                 result.quarantine_records.append(quar_rec)
 
@@ -161,14 +240,15 @@ class VerdictMergerAndRouter:
                     "source_table": f"bronze.{dataset_id}",
                     "source_row_pk": pk_val,
                     "failure_lane": "LANE_B",
-                    "violation_column": "COMPLIANCE_GATE",
-                    "violation_rule_id": "POLICY_BLOCK",
+                    "violation_column": primary_violation.get("column_name", "COMPLIANCE_GATE"),
+                    "violation_rule_id": primary_violation.get("rule_id", "POLICY_BLOCK"),
                     "violation_reason": "; ".join(fail_reasons),
                     "violation_severity": "CRITICAL",
                     "raw_record_json": raw_item,
                     "lineage_hash": lineage,
                     "status": "QUARANTINED",
-                    "quarantined_at": datetime.now(timezone.utc).isoformat()
+                    "quarantined_at": datetime.now(timezone.utc).isoformat(),
+                    **jurisdiction_metadata,
                 }
                 result.quarantine_records.append(quar_rec)
 
@@ -198,7 +278,10 @@ class VerdictMergerAndRouter:
                     "evidence_json": {"evidence": evidence_reasons},
                     "redacted_record_json": redacted,  # Controlled PII snippet
                     "lineage_hash": lineage,
-                    "detected_at": datetime.now(timezone.utc).isoformat()
+                    "detected_at": datetime.now(timezone.utc).isoformat(),
+                    "subject_zone": normalized_zone,
+                    "jurisdiction_chain": jurisdiction_chain,
+                    "applied_policy_ids": list(verdict_b.applied_policy_ids) if verdict_b else [],
                 }
                 result.warning_records.append(warn_rec)
 

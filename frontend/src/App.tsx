@@ -26,6 +26,7 @@ export default function App() {
         <Route path="/runs/:id" element={<PipelineRunDetail />} />
         <Route path="/runs/:runId/results" element={<RunResultsPage />} />
         <Route path="/runs/:runId/findings" element={<RunFindingsPage />} />
+        <Route path="/runs/:runId/lineage" element={<LineagePage />} />
         <Route path="/lineage" element={<LineagePage />} />
         <Route path="/rules" element={<RuleApprovalPage />} />
         <Route path="/results" element={<ResultsPage />} />

@@ -18,6 +18,9 @@ export function AiChatPane() {
     datasets,
     pipelineLevels,
     chatMessages,
+    isBackendLive,
+    isSyncing,
+    isChatLoading,
     sendUserChatMessage,
     selectDataset,
     startPipelineRun,
@@ -107,7 +110,12 @@ export function AiChatPane() {
         <div className="flex items-center gap-1.5">
           <Sparkles size={14} className="text-[#04D3D4] fill-[#04D3D4]" />
           <span className="text-sm font-bold text-slate-900">AI đồng hành</span>
-          <span className="size-2 rounded-full bg-[#04D3D4] inline-block ml-0.5" />
+          <span
+            className={`size-2 rounded-full inline-block ml-0.5 ${
+              isSyncing ? 'bg-amber-400 animate-pulse' : isBackendLive ? 'bg-[#04D3D4]' : 'bg-slate-300'
+            }`}
+            title={isSyncing ? 'Đang kiểm tra kết nối' : isBackendLive ? 'Backend online' : 'Backend offline'}
+          />
         </div>
         <div className="text-xs text-slate-500 mt-0.5 font-medium">
           {headerSubtitle}
@@ -194,6 +202,13 @@ export function AiChatPane() {
           </div>
         )}
 
+        {isChatLoading && (
+          <div className="flex items-center gap-2 text-xs text-slate-500" role="status">
+            <span className="size-2 animate-pulse rounded-full bg-[#04D3D4]" />
+            AI đang phân tích…
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -205,12 +220,13 @@ export function AiChatPane() {
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={handleKeyDown}
+            disabled={isChatLoading}
             placeholder={inputPlaceholder}
             className="flex-1 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
           <button
             onClick={handleSend}
-            disabled={!inputVal.trim()}
+            disabled={!inputVal.trim() || isChatLoading}
             className="flex size-7 items-center justify-center rounded-lg bg-[#2dd4bf] hover:bg-[#14b8a6] text-white font-bold disabled:opacity-40 transition cursor-pointer shadow-2xs"
             title="Gửi câu hỏi"
           >

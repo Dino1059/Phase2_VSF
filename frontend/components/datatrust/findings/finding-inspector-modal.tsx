@@ -17,10 +17,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAgentStore, type FindingItem } from '@/lib/agent-store';
 
 export function FindingInspectorModal() {
-  const { currentRole, selectedFindingModal, closeFindingModal, markFindingAudited } = useAgentStore();
+  const { selectedFindingModal, closeFindingModal, markFindingAudited } = useAgentStore();
   const [copiedHash, setCopiedHash] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
-  const [appliedRule, setAppliedRule] = useState(false);
 
   useEffect(() => {
     if (!selectedFindingModal) return;
@@ -49,11 +48,6 @@ export function FindingInspectorModal() {
     navigator.clipboard.writeText(JSON.stringify(finding.evidence.samplePayload, null, 2));
     setCopiedPayload(true);
     setTimeout(() => setCopiedPayload(false), 2000);
-  };
-
-  const handleApplyProposedRule = () => {
-    setAppliedRule(true);
-    setTimeout(() => setAppliedRule(false), 3000);
   };
 
   const handleDownloadEvidence = () => {
@@ -267,38 +261,6 @@ export function FindingInspectorModal() {
               </ul>
             </div>
 
-            {/* Proposed Control/Rule with 1-Click Action (Chỉ hiển thị cho Admin) */}
-            {currentRole === 'admin' && (
-              <div className="rounded-lg border border-slate-200 bg-[#fbfdfc] p-3.5 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-900">
-                    Đề xuất Rule kiểm soát tự động:
-                  </span>
-                  <span className="text-xs font-medium text-slate-500">
-                    Target: <strong className="font-mono text-slate-900">{finding.aiRemediation.targetLane}</strong>
-                  </span>
-                </div>
-                <p className="text-xs font-medium text-slate-600">
-                  Tên rule: <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-mono">{finding.aiRemediation.proposedRuleName}</code>
-                </p>
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-900">
-                  {finding.aiRemediation.proposedExpression}
-                </div>
-
-                <div className="flex justify-end pt-1">
-                  <Button
-                    variant="xanhsm"
-                    size="sm"
-                    onClick={handleApplyProposedRule}
-                    disabled={appliedRule}
-                    className="h-8 text-xs font-bold gap-1.5 bg-[#04D3D4] text-slate-950 hover:bg-[#03b8b9]"
-                  >
-                    {appliedRule ? <Check size={13} /> : <Sparkles size={13} />}
-                    {appliedRule ? 'Đã áp dụng rule vào pipeline!' : '1-Click Áp dụng Rule này'}
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
 
         </div>

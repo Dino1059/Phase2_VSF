@@ -85,8 +85,30 @@ type Finding = {
 }
 ```
 
+Jurisdiction fields required on `Finding`:
+
+```ts
+subjectZone: 'EU' | 'VN' | 'US' | 'GLOBAL' | string
+jurisdictionChain: string[]
+policyId?: string
+lawRef?: string
+```
+
+`lawRef` is an evaluation-time snapshot of the control that failed. It is not a UI fallback.
+
 ## Quarantine record
 
+Every quarantine record additionally carries:
+
+```ts
+subjectZone: string
+jurisdictionChain: string[]
+policyId?: string
+policyName?: string
+lawRef?: string
+```
+
+These fields preserve the matched policy decision so downstream aggregation does not re-infer jurisdiction from a generic rule name.
 ```ts
 type QuarantineRecord = {
   id: string
@@ -119,4 +141,3 @@ type AIRemediationSuggestion = {
 ```
 
 ---
-

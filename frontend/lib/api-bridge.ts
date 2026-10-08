@@ -21,6 +21,10 @@ export interface ComplianceCheckRule {
   expression: string;
   description: string;
   law_ref: string;
+  policy_id?: string | null;
+  policy_name?: string | null;
+  jurisdiction?: string;
+  country?: string | null;
   severity: string;
   on_fail_action: string;
   is_fixed: boolean;
@@ -36,6 +40,11 @@ export interface DataTreatmentRule {
   params_json: Record<string, any>;
   expression_display: string;
   description?: string;
+  policy_id?: string | null;
+  policy_name?: string | null;
+  law_ref?: string | null;
+  jurisdiction?: string;
+  country?: string | null;
   is_ai_proposed: boolean;
   ai_rationale?: string;
   ai_confidence?: number;
@@ -206,6 +215,8 @@ export interface FindingItem {
   policy_id?: string;
   policy_name?: string;
   law_ref?: string;
+  subject_zone?: string | null;
+  jurisdiction_chain?: string[];
   column_name: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   status: 'OPEN' | 'IN_REVIEW' | 'REMEDIATED' | 'OVERRIDDEN' | 'RESOLVED';
@@ -225,6 +236,7 @@ export interface FindingDetailData extends FindingItem {
     violation_severity: string;
     violation_reason: string;
     raw_record_json: Record<string, any>;
+    subject_zone?: string | null;
     status: string;
     quarantined_at?: string;
   }>;
@@ -237,6 +249,60 @@ export interface FindingDetailData extends FindingItem {
     status: string;
     enforced_by?: string;
   } | null;
+}
+
+function getUserIdentityHeaders(): Record<string, string> {
+  const roleHeaders = getUserRoleHeader();
+  const role = roleHeaders['X-User-Role'];
+  return {
+    'X-User-Role': role.toUpperCase(),
+    'X-User': role.toLowerCase() === 'auditor' ? 'DataTrust Auditor' : 'DataTrust Admin',
+  };
+}
+
+export interface FindingAIAnalysis {
+  analysis_id: string;
+  finding_id: string;
+  explanation: string;
+  root_cause: string;
+  confidence: number;
+  issues: Array<{
+    field: string;
+    issue: string;
+    observed_condition?: string | null;
+    likely_cause: string;
+    suggested_action: string;
+    evidence_reference?: string | null;
+  }>;
+  evidence_references: string[];
+  missing_context: string[];
+  remediation: {
+    status: 'suggested' | 'pending_execution' | 'rejected';
+    action: string;
+    rationale: string;
+    scope: {
+      finding_id: string;
+      dataset_id: string;
+      run_id: string;
+      affected_records: number;
+    };
+    decided_by?: string | null;
+    decided_at?: string | null;
+    decision_comment?: string | null;
+  } | null;
+  created_at?: string;
+  updated_at?: string;
+  guardrail_report?: Record<string, unknown>;
+  audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface FindingRemediationDecision {
+  finding_id: string;
+  remediation_id?: string;
+  status: 'approved' | 'rejected' | 'pending_execution';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  message?: string;
 }
 
 export interface DashboardOverview {
@@ -403,7 +469,7 @@ export const apiBridge = {
       passRows: item.simulated_pass_rows || 1000,
       quarantineRows: item.simulated_quarantine_rows || 0,
       compiledTarget: 'Dynamic Treatment Runner',
-      lawRef: item.law_ref || 'Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP',
+      lawRef: item.law_ref || 'Chưa xác định căn cứ pháp lý',
       approvedAt: item.reviewed_at,
       approvedBy: item.reviewed_by,
     }));
@@ -925,6 +991,7 @@ export const apiBridge = {
     severity?: string;
     status?: string;
     column?: string;
+    subjectZone?: string;
     search?: string;
     limit?: number;
     offset?: number;
@@ -936,6 +1003,7 @@ export const apiBridge = {
     if (params?.severity) qp.append('severity', params.severity);
     if (params?.status) qp.append('status', params.status);
     if (params?.column) qp.append('column', params.column);
+    if (params?.subjectZone) qp.append('subject_zone', params.subjectZone);
     if (params?.search) qp.append('search', params.search);
     if (params?.limit) qp.append('limit', String(params.limit));
     if (params?.offset) qp.append('offset', String(params.offset));
@@ -954,6 +1022,65 @@ export const apiBridge = {
       signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp chi tiết Finding`);
+    return res.json();
+  },
+
+  async requestFindingAIExplanation(findingId: string): Promise<FindingAIAnalysis> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/ai-explanation?refresh=true`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Không thể yêu cầu AI phân tích Finding (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async getFindingAIAnalysis(findingId: string): Promise<FindingAIAnalysis> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/ai-analysis`, {
+      headers: getUserIdentityHeaders(),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Không thể nạp phân tích AI (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async approveFindingRemediation(findingId: string, comment?: string): Promise<FindingAIAnalysis> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/remediation/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({ comment: comment || undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Không thể phê duyệt remediation (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async rejectFindingRemediation(findingId: string, comment?: string): Promise<FindingAIAnalysis> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/remediation/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({ comment: comment || undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Không thể từ chối remediation (HTTP ${res.status})`);
+    }
     return res.json();
   },
 

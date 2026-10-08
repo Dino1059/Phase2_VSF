@@ -1,0 +1,213 @@
+{
+  "F-c7cc649e7e": {
+    "analysis_id": "0ede61f3-222e-4ebd-8e47-63a631191ca6",
+    "finding_id": "F-c7cc649e7e",
+    "explanation": "Finding F-c7cc649e7e failed POLICY_BLOCK: Pre-check failed: Tọa độ (21.010083) nằm ngoài phạm vi cấp phép đội xe Berlin EU (GDPR Art. 5) Context unavailable: lineage, rule, policy.",
+    "root_cause": "Pre-check failed: Tọa độ (21.010083) nằm ngoài phạm vi cấp phép đội xe Berlin EU (GDPR Art. 5)",
+    "confidence": 0.57,
+    "evidence_references": [
+      "00cc04fa-4e96-4a23-9f73-5d022b3f4fd4",
+      "0265787c-3bd2-4a87-ac20-a771b5e7d0be",
+      "03bb29a8-7682-4589-9a88-bc464a761398",
+      "0766f6a1-c42c-4ca8-b2f9-8f1d7de67eb4",
+      "089249b1-558f-4142-905e-4135f770d721",
+      "0ca77a6b-e2c6-4b12-8b64-dcec9aa5eacf",
+      "138e289a-a0d8-455b-b271-ac7d2ffdfea6",
+      "15171591-7986-4028-9d59-b4f4f1bbaf8a",
+      "1615a080-6c84-49b5-b4e7-1444c5fbe2f3",
+      "1656cc79-0598-4d9b-9d43-5caa6dd0b4c8",
+      "cf24cde8c6e11aa700766e5b053f759f22535e4738b7e4ad375ccf3828a76b86",
+      "ae25afb7aee5ab553676b1cb8113b420c17186ffebec330fed518eab70659c7e",
+      "bdf2f1d02602e27e34fae5d57458fff550722f0061a1e620f6ca1c72d4304bcc",
+      "cb69f46f55ba35f77cc184c81bfacfd8d7f0e9101b4a86791ffdb9d957b248e9",
+      "92ba22366f33bf6a507c7d4febe07414f84449a3f298f7fe8007b67c5f571445",
+      "571513babf2bff1b7d086052a2616d87439d0339d76d357e5b5c69735f80fc2b",
+      "78000597393cf7cdecdee6ac45a1651f2ee5891a833a578ce9aea00de1ab2642",
+      "5fdd4bf59e83bca44fbeb049b5843bd4d2775e8e8f91e513fc7e4ff357566359",
+      "48e386a6eec14ff62764a249e419af4d6b25f3dcff74c4f7e54b4a2b04dee338",
+      "cf5d11608982f4f13726c167cb30846a31ffdeada70d8de2a12039ceb2d528c6"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule",
+      "policy"
+    ],
+    "remediation": {
+      "status": "suggested",
+      "action": "review_and_correct_affected_records",
+      "scope": {
+        "finding_id": "F-c7cc649e7e",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_4eb5f1bdee10",
+        "affected_records": 46
+      },
+      "rationale": "Correct records that violate POLICY_BLOCK, then submit them to the separate execution workflow.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 17,
+        "gps_generalized": 20
+      },
+      "provider": "mock_engine"
+    },
+    "created_at": "2026-10-07T10:59:10.636488Z",
+    "updated_at": "2026-10-07T10:59:10.636488Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-07T10:59:10.636488+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
+  },
+  "F-f2b4fdc9a1": {
+    "analysis_id": "b0ab786e-81f4-4978-8b1f-07ad13f6e72d",
+    "finding_id": "F-f2b4fdc9a1",
+    "explanation": "Finding F-f2b4fdc9a1 failed DATA_RELIABILITY_ANOMALY: observed_total_fare=104,966.00; computed_sum_fare_amount+tip_amount=54,966.00; discrepancy_delta=50,000.00 Context unavailable: lineage, rule, policy.",
+    "root_cause": "observed_total_fare=104,966.00; computed_sum_fare_amount+tip_amount=54,966.00; discrepancy_delta=50,000.00",
+    "confidence": 0.57,
+    "evidence_references": [
+      "150e8ca3-8cd3-49fd-b546-b17aaf1b24f7",
+      "1a217ebd-1ff7-4d0f-b334-f52c1c85758b",
+      "1a6b5552-5411-41f0-bbf1-c263db67f5ab",
+      "1cf1a149-1c9d-4aae-b297-e5f7b29397c8",
+      "1dc460bf-9ecc-442e-8924-e7aeee3bb900",
+      "20226c40-2ad6-448c-ae34-8d2b9829c181",
+      "2ea28774-027c-44a9-b16f-e9135608eb72",
+      "34f830f3-23ba-49ac-bc3e-5f690854bcf7",
+      "4ff81127-bbf0-4c3c-8d2b-ff86d6dcc4cf",
+      "519aba6e-46fd-4cfb-b1ff-b6d56d986b6f",
+      "448ed0dcb507e8b04a1a93636c175d184661b7b49df42a00332456d86727c564",
+      "cfaaf7504b9744209b1b156b0815c7b7d0649c6069970e256e0ac3a982e118e9",
+      "ed4cc194e5707e6c8ea17a6cc8888633f0163ec0f484411869d02f920d1b171d",
+      "0d8deb8f47f5dbb454833ce320268189e1de34f567a640cf3345118fea967c26",
+      "aa516899e3e5d254122250e224672a43d45e1bc149bdbfe7deb27acd7a18e859",
+      "4391de9333d534d19150c2a3a2832d513eb02e1f1f20342cefabf00609d3eccc",
+      "52396da0ea0b13a268642d29e43f4bc7733921f9ea57ef474c706ea03efce336",
+      "33320d2fb8c5b30812752d2a381e0aee0c18b996de1a00f8e9632d92da1df4ae",
+      "736602d959313f4127f7711cd2b57585923c755767bc23d48f04e0fe6f0cffb2",
+      "f284ead224071ff74be995281214dc47abb52f10f25e0c08a535194617128a08"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule",
+      "policy"
+    ],
+    "remediation": {
+      "status": "suggested",
+      "action": "review_and_correct_affected_records",
+      "scope": {
+        "finding_id": "F-f2b4fdc9a1",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_4eb5f1bdee10",
+        "affected_records": 33
+      },
+      "rationale": "Correct records that violate DATA_RELIABILITY_ANOMALY, then submit them to the separate execution workflow.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 20,
+        "gps_generalized": 20
+      },
+      "provider": "mock_engine"
+    },
+    "created_at": "2026-10-07T10:59:46.033372Z",
+    "updated_at": "2026-10-07T10:59:46.033372Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-07T10:59:46.033372+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
+  },
+  "F-ea62ac9119": {
+    "analysis_id": "bccaf0a7-5bcf-4bba-8642-fd65a197d0f0",
+    "finding_id": "F-ea62ac9119",
+    "explanation": "Có những sai lệch trong việc tính tiền từ taxi, nơi mà tổng số tiền đã ghi nhận không khớp với số tiền được tính toán từ giá cước và tiền tip. Điều này có thể ảnh hưởng đến tính chính xác và minh bạch trong dữ liệu tài chính.",
+    "root_cause": "Có thể do lỗi trong quá trình ghi nhận hoặc tính toán tiền cước, nhưng không thể xác định chính xác nguyên nhân.",
+    "confidence": 0.0,
+    "issues": [
+      {
+        "field": "observed_total_fare",
+        "issue": "giá tiền quan sát được lớn hơn so với tổng tiền được tính toán",
+        "observed_condition": "observed_total_fare=104,966.00; computed_sum_fare_amount+tip_amount=54,966.00",
+        "likely_cause": "khó xác định chính xác lý do, có thể do lỗi nhập liệu hoặc hệ thống tính toán gặp sự cố",
+        "suggested_action": "kiểm tra lại các giao dịch để xác minh và điều chỉnh nếu cần thiết",
+        "evidence_reference": "quarantine_id: 05ea81bd-3c66-472a-9729-12fc900f84d2"
+      }
+    ],
+    "evidence_references": [
+      "05ea81bd-3c66-472a-9729-12fc900f84d2",
+      "07c326d8-cc1b-4403-bd0a-05ad7a327780",
+      "1ecf8696-206f-4aed-a9df-3863a6ebf7f9",
+      "293222db-94a5-4c3c-8f62-4383072d8645",
+      "3239223f-4364-4874-b5e2-60d7cad7101c",
+      "3d4facdc-09f5-4da6-ae46-1e4ad1b5e6c2",
+      "3e1c84a4-49d7-4f62-bb9f-4c40e0363d87",
+      "4740fd73-7528-4813-84a2-2c20c45510a4",
+      "4816067c-835a-4488-8628-b15bb0045669",
+      "59206108-8cfb-44c5-aace-e04cb747dc0d",
+      "b25166448a291dd910bd5e31a8d0340d8e40e40a324427ea33ad25e5b20f0b41",
+      "615506a691c4f894b79be3b36bf3eaa9a4d4f08d25f0de4b90207a65472a63c1",
+      "5a0de0931db6b54a8c686f5ae8eb55c57ccc4563dfe60219043ddef2e6fa7996",
+      "085d09cbd6402ae30bc3cf60d0e816539efee8a04e5384771ce9880ecc2aff37",
+      "278b6bcf4520b13f7a3b1adebb6db7f2a5ad09fa234b22d0373e408492ad1c5f",
+      "8cd7cebdf287a8b92525d7aa36b51415d7b8e55f49719135b33067848b4e98c5",
+      "4b0c2d60ea0eeaebb967edb1072bcd5efe7376739bdacc6a2e544786b008d751",
+      "fff637a5db9f76c13520243d8e9722264a5ed04d48c55d6b06bc015b415fdcaa",
+      "38dad3cce8a85924d545a1f16259ddd1356af126c1debad54eda6aa4b5da9bc0",
+      "edd2f2ef52322dfb3ae177b370bb270b18cc9deb90e831d13c0c4c8a089800cc"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule",
+      "policy"
+    ],
+    "remediation": {
+      "status": "suggested",
+      "action": "observed_total_fare: giá tiền không khớp → kiểm tra lại và điều chỉnh các giao dịch",
+      "scope": {
+        "finding_id": "F-ea62ac9119",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_73583206b482",
+        "affected_records": 33
+      },
+      "rationale": "Việc đảm bảo tính chính xác trong ghi nhận dữ liệu tài chính là rất quan trọng để duy trì sự tin tưởng và tuân thủ quy định pháp luật.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 19,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-07T16:55:58.483487Z",
+    "updated_at": "2026-10-07T16:55:58.483487Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-07T16:55:58.483487+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
+  }
+}

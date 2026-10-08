@@ -176,6 +176,15 @@ CREATE TABLE IF NOT EXISTS quarantine.records (
     violation_severity VARCHAR(20) NOT NULL DEFAULT 'CRITICAL',
     raw_record_json JSONB NOT NULL, -- Full 100% raw record for RCA & audit
     lineage_hash VARCHAR(64) NOT NULL,
+    subject_zone VARCHAR(50) NOT NULL DEFAULT 'GLOBAL',
+    country VARCHAR(50),
+    jurisdiction_chain TEXT[] NOT NULL DEFAULT ARRAY['GLOBAL']::TEXT[],
+    matched_policy_id VARCHAR(100),
+    matched_policy_name VARCHAR(255),
+    matched_law_ref VARCHAR(255),
+    policy_snapshot JSONB,
+    applied_policy_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    policy_violations JSONB NOT NULL DEFAULT '[]'::jsonb,
     status VARCHAR(30) DEFAULT 'QUARANTINED', -- 'QUARANTINED', 'IN_REVIEW', 'REMEDIATED', 'OVERRIDDEN'
     quarantined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     resolved_by VARCHAR(100),
@@ -186,6 +195,8 @@ CREATE TABLE IF NOT EXISTS quarantine.records (
 CREATE INDEX IF NOT EXISTS idx_quarantine_records_run ON quarantine.records(run_id);
 CREATE INDEX IF NOT EXISTS idx_quarantine_records_dataset ON quarantine.records(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_quarantine_records_lane ON quarantine.records(failure_lane);
+CREATE INDEX IF NOT EXISTS idx_quarantine_records_jurisdiction ON quarantine.records(subject_zone, country);
+CREATE INDEX IF NOT EXISTS idx_quarantine_records_policy ON quarantine.records(matched_policy_id);
 
 -- =============================================================================
 -- 3. WARNING SCHEMA: Statistical Anomalies & Advisory Warnings (Controlled PII)

@@ -308,22 +308,9 @@ def test_api_catalog_and_rules():
     assert "driver_id" in col_names
     assert "pickup_latitude" in col_names
 
-    # Test AI Propose endpoint
+    # AI rule generation is explicitly outside the Admin MVP specification.
     resp = client.post("/api/ai/propose?policy_id=POL-VN-ND13&dataset_id=trips")
-    assert resp.status_code == 200
-    props = resp.json()
-    assert len(props) > 0
-    prop_id = props[0]["proposal_id"]
-
-    # Test Auditor tries to approve -> 403 Forbidden!
-    resp = client.post(f"/api/rules/{prop_id}/approve", json={"actor_name": "Trần Minh Hoàng", "actor_role": "AUDITOR"})
-    assert resp.status_code == 403
-    assert "chỉ có quyền xem" in resp.json()["detail"]
-
-    # Test Admin approves -> 200 OK!
-    resp = client.post(f"/api/rules/{prop_id}/approve", json={"actor_name": "Nguyễn Quốc Bảo", "actor_role": "ADMIN"})
-    assert resp.status_code == 200
-    assert resp.json()["is_active"] is True
+    assert resp.status_code == 410
 
     # Test Pipeline Run endpoint
     payload = {

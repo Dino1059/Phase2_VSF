@@ -118,34 +118,61 @@ def _sanitize_dict(data: Any, counts: Dict[str, int]) -> Any:
                     sanitized[k] = mask_phone(v)
                     counts["phones_masked"] += 1
                 else:
-                    sanitized[k] = v
+                    sanitized[k] = _sanitize_dict(v, counts)
             elif "email" in key_lower:
                 if isinstance(v, str):
                     sanitized[k] = mask_email(v)
                     counts["emails_masked"] += 1
                 else:
-                    sanitized[k] = v
+                    sanitized[k] = _sanitize_dict(v, counts)
             elif "vin" in key_lower:
                 if isinstance(v, str):
                     sanitized[k] = mask_vin(v)
                     counts["vins_masked"] += 1
                 else:
-                    sanitized[k] = v
+                    sanitized[k] = _sanitize_dict(v, counts)
             elif any(g in key_lower for g in ["lat", "latitude", "gps"]):
                 if isinstance(v, (int, float)):
                     sanitized[k] = round(float(v), 2)
                     counts["gps_generalized"] += 1
                 else:
-                    sanitized[k] = v
+                    sanitized[k] = _sanitize_dict(v, counts)
             elif any(g in key_lower for g in ["lon", "lng", "longitude"]):
                 if isinstance(v, (int, float)):
                     sanitized[k] = round(float(v), 2)
                     counts["gps_generalized"] += 1
                 else:
-                    sanitized[k] = v
+                    sanitized[k] = _sanitize_dict(v, counts)
             else:
                 sanitized[k] = _sanitize_dict(v, counts)
         return sanitized
     elif isinstance(data, list):
         return [_sanitize_dict(item, counts) for item in data]
+    elif isinstance(data, str):
+        # PII often appears inside free-text fields such as `reason`, not only
+        # under explicitly named phone/email/VIN keys. Scan every string value
+        # before it can cross the provider boundary.
+        def _phone(match):
+            counts["phones_masked"] += 1
+            return mask_phone(match.group(0))
+
+        def _email(match):
+            counts["emails_masked"] += 1
+            return mask_email(match.group(0))
+
+        def _vin(match):
+            counts["vins_masked"] += 1
+            return mask_vin(match.group(0))
+
+        def _gps(match):
+            counts["gps_generalized"] += 1
+            lat, lon = (float(value.strip()) for value in match.group(0).split(","))
+            generalized = mask_gps(lat, lon, 2)
+            return f"{generalized[0]}, {generalized[1]}"
+
+        sanitized = PHONE_VN_REGEX.sub(_phone, data)
+        sanitized = EMAIL_REGEX.sub(_email, sanitized)
+        sanitized = VIN_REGEX.sub(_vin, sanitized)
+        sanitized = GPS_COORD_REGEX.sub(_gps, sanitized)
+        return sanitized
     return data

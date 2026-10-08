@@ -10,10 +10,15 @@ Supports:
 import os
 import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
+from dotenv import load_dotenv
 
 from backend.ai.services.guardrails import pre_llm_guard
+
+load_dotenv()
 
 logger = logging.getLogger("DataTrust.LLMAdapter")
 
@@ -60,10 +65,16 @@ class UnifiedLLMAdapter:
         api_keys: Optional[List[str]] = None,
         force_mock: Optional[bool] = None
     ):
-        self.provider = provider or os.getenv("LLM_PROVIDER", "mock")
-        self.model_name = model_name or os.getenv("LLM_MODEL", "gemma2:2b")
+        configured_provider = os.getenv("LLM_PROVIDER")
+        if not configured_provider and os.getenv("OPENAI_API_KEY", "").strip():
+            configured_provider = "openai"
+        self.provider = (provider or configured_provider or "mock").lower()
+        self.model_name = model_name or os.getenv("OPENAI_MODEL") or os.getenv("LLM_MODEL", "gemma2:2b")
         self.ollama_url = os.getenv("OLLAMA_URL", ollama_url)
-        self.api_keys = api_keys or [k.strip() for k in os.getenv("LLM_API_KEYS", "").split(",") if k.strip()]
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.api_keys = api_keys or ([openai_key] if openai_key else [
+            k.strip() for k in os.getenv("LLM_API_KEYS", "").split(",") if k.strip()
+        ])
         self.current_key_idx = 0
         self.circuit_breaker = CircuitBreaker()
         self.force_mock = force_mock if force_mock is not None else (
@@ -101,10 +112,15 @@ class UnifiedLLMAdapter:
         """
         # Step 1: Pre-LLM Guardrail (Luật 91/2025 & GDPR)
         sanitized_prompt, guard_report = pre_llm_guard(prompt, context)
+        sanitized_context = guard_report.get("sanitized_context", {})
 
         # If offline mock mode or circuit breaker open, execute deterministic mock
         if self.force_mock or not self.circuit_breaker.can_attempt():
-            mock_text, tokens = self._generate_deterministic_mock(sanitized_prompt, system_instruction, context)
+            mock_text, tokens = self._generate_deterministic_mock(
+                sanitized_prompt,
+                system_instruction,
+                sanitized_context,
+            )
             return {
                 "text": mock_text,
                 "tokens_used": tokens,
@@ -113,10 +129,73 @@ class UnifiedLLMAdapter:
                 "guardrail_report": guard_report
             }
 
+        # OpenAI Responses API. Context is included as structured JSON after it
+        # has passed through the PII guardrail above.
+        if self.provider == "openai":
+            api_key = self._get_active_key()
+            if not api_key:
+                return {
+                    "text": "",
+                    "tokens_used": 0,
+                    "provider": "openai_error",
+                    "model": self.model_name,
+                    "error": "OPENAI_API_KEY is not configured",
+                    "guardrail_report": guard_report,
+                }
+            try:
+                user_input = sanitized_prompt
+                if sanitized_context:
+                    user_input += "\n\nSanitized context (JSON):\n" + json.dumps(
+                        sanitized_context, ensure_ascii=False, default=str
+                    )
+                payload = json.dumps({
+                    "model": self.model_name,
+                    "instructions": system_instruction,
+                    "input": user_input,
+                    "max_output_tokens": max_tokens,
+                }, ensure_ascii=False).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/responses",
+                    data=payload,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                output_text = data.get("output_text", "")
+                if not output_text:
+                    output_text = "".join(
+                        part.get("text", "")
+                        for item in data.get("output", [])
+                        for part in item.get("content", [])
+                        if part.get("type") == "output_text"
+                    )
+                self.circuit_breaker.record_success()
+                return {
+                    "text": output_text,
+                    "tokens_used": (data.get("usage") or {}).get("total_tokens", 0),
+                    "provider": "openai",
+                    "model": self.model_name,
+                    "guardrail_report": guard_report,
+                }
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+                self.circuit_breaker.record_failure()
+                logger.warning("OpenAI Responses API call failed: %s", exc)
+                return {
+                    "text": "",
+                    "tokens_used": 0,
+                    "provider": "openai_error",
+                    "model": self.model_name,
+                    "error": str(exc),
+                    "guardrail_report": guard_report,
+                }
+
         # Step 2: Attempt local Ollama if configured
         if self.provider == "ollama":
             try:
-                import urllib.request
                 payload = json.dumps({
                     "model": self.model_name,
                     "prompt": f"{system_instruction}\n\n{sanitized_prompt}",
@@ -143,7 +222,11 @@ class UnifiedLLMAdapter:
                 self.circuit_breaker.record_failure()
 
         # Step 3: Default Fallback to Deterministic Mock
-        mock_text, tokens = self._generate_deterministic_mock(sanitized_prompt, system_instruction, context)
+        mock_text, tokens = self._generate_deterministic_mock(
+            sanitized_prompt,
+            system_instruction,
+            sanitized_context,
+        )
         return {
             "text": mock_text,
             "tokens_used": tokens,

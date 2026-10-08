@@ -44,6 +44,9 @@ GET /runs/:id/results
 
 ### Findings
 
+`GET /api/findings` accepts `subject_zone`. List and detail responses include `subject_zone`, `jurisdiction_chain`, `policy_id`, and `law_ref`.
+
+`policy_id` and `law_ref` are authoritative snapshots produced during evaluation. Clients MUST NOT manufacture legal defaults when either value is absent. Detail sample records are restricted to the Finding's zone.
 ```text
 GET /runs/:id/findings
 GET /findings/:id
@@ -111,4 +114,3 @@ Không hard-refresh toàn trang.
 Chỉ update state liên quan.
 
 ---
-

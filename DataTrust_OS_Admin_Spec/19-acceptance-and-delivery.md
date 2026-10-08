@@ -56,6 +56,9 @@
 - Có severity.
 - Có rule.
 - Có policy.
+- EU, VN và US của cùng một rule tạo các Finding riêng.
+- `law_ref` đúng với control thực sự fail; không có fallback `Luật 91 & GDPR`.
+- Finding Detail không trả sample record thuộc zone khác.
 - Có dataset/column.
 - Có failed record count.
 - Có reason/impact.
@@ -63,6 +66,7 @@
 
 ## F. AI
 
+- AI chỉ diễn giải policy snapshot đúng zone của Finding và không tự ghép thêm luật.
 - Có AI explanation.
 - Có RCA.
 - Có remediation suggestion.
@@ -150,6 +154,13 @@ Nếu thời gian hạn chế, ưu tiên P0 → P1 → P2.
 
 # 32. Definition of Done
 
+Jurisdiction matrix bắt buộc pass:
+
+- EU = GLOBAL + EU; không nhận policy VN/US.
+- VN = GLOBAL + VN; không nhận GDPR/CCPA.
+- US = GLOBAL + US; nếu chưa có pack phải báo `NO_ACTIVE_PACK`.
+- Zone không hợp lệ không được âm thầm nhận policy của zone khác.
+- Mixed-zone dataset được resolve và aggregate theo từng record.
 Feature được coi là hoàn thành khi Admin có thể thực hiện đầy đủ:
 
 ```text

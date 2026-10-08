@@ -111,6 +111,17 @@ Active
 
 ### Optional action
 
+## 18.1. Jurisdiction applicability invariant
+
+Policy applicability MUST be resolved for every record, not once for an entire mixed-zone dataset.
+
+- Normalize `subject_zone` and `country` before matching.
+- Apply `GLOBAL` controls to every recognized zone.
+- Apply `EU`, `VN`, or `US` controls only when that jurisdiction is present in the record's resolved chain.
+- A country-level control may apply only when that exact country is present in the chain.
+- Precedence is country → zone → global when two controls govern the same field and operation.
+- A missing or unsupported zone MUST be reported as `NO_ACTIVE_PACK`; the engine MUST NOT borrow another zone's legal basis.
+- Every active rule must expose `policy_id`, `jurisdiction`, and `law_ref`. A missing legal mapping is explicit, never replaced by a combined-law fallback.
 ```text
 [View usage]
 ```

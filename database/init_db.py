@@ -10,7 +10,16 @@ from pathlib import Path
 
 def init_postgres():
     db_url = os.getenv("DATABASE_URL", "postgresql://airflow:airflow@localhost:5432/airflow")
-    schema_path = Path(__file__).parent / "schema.sql"
+    database_dir = Path(__file__).parent
+    schema_paths = [
+        database_dir / "schema.sql",
+        database_dir / "schema_bronze_and_catalog.sql",
+        database_dir / "schema_audit_and_policy_rules.sql",
+        database_dir / "schema_silver_quarantine_warning.sql",
+        database_dir / "schema_profiling.sql",
+        database_dir / "schema_step3_step5_hardening.sql",
+        database_dir / "schema_jurisdiction_policy_isolation.sql",
+    ]
     seed_path = Path(__file__).parent / "seed_data.sql"
 
     print("=" * 70)
@@ -24,10 +33,11 @@ def init_postgres():
         conn.autocommit = True
         cursor = conn.cursor()
 
-        print("[1/2] Applying Schema DDL (database/schema.sql)...")
-        with open(schema_path, "r", encoding="utf-8") as f:
-            cursor.execute(f.read())
-        print("  -> Successfully created 7 Schemas, 2 Enum Types, and 12 Tables.")
+        print("[1/2] Applying schema and jurisdiction migrations...")
+        for schema_path in schema_paths:
+            with open(schema_path, "r", encoding="utf-8") as f:
+                cursor.execute(f.read())
+            print(f"  -> Applied {schema_path.name}")
 
         print("[2/2] Applying Seed Data (database/seed_data.sql)...")
         with open(seed_path, "r", encoding="utf-8") as f:
@@ -44,7 +54,8 @@ def init_postgres():
         print("    If Docker is not running yet, execute: docker-compose up -d postgres")
         print("    Then re-run: python database/init_db.py")
         print("    All schema files and seed data are verified and ready in:")
-        print(f"    - {schema_path}")
+        for schema_path in schema_paths:
+            print(f"    - {schema_path}")
         print(f"    - {seed_path}")
         return False
 

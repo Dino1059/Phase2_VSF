@@ -35,6 +35,16 @@ Route:
 
 ## 9.2. Table
 
+### Jurisdiction isolation
+
+The Finding aggregation key MUST include at least:
+
+`run_id + dataset_id + rule_id + column_name + severity + subject_zone + policy_id`.
+
+Records from EU, VN, and US MUST NOT be merged into the same Finding. `law_ref` is the immutable snapshot of the policy/control that actually failed. It must not be inferred from the dataset or replaced with a generic string combining laws from multiple jurisdictions.
+
+The list supports a `subject_zone` filter and displays the normalized zone beside every Finding.
+
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ Finding ID  Rule             Severity  Records  Status     │
@@ -54,6 +64,8 @@ Pass không tạo Finding.
 ---
 
 # 10. Finding Detail
+
+Finding Detail MUST return samples from the same `subject_zone` as the Finding. It displays `policy_id`, `subject_zone`, `jurisdiction_chain`, and authoritative `law_ref`. Missing mappings are shown as “Chưa xác định căn cứ pháp lý”, not as a guessed law.
 
 Click Finding:
 
@@ -103,4 +115,3 @@ Mỗi Finding nên có nhóm action dễ thấy:
 ```
 
 ---
-

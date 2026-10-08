@@ -84,30 +84,17 @@ def test_update_treatment_rule_expression(client):
     assert data["params_json"]["prefix"] == 4
 
 
-def test_approve_and_toggle_treatment_rule(client):
-    # 1. Approve
+def test_ai_treatment_rule_approval_is_disabled(client):
     res_appr = client.post(
         "/api/rules/treatments/TRT-PROP-NAME/approve",
         json={"actor_name": "Nguyễn Quốc Bảo", "actor_role": "ADMIN"}
     )
-    assert res_appr.status_code == 200
-    assert res_appr.json()["status"] == "active"
-
-    # 2. Toggle to paused
-    res_tog = client.patch("/api/rules/treatments/TRT-PROP-NAME/toggle")
-    assert res_tog.status_code == 200
-    assert res_tog.json()["status"] == "paused"
-
-    # 3. Toggle back to active
-    res_tog2 = client.patch("/api/rules/treatments/TRT-PROP-NAME/toggle")
-    assert res_tog2.status_code == 200
-    assert res_tog2.json()["status"] == "active"
+    assert res_appr.status_code == 410
 
 
-def test_reject_treatment_rule(client):
+def test_ai_treatment_rule_rejection_is_disabled(client):
     res_rej = client.post(
         "/api/rules/treatments/TRT-PROP-VIN/reject",
         json={"actor_name": "Nguyễn Quốc Bảo", "actor_role": "ADMIN", "comments": "Not needed right now"}
     )
-    assert res_rej.status_code == 200
-    assert res_rej.json()["status"] == "rejected"
+    assert res_rej.status_code == 410

@@ -42,12 +42,17 @@ from backend.database.models import (
     DashboardOverviewModel,
     AgentTraceModel,
     PreventiveAlertModel,
-    DecisionRecordModel
+    DecisionRecordModel,
+    FindingAIAnalysisModel,
+    RemediationDecisionModel,
+    RemediationStatus,
 )
 from backend.engine.dynamic_runner import DynamicRuleRunner
 from backend.engine.quarantine_manager import QuarantineManager
 from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
 from backend.ai.agents.orchestrator import DataTrustAgentOrchestrator
+from backend.ai.services.finding_analysis_store import FindingAnalysisStore
+from backend.ai.services.guardrails import pre_llm_guard
 from backend.ingestion.load_3zone_pilot import (
     get_3zone_datasets,
     get_3zone_columns,
@@ -80,6 +85,7 @@ quarantine_mgr = QuarantineManager()
 runner = DynamicRuleRunner(quarantine_manager=quarantine_mgr)
 agent = PolicyRuleProposerAgent()
 orchestrator = DataTrustAgentOrchestrator()
+finding_analysis_store = FindingAnalysisStore()
 # Share proposals cache so endpoints stay in sync
 orchestrator.rule_proposer_agent.proposals = agent.proposals
 
@@ -175,6 +181,10 @@ class AgentChatRequest(BaseModel):
 class AgentPreventiveScanRequest(BaseModel):
     dataset_id: str = "trips"
     columns: Optional[List[str]] = None
+
+
+class RemediationReviewRequest(BaseModel):
+    comment: Optional[str] = None
 
 
 # =============================================================================
@@ -556,39 +566,24 @@ def get_proposed_rules(status: Optional[RuleStatus] = None):
 
 @app.post("/api/ai/propose", response_model=List[ProposedRuleModel])
 def ai_propose_rules(policy_id: str, dataset_id: str):
-    policy = POLICIES.get(policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    cols = COLUMNS.get(dataset_id, [])
-    if not cols:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    # Mock bronze sample for dry-run simulation
-    sample_records = [
-        {"customer_phone": "0987654321", "customer_name": "Trần Văn An", "pickup_latitude": 21.028511, "fare_amount": 120000.0, "trip_notes": "Call 0912345678"},
-        {"customer_phone": "0912345678", "customer_name": "Lê Thị Bích", "pickup_latitude": 21.033333, "fare_amount": 0.0, "trip_notes": "Normal"},
-    ]
-    proposals = agent.propose_rules_for_policy(policy, cols, sample_records)
-    return proposals
+    raise HTTPException(
+        status_code=410,
+        detail="AI rule creation is outside the Admin MVP specification; use Finding remediation suggestions instead."
+    )
 
 @app.post("/api/rules/{proposal_id}/approve", response_model=FieldProcessConfigModel)
 def approve_rule(proposal_id: str, req: ProposalApprovalRequest):
-    try:
-        active_config = agent.approve_proposal(proposal_id, req.actor_name, req.actor_role)
-        runner.register_rule(active_config)
-        return active_config
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail="AI rule activation is disabled by the Admin MVP specification."
+    )
 
 @app.post("/api/rules/{proposal_id}/reject", response_model=ProposedRuleModel)
 def reject_rule(proposal_id: str, req: ProposalRejectionRequest):
-    try:
-        rejected = agent.reject_proposal(proposal_id, req.actor_name, req.actor_role, req.comments)
-        return rejected
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy AI rule proposals are disabled by the Admin MVP specification."
+    )
 
 # =============================================================================
 # =============================================================================
@@ -596,7 +591,7 @@ def reject_rule(proposal_id: str, req: ProposalRejectionRequest):
 # =============================================================================
 
 @app.get("/api/rules/compliance-checks", response_model=List[ComplianceCheckRuleModel])
-def get_compliance_check_rules(dataset_id: Optional[str] = None):
+def get_compliance_check_rules(dataset_id: Optional[str] = None, jurisdiction: Optional[str] = None):
     """
     Quy tắc kiểm tra tuân thủ (Compliance / Quality Check Rules):
     Nguồn dữ liệu đơn nhất từ bảng PostgreSQL policy.compliance_rules.
@@ -609,22 +604,35 @@ def get_compliance_check_rules(dataset_id: Optional[str] = None):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if dataset_id:
                 clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
-                cur.execute("""
+                query = """
                     SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
-                           expression, description, law_ref, severity, on_fail_action,
+                           expression, description, law_ref, policy_id, policy_name,
+                           jurisdiction, country, severity, on_fail_action,
                            is_fixed, enforced_at
                     FROM policy.compliance_rules
-                    WHERE dataset_id = %s OR dataset_id = %s
-                    ORDER BY rule_id;
-                """, (clean_ds, f"{clean_ds}.csv"))
+                    WHERE (dataset_id = %s OR dataset_id = %s)
+                """
+                params = [clean_ds, f"{clean_ds}.csv"]
+                if jurisdiction:
+                    query = query.rstrip() + " AND jurisdiction IN ('GLOBAL', %s)"
+                    params.append(jurisdiction.strip().upper())
+                query += " ORDER BY rule_id;"
+                cur.execute(query, tuple(params))
             else:
-                cur.execute("""
+                query = """
                     SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
-                           expression, description, law_ref, severity, on_fail_action,
+                           expression, description, law_ref, policy_id, policy_name,
+                           jurisdiction, country, severity, on_fail_action,
                            is_fixed, enforced_at
                     FROM policy.compliance_rules
-                    ORDER BY dataset_id, rule_id;
-                """)
+                    WHERE 1=1
+                """
+                params = []
+                if jurisdiction:
+                    query += " AND jurisdiction IN ('GLOBAL', %s)"
+                    params.append(jurisdiction.strip().upper())
+                query += " ORDER BY dataset_id, rule_id;"
+                cur.execute(query, tuple(params))
             rows = cur.fetchall()
             conn.close()
             if rows:
@@ -639,6 +647,10 @@ def get_compliance_check_rules(dataset_id: Optional[str] = None):
                         expression=r["expression"],
                         description=r["description"] or "",
                         law_ref=r["law_ref"],
+                        policy_id=r["policy_id"],
+                        policy_name=r["policy_name"],
+                        jurisdiction=r["jurisdiction"],
+                        country=r["country"],
                         severity=r["severity"],
                         on_fail_action=r["on_fail_action"],
                         is_fixed=bool(r["is_fixed"]),
@@ -652,15 +664,21 @@ def get_compliance_check_rules(dataset_id: Optional[str] = None):
     # Fallback to in-memory if DB fails
     if dataset_id:
         mapped = DATASET_FILE_MAP.get(dataset_id, dataset_id)
-        return [r for r in COMPLIANCE_RULES if r.dataset_id == dataset_id or r.dataset_id == mapped]
-    return COMPLIANCE_RULES
+        rules = [r for r in COMPLIANCE_RULES if r.dataset_id == dataset_id or r.dataset_id == mapped]
+    else:
+        rules = list(COMPLIANCE_RULES)
+    if jurisdiction:
+        zone = jurisdiction.strip().upper()
+        rules = [r for r in rules if r.jurisdiction in {"GLOBAL", zone}]
+    return rules
 
 
 @app.get("/api/rules/treatments", response_model=List[DataTreatmentRuleModel])
 def get_data_treatment_rules(
     dataset_id: Optional[str] = None,
     status: Optional[str] = None,
-    is_ai_proposed: Optional[bool] = None
+    is_ai_proposed: Optional[bool] = None,
+    jurisdiction: Optional[str] = None,
 ):
     """
     Quy tắc xử lý dữ liệu chung (Data Treatment Rules):
@@ -676,7 +694,8 @@ def get_data_treatment_rules(
             query = """
                 SELECT rule_id, dataset_id, column_name, operation_id, treatment_name,
                        params_json, expression_display, description, is_ai_proposed,
-                       ai_rationale, ai_confidence, status, enforced_by, created_at, updated_at
+                       ai_rationale, ai_confidence, status, enforced_by, created_at, updated_at,
+                       policy_id, policy_name, law_ref, jurisdiction, country
                 FROM policy.data_treatment_rules
                 WHERE 1=1
             """
@@ -691,6 +710,9 @@ def get_data_treatment_rules(
             if is_ai_proposed is not None:
                 query += " AND is_ai_proposed = %s"
                 params.append(is_ai_proposed)
+            if jurisdiction:
+                query += " AND jurisdiction IN ('GLOBAL', %s)"
+                params.append(jurisdiction.strip().upper())
             query += " ORDER BY dataset_id, rule_id;"
 
             cur.execute(query, tuple(params))
@@ -707,6 +729,11 @@ def get_data_treatment_rules(
                         params_json=r["params_json"] if isinstance(r["params_json"], dict) else {},
                         expression_display=r["expression_display"],
                         description=r["description"],
+                        policy_id=r["policy_id"],
+                        policy_name=r["policy_name"],
+                        law_ref=r["law_ref"],
+                        jurisdiction=r["jurisdiction"],
+                        country=r["country"],
                         is_ai_proposed=bool(r["is_ai_proposed"]),
                         ai_rationale=r["ai_rationale"],
                         ai_confidence=float(r["ai_confidence"]) if r["ai_confidence"] is not None else None,
@@ -729,6 +756,9 @@ def get_data_treatment_rules(
         rules = [r for r in rules if r.status.lower() == status.lower()]
     if is_ai_proposed is not None:
         rules = [r for r in rules if r.is_ai_proposed == is_ai_proposed]
+    if jurisdiction:
+        zone = jurisdiction.strip().upper()
+        rules = [r for r in rules if r.jurisdiction in {"GLOBAL", zone}]
     return rules
 
 
@@ -782,6 +812,11 @@ def update_data_treatment_rule(
                     params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
                     expression_display=row["expression_display"],
                     description=row["description"],
+                    policy_id=row["policy_id"],
+                    policy_name=row["policy_name"],
+                    law_ref=row["law_ref"],
+                    jurisdiction=row["jurisdiction"],
+                    country=row["country"],
                     is_ai_proposed=bool(row["is_ai_proposed"]),
                     ai_rationale=row["ai_rationale"],
                     ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
@@ -815,63 +850,12 @@ def approve_data_treatment_rule(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
     """
-    Admin duyệt quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'active' trong DB.
-    RBAC: Auditor là Chỉ đọc, không có quyền duyệt quy tắc.
+    Disabled by the Admin MVP specification: applied rules are read-only.
     """
-    if req.actor_role == UserRole.AUDITOR or (x_user_role and x_user_role.lower() == "auditor"):
-        raise HTTPException(
-            status_code=403,
-            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền phê duyệt quy tắc."
-        )
-
-    from database.profiler_engine import get_db_connection
-    from psycopg2.extras import RealDictCursor
-    now_utc = datetime.now(timezone.utc)
-    enforced = f"{req.actor_name} ({req.actor_role})"
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                UPDATE policy.data_treatment_rules
-                SET status = 'active',
-                    enforced_by = %s,
-                    updated_at = %s
-                WHERE rule_id = %s
-                RETURNING *;
-            """, (enforced, now_utc, rule_id))
-            row = cur.fetchone()
-            conn.commit()
-            conn.close()
-            if row:
-                res_rule = DataTreatmentRuleModel(
-                    rule_id=row["rule_id"],
-                    dataset_id=row["dataset_id"],
-                    column_name=row["column_name"],
-                    operation_id=row["operation_id"],
-                    treatment_name=row["treatment_name"],
-                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
-                    expression_display=row["expression_display"],
-                    description=row["description"],
-                    is_ai_proposed=bool(row["is_ai_proposed"]),
-                    ai_rationale=row["ai_rationale"],
-                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
-                    status=row["status"],
-                    enforced_by=row["enforced_by"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"]
-                )
-                TREATMENT_RULES[rule_id] = res_rule
-                return res_rule
-    except Exception as e:
-        print(f"Warning: Failed to approve policy.data_treatment_rules in DB: {e}")
-
-    rule = TREATMENT_RULES.get(rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Treatment rule not found")
-    rule.status = "active"
-    rule.enforced_by = enforced
-    rule.updated_at = now_utc
-    return rule
+    raise HTTPException(
+        status_code=410,
+        detail="Rule approval is read-only in the Admin MVP; review Finding remediation instead.",
+    )
 
 
 @app.post("/api/rules/treatments/{rule_id}/reject", response_model=DataTreatmentRuleModel)
@@ -881,60 +865,12 @@ def reject_data_treatment_rule(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
     """
-    Admin từ chối quy tắc xử lý do AI đề xuất -> chuyển trạng thái thành 'rejected' trong DB.
-    RBAC: Auditor là Chỉ đọc, không có quyền từ chối quy tắc.
+    Disabled by the Admin MVP specification: review Finding remediation instead.
     """
-    if req.actor_role == UserRole.AUDITOR or (x_user_role and x_user_role.lower() == "auditor"):
-        raise HTTPException(
-            status_code=403,
-            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền thao tác trên quy tắc."
-        )
-
-    from database.profiler_engine import get_db_connection
-    from psycopg2.extras import RealDictCursor
-    now_utc = datetime.now(timezone.utc)
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                UPDATE policy.data_treatment_rules
-                SET status = 'rejected',
-                    updated_at = %s
-                WHERE rule_id = %s
-                RETURNING *;
-            """, (now_utc, rule_id))
-            row = cur.fetchone()
-            conn.commit()
-            conn.close()
-            if row:
-                res_rule = DataTreatmentRuleModel(
-                    rule_id=row["rule_id"],
-                    dataset_id=row["dataset_id"],
-                    column_name=row["column_name"],
-                    operation_id=row["operation_id"],
-                    treatment_name=row["treatment_name"],
-                    params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
-                    expression_display=row["expression_display"],
-                    description=row["description"],
-                    is_ai_proposed=bool(row["is_ai_proposed"]),
-                    ai_rationale=row["ai_rationale"],
-                    ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
-                    status=row["status"],
-                    enforced_by=row["enforced_by"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"]
-                )
-                TREATMENT_RULES[rule_id] = res_rule
-                return res_rule
-    except Exception as e:
-        print(f"Warning: Failed to reject policy.data_treatment_rules in DB: {e}")
-
-    rule = TREATMENT_RULES.get(rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Treatment rule not found")
-    rule.status = "rejected"
-    rule.updated_at = now_utc
-    return rule
+    raise HTTPException(
+        status_code=410,
+        detail="Rule rejection is outside the Admin MVP; review Finding remediation instead.",
+    )
 
 
 @app.patch("/api/rules/treatments/{rule_id}/toggle", response_model=DataTreatmentRuleModel)
@@ -968,6 +904,11 @@ def toggle_data_treatment_rule(rule_id: str):
                     params_json=row["params_json"] if isinstance(row["params_json"], dict) else {},
                     expression_display=row["expression_display"],
                     description=row["description"],
+                    policy_id=row["policy_id"],
+                    policy_name=row["policy_name"],
+                    law_ref=row["law_ref"],
+                    jurisdiction=row["jurisdiction"],
+                    country=row["country"],
                     is_ai_proposed=bool(row["is_ai_proposed"]),
                     ai_rationale=row["ai_rationale"],
                     ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
@@ -1188,7 +1129,15 @@ def trigger_airflow_pipeline(
         dataset_id=req.dataset_id or "ride_hailing_xanh_sm_trips",
         options=req.conf
     )
-    return create_pipeline_run(create_req, x_user_role=x_user_role)
+    result = create_pipeline_run(create_req, x_user_role=x_user_role)
+    if isinstance(result, dict):
+        return {
+            **result,
+            "upstream_status": result.get("status"),
+            "status": "triggered",
+            "mode": result.get("mode", "airflow_celery"),
+        }
+    return result
 
 
 @app.get("/api/runs")
@@ -1544,6 +1493,7 @@ def list_findings(
     severity: Optional[str] = None,
     status: Optional[str] = None,
     column: Optional[str] = None,
+    subject_zone: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0)
@@ -1561,7 +1511,8 @@ def list_findings(
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             query = """
                 SELECT f.finding_id, f.run_id, f.dataset_id, f.rule_id, f.policy_id,
-                       f.policy_name, f.law_ref, f.column_name, f.severity, f.status,
+                       f.policy_name, f.law_ref, f.jurisdiction AS subject_zone, f.jurisdiction_chain,
+                       f.column_name, f.severity, f.status,
                        f.reason, f.impact, f.failed_record_count, f.detected_at,
                        f.resolved_at, f.resolved_by,
                        r.started_at as run_started_at
@@ -1597,6 +1548,11 @@ def list_findings(
                 query += " AND LOWER(f.column_name) = LOWER(%s)"
                 count_query += " AND LOWER(f.column_name) = LOWER(%s)"
                 params.append(column)
+            if subject_zone:
+                normalized_zone = subject_zone.strip().upper()
+                query += " AND UPPER(TRIM(f.jurisdiction)) = %s"
+                count_query += " AND UPPER(TRIM(f.jurisdiction)) = %s"
+                params.append(normalized_zone)
             if search:
                 term = f"%{search}%"
                 query += " AND (f.reason ILIKE %s OR f.rule_id ILIKE %s OR f.policy_name ILIKE %s)"
@@ -1656,6 +1612,7 @@ def get_finding_detail(finding_id: str):
                 raise HTTPException(status_code=404, detail=f"Không tìm thấy Finding '{finding_id}'.")
 
             res = dict(finding)
+            res["subject_zone"] = res.get("jurisdiction")
             if res.get("detected_at"):
                 res["detected_at"] = res["detected_at"].isoformat()
             if res.get("resolved_at"):
@@ -1666,22 +1623,33 @@ def get_finding_detail(finding_id: str):
             # Mẫu bản ghi cách ly thực tế
             cur.execute("""
                 SELECT q.quarantine_id, q.source_row_pk, q.violation_severity,
-                       q.violation_reason, q.raw_record_json, q.status, q.quarantined_at
+                       q.violation_reason, q.raw_record_json, q.status, q.quarantined_at,
+                       q.lineage_hash, q.subject_zone, q.jurisdiction_chain,
+                       q.matched_policy_id AS policy_id,
+                       q.matched_policy_name AS policy_name,
+                       q.matched_law_ref AS law_ref
                 FROM audit.finding_quarantine_records fqr
                 JOIN quarantine.records q ON fqr.quarantine_id = q.quarantine_id
                 WHERE fqr.finding_id = %s
+                  AND UPPER(TRIM(q.subject_zone)) = UPPER(TRIM(%s))
                 LIMIT 10;
-            """, (finding_id,))
+            """, (finding_id, res.get("subject_zone")))
             q_rows = cur.fetchall()
 
             if not q_rows:
                 cur.execute("""
                     SELECT quarantine_id, source_row_pk, violation_severity,
-                           violation_reason, raw_record_json, status, quarantined_at
+                           violation_reason, raw_record_json, status, quarantined_at,
+                           lineage_hash, subject_zone, jurisdiction_chain,
+                           matched_policy_id AS policy_id,
+                           matched_policy_name AS policy_name,
+                           matched_law_ref AS law_ref
                     FROM quarantine.records
-                    WHERE run_id = %s AND (violation_rule_id = %s OR violation_column = %s)
+                    WHERE run_id = %s
+                      AND (violation_rule_id = %s OR violation_column = %s)
+                      AND UPPER(TRIM(subject_zone)) = UPPER(TRIM(%s))
                     LIMIT 10;
-                """, (res["run_id"], res["rule_id"], res["column_name"]))
+                """, (res["run_id"], res["rule_id"], res["column_name"], res.get("subject_zone")))
                 q_rows = cur.fetchall()
 
             sample_records = []
@@ -1705,6 +1673,272 @@ def get_finding_detail(finding_id: str):
             return res
     finally:
         conn.close()
+
+
+def _require_admin_identity(x_user_role: Optional[str], x_user: Optional[str]) -> str:
+    """Read temporary development identity headers; production auth must validate them upstream."""
+    if (x_user_role or "").upper() != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="ADMIN role is required for remediation decisions.")
+    actor = (x_user or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="X-User identity header is required.")
+    return actor
+
+
+def _finding_ai_context(finding_id: str) -> Dict[str, Any]:
+    """Load the existing Finding detail, then attach available policy/evidence context."""
+    detail = get_finding_detail(finding_id)
+    policy = POLICIES.get(str(detail.get("policy_id") or ""))
+    rule = detail.get("rule_definition")
+    if not rule:
+        matched_rule = next(
+            (item for item in COMPLIANCE_RULES if item.rule_id == detail.get("rule_id")), None
+        )
+        rule = matched_rule.model_dump(mode="json") if matched_rule else None
+    policy_context = policy.model_dump(mode="json") if policy else None
+    if not policy_context and any(detail.get(key) for key in ("policy_id", "policy_name", "law_ref")):
+        policy_context = {
+            "policy_id": detail.get("policy_id"),
+            "title": detail.get("policy_name"),
+            "law_ref": detail.get("law_ref"),
+            "context_completeness": "partial",
+        }
+    context: Dict[str, Any] = {
+        "finding": {k: v for k, v in detail.items() if k not in {"sample_records", "rule_definition"}},
+        "result": {
+            "run_id": detail.get("run_id"),
+            "run_status": detail.get("run_status"),
+            "failed_record_count": detail.get("failed_record_count"),
+        },
+        "evidence": detail.get("sample_records") or [],
+        # A lineage hash proves record identity/integrity, but it is not a
+        # lineage graph or data path. Keep it separate so missing_context stays
+        # honest until a real lineage path is available.
+        "lineage": None,
+        "lineage_hashes": [
+            row.get("lineage_hash") for row in (detail.get("sample_records") or [])
+            if row.get("lineage_hash")
+        ],
+        "rule": rule,
+        "policy": policy_context,
+    }
+    return context
+
+
+@app.post("/api/findings/{finding_id}/ai-explanation", response_model=FindingAIAnalysisModel)
+def create_finding_ai_explanation(finding_id: str, refresh: bool = Query(False)):
+    existing = finding_analysis_store.get(finding_id)
+    if existing and not refresh:
+        return existing
+    if existing and existing.remediation.status != RemediationStatus.SUGGESTED:
+        raise HTTPException(
+            status_code=409,
+            detail="An approved or rejected analysis cannot be regenerated.",
+        )
+    raw_context = _finding_ai_context(finding_id)
+    missing = [name for name in ("evidence", "lineage", "rule", "policy") if not raw_context.get(name)]
+    if (raw_context.get("policy") or {}).get("context_completeness") == "partial" and "policy" not in missing:
+        missing.append("policy")
+    if not any(raw_context["result"].values()):
+        missing.insert(0, "result")
+    _safe_prompt, guard = pre_llm_guard(
+        """Analyze this data-quality finding and respond as a thoughtful human data analyst.
+Return ONLY valid JSON with these fields:
+{
+  "explanation": "clear, natural Vietnamese explanation for a non-technical user",
+  "root_cause": "most likely root cause, explicitly noting uncertainty",
+  "confidence": 0.0,
+  "issues": [
+    {
+      "field": "exact field name from evidence, for example trip_distance",
+      "issue": "specific defect, for example value is negative",
+      "observed_condition": "specific observed value or comparison when present in evidence",
+      "likely_cause": "evidence-grounded likely cause or explicitly unknown",
+      "suggested_action": "specific safe action for this field",
+      "evidence_reference": "quarantine_id/source_row_pk when available"
+    }
+  ],
+  "remediation_action": "<field>: <specific issue> → <specific suggested action>",
+  "remediation_rationale": "practical Vietnamese recommendation covering the identified field-level issues"
+}
+The issues array must contain at least one item. Prefer concrete statements such as
+"trip_distance < 0", "fare_amount differs from the component sum", or
+"pickup_timestamp is not a valid timestamp" only when the supplied evidence supports them.
+Never replace an available field-level defect with only a generic rule name.
+Do not expose masked data, invent evidence, or claim that a remediation was executed.""",
+        raw_context,
+    )
+    safe_context = guard["sanitized_context"]
+
+    # Only the sanitized object may cross the LLM boundary. The factual fallback
+    # below remains authoritative if the provider is unavailable.
+    llm_result = orchestrator.llm_adapter.complete(
+        _safe_prompt,
+        system_instruction=(
+            "You are a careful DataTrust analyst. Write naturally, concisely, and empathetically in Vietnamese. "
+            "Use only the supplied sanitized context. State uncertainty and never invent evidence, rules, "
+            "policies, lineage, record counts, field names, values, or execution results. "
+            "When evidence is insufficient for a field-level conclusion, say so instead of guessing. Output JSON only."
+        ),
+        context=safe_context,
+        temperature=0.0,
+    )
+    finding = safe_context.get("finding") or {}
+    reason = finding.get("reason") or "No failure reason was recorded."
+    rule_id = finding.get("rule_id") or "unknown rule"
+    evidence_refs = []
+    for row in safe_context.get("evidence") or []:
+        ref = row.get("quarantine_id") or row.get("source_row_pk")
+        if ref:
+            evidence_refs.append(str(ref))
+    evidence_refs.extend(str(item) for item in (safe_context.get("lineage_hashes") or []))
+    evidence_refs = list(dict.fromkeys(evidence_refs))
+    if llm_result.get("provider") == "openai_error":
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI is unavailable or misconfigured. Check OPENAI_API_KEY, OPENAI_MODEL, and backend logs.",
+        )
+
+    try:
+        response_text = str(llm_result.get("text") or "").strip()
+        if response_text.startswith("```"):
+            response_text = response_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        generated = json.loads(response_text)
+        required = {
+            "explanation", "root_cause", "confidence",
+            "issues", "remediation_action", "remediation_rationale",
+        }
+        if not isinstance(generated, dict) or not required.issubset(generated):
+            raise ValueError("The model response does not match the Finding analysis contract")
+        if not isinstance(generated["issues"], list) or not generated["issues"]:
+            raise ValueError("The model must identify at least one concrete issue")
+        issue_fields = {
+            "field", "issue", "observed_condition", "likely_cause",
+            "suggested_action", "evidence_reference",
+        }
+        if any(not isinstance(item, dict) or not issue_fields.issubset(item) for item in generated["issues"]):
+            raise ValueError("A field-level issue does not match the Finding issue contract")
+        confidence = max(0.0, min(float(generated["confidence"]), 1.0))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        if llm_result.get("provider") == "openai":
+            raise HTTPException(
+                status_code=502,
+                detail="OpenAI returned an invalid Finding analysis. Please retry.",
+            ) from exc
+        # Deterministic behavior remains available only for local development/tests.
+        completeness = 5 - len(missing)
+        confidence = round(min(0.9, 0.35 + completeness * 0.11), 2)
+        generated = {
+            "explanation": f"Finding {finding_id} failed {rule_id}: {reason}",
+            "root_cause": str(reason),
+            "issues": [{
+                "field": str(finding.get("column_name") or "unknown"),
+                "issue": str(reason),
+                "observed_condition": None,
+                "likely_cause": "Insufficient context to determine a more specific cause.",
+                "suggested_action": "Review the source value against the rule definition.",
+                "evidence_reference": evidence_refs[0] if evidence_refs else None,
+            }],
+            "remediation_action": "Review and correct affected records",
+            "remediation_rationale": (
+                f"Correct records that violate {rule_id}, then submit them to the separate execution workflow."
+            ),
+        }
+    remediation = RemediationDecisionModel(
+        action=str(generated["remediation_action"]),
+        scope={
+            "finding_id": finding_id,
+            "dataset_id": finding.get("dataset_id"),
+            "run_id": finding.get("run_id"),
+            "affected_records": finding.get("failed_record_count"),
+        },
+        rationale=str(generated["remediation_rationale"]),
+    )
+    now = datetime.now(timezone.utc)
+    analysis = FindingAIAnalysisModel(
+        finding_id=finding_id,
+        explanation=str(generated["explanation"]),
+        root_cause=str(generated["root_cause"]),
+        confidence=confidence,
+        issues=generated["issues"],
+        evidence_references=evidence_refs,
+        missing_context=missing,
+        remediation=remediation,
+        guardrail_report={
+            "is_sanitized": guard.get("is_sanitized", False),
+            "redactions": guard.get("redactions", {}),
+            "provider": llm_result.get("provider"),
+        },
+        created_at=now,
+        updated_at=now,
+        audit_events=[{"action": "analysis_created", "at": now.isoformat(), "actor": "AI_AGENT"}],
+    )
+    return finding_analysis_store.save(analysis)
+
+
+@app.get("/api/findings/{finding_id}/ai-analysis", response_model=FindingAIAnalysisModel)
+def get_finding_ai_analysis(finding_id: str):
+    analysis = finding_analysis_store.get(finding_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"No AI analysis exists for Finding '{finding_id}'.")
+    return analysis
+
+
+def _review_finding_remediation(
+    finding_id: str, decision: RemediationStatus, comment: Optional[str], actor: str
+) -> FindingAIAnalysisModel:
+    analysis = finding_analysis_store.get(finding_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"No AI analysis exists for Finding '{finding_id}'.")
+    current = analysis.remediation.status
+    if current == decision:
+        return analysis  # idempotent retry by an API client
+    if current != RemediationStatus.SUGGESTED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot change remediation from '{current.value}' to '{decision.value}'."
+        )
+    now = datetime.now(timezone.utc)
+    analysis.remediation.status = decision
+    analysis.remediation.decided_by = actor
+    analysis.remediation.decided_at = now
+    analysis.remediation.decision_comment = comment
+    analysis.updated_at = now
+    analysis.audit_events.append({
+        "action": "remediation_approved" if decision == RemediationStatus.PENDING_EXECUTION else "remediation_rejected",
+        "actor": actor,
+        "at": now.isoformat(),
+        "from": current.value,
+        "to": decision.value,
+        "comment": comment,
+    })
+    return finding_analysis_store.save(analysis)
+
+
+@app.post("/api/findings/{finding_id}/remediation/approve", response_model=FindingAIAnalysisModel)
+def approve_finding_remediation(
+    finding_id: str,
+    payload: Optional[RemediationReviewRequest] = None,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    actor = _require_admin_identity(x_user_role, x_user)
+    return _review_finding_remediation(
+        finding_id, RemediationStatus.PENDING_EXECUTION, payload.comment if payload else None, actor
+    )
+
+
+@app.post("/api/findings/{finding_id}/remediation/reject", response_model=FindingAIAnalysisModel)
+def reject_finding_remediation(
+    finding_id: str,
+    payload: Optional[RemediationReviewRequest] = None,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    actor = _require_admin_identity(x_user_role, x_user)
+    return _review_finding_remediation(
+        finding_id, RemediationStatus.REJECTED, payload.comment if payload else None, actor
+    )
 
 
 @app.patch("/api/findings/{finding_id}/status")
@@ -2447,6 +2681,20 @@ def get_lineage_graph(dataset_id: Optional[str] = None, run_id: Optional[str] = 
     """Returns the visual DAG node-and-edge lineage topology."""
     from backend.lineage.lineage_service import LineageService
     return LineageService.get_graph(dataset_id=dataset_id, run_id=run_id)
+
+
+@app.get("/api/runs/{run_id}/lineage")
+def get_run_lineage(run_id: str):
+    """Returns lineage scoped to a pipeline run."""
+    from backend.lineage.lineage_service import LineageService
+    return LineageService.get_graph(run_id=run_id)
+
+
+@app.get("/api/datasets/{dataset_id}/lineage")
+def get_dataset_lineage(dataset_id: str):
+    """Returns lineage scoped to a catalog dataset."""
+    from backend.lineage.lineage_service import LineageService
+    return LineageService.get_graph(dataset_id=dataset_id)
 
 
 @app.get("/api/lineage/column-lineage/{dataset_id}")

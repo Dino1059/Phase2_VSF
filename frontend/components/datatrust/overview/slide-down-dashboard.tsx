@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
-  ArrowDown,
   CheckCircle2,
   Eye,
   Loader2,
@@ -417,19 +416,6 @@ export function SlideDownDashboard() {
       </Card>
 
       {/* ========================================================================= */}
-      {/* 5. DOWN SCROLL INDICATOR CIRCLE [ ↓ ]                                      */}
-      {/* ========================================================================= */}
-      <div className="flex justify-center pt-1 pb-2">
-        <button
-          onClick={scrollToInvestigation}
-          title="Cuộn xuống để xem chi tiết điều tra và đề xuất xử lý"
-          className="grid size-8 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 shadow-2xs transition cursor-pointer"
-        >
-          <ArrowDown size={14} />
-        </button>
-      </div>
-
-      {/* ========================================================================= */}
       {/* 6. FINDING INVESTIGATION & REMEDIATION SECTION                            */}
       {/* ========================================================================= */}
       <div id="finding-remediation-section" className="space-y-4 pt-4 border-t border-slate-200/70">
@@ -480,6 +466,9 @@ export function SlideDownDashboard() {
                       <span className="rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-[10px] font-semibold">
                         Trạng thái: {f.status}
                       </span>
+                      <span className="rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 font-mono text-[10px] font-bold text-violet-700">
+                        Zone: {f.subject_zone || 'Chưa xác định'}
+                      </span>
                     </div>
 
                     <p className="text-xs font-semibold text-slate-900 leading-relaxed">
@@ -487,7 +476,7 @@ export function SlideDownDashboard() {
                     </p>
 
                     <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
-                      <span>Căn cứ pháp lý: <strong className="text-slate-700">{f.law_ref || 'Luật 91/2025/QH15 & GDPR'}</strong></span>
+                      <span>Căn cứ pháp lý: <strong className="text-slate-700">{f.law_ref || 'Chưa xác định căn cứ pháp lý'}</strong></span>
                       <span>·</span>
                       <span>Ảnh hưởng: <strong className="text-rose-700">{f.failed_record_count} bản ghi cách ly</strong></span>
                     </div>

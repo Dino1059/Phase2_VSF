@@ -130,7 +130,11 @@ CREATE TABLE IF NOT EXISTS engine.compliance_check_rules (
     rule_code VARCHAR(50) NOT NULL,
     expression VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
+    policy_id VARCHAR(50) REFERENCES policy.compliance_policies(policy_id),
+    policy_name VARCHAR(255),
     law_ref VARCHAR(255) NOT NULL,
+    jurisdiction VARCHAR(50) NOT NULL DEFAULT 'UNSCOPED',
+    country VARCHAR(50),
     severity VARCHAR(20) NOT NULL DEFAULT 'CRITICAL',
     on_fail_action VARCHAR(20) NOT NULL DEFAULT 'QUARANTINE',
     is_fixed BOOLEAN NOT NULL DEFAULT TRUE, -- Fixed, cannot be modified on UI, AI cannot propose
@@ -150,6 +154,11 @@ CREATE TABLE IF NOT EXISTS engine.data_treatment_rules (
     params_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     expression_display VARCHAR(255) NOT NULL,
     description TEXT,
+    policy_id VARCHAR(50) REFERENCES policy.compliance_policies(policy_id),
+    policy_name VARCHAR(255),
+    law_ref VARCHAR(255),
+    jurisdiction VARCHAR(50) NOT NULL DEFAULT 'UNSCOPED',
+    country VARCHAR(50),
     is_ai_proposed BOOLEAN NOT NULL DEFAULT FALSE, -- Flagged separately if proposed by AI
     ai_rationale TEXT,                             -- AI Rationale note
     ai_confidence NUMERIC(4,3),                    -- Confidence score
@@ -264,12 +273,22 @@ CREATE TABLE IF NOT EXISTS quarantine.records (
     dataset_id VARCHAR(50) NOT NULL,
     source_table VARCHAR(100) NOT NULL,
     source_row_pk VARCHAR(100),
+    failure_lane VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN',
     violation_column VARCHAR(100),
     violation_rule_id VARCHAR(50),
     violation_reason TEXT NOT NULL,
     violation_severity VARCHAR(20) NOT NULL,
     raw_record_json JSONB NOT NULL,
     lineage_hash VARCHAR(64) NOT NULL, -- SHA-256 integrity hash
+    subject_zone VARCHAR(50) NOT NULL DEFAULT 'GLOBAL',
+    country VARCHAR(50),
+    jurisdiction_chain TEXT[] NOT NULL DEFAULT ARRAY['GLOBAL']::TEXT[],
+    matched_policy_id VARCHAR(100),
+    matched_policy_name VARCHAR(255),
+    matched_law_ref VARCHAR(255),
+    policy_snapshot JSONB,
+    applied_policy_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    policy_violations JSONB NOT NULL DEFAULT '[]'::jsonb,
     quarantined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(30) DEFAULT 'QUARANTINED', -- 'QUARANTINED', 'IN_REVIEW', 'REMEDIATED', 'OVERRIDDEN', 'DISCARDED'
     resolution_note TEXT,

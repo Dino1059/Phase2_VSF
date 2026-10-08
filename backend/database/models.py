@@ -70,6 +70,13 @@ class UserRole(str, Enum):
     AUDITOR = "AUDITOR"  # IPO Inspector / View-Only
 
 
+class RemediationStatus(str, Enum):
+    """Human-review lifecycle. Approval deliberately does not execute work."""
+    SUGGESTED = "suggested"
+    PENDING_EXECUTION = "pending_execution"
+    REJECTED = "rejected"
+
+
 # =============================================================================
 # DATA CATALOG MODELS
 # =============================================================================
@@ -155,6 +162,10 @@ class ComplianceCheckRuleModel(BaseModel):
     expression: str
     description: str
     law_ref: str
+    policy_id: Optional[str] = None
+    policy_name: Optional[str] = None
+    jurisdiction: str = "GLOBAL"
+    country: Optional[str] = None
     severity: RuleSeverity = RuleSeverity.CRITICAL
     on_fail_action: OnFailAction = OnFailAction.QUARANTINE
     is_fixed: bool = True  # Cố định, không thể sửa trên UI, AI không có quyền đề xuất
@@ -180,6 +191,11 @@ class DataTreatmentRuleModel(BaseModel):
     params_json: Dict[str, Any] = {}
     expression_display: str
     description: Optional[str] = None
+    policy_id: Optional[str] = None
+    policy_name: Optional[str] = None
+    law_ref: Optional[str] = None
+    jurisdiction: str = "GLOBAL"
+    country: Optional[str] = None
     is_ai_proposed: bool = False
     ai_rationale: Optional[str] = None
     ai_confidence: Optional[float] = None
@@ -250,6 +266,18 @@ class QuarantineRecordModel(BaseModel):
     violation_reason: str
     violation_severity: RuleSeverity = RuleSeverity.HIGH
     raw_record_json: Dict[str, Any]
+    subject_zone: str = "GLOBAL"
+    country: Optional[str] = None
+    jurisdiction_chain: List[str] = Field(default_factory=lambda: ["GLOBAL"])
+    applied_policy_ids: List[str] = Field(default_factory=list)
+    policy_id: Optional[str] = None
+    policy_name: Optional[str] = None
+    law_ref: Optional[str] = None
+    matched_policy_id: Optional[str] = None
+    matched_policy_name: Optional[str] = None
+    matched_law_ref: Optional[str] = None
+    policy_snapshot: Optional[Dict[str, Any]] = None
+    policy_violations: List[Dict[str, Any]] = Field(default_factory=list)
     lineage_hash: str  # SHA-256
     quarantined_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: QuarantineStatus = QuarantineStatus.QUARANTINED
@@ -270,6 +298,43 @@ class AuditTrailModel(BaseModel):
     new_state: Optional[Dict[str, Any]] = None
     record_hash: str
     previous_hash: str
+
+
+class RemediationDecisionModel(BaseModel):
+    status: RemediationStatus = RemediationStatus.SUGGESTED
+    action: str
+    scope: Dict[str, Any] = Field(default_factory=dict)
+    rationale: str
+    decided_by: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    decision_comment: Optional[str] = None
+
+
+class FindingIssueModel(BaseModel):
+    """One evidence-grounded, field-level issue identified by the AI."""
+    field: str
+    issue: str
+    observed_condition: Optional[str] = None
+    likely_cause: str
+    suggested_action: str
+    evidence_reference: Optional[str] = None
+
+
+class FindingAIAnalysisModel(BaseModel):
+    """Persisted, evidence-grounded explanation for one audit Finding."""
+    analysis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    finding_id: str
+    explanation: str
+    root_cause: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    issues: List[FindingIssueModel] = Field(default_factory=list)
+    evidence_references: List[str] = Field(default_factory=list)
+    missing_context: List[str] = Field(default_factory=list)
+    remediation: RemediationDecisionModel
+    guardrail_report: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    audit_events: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 # =============================================================================

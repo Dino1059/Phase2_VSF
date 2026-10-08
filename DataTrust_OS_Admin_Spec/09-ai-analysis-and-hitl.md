@@ -83,6 +83,10 @@ AI **không tự**:
 - change rule;
 - change policy.
 
+### Jurisdiction grounding
+
+AI receives only the matched policy snapshot stored on the Finding, including `subject_zone`, `policy_id`, and `law_ref`. It MUST NOT add, merge, or infer a legal framework from another zone. For example, an EU Finding may cite GDPR and applicable GLOBAL controls, but must not cite Luật 91/2025/QH15 unless the persisted evidence explicitly establishes VN applicability.
+
 Click Approve phải có confirmation:
 
 ```text
@@ -114,4 +118,3 @@ Approved → Pending execution
 Không tự giả định execution đã thành công.
 
 ---
-

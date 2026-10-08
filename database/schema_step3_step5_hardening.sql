@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS audit.findings (
     policy_id VARCHAR(64),
     policy_name VARCHAR(255),
     law_ref VARCHAR(255),
+    jurisdiction VARCHAR(50) NOT NULL DEFAULT 'GLOBAL',
+    country VARCHAR(50),
+    jurisdiction_chain TEXT[] NOT NULL DEFAULT ARRAY['GLOBAL']::TEXT[],
+    policy_snapshot JSONB,
+    legacy_policy_snapshot JSONB,
     column_name VARCHAR(64),
     severity VARCHAR(20) NOT NULL DEFAULT 'HIGH', -- 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'
     status VARCHAR(32) NOT NULL DEFAULT 'OPEN',   -- 'OPEN', 'IN_REVIEW', 'REMEDIATION_PENDING', 'RESOLVED'
@@ -66,6 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_findings_run_id ON audit.findings(run_id);
 CREATE INDEX IF NOT EXISTS idx_findings_rule_id ON audit.findings(rule_id);
 CREATE INDEX IF NOT EXISTS idx_findings_dataset ON audit.findings(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON audit.findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_jurisdiction ON audit.findings(jurisdiction, country);
+CREATE INDEX IF NOT EXISTS idx_findings_policy ON audit.findings(policy_id);
 
 -- 5. Bảng liên kết Finding và Quarantine Records
 CREATE TABLE IF NOT EXISTS audit.finding_quarantine_records (

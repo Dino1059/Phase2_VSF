@@ -39,6 +39,7 @@ export function RunFindingsPage() {
   const initialRule = searchParams.get('rule_id') || '';
   const initialSeverity = searchParams.get('severity') || 'ALL';
   const initialStatus = searchParams.get('status') || 'ALL';
+  const initialSubjectZone = searchParams.get('subject_zone') || 'ALL';
 
   const [findings, setFindings] = useState<FindingItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -52,6 +53,7 @@ export function RunFindingsPage() {
   const [selectedSeverity, setSelectedSeverity] = useState<string>(initialSeverity);
   const [selectedStatus, setSelectedStatus] = useState<string>(initialStatus);
   const [selectedColumn, setSelectedColumn] = useState<string>('');
+  const [selectedSubjectZone, setSelectedSubjectZone] = useState<string>(initialSubjectZone);
   const [searchText, setSearchText] = useState<string>('');
 
   // Catalog Datasets
@@ -78,6 +80,7 @@ export function RunFindingsPage() {
         severity: selectedSeverity !== 'ALL' ? selectedSeverity : undefined,
         status: selectedStatus !== 'ALL' ? selectedStatus : undefined,
         column: selectedColumn || undefined,
+        subjectZone: selectedSubjectZone !== 'ALL' ? selectedSubjectZone : undefined,
         search: searchText || undefined,
         limit: 100,
         offset: 0,
@@ -90,7 +93,7 @@ export function RunFindingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedRunId, selectedDataset, selectedRule, selectedSeverity, selectedStatus, selectedColumn, searchText]);
+  }, [selectedRunId, selectedDataset, selectedRule, selectedSeverity, selectedStatus, selectedColumn, selectedSubjectZone, searchText]);
 
   useEffect(() => {
     loadFindings();
@@ -102,6 +105,7 @@ export function RunFindingsPage() {
     setSelectedSeverity('ALL');
     setSelectedStatus('ALL');
     setSelectedColumn('');
+    setSelectedSubjectZone('ALL');
     setSearchText('');
   };
 
@@ -164,12 +168,12 @@ export function RunFindingsPage() {
         </div>
       </div>
 
-      {/* 6 BỘ LỌC TÌM KIẾM (SPEC 08 FILTERS) */}
+      {/* BỘ LỌC TÌM KIẾM FINDINGS */}
       <Card className="rounded-2xl border-slate-800 bg-slate-900/80 p-5 shadow-xl space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 text-xs font-bold text-white">
           <span className="flex items-center gap-2">
             <SlidersHorizontal className="size-4 text-cyan-400" />
-            Bộ lọc Kiểm toán Nâng cao (6 Chiều)
+            Bộ lọc Kiểm toán Nâng cao (7 Chiều)
           </span>
           <button
             onClick={resetFilters}
@@ -179,7 +183,7 @@ export function RunFindingsPage() {
           </button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 text-xs">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 text-xs">
           {/* Filter 1: Run ID */}
           <div className="space-y-1">
             <label className="text-[11px] font-semibold text-slate-400">1. Lượt chạy (Run ID)</label>
@@ -265,6 +269,22 @@ export function RunFindingsPage() {
               className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
             />
           </div>
+
+          {/* Filter 7: Subject zone */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-400">7. Zone áp dụng</label>
+            <select
+              value={selectedSubjectZone}
+              onChange={(e) => setSelectedSubjectZone(e.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs text-white focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="ALL">Tất cả zone</option>
+              <option value="VN">VN</option>
+              <option value="EU">EU</option>
+              <option value="US">US</option>
+              <option value="GLOBAL">GLOBAL</option>
+            </select>
+          </div>
         </div>
 
         {/* Free text search bar */}
@@ -307,6 +327,7 @@ export function RunFindingsPage() {
                   <th className="py-3 px-3">Finding ID</th>
                   <th className="py-3 px-3">Bảng / Cột</th>
                   <th className="py-3 px-3">Quy tắc / Policy</th>
+                  <th className="py-3 px-3">Zone</th>
                   <th className="py-3 px-3">Mức độ</th>
                   <th className="py-3 px-3">Trạng thái</th>
                   <th className="py-3 px-3 text-right">Bản ghi vi phạm</th>
@@ -331,7 +352,12 @@ export function RunFindingsPage() {
                     </td>
                     <td className="py-3.5 px-3">
                       <span className="font-mono font-bold text-slate-200 block">{f.rule_id}</span>
-                      <span className="text-[11px] text-slate-400 block line-clamp-1">{f.policy_name}</span>
+                      <span className="text-[11px] text-slate-400 block line-clamp-1">{f.policy_name || 'Chưa xác định chính sách'}</span>
+                    </td>
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      <span className="inline-block rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-violet-300">
+                        {f.subject_zone || 'Chưa xác định'}
+                      </span>
                     </td>
                     <td className="py-3.5 px-3 whitespace-nowrap">
                       <span

@@ -298,6 +298,32 @@ def get_3zone_policies() -> Dict[str, CompliancePolicyModel]:
                 PolicyClauseModel(clause_id="C-VN-02", policy_id="POL-VN-LAW91", clause_number="Điều 13 & NĐ 356", requirement_summary="Làm mờ vị trí đón trả khách", target_pii_roles=[PiiRoleType.CONTEXTUAL_PERSONAL_DATA], mandated_action=TreatmentActionType.GENERALIZE)
             ]
         ),
+        "POL-US-CCPA": CompliancePolicyModel(
+            policy_id="POL-US-CCPA",
+            title="California Consumer Privacy Act (CCPA/CPRA) - United States Zone",
+            jurisdiction="US",
+            legal_framework="CCPA/CPRA, Cal. Civ. Code § 1798.100 et seq.",
+            raw_policy_text="Áp dụng cho bản ghi thuộc vùng US. Yêu cầu giảm thiểu, bảo vệ và kiểm soát việc sử dụng thông tin cá nhân theo CCPA/CPRA.",
+            effective_date="2023-01-01",
+            clauses=[
+                PolicyClauseModel(
+                    clause_id="C-US-01",
+                    policy_id="POL-US-CCPA",
+                    clause_number="§ 1798.100(c)",
+                    requirement_summary="Giới hạn thu thập và sử dụng thông tin cá nhân theo mục đích cần thiết",
+                    target_pii_roles=[PiiRoleType.DIRECT_IDENTIFIER, PiiRoleType.LINKABLE_IDENTIFIER],
+                    mandated_action=TreatmentActionType.PSEUDONYMIZE,
+                ),
+                PolicyClauseModel(
+                    clause_id="C-US-02",
+                    policy_id="POL-US-CCPA",
+                    clause_number="§ 1798.121",
+                    requirement_summary="Giới hạn sử dụng dữ liệu vị trí chính xác nhạy cảm",
+                    target_pii_roles=[PiiRoleType.CONTEXTUAL_PERSONAL_DATA],
+                    mandated_action=TreatmentActionType.GENERALIZE,
+                ),
+            ],
+        ),
         "POL-IFRS-15": CompliancePolicyModel(
             policy_id="POL-IFRS-15",
             title="Quy Chuẩn Doanh Thu & Kiểm Soát Cuốc Xe IFRS 15 / SOX 404",

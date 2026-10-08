@@ -597,6 +597,9 @@ export interface AgentStoreState {
   setHomepageViewMode: (mode: HomepageViewMode) => void;
   pipelineLevels: PipelineLevelsState;
   chatMessages: ChatMessageItem[];
+  chatSessionId: string | null;
+  isChatLoading: boolean;
+  chatError: string | null;
   activeRules: ActiveRule[];
   rulesSegmentTab: 'active' | 'proposed';
   setRulesSegmentTab: (tab: 'active' | 'proposed') => void;
@@ -1202,6 +1205,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   setHomepageViewMode: (mode) => set({ homepageViewMode: mode }),
   pipelineLevels: initialPipelineLevels,
   chatMessages: initialChatMessages,
+  chatSessionId: null,
+  isChatLoading: false,
+  chatError: null,
   activeRules: initialActiveRules,
   rulesSegmentTab: 'active',
   setRulesSegmentTab: (tab) => set({ rulesSegmentTab: tab }),
@@ -1538,121 +1544,26 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   approveRule: (ruleId: string) => {
-    if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot approve rules
-
-    // Call backend API if live
-    if (get().isBackendLive) {
-      apiBridge.approveRule(ruleId, 'Nguyễn Quốc Bảo (Admin)', 'ADMIN').catch((err) => {
-        console.warn('Backend approve warning:', err);
-      });
-    }
-
-    set((state) => {
-      const currentDs = state.datasets[state.selectedDatasetId];
-      if (!currentDs) return state;
-
-      let approvedRuleTarget: ProposedRule | undefined;
-      const updatedRules = currentDs.proposedRules.map((r) => {
-        if (r.id === ruleId) {
-          approvedRuleTarget = {
-            ...r,
-            status: 'approved' as const,
-            approvedAt: new Date().toISOString(),
-            approvedBy: state.currentRole === 'auditor' ? 'Trần Minh Hoàng (Auditor IPO)' : 'Nguyễn Quốc Bảo (Admin)',
-          };
-          return approvedRuleTarget;
-        }
-        return r;
-      });
-
-      let updatedActiveRules = state.activeRules;
-      if (approvedRuleTarget) {
-        const newActive: ActiveRule = {
-          id: `ACT-${approvedRuleTarget.id}`,
-          name: approvedRuleTarget.name,
-          expression: approvedRuleTarget.expression,
-          domain: approvedRuleTarget.domain,
-          datasetId: state.selectedDatasetId,
-          datasetName: currentDs.title,
-          severity: approvedRuleTarget.severity,
-          targetLane: approvedRuleTarget.compiledTarget,
-          enforcedAt: new Date().toISOString(),
-          enforcedBy: state.currentRole === 'auditor' ? 'Trần Minh Hoàng (Auditor IPO)' : 'Nguyễn Quốc Bảo (Admin)',
-          lawRef: approvedRuleTarget.lawRef,
-          scannedCount: currentDs.records,
-          quarantinedCount: approvedRuleTarget.affectedRows,
-          engine: 'PySpark / SQL Stream Validator',
-          status: 'active',
-        };
-        if (!updatedActiveRules.some((a) => a.id === newActive.id)) {
-          updatedActiveRules = [newActive, ...updatedActiveRules];
-        }
-      }
-
-      const ruleName = approvedRuleTarget?.name || ruleId;
-      const newAiMsg: ChatMessageItem = {
-        id: `MSG-APP-${Date.now()}`,
+    set((state) => ({
+      chatMessages: [...state.chatMessages, {
+        id: `MSG-RULE-SCOPE-${Date.now()}`,
         sender: 'ai',
-        text: `✅ **Đã phê duyệt Rule thành công!**\nRule **${ruleName}** đã được kích hoạt vào danh sách **Rule đang áp dụng (Active in Production)**.\n• **Căn cứ**: *${approvedRuleTarget?.lawRef || 'IPO Control'}*\n• **Làn xử lý**: *${approvedRuleTarget?.compiledTarget || 'Quarantine Lane'}*\n• **Tác động bảo vệ**: Đã chuyển các bản ghi vi phạm vào luồng cách ly để bảo toàn doanh thu sạch (Silver lane).`,
+        text: `Không thể phê duyệt Rule **${ruleId}**: tạo hoặc kích hoạt rule bằng AI nằm ngoài phạm vi Admin MVP. Vui lòng mở Finding liên quan và sử dụng luồng remediation có Human-in-the-Loop.`,
         timestamp: 'Vừa xong',
-      };
-
-      return {
-        datasets: {
-          ...state.datasets,
-          [state.selectedDatasetId]: {
-            ...currentDs,
-            proposedRules: updatedRules,
-          },
-        },
-        activeRules: updatedActiveRules,
-        chatMessages: [...state.chatMessages, newAiMsg],
-      };
-    });
+      }],
+    }));
   },
 
   rejectRule: (ruleId: string) => {
-    if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot reject rules
-
-    if (get().isBackendLive) {
-      apiBridge.rejectRule(ruleId, 'Nguyễn Quốc Bảo (Admin)', 'ADMIN', 'Từ chối bởi Admin').catch((err) => {
-        console.warn('Backend reject warning:', err);
-      });
-    }
-
-    set((state) => {
-      const currentDs = state.datasets[state.selectedDatasetId];
-      if (!currentDs) return state;
-
-      let rejectedRule: ProposedRule | undefined;
-      const updatedRules = currentDs.proposedRules.map((r) => {
-        if (r.id === ruleId) {
-          rejectedRule = { ...r, status: 'rejected' as const };
-          return rejectedRule;
-        }
-        return r;
-      });
-
-      const newAiMsg: ChatMessageItem = {
-        id: `MSG-REJ-${Date.now()}`,
+    set((state) => ({
+      chatMessages: [...state.chatMessages, {
+        id: `MSG-RULE-SCOPE-${Date.now()}`,
         sender: 'ai',
-        text: `⚠️ Bạn đã **từ chối** áp dụng Rule **${rejectedRule?.name || ruleId}**. Dữ liệu liên quan sẽ tiếp tục được theo dõi ở mức cảnh báo và chưa đưa vào chặn tự động.`,
+        text: `Không thể xử lý Rule **${ruleId}** trong Admin MVP. Quyết định approve/reject chỉ áp dụng cho remediation gắn với một Finding cụ thể.`,
         timestamp: 'Vừa xong',
-      };
-
-      return {
-        datasets: {
-          ...state.datasets,
-          [state.selectedDatasetId]: {
-            ...currentDs,
-            proposedRules: updatedRules,
-          },
-        },
-        chatMessages: [...state.chatMessages, newAiMsg],
-      };
-    });
+      }],
+    }));
   },
-
   updateRuleExpression: (ruleId: string, expr: string) => {
     if (get().currentRole === 'auditor') return; // Auditor is viewer only and cannot edit rules
 
@@ -2185,90 +2096,76 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     get().viewLatestCompletedResults();
   },
 
-  sendUserChatMessage: (text: string) => {
+  sendUserChatMessage: async (text: string) => {
     const userMsg: ChatMessageItem = {
       id: `USER-${Date.now()}`,
       sender: 'user',
       text,
       timestamp: 'Vừa xong',
     };
-    set((s) => ({ chatMessages: [...s.chatMessages, userMsg] }));
+    set((s) => ({
+      chatMessages: [...s.chatMessages, userMsg],
+      isChatLoading: true,
+      chatError: null,
+    }));
 
-    const lower = text.toLowerCase();
-    setTimeout(() => {
-      let aiReply = '';
-      let quickActions = undefined;
+    try {
+      const state = get();
+      const response = await fetch('/api/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          session_id: state.chatSessionId,
+          context: {
+            dataset_id: state.selectedDatasetId || undefined,
+            run_id: state.pipelineLevels.activeRunId || undefined,
+            view: state.homepageViewMode,
+          },
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      if (lower.includes('trips') || lower.includes('chuyến đi') || lower.includes('chọn trips')) {
-        get().startPipelineRun('ride_hailing_xanh_sm_trips.csv');
-        return;
-      } else if (lower.includes('charging') || lower.includes('trạm sạc')) {
-        get().startPipelineRun('acn_charging_mapped.csv');
-        return;
-      } else if (lower.includes('telemetry') || lower.includes('pin') || lower.includes('viễn thông')) {
-        get().startPipelineRun('synthetic_ev_telemetry_ved_ref.csv');
-        return;
-      } else if (lower.includes('nlp') || lower.includes('đánh giá') || lower.includes('phản hồi')) {
-        get().startPipelineRun('nlp_benchmark_uit_vsfc.csv');
-        return;
-      } else if (lower.includes('fleet') || lower.includes('đội xe')) {
-        get().startPipelineRun('fleet_index.csv');
-        return;
-      } else if (
-        lower.includes('finding') ||
-        lower.includes('giải thích') ||
-        lower.includes('rca') ||
-        lower.includes('nguyên nhân') ||
-        lower.includes('khắc phục') ||
-        lower.includes('đề xuất') ||
-        lower.includes('vi phạm')
-      ) {
-        aiReply = `🔍 **Phân tích nguyên nhân gốc rễ (RCA) & Đề xuất xử lý Finding**:
-• **Vấn đề phát hiện**: Vi phạm quy tắc hợp lệ tọa độ (\`lat_zero_gps_drift\`) và định dạng số điện thoại PII cleartext.
-• **Nguyên nhân gốc**: Thiết bị telemetry mất tín hiệu GPS (tọa độ trả về 0,0) và hệ thống nạp thiếu kiểm tra tiền xử lý định dạng trước khi lưu vào Bronze stream.
-• **Đề xuất xử lý khắc phục**:
-  1. \`Quarantine Remediation\`: Cách ly và chuẩn hóa lại tọa độ hợp lệ từ trạm kế cận.
-  2. \`Schema Enforcement\`: Thêm validation check tại API gateway để từ chối hoặc chuẩn hóa SĐT trước khi nạp.
-  3. \`Audit Override\`: Nếu phát hiện ngoại lệ kinh doanh hợp lệ, Auditor có thể phê duyệt ghi đè có lưu vết chữ ký số.`;
-        quickActions = [
-          { label: '🔍 Xem danh sách Findings', actionType: 'NAVIGATE_FINDINGS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/findings` },
-          { label: '📊 Xem bảng kết quả', actionType: 'NAVIGATE_RESULTS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/results` },
-        ];
-      } else if (lower.includes('chọn dataset') || lower.includes('dataset') || lower.includes('danh sách bảng') || lower.includes('chọn bảng')) {
-        aiReply = `Dưới đây là đầy đủ 8 bảng dữ liệu thực tế từ CSDL PostgreSQL sẵn sàng kiểm soát tuân thủ:`;
-        quickActions = [
-          { label: '📄 ride_hailing_xanh_sm_trips (6,902 dòng)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-          { label: '📄 synthetic_ev_telemetry_ved_ref (57,600 dòng)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref' },
-          { label: '📄 dim_customers (5,106 dòng)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers' },
-          { label: '📄 acn_charging_mapped (912 dòng)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped' },
-          { label: '📄 fleet_index (60 dòng)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
-          { label: '📄 dim_drivers (60 dòng)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers' },
-          { label: '📄 feedback_pii (30 dòng)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii' },
-          { label: '📄 synthetic_feedback_scenario_driven (16 dòng)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_feedback_scenario_driven' },
-        ];
-      } else {
-        aiReply = `Tôi hiểu bạn đang quan tâm đến "${text}". Bạn có thể chọn nhanh các tác vụ kiểm toán sau:`;
-        quickActions = [
-          { label: '🚀 Cấu hình & Chạy kiểm toán', actionType: 'OPEN_START_RUN_MODAL' },
-          { label: '📊 Xem kết quả kiểm toán', actionType: 'NAVIGATE_RESULTS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/results` },
-          { label: '🔍 Xem danh sách Findings', actionType: 'NAVIGATE_FINDINGS', payload: `/runs/${get().pipelineLevels.activeRunId || 'latest'}/findings` },
-          { label: '🔄 Đặt lại luồng', actionType: 'RESET_FLOW' },
-        ];
+      const result: unknown = await response.json();
+      if (!result || typeof result !== 'object') throw new Error('Invalid AI response');
+      const payload = result as { response?: unknown; session_id?: unknown };
+      if (typeof payload.response !== 'string' || !payload.response.trim()) {
+        throw new Error('AI returned an empty response');
       }
+      const assistantText = payload.response.trim();
 
       set((s) => ({
-        chatMessages: [
-          ...s.chatMessages,
-          {
-            id: `AI-${Date.now()}`,
-            sender: 'ai',
-            text: aiReply,
-            timestamp: 'Vừa xong',
-            quickActions,
-          },
-        ],
+        chatMessages: [...s.chatMessages, {
+          id: `AI-${Date.now()}`,
+          sender: 'ai',
+          text: assistantText,
+          timestamp: 'Vừa xong',
+        }],
+        chatSessionId: typeof payload.session_id === 'string' && payload.session_id
+          ? payload.session_id
+          : s.chatSessionId,
+        isChatLoading: false,
+        chatError: null,
+        isBackendLive: true,
+        syncError: null,
       }));
-    }, 450);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Lỗi không xác định';
+      const message = `Không thể kết nối với AI backend (${detail}). Vui lòng thử lại.`;
+      set((s) => ({
+        chatMessages: [...s.chatMessages, {
+          id: `AI-ERROR-${Date.now()}`,
+          sender: 'ai',
+          text: message,
+          timestamp: 'Vừa xong',
+        }],
+        isChatLoading: false,
+        chatError: message,
+        isBackendLive: false,
+        syncError: detail,
+      }));
+    }
+
   },
 
   resetHomepageFlow: () => {
@@ -2277,6 +2174,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       homepageViewMode: 'welcome',
       pipelineLevels: initialPipelineLevels,
       chatMessages: initialChatMessages,
+      chatSessionId: null,
+      isChatLoading: false,
+      chatError: null,
     });
   },
 
@@ -2324,41 +2224,26 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   approveTreatmentRule: async (ruleId: string) => {
-    if (get().currentRole === 'auditor') return;
-    if (get().isBackendLive) {
-      try {
-        await apiBridge.approveTreatmentRule(ruleId, 'Nguyễn Quốc Bảo', 'ADMIN');
-      } catch (e) {
-        console.warn('Backend approve treatment error:', e);
-      }
-    }
-    set((s) => ({
-      dataTreatmentRules: s.dataTreatmentRules.map((r) =>
-        r.rule_id === ruleId
-          ? { ...r, status: 'active', enforced_by: 'Nguyễn Quốc Bảo (Lead Platform)', updated_at: new Date().toISOString() }
-          : r
-      ),
+    set((state) => ({
+      chatMessages: [...state.chatMessages, {
+        id: `MSG-TREATMENT-SCOPE-${Date.now()}`,
+        sender: 'ai',
+        text: `Không thể phê duyệt Treatment Rule **${ruleId}**: tạo hoặc kích hoạt rule bằng AI nằm ngoài phạm vi Admin MVP. Vui lòng dùng luồng remediation của Finding.`,
+        timestamp: 'Vừa xong',
+      }],
     }));
   },
 
-  rejectTreatmentRule: async (ruleId: string, comments?: string) => {
-    if (get().currentRole === 'auditor') return;
-    if (get().isBackendLive) {
-      try {
-        await apiBridge.rejectTreatmentRule(ruleId, 'Nguyễn Quốc Bảo', 'ADMIN', comments);
-      } catch (e) {
-        console.warn('Backend reject treatment error:', e);
-      }
-    }
-    set((s) => ({
-      dataTreatmentRules: s.dataTreatmentRules.map((r) =>
-        r.rule_id === ruleId
-          ? { ...r, status: 'rejected', updated_at: new Date().toISOString() }
-          : r
-      ),
+  rejectTreatmentRule: async (ruleId: string, _comments?: string) => {
+    set((state) => ({
+      chatMessages: [...state.chatMessages, {
+        id: `MSG-TREATMENT-SCOPE-${Date.now()}`,
+        sender: 'ai',
+        text: `Không thể xử lý Treatment Rule **${ruleId}** trong Admin MVP. Approve/reject chỉ được thực hiện trên remediation gắn với Finding.`,
+        timestamp: 'Vừa xong',
+      }],
     }));
   },
-
   toggleTreatmentRuleStatus: async (ruleId: string) => {
     if (get().currentRole === 'auditor') return;
     if (get().isBackendLive) {

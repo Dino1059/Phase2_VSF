@@ -24,8 +24,30 @@ class JurisdictionHierarchyConfig:
         }
     }
 
+    ZONE_ALIASES = {
+        "GLOBAL": "GLOBAL",
+        "WORLDWIDE": "GLOBAL",
+        "VN": "VN",
+        "VIETNAM": "VN",
+        "VIET NAM": "VN",
+        "EU": "EU",
+        "EEA": "EU",
+        "EUROPEAN UNION": "EU",
+        "US": "US",
+        "USA": "US",
+        "UNITED STATES": "US",
+    }
+
     def __init__(self, mapping: Optional[Dict[str, Any]] = None):
         self.mapping = mapping or dict(self.DEFAULT_MAPPING)
+
+    @classmethod
+    def normalize_zone(cls, zone: Optional[str]) -> str:
+        """Return the canonical policy-zone code used by rules and findings."""
+        if zone is None or not str(zone).strip():
+            return "GLOBAL"
+        candidate = " ".join(str(zone).strip().upper().replace("_", "-").split())
+        return cls.ZONE_ALIASES.get(candidate, candidate)
 
     def resolve_chain(self, zone: Optional[str], country: Optional[str] = None) -> List[str]:
         """
@@ -33,7 +55,7 @@ class JurisdictionHierarchyConfig:
         ['GLOBAL', zone, country]
         """
         chain = ["GLOBAL"]
-        normalized_zone = str(zone).strip().upper() if zone else "GLOBAL"
+        normalized_zone = self.normalize_zone(zone)
 
         if normalized_zone in self.mapping:
             chain.append(normalized_zone)
@@ -44,10 +66,6 @@ class JurisdictionHierarchyConfig:
                 cand = str(country).strip().upper()
                 if cand in zone_cfg.get("supported_countries", []):
                     resolved_country = cand
-                else:
-                    resolved_country = cand
-            else:
-                resolved_country = zone_cfg.get("default_country", normalized_zone)
 
             if resolved_country and resolved_country != normalized_zone:
                 chain.append(resolved_country)

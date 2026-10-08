@@ -137,7 +137,7 @@ Hãy suy nghĩ (Thought) bước tiếp theo và chỉ định Hành động (Ac
                     observation = f"Lỗi thực thi công cụ: {str(e)}"
             else:
                 observation = f"Hoàn tất giải quyết mục tiêu cho {agent_type}."
-                final_answer = observation
+                final_answer = llm_res.get("text") or observation
 
             duration_ms = int((time.time() - step_start) * 1000)
 

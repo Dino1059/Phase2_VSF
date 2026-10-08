@@ -47,7 +47,11 @@ CREATE TABLE IF NOT EXISTS policy.compliance_rules (
     rule_code VARCHAR(100) NOT NULL,
     expression VARCHAR(500) NOT NULL,
     description TEXT,
+    policy_id VARCHAR(100),
+    policy_name VARCHAR(255),
     law_ref VARCHAR(200) NOT NULL,
+    jurisdiction VARCHAR(50) NOT NULL DEFAULT 'UNSCOPED',
+    country VARCHAR(50),
     severity VARCHAR(20) NOT NULL DEFAULT 'HIGH',
     on_fail_action VARCHAR(50) NOT NULL DEFAULT 'QUARANTINE',
     is_fixed BOOLEAN DEFAULT TRUE,
@@ -63,6 +67,11 @@ CREATE TABLE IF NOT EXISTS policy.data_treatment_rules (
     params_json JSONB DEFAULT '{}',
     expression_display VARCHAR(500) NOT NULL,
     description TEXT,
+    policy_id VARCHAR(100),
+    policy_name VARCHAR(255),
+    law_ref VARCHAR(255),
+    jurisdiction VARCHAR(50) NOT NULL DEFAULT 'UNSCOPED',
+    country VARCHAR(50),
     is_ai_proposed BOOLEAN DEFAULT FALSE,
     ai_rationale TEXT,
     ai_confidence NUMERIC(5,2),
@@ -74,6 +83,8 @@ CREATE TABLE IF NOT EXISTS policy.data_treatment_rules (
 
 CREATE INDEX IF NOT EXISTS idx_policy_treatment_ds ON policy.data_treatment_rules(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_policy_treatment_status ON policy.data_treatment_rules(status);
+CREATE INDEX IF NOT EXISTS idx_policy_treatment_jurisdiction ON policy.data_treatment_rules(jurisdiction, country);
+CREATE INDEX IF NOT EXISTS idx_policy_compliance_jurisdiction ON policy.compliance_rules(jurisdiction, country);
 
 
 -- -----------------------------------------------------------------------------
@@ -167,6 +178,25 @@ ON CONFLICT (rule_id) DO UPDATE SET
     description = EXCLUDED.description,
     law_ref = EXCLUDED.law_ref,
     severity = EXCLUDED.severity;
+
+-- Jurisdiction and policy identity are explicit; legal bases are never inferred
+-- later from a shared column name.
+UPDATE policy.compliance_rules SET
+    policy_id = 'POL-IFRS-15', policy_name = 'IFRS 15 / SOX 404',
+    jurisdiction = 'GLOBAL', country = NULL
+WHERE rule_id = 'COMP-TRIP-REV-01';
+UPDATE policy.compliance_rules SET
+    policy_id = 'POL-VN-LAW91', policy_name = 'Luật Bảo vệ dữ liệu cá nhân Việt Nam',
+    jurisdiction = 'VN', country = NULL
+WHERE rule_id IN ('COMP-TRIP-GEO-02', 'COMP-CUST-PHONE-03');
+UPDATE policy.compliance_rules SET
+    policy_id = NULL, policy_name = 'Internal privacy control',
+    law_ref = 'Internal privacy control', jurisdiction = 'GLOBAL', country = NULL
+WHERE rule_id = 'COMP-FEEDBACK-PII-04';
+UPDATE policy.compliance_rules SET
+    policy_id = 'POL-EV-SAFETY', policy_name = 'EV Safety Standard',
+    jurisdiction = 'GLOBAL', country = NULL
+WHERE rule_id IN ('COMP-TEL-BMS-05', 'COMP-CHG-KW-06');
 
 
 -- -----------------------------------------------------------------------------
@@ -274,3 +304,17 @@ ON CONFLICT (rule_id) DO UPDATE SET
     description = EXCLUDED.description,
     status = EXCLUDED.status,
     updated_at = CURRENT_TIMESTAMP;
+
+UPDATE policy.data_treatment_rules SET
+    policy_id = 'POL-VN-LAW91', policy_name = 'Vietnam Personal Data Protection',
+    law_ref = 'Law 91/2025/QH15 and Decree 356/2025/ND-CP',
+    jurisdiction = 'VN', country = NULL
+WHERE rule_id = 'TREAT-TRIP-PHONE';
+UPDATE policy.data_treatment_rules SET
+    policy_id = 'POL-IFRS-15', policy_name = 'IFRS 15 / SOX 404',
+    law_ref = 'IFRS 15 / SOX 404', jurisdiction = 'GLOBAL', country = NULL
+WHERE rule_id = 'TREAT-TRIP-FARE-ROUND';
+UPDATE policy.data_treatment_rules SET
+    policy_id = NULL, policy_name = 'Internal privacy control',
+    law_ref = 'Internal privacy control', jurisdiction = 'GLOBAL', country = NULL
+WHERE rule_id IN ('TREAT-CUST-EMAIL', 'TREAT-FEEDBACK-NAME', 'TREAT-DRV-PHONE');

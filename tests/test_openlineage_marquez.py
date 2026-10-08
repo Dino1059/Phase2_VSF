@@ -130,6 +130,67 @@ def test_api_lineage_graph_endpoint():
     assert len(data["nodes"]) >= 8
 
 
+def _assert_connected_quarantine_path(graph):
+    """Every edge is valid and the returned DAG has a path to quarantine."""
+    node_ids = {node["id"] for node in graph["nodes"]}
+    adjacency = {node_id: [] for node_id in node_ids}
+    for edge in graph["edges"]:
+        assert edge["from"] in node_ids
+        assert edge["to"] in node_ids
+        adjacency[edge["from"]].append(edge["to"])
+
+    quarantine_ids = {
+        node["id"] for node in graph["nodes"]
+        if node.get("layer") == "QUARANTINE"
+    }
+    assert quarantine_ids
+
+    reachable = set()
+    pending = [node_id for node_id in node_ids if not any(
+        edge["to"] == node_id for edge in graph["edges"]
+    )]
+    while pending:
+        node_id = pending.pop()
+        if node_id in reachable:
+            continue
+        reachable.add(node_id)
+        pending.extend(adjacency[node_id])
+
+    assert reachable & quarantine_ids
+
+
+def test_api_run_lineage_contract(monkeypatch):
+    """The spec-compatible run endpoint preserves scope and returns a valid DAG."""
+    monkeypatch.setattr(
+        LineageService,
+        "get_status",
+        staticmethod(lambda: {"isConnected": False}),
+    )
+    run_id = "RUN-contract-001"
+    res = client.get(f"/api/runs/{run_id}/lineage")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["runId"] == run_id
+    assert data["datasetId"] == "ride_hailing_xanh_sm_trips"
+    _assert_connected_quarantine_path(data)
+
+
+def test_api_dataset_lineage_contract(monkeypatch):
+    """The spec-compatible dataset endpoint preserves scope and returns a valid DAG."""
+    monkeypatch.setattr(
+        LineageService,
+        "get_status",
+        staticmethod(lambda: {"isConnected": False}),
+    )
+    dataset_id = "synthetic_ev_telemetry_ved_ref"
+    res = client.get(f"/api/datasets/{dataset_id}/lineage")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["datasetId"] == dataset_id
+    assert data["runId"] is None
+    _assert_connected_quarantine_path(data)
+
+
 def test_api_lineage_column_lineage_endpoint():
     """Tests GET /api/lineage/column-lineage/{dataset_id} endpoint."""
     res = client.get("/api/lineage/column-lineage/ride_hailing_xanh_sm_trips")
