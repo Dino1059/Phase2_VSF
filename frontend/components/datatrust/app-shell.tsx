@@ -9,8 +9,6 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  RotateCw,
-  ShieldAlert,
   ShieldCheck,
   TableProperties,
   UserCog,
@@ -29,7 +27,6 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { label: 'Trang chủ', href: '/overview', icon: LayoutGrid },
-  { label: 'Lần chạy', href: '/runs', icon: RotateCw },
   { label: 'Dòng dữ liệu', href: '/lineage', icon: GitFork },
   {
     label: 'Quy tắc & Chính sách',
@@ -37,7 +34,6 @@ const navigation: NavItem[] = [
     icon: CheckSquare,
   },
   { label: 'Kết quả', href: '/results', icon: TableProperties },
-  { label: 'Vấn đề phát hiện', href: '/findings', icon: ShieldAlert },
 ];
 
 function Link({ href, ...props }: Omit<ComponentProps<typeof RouterLink>, 'to'> & { href: string }) {

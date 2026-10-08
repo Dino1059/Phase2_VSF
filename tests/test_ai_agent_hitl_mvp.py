@@ -241,7 +241,7 @@ def test_api_agent_endpoints():
     client = TestClient(app)
 
     # 1. Chat endpoint
-    chat_res = client.post("/api/agent/chat", json={"message": "Kiểm tra tình trạng chất lượng"})
+    chat_res = client.post("/api/agent/chat", json={"run_id": "run-test-01", "message": "Kiểm tra tình trạng chất lượng"})
     assert chat_res.status_code == 200
     chat_data = chat_res.json()
     assert "response" in chat_data

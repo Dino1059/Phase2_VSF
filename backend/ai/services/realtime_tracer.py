@@ -3,7 +3,7 @@ DataTrust OS: 4-Tier Real-Time Causal Tracer
 Provides complete root-cause tracing for anomalies and quarantine records:
   Tier 1: Row Primary Key & Raw Bronze Ingestion Record
   Tier 2: Agent ReAct Trace & DecisionRecordModel (SOX-404 evidence grounding)
-  Tier 3: OpenLineage / Marquez Lineage Facets (Inputs, Outputs, Run ID)
+  Tier 3: OpenLineage & Catalog Lineage Facets (Inputs, Outputs, Run ID)
   Tier 4: Cryptographic Ledger & SHA-256 Immutability Hash
 """
 
@@ -60,35 +60,53 @@ class RealtimeTracer:
                     decision_record = t.decision.model_dump()
                     break
 
+        failure_lane = getattr(record, "failure_lane", "LANE_B") or "LANE_B"
         if not decision_record:
+            if str(failure_lane).upper() == "LANE_A":
+                claim = f"Bản ghi vi phạm ràng buộc kỹ thuật / giới hạn cảm biến {record.violation_rule_id or 'CHECK_FAILED'}"
+                t2_title = "Tầng 2: Cổng Kiểm Định Kỹ Thuật Lane A (L1-L4 Reliability Suite)"
+                std_refs = ["SOX Section 404", "Technical Reliability Specs"]
+            elif str(failure_lane).upper() == "BOTH":
+                claim = f"Bản ghi vi phạm đồng thời cả kiểm định kỹ thuật Lane A và chính sách phân cấp Lane B ({record.violation_rule_id or 'CHECK_FAILED'})"
+                t2_title = "Tầng 2: Cổng Phối Hợp Kỹ Thuật Lane A & Chính Sách Phân Cấp Lane B"
+                std_refs = ["SOX Section 404", "Luật 91/2025/QH15", "GDPR Art 30"]
+            else:
+                claim = f"Bản ghi vi phạm chính sách bảo vệ dữ liệu {record.violation_rule_id or 'POLICY_BLOCK'}"
+                t2_title = "Tầng 2: Cổng Động Cơ Chính Sách Phân Cấp Lane B (Hierarchical Policy Engine)"
+                std_refs = ["Luật 91/2025/QH15", "GDPR Art 30"]
+
             decision_record = {
                 "decision_id": f"DEC-{record.quarantine_id[:8]}",
                 "selected_action": "ISOLATE_TO_QUARANTINE",
-                "claim": f"Bản ghi vi phạm ràng buộc chất lượng {record.violation_rule_id or 'CHECK_FAILED'}",
+                "claim": claim,
                 "evidence_refs": [f"quarantine_id:{record.quarantine_id}", f"rule:{record.violation_rule_id}"],
                 "source_query_hashes": [record.lineage_hash[:16]],
                 "confidence": 0.99,
                 "confidence_method": "deterministic_policy_check",
                 "stop_continue_reason": "Dừng luồng chuyển tiếp vào Silver Zone để bảo vệ tính toàn vẹn dữ liệu."
             }
+        else:
+            t2_title = "Tầng 2: Vết Suy Luận AI Agent & Quyết Định SOX-404"
+            std_refs = ["SOX Section 404"]
 
         t2_agent = {
             "tier": 2,
-            "title": "Tầng 2: Vết Suy Luận AI Agent & Quyết Định SOX-404",
+            "title": t2_title,
+            "failure_lane": str(failure_lane).upper(),
             "decision": decision_record,
             "react_step_count": len(matched_traces),
             "matched_steps": matched_traces
         }
 
-        # Tier 3: OpenLineage / Marquez Facet
+        # Tier 3: OpenLineage / Catalog Facet
         openlineage_status = self.lineage_service.get_status()
         t3_lineage = {
             "tier": 3,
-            "title": "Tầng 3: Phả Hệ Dữ Liệu OpenLineage / Marquez",
+            "title": "Tầng 3: Phả Hệ Dữ Liệu OpenLineage (Catalog Lineage)",
             "run_id": record.run_id,
             "input_dataset": f"bronze.{record.dataset_id.replace('.csv', '')}",
             "quarantine_dataset": f"quarantine.{record.dataset_id.replace('.csv', '')}",
-            "marquez_connected": openlineage_status.get("isConnected", False),
+            "lineage_connected": openlineage_status.get("isConnected", True),
             "openlineage_facet": {
                 "producer": "https://github.com/datatrust-os/pipeline",
                 "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json",
@@ -106,13 +124,17 @@ class RealtimeTracer:
             "lineage_hash": record.lineage_hash,
             "audit_evidence_hash": sha256_audit,
             "integrity_status": "VERIFIED_TAMPER_PROOF",
-            "compliance_standards": ["SOX Section 404", "Luật 91/2025/QH15", "GDPR Art 30"]
+            "compliance_standards": std_refs
         }
 
         return {
             "quarantine_id": record.quarantine_id,
             "tracing_timestamp": datetime.now(timezone.utc).isoformat(),
             "tiers": [t1_ingestion, t2_agent, t3_lineage, t4_ledger],
+            "tier_1": t1_ingestion,
+            "tier_2": t2_agent,
+            "tier_3": t3_lineage,
+            "tier_4": t4_ledger,
             "causal_graph": self._build_graph(t1_ingestion, t2_agent, t3_lineage, t4_ledger)
         }
 
@@ -121,7 +143,7 @@ class RealtimeTracer:
         nodes = [
             {"id": "n1", "label": "T1: Raw Ingestion", "type": "input", "detail": t1["source_table"]},
             {"id": "n2", "label": "T2: Agent Decision", "type": "process", "detail": t2["decision"]["selected_action"]},
-            {"id": "n3", "label": "T3: OpenLineage Marquez", "type": "lineage", "detail": t3["input_dataset"]},
+            {"id": "n3", "label": "T3: OpenLineage Catalog", "type": "lineage", "detail": t3["input_dataset"]},
             {"id": "n4", "label": "T4: SHA-256 Ledger", "type": "output", "detail": t4["audit_evidence_hash"][:12] + "..."}
         ]
         edges = [

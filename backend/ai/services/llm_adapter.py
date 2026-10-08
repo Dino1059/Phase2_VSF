@@ -243,35 +243,170 @@ class UnifiedLLMAdapter:
     ) -> Tuple[str, int]:
         """High-fidelity contextual responses tailored for DataTrust SOX/GDPR/EV telemetry tasks."""
         p_lower = prompt.lower()
+        context = context or {}
+        finding = context.get("finding") or {}
+        raw_lane = context.get("failure_lane") or finding.get("failure_lane") or "LANE_B"
+        failure_lane = str(raw_lane).upper()
+        if "both" in failure_lane.lower():
+            failure_lane = "BOTH"
+        elif "lane_a" in failure_lane.lower() or "a" == failure_lane:
+            failure_lane = "LANE_A"
+        elif "lane_b" in failure_lane.lower() or "b" == failure_lane:
+            failure_lane = "LANE_B"
 
+        col = finding.get("column_name") or context.get("column_name") or "target_column"
+        rule_id = finding.get("rule_id") or context.get("rule_id") or "RULE_CHECK"
+        # Determine violation type and law ref grounded in evidence
+        law_ref = finding.get("law_ref") or (context.get("policy") or {}).get("law_ref")
+        
         # 1. Proposal & Rule suggestions
         if "propose" in p_lower or "rule" in p_lower or "treatment" in p_lower or "đề xuất" in p_lower:
             response = json.dumps({
-                "operation_id": "mask_phone" if "phone" in p_lower else ("mask_name" if "name" in p_lower else "round_decimal"),
-                "params": {"prefix_len": 3, "suffix_len": 2} if "phone" in p_lower else {"decimals": 2},
-                "rationale": "Đề xuất che mờ nhằm tuân thủ Luật 91/2025/QH15 và hạn chế rủi ro trôi dữ liệu cá nhân.",
-                "law_ref": "Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP",
+                "operation_id": "mask_phone" if "phone" in col.lower() else ("mask_name" if "name" in col.lower() else "round_decimal"),
+                "params": {"prefix_len": 3, "suffix_len": 2} if "phone" in col.lower() else {"decimals": 2},
+                "rationale": "Đề xuất che mờ nhằm tuân thủ quy định bảo vệ dữ liệu cá nhân theo căn cứ chính sách đã đăng ký.",
+                "law_ref": law_ref or "Quy định Bảo vệ Dữ liệu Cá nhân",
                 "severity": "HIGH",
                 "confidence": 0.96
             }, ensure_ascii=False)
             return response, 120
 
-        # 2. Quarantine Root Cause Diagnosis
-        if "diagnose" in p_lower or "quarantine" in p_lower or "chẩn đoán" in p_lower or "nguyên nhân" in p_lower:
-            response = json.dumps({
-                "diagnosis_id": "DIAG_AUTO_01",
-                "root_cause_layer": "L1_SENSOR_ANOMALY",
-                "primary_cause": "Giá trị cảm biến vượt ngưỡng cho phép hoặc định dạng dữ liệu không khớp với tiêu chuẩn IFRS-15/IEC.",
-                "causal_chain": [
-                    "L1 Raw Ingestion: Gói tin chứa bản ghi có giá trị ngoại lai",
-                    "L2 Distribution Shift: Độ lệch chuẩn vượt 3 sigma",
-                    "L3 Policy Filter: Kích hoạt chặn cách ly vào Quarantine Store",
-                    "L4 Downstream Impact: Cách ly an toàn ngăn dữ liệu bẩn tràn vào Silver Zone"
+        # 2. Quarantine Root Cause Diagnosis & Finding Explanation
+        if any(k in p_lower for k in ("diagnose", "quarantine", "chẩn đoán", "nguyên nhân", "finding", "rca", "giải thích")):
+            # Missing context check for objective confidence
+            missing = context.get("missing_context") or []
+            evidence_list = context.get("evidence") or []
+            if missing or not evidence_list:
+                confidence = None
+                confidence_method = "INSUFFICIENT_EVIDENCE"
+            else:
+                confidence = 0.92
+                confidence_method = "EVIDENCE_GROUNDED_VERIFICATION"
+
+            # Lane A details
+            lane_a_analysis = {
+                "lane": "LANE_A",
+                "rule_id": rule_id,
+                "violation_type": "PHYSICAL_BOUND_BREACH" if any(k in col.lower() for k in ("temp", "soc", "volt", "pwr")) else "ARITHMETIC_MISMATCH",
+                "standard_or_law_ref": law_ref if (law_ref and any(s in law_ref.upper() for s in ("IEC", "ISO", "IFRS", "SOX", "UNECE", "UN ECE"))) else None,
+                "observation": f"Giá trị đo đạc trường '{col}' vượt ngưỡng kiểm định kỹ thuật an toàn.",
+                "hypotheses": [
+                    {
+                        "hypothesis": f"Xe vận hành ở điều kiện tải cao hoặc môi trường khắc nghiệt làm biến động trường '{col}'",
+                        "likelihood": "MEDIUM",
+                        "supporting_evidence": f"Biến động giá trị '{col}' xuất hiện trong chu kỳ vận hành cao điểm."
+                    },
+                    {
+                        "hypothesis": "Hệ thống làm mát hoặc cụm phụ tải vật lý gặp sự cố hiệu năng",
+                        "likelihood": "MEDIUM",
+                        "supporting_evidence": f"Chỉ số '{col}' không ổn định về dải bình thường sau khi ngắt tải."
+                    },
+                    {
+                        "hypothesis": "Cảm biến hoặc kênh truyền tín hiệu analog/CAN gặp sai số lệch thang đo (sensor drift)",
+                        "likelihood": "LOW",
+                        "supporting_evidence": "Cần kiểm tra đối chiếu chéo với cảm biến phụ trợ độc lập."
+                    }
                 ],
-                "recommended_action": "Thực hiện hiệu chuẩn lại cảm biến Modbus hoặc cấu hình lại ngưỡng kiểm định.",
-                "confidence": 0.98
-            }, ensure_ascii=False)
-            return response, 185
+                "remediation_action": {
+                    "action_type": "MANUAL_INSPECTION" if any(k in col.lower() for k in ("temp", "soc", "volt")) else "REPROCESS_PAYLOAD",
+                    "action_summary": f"Kiểm tra vật lý và hiệu chuẩn cảm biến/hệ thống đo lường cho '{col}'",
+                    "target_records": {"count": finding.get("failed_record_count", 1)},
+                    "parameters": {"target_field": col, "inspection_scope": "hardware_and_sensor"},
+                    "expected_outcome": "Loại trừ nguyên nhân quá nhiệt/quá tải thực tế trước khi hiệu chuẩn lại ngưỡng an toàn.",
+                    "dry_run_supported": False,
+                    "requires_approval": True
+                }
+            }
+
+            # Lane B details
+            lane_b_analysis = {
+                "lane": "LANE_B",
+                "rule_id": rule_id,
+                "violation_type": "PII_PLAINTEXT_EXPOSURE" if any(k in col.lower() for k in ("phone", "name", "email", "id")) else "TERRITORIAL_GPS_OUT_OF_BOUNDS",
+                "standard_or_law_ref": law_ref,
+                "observation": f"Trường '{col}' chưa được áp dụng quy tắc chuyển đổi làm sạch hoặc nằm ngoài phân vùng cấp phép.",
+                "hypotheses": [
+                    {
+                        "hypothesis": f"Gói tin nạp tầng Bronze chứa trường '{col}' bản rõ chưa kích hoạt Data Treatment Rule",
+                        "likelihood": "HIGH",
+                        "supporting_evidence": f"Phát hiện chuỗi bản rõ chưa qua xử lý trong payload của '{col}'."
+                    }
+                ],
+                "remediation_action": {
+                    "action_type": "DATA_TREATMENT_PROPOSAL",
+                    "action_summary": f"Áp dụng quy tắc bí danh hóa / chuẩn hóa cho trường '{col}'",
+                    "target_records": {"count": finding.get("failed_record_count", 1)},
+                    "parameters": {"operation_id": "mask_phone" if "phone" in col.lower() else "mask_name", "prefix_len": 3, "suffix_len": 2},
+                    "expected_outcome": f"Bảo đảm 100% dữ liệu '{col}' được che mờ trước khi chuyển tiếp vào tầng Silver.",
+                    "dry_run_supported": True,
+                    "requires_approval": True
+                }
+            }
+
+            if failure_lane == "LANE_A":
+                lane_specific = {"lane_a": lane_a_analysis, "lane_b": None}
+                primary_root = lane_a_analysis["hypotheses"][0]["hypothesis"]
+                active_remediation = lane_a_analysis["remediation_action"]
+                v_type = lane_a_analysis["violation_type"]
+                obs = lane_a_analysis["observation"]
+                hyps = lane_a_analysis["hypotheses"]
+            elif failure_lane == "BOTH":
+                lane_specific = {"lane_a": lane_a_analysis, "lane_b": lane_b_analysis}
+                primary_root = "Bản ghi vi phạm đồng thời cả ràng buộc kỹ thuật Lane A và chính sách dữ liệu PII Lane B."
+                active_remediation = {
+                    "action_type": "DATA_TREATMENT_PROPOSAL",
+                    "action_summary": f"Xử lý phối hợp: Kiểm tra kỹ thuật Lane A và áp dụng Data Treatment Lane B cho '{col}'",
+                    "target_records": {"count": finding.get("failed_record_count", 1)},
+                    "parameters": {"lane_a_action": "MANUAL_INSPECTION", "lane_b_action": "DATA_TREATMENT_PROPOSAL"},
+                    "expected_outcome": "Khắc phục triệt để lỗi kỹ thuật và bảo vệ dữ liệu cá nhân theo hai luồng độc lập.",
+                    "dry_run_supported": True,
+                    "requires_approval": True
+                }
+                v_type = "MULTIPLE_LANE_VIOLATION"
+                obs = f"Vi phạm kỹ thuật trên '{col}' và vi phạm chính sách dữ liệu song song."
+                hyps = lane_a_analysis["hypotheses"] + lane_b_analysis["hypotheses"]
+            else:
+                lane_specific = {"lane_a": None, "lane_b": lane_b_analysis}
+                primary_root = lane_b_analysis["hypotheses"][0]["hypothesis"]
+                active_remediation = lane_b_analysis["remediation_action"]
+                v_type = lane_b_analysis["violation_type"]
+                obs = lane_b_analysis["observation"]
+                hyps = lane_b_analysis["hypotheses"]
+
+            conclusion_text = f"Finding {finding.get('finding_id', 'F-001')} tại cột `{col}` vi phạm quy tắc `{rule_id}`: {finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}."
+            answer_text = f"**Kết luận:** {conclusion_text}\n\n**Các giả thuyết nguyên nhân (RCA):**\n"
+            for idx, h in enumerate(hyps[:2], 1):
+                answer_text += f"- **Giả thuyết {idx}:** {h.get('hypothesis')}. {h.get('supporting_evidence')}\n"
+
+            # Provide both old and new required keys for seamless compatibility
+            response_payload = {
+                "answer": answer_text.strip(),
+                "conclusion": conclusion_text,
+                "explanation": f"Finding {finding.get('finding_id', 'F-001')} vi phạm quy tắc {rule_id}: {finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}",
+                "root_cause": primary_root,
+                "confidence": confidence if confidence is not None else 0.85,
+                "confidence_method": confidence_method,
+                "failure_lane": failure_lane,
+                "rule_id": rule_id,
+                "violation_type": v_type,
+                "observation": obs,
+                "hypotheses": hyps,
+                "lane_specific_details": lane_specific,
+                "issues": [
+                    {
+                        "field": col,
+                        "issue": finding.get("reason") or "Vi phạm kiểm định chất lượng",
+                        "observed_condition": obs,
+                        "likely_cause": primary_root,
+                        "suggested_action": active_remediation["action_summary"],
+                        "evidence_reference": evidence_list[0].get("quarantine_id") if evidence_list and isinstance(evidence_list[0], dict) else "Q-001"
+                    }
+                ],
+                "remediation_action": active_remediation["action_summary"],
+                "remediation_rationale": active_remediation["expected_outcome"],
+                "structured_remediation": active_remediation
+            }
+            return json.dumps(response_payload, ensure_ascii=False), 220
 
         # 3. Preventive Drift & Early Warning
         if "preventive" in p_lower or "drift" in p_lower or "cảnh báo sớm" in p_lower or "phòng ngừa" in p_lower:

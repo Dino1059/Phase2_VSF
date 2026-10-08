@@ -512,6 +512,13 @@ def task_4_emit_audit_evidence(**context):
                 ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
             ))
 
+            # Ensure run exists in orchestration.pipeline_runs before step insertion
+            cur.execute("""
+                INSERT INTO orchestration.pipeline_runs (run_id, dag_id, dataset_id, status, started_at)
+                VALUES (%s, %s, %s, 'RUNNING', CURRENT_TIMESTAMP)
+                ON CONFLICT (run_id) DO NOTHING;
+            """, (run_id, dag_id, dataset_id))
+
             # Record Step 5 completion in orchestration.pipeline_run_steps
             cur.execute("""
                 INSERT INTO orchestration.pipeline_run_steps (run_id, step_name, step_order, status, started_at, ended_at)

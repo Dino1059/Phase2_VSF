@@ -181,6 +181,54 @@ export interface ChatMessageItem {
   highlightRuleId?: string;
 }
 
+export interface ChatSession {
+  id: string;
+  runId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessageItem[];
+}
+
+const CHAT_STORAGE_KEY = 'datatrust_chat_sessions_v2';
+const MAX_SAVED_SESSIONS = 20;
+const MAX_STORAGE_BYTES = 2 * 1024 * 1024; // 2MB
+
+export function loadSafeChatSessions(): ChatSession[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(s => s && typeof s.id === 'string' && typeof s.runId === 'string' && Array.isArray(s.messages));
+    }
+    return [];
+  } catch (e) {
+    console.warn('Failed parsing chat sessions from localStorage, resetting cleanly:', e);
+    try {
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch {}
+    return [];
+  }
+}
+
+export function saveSafeChatSessions(sessions: ChatSession[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    const sorted = [...sessions].sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+    let trimmed = sorted.slice(0, MAX_SAVED_SESSIONS);
+    let serialized = JSON.stringify(trimmed);
+    while (serialized.length > MAX_STORAGE_BYTES && trimmed.length > 1) {
+      trimmed.pop();
+      serialized = JSON.stringify(trimmed);
+    }
+    localStorage.setItem(CHAT_STORAGE_KEY, serialized);
+  } catch (e) {
+    console.warn('Could not save chat sessions to localStorage:', e);
+  }
+}
+
 export type HomepageViewMode = 'welcome' | 'running_pipeline' | 'results_dashboard';
 
 export interface PipelineLevelProgress {
@@ -598,8 +646,14 @@ export interface AgentStoreState {
   pipelineLevels: PipelineLevelsState;
   chatMessages: ChatMessageItem[];
   chatSessionId: string | null;
+  chatSessions: ChatSession[];
+  activeSessionId: string | null;
   isChatLoading: boolean;
   chatError: string | null;
+  startNewChatSession: (runId?: string) => void;
+  switchChatSession: (sessionId: string) => void;
+  deleteChatSession: (sessionId: string) => void;
+  clearAllChatSessions: () => void;
   activeRules: ActiveRule[];
   rulesSegmentTab: 'active' | 'proposed';
   setRulesSegmentTab: (tab: 'active' | 'proposed') => void;
@@ -1206,6 +1260,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   pipelineLevels: initialPipelineLevels,
   chatMessages: initialChatMessages,
   chatSessionId: null,
+  chatSessions: loadSafeChatSessions(),
+  activeSessionId: null,
   isChatLoading: false,
   chatError: null,
   activeRules: initialActiveRules,
@@ -1859,6 +1915,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         activeRunId: runId,
       },
     }));
+    get().startNewChatSession(runId);
 
     // 2. Fetch kết quả thực tế từ DB (Quarantine, Warning, Profiling)
     let realQuarantineCount = 0;
@@ -2046,44 +2103,60 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       }
     }
 
-    const currentActiveRun = isCurrentlyDone ? get().pipelineLevels.activeRunId : (latest?.run_id || 'RUN-20261007-021');
-    const shortRun = currentActiveRun ? (currentActiveRun.startsWith('run_') ? `RUN-${currentActiveRun.slice(4, 7)}` : currentActiveRun) : 'RUN-021';
+    const currentActiveRun = isCurrentlyDone ? get().pipelineLevels.activeRunId : (latest?.run_id || null);
+    const shortRun = currentActiveRun ? (currentActiveRun.startsWith('run_') ? `RUN-${currentActiveRun.slice(4, 7)}` : currentActiveRun) : '';
     const recs = get().datasets[get().selectedDatasetId]?.records || 6902;
     const failRecs = get().pipelineLevels.task3LaneC.quarantine || 565;
+
+    const summaryUserMsg: ChatMessageItem = {
+      id: `MSG-USER-RES-${Date.now()}`,
+      sender: 'user',
+      text: 'Tóm tắt kết quả kiểm tra bộ dữ liệu cuốc xe.',
+      timestamp: 'Vừa xong',
+    };
+    const summaryAiMsg1: ChatMessageItem = {
+      id: `MSG-AI-RES-1-${Date.now() + 1}`,
+      sender: 'ai',
+      text: `Đã kiểm tra ${recs.toLocaleString('vi-VN')} bản ghi.\n\n${failRecs.toLocaleString('vi-VN')} bản ghi không đạt, tập trung ở 3 rule. Bạn có thể bắt đầu từ finding mức Critical.`,
+      timestamp: 'Vừa xong',
+      quickActions: [
+        { label: 'Xem finding Critical →', actionType: 'SCROLL_TO_CRITICAL' },
+      ],
+    };
+    const summaryAiMsg2: ChatMessageItem = {
+      id: `MSG-AI-RES-2-${Date.now() + 2}`,
+      sender: 'ai',
+      text: `Đang xem ${shortRun ? `F-${shortRun.replace('RUN-', '')}-02` : 'Finding' } · Giá cước không hợp lệ. Tôi có thể giải thích nguyên nhân hoặc cùng bạn xem evidence.`,
+      timestamp: 'Vừa xong',
+    };
 
     set((s) => ({
       homepageViewMode: 'results_dashboard',
       pipelineLevels: {
         ...s.pipelineLevels,
+        activeRunId: currentActiveRun,
         viewingHistoricalResult: !isCurrentlyDone,
         inFlightRunId: !isCurrentlyDone ? s.pipelineLevels.activeRunId : null,
-        historicalRunId: latest?.run_id || (isCurrentlyDone ? s.pipelineLevels.activeRunId : 'RUN-HISTORICAL-BASE'),
+        historicalRunId: latest?.run_id || (isCurrentlyDone ? s.pipelineLevels.activeRunId : null),
       },
       chatMessages: [
         ...s.chatMessages,
-        {
-          id: `MSG-USER-RES-${Date.now()}`,
-          sender: 'user',
-          text: 'Tóm tắt kết quả kiểm tra bộ dữ liệu cuốc xe.',
-          timestamp: 'Vừa xong',
-        },
-        {
-          id: `MSG-AI-RES-1-${Date.now() + 1}`,
-          sender: 'ai',
-          text: `Đã kiểm tra ${recs.toLocaleString('vi-VN')} bản ghi.\n\n${failRecs.toLocaleString('vi-VN')} bản ghi không đạt, tập trung ở 3 rule. Bạn có thể bắt đầu từ finding mức Critical.`,
-          timestamp: 'Vừa xong',
-          quickActions: [
-            { label: 'Xem finding Critical →', actionType: 'SCROLL_TO_CRITICAL' },
-          ],
-        },
-        {
-          id: `MSG-AI-RES-2-${Date.now() + 2}`,
-          sender: 'ai',
-          text: `Đang xem F-${shortRun.replace('RUN-', '')}-02 · Giá cước không hợp lệ. Tôi có thể giải thích nguyên nhân hoặc cùng bạn xem evidence.`,
-          timestamp: 'Vừa xong',
-        },
+        summaryUserMsg,
+        summaryAiMsg1,
+        summaryAiMsg2,
       ],
     }));
+
+    // Ensure session is synced with active run
+    if (currentActiveRun) {
+      const state = get();
+      const existing = state.chatSessions.find((s) => s.runId === currentActiveRun);
+      if (existing) {
+        state.switchChatSession(existing.id);
+      } else {
+        state.startNewChatSession(currentActiveRun);
+      }
+    }
   },
 
   returnToPipelineRunner: () => {
@@ -2096,35 +2169,172 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     get().viewLatestCompletedResults();
   },
 
+  startNewChatSession: (runId?: string) => {
+    const targetRun = runId || get().pipelineLevels.activeRunId;
+    if (!targetRun) return;
+    const newSessionId = `SES-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const welcomeMsg: ChatMessageItem = {
+      id: `MSG-AI-WELCOME-${Date.now()}`,
+      sender: 'ai',
+      text: `Xin chào! Tôi là DataTrust AI Assistant cho lần chạy **${targetRun}**.\nBạn có thể hỏi về tổng quan, phân tích nguyên nhân lỗi (RCA) hoặc bằng chứng cách ly của run này.`,
+      timestamp: 'Vừa xong',
+    };
+    const newSession: ChatSession = {
+      id: newSessionId,
+      runId: targetRun,
+      title: `Đoạn chat mới · ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      messages: [welcomeMsg],
+    };
+    const updated = [newSession, ...get().chatSessions];
+    saveSafeChatSessions(updated);
+    set({
+      chatSessions: updated,
+      activeSessionId: newSessionId,
+      chatSessionId: newSessionId,
+      chatMessages: [welcomeMsg],
+      chatError: null,
+    });
+  },
+
+  switchChatSession: (sessionId: string) => {
+    const session = get().chatSessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    set((s) => ({
+      activeSessionId: session.id,
+      chatSessionId: session.id,
+      chatMessages: session.messages,
+      chatError: null,
+      pipelineLevels: session.runId !== s.pipelineLevels.activeRunId
+        ? { ...s.pipelineLevels, activeRunId: session.runId }
+        : s.pipelineLevels,
+    }));
+  },
+
+  deleteChatSession: (sessionId: string) => {
+    const state = get();
+    const updated = state.chatSessions.filter((s) => s.id !== sessionId);
+    saveSafeChatSessions(updated);
+    if (state.activeSessionId === sessionId) {
+      const remainingForRun = updated.find((s) => s.runId === state.pipelineLevels.activeRunId);
+      if (remainingForRun) {
+        set({
+          chatSessions: updated,
+          activeSessionId: remainingForRun.id,
+          chatSessionId: remainingForRun.id,
+          chatMessages: remainingForRun.messages,
+          chatError: null,
+        });
+      } else {
+        set({
+          chatSessions: updated,
+          activeSessionId: null,
+          chatSessionId: null,
+          chatMessages: [],
+          chatError: null,
+        });
+        if (state.pipelineLevels.activeRunId) {
+          get().startNewChatSession(state.pipelineLevels.activeRunId);
+        }
+      }
+    } else {
+      set({ chatSessions: updated });
+    }
+  },
+
+  clearAllChatSessions: () => {
+    saveSafeChatSessions([]);
+    const runId = get().pipelineLevels.activeRunId;
+    set({
+      chatSessions: [],
+      activeSessionId: null,
+      chatSessionId: null,
+      chatMessages: [],
+      chatError: null,
+    });
+    if (runId) {
+      get().startNewChatSession(runId);
+    }
+  },
+
   sendUserChatMessage: async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const state = get();
+    const runId = state.pipelineLevels.activeRunId;
+    if (!runId) {
+      set({
+        chatError: 'Chưa có Run hợp lệ. Vui lòng chọn hoặc chạy pipeline trước.',
+        isChatLoading: false,
+      });
+      return;
+    }
+
+    // Ensure session is bound to runId
+    let currentSessionId = state.activeSessionId;
+    let existingSession = state.chatSessions.find((s) => s.id === currentSessionId && s.runId === runId);
+
+    if (!existingSession) {
+      existingSession = state.chatSessions.find((s) => s.runId === runId);
+      if (existingSession) {
+        currentSessionId = existingSession.id;
+      } else {
+        currentSessionId = `SES-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const initialAi: ChatMessageItem = {
+          id: `MSG-AI-INIT-${Date.now()}`,
+          sender: 'ai',
+          text: `Bắt đầu phiên phân tích cho **${runId}**.`,
+          timestamp: 'Vừa xong',
+        };
+        existingSession = {
+          id: currentSessionId,
+          runId,
+          title: trimmed.length > 28 ? trimmed.slice(0, 28) + '...' : trimmed,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messages: [initialAi],
+        };
+      }
+    }
+
     const userMsg: ChatMessageItem = {
       id: `USER-${Date.now()}`,
       sender: 'user',
-      text,
+      text: trimmed,
       timestamp: 'Vừa xong',
     };
-    set((s) => ({
-      chatMessages: [...s.chatMessages, userMsg],
+
+    const nextMessages = [...(existingSession.messages || state.chatMessages), userMsg];
+    set({
+      activeSessionId: currentSessionId,
+      chatSessionId: currentSessionId,
+      chatMessages: nextMessages,
       isChatLoading: true,
       chatError: null,
-    }));
+    });
 
     try {
-      const state = get();
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
-          session_id: state.chatSessionId,
+          run_id: runId,
+          message: trimmed,
+          session_id: currentSessionId || undefined,
           context: {
             dataset_id: state.selectedDatasetId || undefined,
-            run_id: state.pipelineLevels.activeRunId || undefined,
+            run_id: runId,
             view: state.homepageViewMode,
           },
         }),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        const errorDetail = errorData?.detail || `HTTP ${response.status}`;
+        throw new Error(errorDetail);
+      }
 
       const result: unknown = await response.json();
       if (!result || typeof result !== 'object') throw new Error('Invalid AI response');
@@ -2134,21 +2344,59 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       }
       const assistantText = payload.response.trim();
 
-      set((s) => ({
-        chatMessages: [...s.chatMessages, {
-          id: `AI-${Date.now()}`,
-          sender: 'ai',
-          text: assistantText,
-          timestamp: 'Vừa xong',
-        }],
-        chatSessionId: typeof payload.session_id === 'string' && payload.session_id
-          ? payload.session_id
-          : s.chatSessionId,
+      const assistantMsg: ChatMessageItem = {
+        id: `AI-${Date.now()}`,
+        sender: 'ai',
+        text: assistantText,
+        timestamp: 'Vừa xong',
+      };
+
+      const finalMessages = [...nextMessages, assistantMsg];
+      const assignedSessionId: string =
+        (typeof payload.session_id === 'string' && payload.session_id) || currentSessionId || `SES-${Date.now()}`;
+
+      const allSessions = get().chatSessions;
+      const sessionIndex = allSessions.findIndex((s) => s.id === assignedSessionId);
+      let updatedSessions: ChatSession[];
+      if (sessionIndex >= 0) {
+        const currentS = allSessions[sessionIndex];
+        const newTitle = currentS.title.startsWith('Đoạn chat mới')
+          ? (trimmed.slice(0, 28) + (trimmed.length > 28 ? '...' : ''))
+          : currentS.title;
+        const updatedItem: ChatSession = {
+          ...currentS,
+          title: newTitle,
+          updatedAt: new Date().toISOString(),
+          messages: finalMessages,
+        };
+        updatedSessions = [
+          updatedItem,
+          ...allSessions.filter((_, idx) => idx !== sessionIndex),
+        ];
+      } else {
+        const newItem: ChatSession = {
+          id: assignedSessionId,
+          runId,
+          title: trimmed.slice(0, 28) + (trimmed.length > 28 ? '...' : ''),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messages: finalMessages,
+        };
+        updatedSessions = [newItem, ...allSessions];
+      }
+
+      saveSafeChatSessions(updatedSessions);
+
+      set({
+        chatSessions: updatedSessions,
+        activeSessionId: assignedSessionId,
+        chatSessionId: assignedSessionId,
+        chatMessages: finalMessages,
         isChatLoading: false,
         chatError: null,
         isBackendLive: true,
         syncError: null,
-      }));
+      });
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Lỗi không xác định';
       const message = `Không thể kết nối với AI backend (${detail}). Vui lòng thử lại.`;
@@ -2165,7 +2413,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         syncError: detail,
       }));
     }
-
   },
 
   resetHomepageFlow: () => {
@@ -2175,6 +2422,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       pipelineLevels: initialPipelineLevels,
       chatMessages: initialChatMessages,
       chatSessionId: null,
+      activeSessionId: null,
       isChatLoading: false,
       chatError: null,
     });

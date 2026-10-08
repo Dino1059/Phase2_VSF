@@ -1,5 +1,5 @@
 'use client';
-import { X, ExternalLink, ShieldCheck, Database, Layers, CheckCircle2, AlertOctagon, AlertTriangle, FileText, ArrowRight } from 'lucide-react';
+import { X, ShieldCheck, Database, Layers, CheckCircle2, AlertOctagon, AlertTriangle, FileText, ArrowRight } from 'lucide-react';
 import type { LineageNode } from '@/lib/api-bridge';
 import { Button } from '@/components/ui/button';
 
@@ -140,7 +140,7 @@ export function LineageNodeDrawer({ node, onClose }: LineageNodeDrawerProps) {
                 <span className="font-bold">Chuẩn OpenLineage 1.0 Specification</span>
               </div>
               <p className="mt-1 text-[11px] text-emerald-700">
-                Phát ra tự động qua Airflow OpenLineage Plugin, lưu trữ tại Marquez metadata backend.
+                Phát ra tự động qua DataTrust Compliance Engine, lưu trữ trực tiếp tại PostgreSQL Catalog & Audit Ledger.
               </p>
             </div>
 
@@ -170,15 +170,6 @@ export function LineageNodeDrawer({ node, onClose }: LineageNodeDrawerProps) {
             Hành động nhanh
           </h4>
           <div className="mt-2.5 flex flex-col gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="justify-between text-xs"
-              onClick={() => window.open('http://localhost:3001', '_blank')}
-            >
-              <span>Mở trong Marquez Web UI</span>
-              <ExternalLink className="size-3.5" />
-            </Button>
             {node.layer === 'SILVER' && (
               <Button
                 variant="outline"

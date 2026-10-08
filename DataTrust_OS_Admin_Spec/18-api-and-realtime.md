@@ -59,7 +59,18 @@ POST /findings/:id/ai-explanation
 GET /findings/:id/ai-analysis
 POST /findings/:id/remediation/approve
 POST /findings/:id/remediation/reject
+POST /api/agent/chat
 ```
+
+`POST /api/agent/chat` yêu cầu `run_id` bắt buộc, xác thực quyền tenant, và chỉ trả lời trong phạm vi dữ liệu của `run_id` đó. Các mã lỗi chuẩn:
+- `400 MISSING_RUN_ID`: Thiếu hoặc rỗng `run_id`.
+- `400 EMPTY_MESSAGE`: Tin nhắn rỗng.
+- `400 SESSION_RUN_MISMATCH`: `session_id` không khớp với `run_id`.
+- `403 ACCESS_DENIED_TO_RUN`: Người dùng không có quyền truy cập vào `run_id`.
+- `404 RUN_NOT_FOUND`: `run_id` không tồn tại trong `orchestration.pipeline_runs`.
+- `404 FINDING_NOT_FOUND_IN_RUN`: `finding_id` không thuộc `run_id`.
+
+```text
 
 ### Lineage
 

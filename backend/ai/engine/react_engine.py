@@ -38,6 +38,11 @@ class ReActEngine:
     def get_traces_for_session(self, session_id: str) -> List[AgentTraceModel]:
         return self.active_sessions.get(session_id, [])
 
+    def add_trace(self, trace: AgentTraceModel):
+        if trace.session_id not in self.active_sessions:
+            self.active_sessions[trace.session_id] = []
+        self.active_sessions[trace.session_id].append(trace)
+
     async def run(
         self,
         goal: str,
@@ -75,21 +80,23 @@ class ReActEngine:
             ])
 
             prompt = f"""
-Mục tiêu: {goal}
-Ngữ cảnh: {context}
-Công cụ có sẵn:
+Goal: {goal}
+Context: {context}
+Available tools:
 {tool_descriptions}
 
-Lịch sử các bước trước:
-{history_summary or 'Chưa có bước nào.'}
+Previous step history:
+{history_summary or 'No previous steps.'}
 
-Hãy suy nghĩ (Thought) bước tiếp theo và chỉ định Hành động (Action: tên_công_cụ hoặc 'finish').
+Determine the next Thought and specify the Action (Action: tool_name or 'finish').
             """
 
             # Call LLM completion
             llm_res = self.llm_adapter.complete(
                 prompt=prompt,
-                system_instruction=f"Bạn là AI Agent '{agent_type}' của hệ thống quản trị dữ liệu DataTrust OS.",
+                system_instruction=(
+                    f"You are the '{agent_type}' AI agent in the DataTrust OS data governance system."
+                ),
                 context=context
             )
             tokens_consumed += llm_res.get("tokens_used", 100)

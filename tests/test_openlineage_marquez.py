@@ -1,5 +1,5 @@
 """
-DataTrust OS: Tests for OpenLineage + Marquez Integration & Data Lineage Services
+DataTrust OS: Tests for Data Lineage & PostgreSQL Catalog Topology Services
 Verifies:
 1. OpenLineage Custom Facet Specifications (Audit Assurance & Policy Treatment)
 2. Run-Level Column Lineage Extraction & Recording
@@ -80,13 +80,12 @@ def test_actual_run_column_lineage_extraction():
 
 
 def test_lineage_service_status():
-    """Verifies LineageService status method returns valid connectivity and URLs."""
+    """Verifies LineageService status method returns valid connectivity and mode."""
     status = LineageService.get_status()
     assert "isConnected" in status
+    assert status["isConnected"] is True
     assert "mode" in status
-    assert status["mode"] in ("MARQUEZ_LIVE", "CATALOG_TOPOLOGY_FALLBACK")
-    assert "marquezApiUrl" in status
-    assert "marquezWebUrl" in status
+    assert status["mode"] in ("CATALOG_NATIVE", "CATALOG_TOPOLOGY", "CATALOG_TOPOLOGY_FALLBACK")
     assert isinstance(status["totalDatasets"], int)
     assert isinstance(status["totalJobs"], int)
 
@@ -116,8 +115,9 @@ def test_api_lineage_status_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert "isConnected" in data
+    assert data["isConnected"] is True
     assert "mode" in data
-    assert "marquezWebUrl" in data
+    assert data["mode"] in ("CATALOG_NATIVE", "CATALOG_TOPOLOGY", "CATALOG_TOPOLOGY_FALLBACK")
 
 
 def test_api_lineage_graph_endpoint():

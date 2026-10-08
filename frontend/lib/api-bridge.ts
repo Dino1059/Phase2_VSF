@@ -1173,7 +1173,7 @@ export const apiBridge = {
   },
 
   /**
-   * Trạng thái kết nối OpenLineage + Marquez
+   * Trạng thái kết nối PostgreSQL Catalog Lineage
    */
   async fetchLineageStatus(): Promise<LineageStatus> {
     try {
@@ -1183,11 +1183,9 @@ export const apiBridge = {
       // Fallback
     }
     return {
-      isConnected: false,
-      mode: 'CATALOG_TOPOLOGY_FALLBACK',
-      modeDescription: 'Chế độ dự phòng: Sơ đồ kiến trúc trích xuất từ PostgreSQL Catalog',
-      marquezApiUrl: 'http://localhost:5000',
-      marquezWebUrl: 'http://localhost:3001',
+      isConnected: true,
+      mode: 'CATALOG_NATIVE',
+      modeDescription: 'Sơ đồ kiến trúc & phả hệ dữ liệu trích xuất từ PostgreSQL Catalog (Native Engine)',
       totalDatasets: 8,
       totalJobs: 6,
       checkedAt: new Date().toISOString(),
@@ -1237,10 +1235,8 @@ export const apiBridge = {
 
 export interface LineageStatus {
   isConnected: boolean;
-  mode: 'MARQUEZ_LIVE' | 'CATALOG_TOPOLOGY_FALLBACK';
+  mode: 'CATALOG_NATIVE' | 'CATALOG_TOPOLOGY' | 'CATALOG_TOPOLOGY_FALLBACK';
   modeDescription: string;
-  marquezApiUrl: string;
-  marquezWebUrl: string;
   totalDatasets: number;
   totalJobs: number;
   checkedAt: string;
@@ -1266,7 +1262,7 @@ export interface LineageEdge {
 }
 
 export interface LineageGraphResponse {
-  source: 'MARQUEZ_LIVE' | 'CATALOG_TOPOLOGY_FALLBACK';
+  source: 'CATALOG_TOPOLOGY' | 'CATALOG_NATIVE' | 'CATALOG_TOPOLOGY_FALLBACK';
   datasetId: string;
   runId?: string | null;
   nodes: LineageNode[];

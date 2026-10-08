@@ -17,10 +17,7 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-openlineage-airflow==0.28.0}
-    OPENLINEAGE_URL: http://marquez:5000
-    OPENLINEAGE_NAMESPACE: datatrust_os
-    AIRFLOW__LINEAGE__BACKEND: openlineage_airflow.OpenLineageBackend
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     PYTHONPATH: '/home/airflow/.local/lib/python3.7/site-packages:/root/.local/lib/python3.7/site-packages:/usr/local/lib/python3.7/site-packages:/opt/airflow:/opt/airflow/dags'
   volumes:
     - ./dags:/opt/airflow/dags
@@ -241,36 +238,6 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
-
-  marquez:
-    image: marquezproject/marquez:latest
-    ports:
-      - "5000:5000"
-      - "5001:5001"
-    environment:
-      MARQUEZ_PORT: 5000
-      MARQUEZ_ADMIN_PORT: 5001
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: marquez
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: always
-
-  marquez-web:
-    image: marquezproject/marquez-web:latest
-    ports:
-      - "3001:3000"
-    environment:
-      WEB_PORT: 3000
-      MARQUEZ_HOST: marquez
-      MARQUEZ_PORT: 5000
-    depends_on:
-      - marquez
-    restart: always
 
 volumes:
   postgres-db-volume:

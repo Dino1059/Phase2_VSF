@@ -265,6 +265,7 @@ class QuarantineRecordModel(BaseModel):
     violation_rule_id: Optional[str] = None
     violation_reason: str
     violation_severity: RuleSeverity = RuleSeverity.HIGH
+    failure_lane: Optional[str] = 'LANE_B'
     raw_record_json: Dict[str, Any]
     subject_zone: str = "GLOBAL"
     country: Optional[str] = None
@@ -300,6 +301,24 @@ class AuditTrailModel(BaseModel):
     previous_hash: str
 
 
+class ActionType(str, Enum):
+    DATA_TREATMENT_PROPOSAL = "DATA_TREATMENT_PROPOSAL"
+    REPROCESS_PAYLOAD = "REPROCESS_PAYLOAD"
+    RECALIBRATE_BASELINE = "RECALIBRATE_BASELINE"
+    OVERRIDE_EXCEPTION = "OVERRIDE_EXCEPTION"
+    MANUAL_INSPECTION = "MANUAL_INSPECTION"
+
+
+class StructuredRemediationAction(BaseModel):
+    action_type: ActionType = ActionType.MANUAL_INSPECTION
+    action_summary: str = ""
+    target_records: Dict[str, Any] = Field(default_factory=dict)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    expected_outcome: str = ""
+    dry_run_supported: bool = False
+    requires_approval: bool = True  # Strict HITL requirement
+
+
 class RemediationDecisionModel(BaseModel):
     status: RemediationStatus = RemediationStatus.SUGGESTED
     action: str
@@ -308,6 +327,34 @@ class RemediationDecisionModel(BaseModel):
     decided_by: Optional[str] = None
     decided_at: Optional[datetime] = None
     decision_comment: Optional[str] = None
+    # Enhanced structured fields
+    action_type: ActionType = ActionType.MANUAL_INSPECTION
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    expected_outcome: Optional[str] = None
+    dry_run_supported: bool = False
+    requires_approval: bool = True  # Strict HITL requirement
+
+
+class RCAHypothesis(BaseModel):
+    hypothesis: str
+    likelihood: str = "MEDIUM"  # HIGH, MEDIUM, LOW
+    supporting_evidence: str
+    disproving_factors: Optional[str] = None
+
+
+class LaneSpecificAnalysis(BaseModel):
+    lane: str  # LANE_A or LANE_B
+    rule_id: str
+    violation_type: str
+    standard_or_law_ref: Optional[str] = None
+    observation: str
+    hypotheses: List[RCAHypothesis] = Field(default_factory=list)
+    remediation_action: StructuredRemediationAction
+
+
+class LaneSpecificDetails(BaseModel):
+    lane_a: Optional[LaneSpecificAnalysis] = None
+    lane_b: Optional[LaneSpecificAnalysis] = None
 
 
 class FindingIssueModel(BaseModel):
@@ -324,12 +371,19 @@ class FindingAIAnalysisModel(BaseModel):
     """Persisted, evidence-grounded explanation for one audit Finding."""
     analysis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     finding_id: str
+    failure_lane: str = "LANE_B"  # LANE_A, LANE_B, BOTH
+    rule_id: str = "RULE_CHECK"
+    violation_type: str = "COMPLIANCE_GATE"
+    observation: str = ""
     explanation: str
     root_cause: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    confidence_method: Optional[str] = None
     issues: List[FindingIssueModel] = Field(default_factory=list)
+    hypotheses: List[RCAHypothesis] = Field(default_factory=list)
     evidence_references: List[str] = Field(default_factory=list)
     missing_context: List[str] = Field(default_factory=list)
+    lane_specific_details: Optional[LaneSpecificDetails] = None
     remediation: RemediationDecisionModel
     guardrail_report: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

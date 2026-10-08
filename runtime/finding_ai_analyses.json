@@ -209,5 +209,265 @@
         "actor": "AI_AGENT"
       }
     ]
+  },
+  "F-29ba6bcfdd": {
+    "analysis_id": "ff4f123a-4bef-45bd-b5e5-d11171e75adc",
+    "finding_id": "F-29ba6bcfdd",
+    "explanation": "Có một số vấn đề nghiêm trọng liên quan đến cước phí của các chuyến đi trong dữ liệu. Cụ thể, một số giá trị cước phí là âm, điều này không phù hợp với các quy chuẩn tài chính như IFRS 15 / SOX 404. Điều này có thể ảnh hưởng đến an toàn dữ liệu và kiểm toán.",
+    "root_cause": "Có khả năng do các lỗi nhập liệu, nhưng không chắc chắn về nguyên nhân chính xác.",
+    "confidence": 0.0,
+    "issues": [
+      {
+        "field": "fare_amount",
+        "issue": "giá trị âm",
+        "observed_condition": "-77430.44",
+        "likely_cause": "không rõ nguyên nhân",
+        "suggested_action": "kiểm tra và sửa chữa cước phí để đảm bảo luôn dương",
+        "evidence_reference": "XANH_TRIP_7471"
+      }
+    ],
+    "evidence_references": [
+      "0cf81614-d2d6-4918-b46a-5a4226865c4d",
+      "56ff2425-8f87-4496-ba1c-0ad4de991f3f",
+      "70878842-10cb-45f6-8b1d-b6be9d3c7566",
+      "7c990239-d28e-400b-aae3-ba24c6264441",
+      "856c5b57-4c3f-45f1-8cd8-4958265387ea",
+      "865edcc0-be14-4408-9221-15547ab8106a",
+      "8d844ca6-80fb-4af7-97f3-d86b238fb2f2",
+      "b793264b-969c-4b64-b03a-8c77919033b8",
+      "c5ec7af5-7e81-4188-8a4d-745ea7a2327d",
+      "e57dfc8f-eb4d-42a4-ad41-3de20d84b2a5",
+      "3447b69a9422c4176b0795060a647f83e9725094109bd8849c640ac59a4b18bf",
+      "de605f192e82349eb0a97517e4f3e844e5cf65d31a23e94bacf192d506b39a8b",
+      "5c2883a154049d459707c2757e56dce23facae9dc49a7a3568a0823f90a5a04c",
+      "7969473dffbe9bebee93d99a43d42ae9c4f0b952c01913270b49bf755815ce87",
+      "08c5c9648f30bcc09881a89a94e1b515256c524060f42a339666e78f8831ef64",
+      "e2cd06984a384773b61150acaf80c536bc4bfa52a3347abc19c5f8e704bb15a6",
+      "41c3e5c661600cebd162d5573a925b53f68d80eb0859a0ca2c87b270842c1ee3",
+      "e382db3749309890d6b8ffc608971e1362097ea2a4075f4c1263b40d19c9a1aa",
+      "b2a984800bcfba747d3dbf5670c58075a92e3126438e8bbb6653d79bc09dba7e",
+      "e26fd271dd971bf76e7ab5b91dc7f5afd8716fa6a7412c8bf083b7d94611b30b"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule"
+    ],
+    "remediation": {
+      "status": "suggested",
+      "action": "fare_amount: giá trị âm → kiểm tra và sửa chữa cước phí để đảm bảo luôn dương",
+      "scope": {
+        "finding_id": "F-29ba6bcfdd",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_0fb3d2460cf1",
+        "affected_records": 12
+      },
+      "rationale": "Cần phải đảm bảo các giá trị cước phí hợp lệ để tuân thủ các quy chuẩn tài chính, đồng thời tránh các vi phạm ảnh hưởng đến dữ liệu và kiểm toán.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 20,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-08T03:32:14.463369Z",
+    "updated_at": "2026-10-08T03:32:14.463369Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-08T03:32:14.463369+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
+  },
+  "F-bfd03a1740": {
+    "analysis_id": "8f7bc2fb-df06-4701-8293-b1cb711bbd16",
+    "finding_id": "F-bfd03a1740",
+    "failure_lane": "LANE_B",
+    "rule_id": "COMP-TRIP-GEO-EU",
+    "violation_type": "COMPLIANCE_GATE",
+    "observation": "Pre-check failed: Tọa độ (21.010083) nằm ngoài phạm vi cấp phép đội xe Berlin EU (GDPR Art. 5)",
+    "explanation": "Một số tọa độ GPS được ghi lại trong dữ liệu của chúng tôi nằm ngoài vùng quy định cho phép tại Berlin, theo quy tắc của GDPR. Điều này có thể dẫn đến vi phạm về bảo mật dữ liệu.",
+    "root_cause": "Tọa độ GPS của một số cuốc xe có thể nhập sai hoặc không kiểm tra đúng trước khi lưu trữ. Tuy nhiên, không thể chắc chắn về nguyên nhân chính xác.",
+    "confidence": 0.0,
+    "confidence_method": "evidence_grounded_ratio",
+    "issues": [
+      {
+        "field": "pickup_latitude",
+        "issue": "Tọa độ nằm ngoài phạm vi cấp phép",
+        "observed_condition": "21.010083, 21.012088, 21.020754, 21.042346, 21.045152, 21.045811, 21.042635, 21.012774, 21.047815, 21.035823",
+        "likely_cause": "Không xác định chính xác cách thu thập hoặc kiểm tra tọa độ",
+        "suggested_action": "Xem xét và hiệu chỉnh quy trình nhập liệu cho tọa độ GPS để đảm bảo khớp với tiêu chuẩn vùng quy định.",
+        "evidence_reference": "2a0d257a-10fa-43a4-9a73-269b3c03c362, 33511fe4-c156-4abd-b9eb-cde4fdbf5198, 3a7e943a-3fa5-47f4-8be3-135b663a23e3, 40f0e158-eda2-4bea-8c03-986055eae720, 4b3d870e-a6a8-4b53-8890-a46e6c919d74, 501eb604-6893-4eb4-be39-fa923eca7d12, 5a675699-680c-4b4e-9706-f435a10a6622, 6ca5fa13-9c65-44e7-a4ac-ea3ba52e254e, 73e9ea67-17a4-4d8f-9b23-0d9a36adf982, 7943ef97-d47d-47e3-a5b3-ef3b1c54cad0"
+      }
+    ],
+    "hypotheses": [],
+    "evidence_references": [
+      "2a0d257a-10fa-43a4-9a73-269b3c03c362",
+      "33511fe4-c156-4abd-b9eb-cde4fdbf5198",
+      "3a7e943a-3fa5-47f4-8be3-135b663a23e3",
+      "40f0e158-eda2-4bea-8c03-986055eae720",
+      "4b3d870e-a6a8-4b53-8890-a46e6c919d74",
+      "501eb604-6893-4eb4-be39-fa923eca7d12",
+      "5a675699-680c-4b4e-9706-f435a10a6622",
+      "6ca5fa13-9c65-44e7-a4ac-ea3ba52e254e",
+      "73e9ea67-17a4-4d8f-9b23-0d9a36adf982",
+      "7943ef97-d47d-47e3-a5b3-ef3b1c54cad0",
+      "b6479569170f82f28752e69e896d3e9b850006da935c67b90431d6dc5cc1c17d",
+      "aba7c5164c0e79068cce7b57815b40a6746814eb5d120b1efc3041490bb0083b",
+      "e94a272a3401f4e38fa6aa12869684eae4248c0a6be14f61979bd515973600bf",
+      "6705c6e39107ef79f2bc64d71a45f0b5f5173d4eae83e65f7e56c576b30cb273",
+      "24073ec57211226cac3f7fd2784375d3493aacb0bdba0cb0395024df12f704e6",
+      "5930d017bf78ef7f5bfefaa4853cd618be177603389242c7f5a9d5675d81c7aa",
+      "31d4129adb8df947be75ed58f9f64ce8712579071680299c710cda99a728820d",
+      "82fe5014eaef2a24fe1efe0c50f58c93f301edbdfe9292f38cb61d1bcf75a9d4",
+      "eeef5fc9bb8ed3f4876bd8116605d7125d042b6cf3bc7784617f2fd924ed2323",
+      "e3e1e2ca751d4000d0a870ec088b5fd373400dee12a279d6960fc6fd03375568"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule"
+    ],
+    "lane_specific_details": null,
+    "remediation": {
+      "status": "suggested",
+      "action": "pickup_latitude: tọa độ nằm ngoài phạm vi cấp phép → xem xét và hiệu chỉnh quy trình nhập liệu cho tọa độ GPS.",
+      "scope": {
+        "finding_id": "F-bfd03a1740",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_5f99e325b9c2",
+        "affected_records": 24
+      },
+      "rationale": "Cần đảm bảo các tọa độ GPS được ghi lại là hợp lệ và tuân thủ quy định của GDPR để tránh vi phạm dữ liệu. Hành động này sẽ giúp tránh được rủi ro pháp lý và bảo vệ quyền riêng tư của khách hàng.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null,
+      "action_type": "MANUAL_INSPECTION",
+      "parameters": {},
+      "expected_outcome": "Cần đảm bảo các tọa độ GPS được ghi lại là hợp lệ và tuân thủ quy định của GDPR để tránh vi phạm dữ liệu. Hành động này sẽ giúp tránh được rủi ro pháp lý và bảo vệ quyền riêng tư của khách hàng.",
+      "dry_run_supported": false,
+      "requires_approval": true
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 1,
+        "vins_masked": 18,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-08T04:07:52.164554Z",
+    "updated_at": "2026-10-08T04:07:52.164554Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-08T04:07:52.164554+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
+  },
+  "F-4f6a222b96": {
+    "analysis_id": "812aa1d4-7284-44b1-a151-fdb60c97bc96",
+    "finding_id": "F-4f6a222b96",
+    "failure_lane": "BOTH",
+    "rule_id": "COMP-TRIP-REV-01",
+    "violation_type": "COMPLIANCE_GATE",
+    "observation": "Post-check failed: Cước chuyến đi (-22099.0) <= 0 vi phạm chuẩn IFRS 15 / SOX 404",
+    "explanation": "Có một số lỗi trong dữ liệu liên quan đến cước phí các chuyến đi, trong đó một số giá trị cước phí âm không hợp lệ. Theo chuẩn IFRS 15 / SOX 404, cước phí này phải lớn hơn 0.",
+    "root_cause": "Nguyên nhân có thể là sự cố trong quá trình nhập liệu hoặc tính toán giá cước, nhưng không chắc chắn.",
+    "confidence": 0.0,
+    "confidence_method": "evidence_grounded_ratio",
+    "issues": [
+      {
+        "field": "fare_amount",
+        "issue": "Giá trị âm",
+        "observed_condition": "-41034.48",
+        "likely_cause": "Không rõ ràng, có thể do lỗi nhập dữ liệu.",
+        "suggested_action": "Thực hiện rà soát và điều chỉnh giá trị cước phí về giá trị dương.",
+        "evidence_reference": "XANH_TRIP_4554"
+      },
+      {
+        "field": "fare_amount",
+        "issue": "Giá trị âm",
+        "observed_condition": "-22098.85",
+        "likely_cause": "Không rõ ràng, có thể do lỗi nhập dữ liệu.",
+        "suggested_action": "Thực hiện rà soát và điều chỉnh giá trị cước phí về giá trị dương.",
+        "evidence_reference": "XANH_TRIP_6534"
+      }
+    ],
+    "hypotheses": [],
+    "evidence_references": [
+      "202d6636-a79e-4845-9e8f-aaab49cc2bf4",
+      "44ccd1fe-77af-4d00-a494-a49705d6f11e",
+      "49caa979-8f4e-4d1e-88cf-47217f2329a0",
+      "4ad45065-8dc1-48e4-a7e4-3aba5dfff9ed",
+      "4dfa54cf-e73a-434d-8469-5afecb9b864e",
+      "59bf78b7-8c5f-4e92-ae4c-70ce079125eb",
+      "cff25e24-0f75-4a45-803d-df4cd8da982e",
+      "da43b339-feaf-44e1-8330-70d6a8c10912",
+      "dba0f9d3-5ca0-4bef-bd88-e701d509d04f",
+      "eb9b7b1d-8175-4bf2-a804-caf89f1a94d7",
+      "f6c3a79ac0d290bc4580506bcac097ffe9a0b65b43b6af544286409b4acd0f57",
+      "e769f7b28e52492afdb4a28c0262ed90c765df68002745b9912cd3875f27f3ff",
+      "89277c7e37dcfc77acb7175ee76d6d4fe16bc80b5c20d646f7c625dddab4146e",
+      "dd22828da6ef94318d4710a59ac7ebdd9aba029aff4e68e6dbc71b1aed09e49c",
+      "68c5e4fd6cb9dea5fee11b83da30c05db6f595ccd2ece04a549b2556885f404c",
+      "598cf3f77a17d939add06cd4429ad43afb83e7c5c28488c79a3c985e711b0363",
+      "afa5566513bf03cafcebb96ec02a245a67d54a55dedd190b6b2f6d29e1ddbb53",
+      "bd81b5cdc82e5333f4f6f282277305341ce19938188681ac05409f8bf0ca77bf",
+      "498c059dd0a47188e3323c1e16a36d64b778d72e897157b63769dffdff3dc74b",
+      "8b4a77e5f9aa11be60817ec6320ada32b3720978b92367f8f02ac90451ab8a24"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule"
+    ],
+    "lane_specific_details": null,
+    "remediation": {
+      "status": "suggested",
+      "action": "fare_amount: Giá trị âm → Rà soát và cập nhật giá trị cước phí thành giá trị dương.",
+      "scope": {
+        "finding_id": "F-4f6a222b96",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_57e83163aa31",
+        "affected_records": 10
+      },
+      "rationale": "Việc điều chỉnh giá trị cước phí cần thiết để đảm bảo tính chính xác của dữ liệu và tuân thủ các quy định về kiểm soát doanh thu, tránh rủi ro trong kiểm toán và xử lý dữ liệu.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null,
+      "action_type": "MANUAL_INSPECTION",
+      "parameters": {},
+      "expected_outcome": "Việc điều chỉnh giá trị cước phí cần thiết để đảm bảo tính chính xác của dữ liệu và tuân thủ các quy định về kiểm soát doanh thu, tránh rủi ro trong kiểm toán và xử lý dữ liệu.",
+      "dry_run_supported": false,
+      "requires_approval": true
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 18,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-08T08:57:08.139567Z",
+    "updated_at": "2026-10-08T08:57:08.139567Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-08T08:57:08.139567+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
   }
 }

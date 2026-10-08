@@ -2,7 +2,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
-  ExternalLink,
   RotateCw,
   GitFork,
   Database,
@@ -224,17 +223,10 @@ export function LineagePage() {
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               OpenLineage & Metadata Governance
             </span>
-            {status?.mode === 'MARQUEZ_LIVE' ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
-                <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-                Marquez Live (Run-Level)
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-800" title={status?.modeDescription}>
-                <span className="size-2 rounded-full bg-amber-500" />
-                Catalog Topology Fallback (Marquez Offline)
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800" title={status?.modeDescription}>
+              <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
+              PostgreSQL Catalog Lineage (Bảo chứng 3 Làn)
+            </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
             Dòng Dữ Liệu & Nguồn Gốc (Data Lineage)
@@ -244,7 +236,7 @@ export function LineagePage() {
           </p>
         </div>
 
-        {/* Action: Open Marquez Native Web UI */}
+        {/* Actions */}
         <div className="flex items-center gap-2.5">
           <Button
             variant="outline"
@@ -255,15 +247,6 @@ export function LineagePage() {
           >
             <RotateCw className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             Làm mới
-          </Button>
-
-          <Button
-            size="sm"
-            className="gap-2 bg-[#008b74] text-xs font-semibold text-white shadow-sm hover:bg-[#007562]"
-            onClick={() => window.open(status?.marquezWebUrl || 'http://localhost:3001', '_blank')}
-          >
-            <span>Mở Marquez Web UI</span>
-            <ExternalLink className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -384,8 +367,8 @@ export function LineagePage() {
             <div className="flex items-center gap-2">
               <Info className="size-4 shrink-0 text-slate-400" />
               <span>
-                Nguồn đồ thị: <strong className={graphData?.source === 'MARQUEZ_LIVE' ? 'text-emerald-700' : 'text-amber-700'}>
-                  {graphData?.source === 'MARQUEZ_LIVE' ? 'Marquez Core API (trực tiếp)' : 'PostgreSQL Catalog (topology fallback)'}
+                Nguồn đồ thị: <strong className="text-emerald-700">
+                  PostgreSQL Catalog Lineage (Bảo chứng 3 Làn)
                 </strong>. Kéo thanh cuộn để di chuyển và chọn một node để xem chi tiết.
               </span>
             </div>

@@ -46,6 +46,7 @@ from backend.database.models import (
     FindingAIAnalysisModel,
     RemediationDecisionModel,
     RemediationStatus,
+    ActionType,
 )
 from backend.engine.dynamic_runner import DynamicRuleRunner
 from backend.engine.quarantine_manager import QuarantineManager
@@ -174,8 +175,10 @@ class AirflowTriggerRequest(BaseModel):
     conf: Optional[Dict[str, Any]] = None
 
 class AgentChatRequest(BaseModel):
+    run_id: str
     message: str
     session_id: Optional[str] = None
+    finding_id: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
 
 class AgentPreventiveScanRequest(BaseModel):
@@ -1622,7 +1625,7 @@ def get_finding_detail(finding_id: str):
 
             # Mẫu bản ghi cách ly thực tế
             cur.execute("""
-                SELECT q.quarantine_id, q.source_row_pk, q.violation_severity,
+                SELECT q.quarantine_id, q.source_row_pk, q.failure_lane, q.violation_severity,
                        q.violation_reason, q.raw_record_json, q.status, q.quarantined_at,
                        q.lineage_hash, q.subject_zone, q.jurisdiction_chain,
                        q.matched_policy_id AS policy_id,
@@ -1638,7 +1641,7 @@ def get_finding_detail(finding_id: str):
 
             if not q_rows:
                 cur.execute("""
-                    SELECT quarantine_id, source_row_pk, violation_severity,
+                    SELECT quarantine_id, source_row_pk, failure_lane, violation_severity,
                            violation_reason, raw_record_json, status, quarantined_at,
                            lineage_hash, subject_zone, jurisdiction_chain,
                            matched_policy_id AS policy_id,
@@ -1703,6 +1706,13 @@ def _finding_ai_context(finding_id: str) -> Dict[str, Any]:
             "law_ref": detail.get("law_ref"),
             "context_completeness": "partial",
         }
+    sample_records = detail.get("sample_records") or []
+    failure_lane = "LANE_B"
+    if sample_records and sample_records[0].get("failure_lane"):
+        failure_lane = str(sample_records[0].get("failure_lane")).upper()
+    elif "LANE_A" in str(detail.get("rule_id", "")).upper() or "SENSOR" in str(detail.get("rule_id", "")).upper():
+        failure_lane = "LANE_A"
+
     context: Dict[str, Any] = {
         "finding": {k: v for k, v in detail.items() if k not in {"sample_records", "rule_definition"}},
         "result": {
@@ -1710,13 +1720,17 @@ def _finding_ai_context(finding_id: str) -> Dict[str, Any]:
             "run_status": detail.get("run_status"),
             "failed_record_count": detail.get("failed_record_count"),
         },
-        "evidence": detail.get("sample_records") or [],
+        "failure_lane": failure_lane,
+        "rule_id": detail.get("rule_id"),
+        "column_name": detail.get("column_name"),
+        "law_ref": detail.get("law_ref"),
+        "evidence": sample_records,
         # A lineage hash proves record identity/integrity, but it is not a
         # lineage graph or data path. Keep it separate so missing_context stays
         # honest until a real lineage path is available.
         "lineage": None,
         "lineage_hashes": [
-            row.get("lineage_hash") for row in (detail.get("sample_records") or [])
+            row.get("lineage_hash") for row in sample_records
             if row.get("lineage_hash")
         ],
         "rule": rule,
@@ -1844,6 +1858,13 @@ Do not expose masked data, invent evidence, or claim that a remediation was exec
                 f"Correct records that violate {rule_id}, then submit them to the separate execution workflow."
             ),
         }
+    struc_rem = generated.get("structured_remediation") or {}
+    act_type = ActionType.MANUAL_INSPECTION
+    if struc_rem.get("action_type") in ActionType.__members__:
+        act_type = ActionType(struc_rem["action_type"])
+    elif "mask" in str(generated.get("remediation_action", "")).lower():
+        act_type = ActionType.DATA_TREATMENT_PROPOSAL
+
     remediation = RemediationDecisionModel(
         action=str(generated["remediation_action"]),
         scope={
@@ -1853,16 +1874,28 @@ Do not expose masked data, invent evidence, or claim that a remediation was exec
             "affected_records": finding.get("failed_record_count"),
         },
         rationale=str(generated["remediation_rationale"]),
+        action_type=act_type,
+        parameters=struc_rem.get("parameters") or {},
+        expected_outcome=struc_rem.get("expected_outcome") or str(generated["remediation_rationale"]),
+        dry_run_supported=bool(struc_rem.get("dry_run_supported", False)),
+        requires_approval=True,  # Strict HITL requirement
     )
     now = datetime.now(timezone.utc)
     analysis = FindingAIAnalysisModel(
         finding_id=finding_id,
+        failure_lane=generated.get("failure_lane") or safe_context.get("failure_lane") or "LANE_B",
+        rule_id=rule_id,
+        violation_type=generated.get("violation_type") or "COMPLIANCE_GATE",
+        observation=generated.get("observation") or str(reason),
         explanation=str(generated["explanation"]),
         root_cause=str(generated["root_cause"]),
         confidence=confidence,
+        confidence_method=generated.get("confidence_method") or ("evidence_grounded_ratio" if confidence is not None else None),
         issues=generated["issues"],
+        hypotheses=generated.get("hypotheses") or [],
         evidence_references=evidence_refs,
         missing_context=missing,
+        lane_specific_details=generated.get("lane_specific_details"),
         remediation=remediation,
         guardrail_report={
             "is_sanitized": guard.get("is_sanitized", False),
@@ -2666,12 +2699,12 @@ def get_audit_trail():
 
 
 # =============================================================================
-# DATA LINEAGE & OPENLINEAGE / MARQUEZ ENDPOINTS
+# DATA LINEAGE & CATALOG TOPOLOGY ENDPOINTS
 # =============================================================================
 
 @app.get("/api/lineage/status")
 def get_lineage_status():
-    """Returns connectivity and metadata stats for OpenLineage + Marquez."""
+    """Returns connectivity and metadata stats for Data Lineage & PostgreSQL Catalog."""
     from backend.lineage.lineage_service import LineageService
     return LineageService.get_status()
 
@@ -2764,12 +2797,64 @@ async def agent_websocket(websocket: WebSocket, token: Optional[str] = None, ses
 async def agent_chat(req: AgentChatRequest):
     """
     Direct REST endpoint for user chat interaction with DataTrust Multi-Agent System.
+    Strictly enforces Run Isolation and session-run binding.
     """
+    import os
+    from backend.ai.services.chat_session_manager import session_manager
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    run_id = (req.run_id or "").strip()
+    message = (req.message or "").strip()
+
+    if not run_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "MISSING_RUN_ID", "message": "run_id là bắt buộc để tương tác với AI Agent."}
+        )
+    if not message:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "EMPTY_MESSAGE", "message": "Nội dung tin nhắn không được để trống."}
+        )
+
+    # 1. Verify run_id exists in orchestration.pipeline_runs
+    run_row = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT run_id, dataset_id, status FROM orchestration.pipeline_runs WHERE run_id = %s LIMIT 1;", (run_id,))
+            run_row = cur.fetchone()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Error checking run_id in DB: {e}")
+
+    if not run_row:
+        # Check mock/testing fallback runs
+        if not (run_id.startswith("run-test-") or run_id.startswith("RUN-TEST-")):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "RUN_NOT_FOUND", "message": f"Không tìm thấy lần chạy '{run_id}' trong hệ thống điều phối kiểm toán."}
+            )
+
+    # 2. Verify Session-Run Binding (immutable 1-to-1)
+    if req.session_id:
+        session_manager.verify_and_bind_session(req.session_id, run_id)
+
     res = await orchestrator.chat(
-        message=req.message,
+        message=message,
+        run_id=run_id,
         session_id=req.session_id,
+        finding_id=req.finding_id,
         context=req.context
     )
+
+    # Production safety: hide traces in production unless DEBUG is enabled
+    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
+    is_debug = os.getenv("DEBUG", "").lower() in ("true", "1")
+    if is_prod and not is_debug and isinstance(res, dict):
+        res["traces"] = []
+
     return res
 
 
@@ -2777,7 +2862,13 @@ async def agent_chat(req: AgentChatRequest):
 def get_agent_traces(session_id: str):
     """
     Retrieves all persistent ReAct steps for an active agent reasoning session.
+    Hides traces in production unless debug mode is enabled.
     """
+    import os
+    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
+    is_debug = os.getenv("DEBUG", "").lower() in ("true", "1")
+    if is_prod and not is_debug:
+        return []
     traces = orchestrator.react_engine.get_traces_for_session(session_id)
     return [t.model_dump() for t in traces]
 

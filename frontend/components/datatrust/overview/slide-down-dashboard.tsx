@@ -3,18 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
-  CheckCircle2,
-  Eye,
   Loader2,
   RefreshCw,
-  RotateCcw,
-  ShieldAlert,
-  Sparkles,
-  Wand2
+  RotateCcw
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FindingDetailModal } from '@/components/datatrust/findings/finding-detail';
+import { AuditFindingsTable } from './audit-findings-table';
 import {
   apiBridge,
   type RunResultsData,
@@ -48,7 +44,6 @@ const formatDuration = (ms?: number | null) => {
 };
 
 export function SlideDownDashboard() {
-  const currentRole = useAgentStore((s) => s.currentRole);
   const activeRunIdFromStore = useAgentStore((s) => s.pipelineLevels.activeRunId);
   const selectedDatasetId = useAgentStore((s) => s.selectedDatasetId);
   const sendUserChatMessage = useAgentStore((s) => s.sendUserChatMessage);
@@ -418,182 +413,12 @@ export function SlideDownDashboard() {
       {/* ========================================================================= */}
       {/* 6. FINDING INVESTIGATION & REMEDIATION SECTION                            */}
       {/* ========================================================================= */}
-      <div id="finding-remediation-section" className="space-y-4 pt-4 border-t border-slate-200/70">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShieldAlert size={17} className="text-rose-600" />
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Chi tiết Vấn đề Kiểm toán & Đề xuất Xử lý ({findings.length} Finding)
-            </h3>
-          </div>
-          <span className="text-[11px] font-mono text-slate-500">
-            Chuẩn kiểm toán SOX 404 / IPO Assurance
-          </span>
-        </div>
-
-        {findings.length === 0 ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-8 text-center space-y-2">
-            <CheckCircle2 className="size-8 text-emerald-600 mx-auto" />
-            <h4 className="text-sm font-bold text-emerald-950">
-              Không phát hiện vi phạm kiểm toán nào cho lượt chạy này
-            </h4>
-            <p className="text-xs text-emerald-800 max-w-md mx-auto">
-              100% dữ liệu đã vượt qua các cổng kiểm soát L1-L4 và Policy Gate. Bằng chứng kiểm toán hợp lệ đã được lưu trữ vào sổ cái bất biến.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {findings.map((f) => (
-              <div
-                key={f.finding_id}
-                className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-slate-300 transition-all space-y-3"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="rounded-md bg-slate-950 text-[#04D3D4] px-2 py-0.5 font-mono text-[11px] font-bold">
-                        {f.finding_id}
-                      </span>
-                      <span className="rounded-md bg-rose-100 text-rose-800 px-2 py-0.5 text-[10px] font-extrabold">
-                        {f.severity}
-                      </span>
-                      <span className="rounded-md bg-slate-100 text-slate-800 px-2 py-0.5 font-mono text-[10px] font-bold">
-                        Quy tắc: {f.rule_id}
-                      </span>
-                      <span className="rounded-md bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-0.5 font-mono text-[10px]">
-                        Cột: {f.column_name}
-                      </span>
-                      <span className="rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-[10px] font-semibold">
-                        Trạng thái: {f.status}
-                      </span>
-                      <span className="rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 font-mono text-[10px] font-bold text-violet-700">
-                        Zone: {f.subject_zone || 'Chưa xác định'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs font-semibold text-slate-900 leading-relaxed">
-                      {f.reason}
-                    </p>
-
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
-                      <span>Căn cứ pháp lý: <strong className="text-slate-700">{f.law_ref || 'Chưa xác định căn cứ pháp lý'}</strong></span>
-                      <span>·</span>
-                      <span>Ảnh hưởng: <strong className="text-rose-700">{f.failed_record_count} bản ghi cách ly</strong></span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-start">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleAskAiAboutFinding(f)}
-                      className="h-8 gap-1.5 text-xs text-cyan-700 border-cyan-200 hover:bg-cyan-50 shadow-2xs"
-                      title="Gửi câu hỏi nhờ AI Companion phân tích chi tiết"
-                    >
-                      <Sparkles size={13} className="text-[#04D3D4]" />
-                      <span>Nhờ AI giải thích</span>
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      onClick={() => setInvestigatingFindingId(f.finding_id)}
-                      className="h-8 gap-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 shadow-2xs cursor-pointer"
-                    >
-                      <Eye size={13} />
-                      <span>Điều tra chi tiết</span>
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Remediation Action Cards */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Wand2 size={16} className="text-[#04D3D4]" />
-              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Đề xuất Xử lý & Khắc phục Dữ liệu (Remediation & Governance)
-              </h3>
-            </div>
-            <span className="rounded-full bg-cyan-50 text-cyan-800 border border-cyan-200 px-2.5 py-0.5 text-[10px] font-bold">
-              Quy trình Kiểm soát Nội bộ
-            </span>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3 text-xs">
-            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
-              <div className="flex items-center gap-2">
-                <span className="grid size-6 place-items-center rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px]">
-                  1
-                </span>
-                <h4 className="font-bold text-slate-900">Khắc phục Dữ liệu (Remediate)</h4>
-              </div>
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Mở mẫu JSON thô trong Quarantine, sửa các giá trị định dạng sai lệch hoặc thiếu sót và kích hoạt chạy lại (Reprocess).
-              </p>
-              <div className="pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={findings.length === 0}
-                  onClick={() => findings.length > 0 && setInvestigatingFindingId(findings[0].finding_id)}
-                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-800 cursor-pointer"
-                >
-                  Mở giao diện sửa payload
-                </Button>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
-              <div className="flex items-center gap-2">
-                <span className="grid size-6 place-items-center rounded-lg bg-amber-100 text-amber-800 font-bold text-[11px]">
-                  2
-                </span>
-                <h4 className="font-bold text-slate-900">Phê duyệt Ngoại lệ (Override)</h4>
-              </div>
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Nhập giải trình kiểm toán bắt buộc (ví dụ: cuốc xe thử nghiệm nội bộ) để cho phép bản ghi lưu vào nhật ký kiểm toán bất biến.
-              </p>
-              <div className="pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={findings.length === 0 || currentRole === 'auditor'}
-                  onClick={() => findings.length > 0 && setInvestigatingFindingId(findings[0].finding_id)}
-                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-amber-500 text-slate-700 hover:text-amber-800 disabled:opacity-50 cursor-pointer"
-                >
-                  {currentRole === 'auditor' ? 'Chỉ xem (Auditor)' : 'Nhập biên bản ngoại lệ'}
-                </Button>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-2 hover:border-[#04D3D4] transition">
-              <div className="flex items-center gap-2">
-                <span className="grid size-6 place-items-center rounded-lg bg-cyan-100 text-cyan-800 font-bold text-[11px]">
-                  3
-                </span>
-                <h4 className="font-bold text-slate-900">Phân tích Nguyên nhân AI (RCA)</h4>
-              </div>
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Yêu cầu AI Companion phân tích so sánh đối chiếu giữa số liệu cảm biến viễn thông và sổ cái tài chính SOX 404.
-              </p>
-              <div className="pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={findings.length === 0}
-                  onClick={() => findings.length > 0 && handleAskAiAboutFinding(findings[0])}
-                  className="h-7 w-full text-[11px] font-semibold border-slate-200 hover:border-[#04D3D4] text-slate-700 hover:text-cyan-900 cursor-pointer"
-                >
-                  Gửi yêu cầu RCA cho AI
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div id="finding-remediation-section" className="pt-2">
+        <AuditFindingsTable
+          findings={findings}
+          onInvestigate={(id) => setInvestigatingFindingId(id)}
+          onAskAi={(finding) => handleAskAiAboutFinding(finding)}
+        />
       </div>
 
       {/* ========================================================================= */}
@@ -603,6 +428,7 @@ export function SlideDownDashboard() {
         <FindingDetailModal
           findingId={investigatingFindingId}
           onClose={() => setInvestigatingFindingId(null)}
+          onStatusUpdated={loadData}
         />
       )}
     </div>
