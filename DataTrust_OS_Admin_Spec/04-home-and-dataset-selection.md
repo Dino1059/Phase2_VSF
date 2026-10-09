@@ -18,7 +18,7 @@
 
 ## 4.1. Mục tiêu
 
-Đây là entry point cho **Admin** (Quản trị viên) và **Auditor** (Kiểm toán viên - Chế độ Viewer).
+Đây là entry point cho **Admin** (Quản trị viên) và **Auditor** (Kiểm toán viên).
 
 Người dùng bắt đầu bằng cách chọn dataset cần kiểm tra / rà soát tuân thủ.
 
@@ -97,14 +97,14 @@ PII: Có dữ liệu cá nhân
 Các compliance rules hiện có:
 [ Xem rule ]
 
-[ Chạy kiểm tra ] (nếu là Admin) | [ Xem kết quả kiểm toán ] (nếu là Auditor Viewer)
+[ Chạy kiểm tra ] | [ Xem kết quả kiểm toán ]
 ```
 
 > **Quy tắc phân quyền và hành động**:
 > 1. **Bỏ hiển thị tổng số cột**: Màn hình chỉ tập trung vào 3 chỉ số trọng yếu về dữ liệu cá nhân và bảo mật theo luật (Personal-data fields, Direct identifiers, Contextual fields).
 > 2. **Xem rule**: Chỉ mở danh sách read-only các rule đang áp dụng cho dataset đã chọn. Cả Admin và Auditor không chọn/bỏ chọn, approve/reject hoặc chỉnh sửa rule tại bước này.
 > 3. **Hành động chính theo Role**:
->    - **Admin**: Hiển thị nút `[ Chạy kiểm tra ]` để kích hoạt Adaptive Pipeline run.
->    - **Auditor (Viewer)**: Không hiển thị nút chạy kiểm tra. Thay vào đó, hiển thị nút `[ Xem kết quả kiểm toán ]` dẫn thẳng đến màn hình kết quả rà soát độc lập (`/results`). Auditor có tính năng như một Viewer, tuyệt đối không có quyền can thiệp hay khởi chạy pipeline.
+>    - Cả **Admin** và **Auditor** đều có quyền nhấn `[ Chạy kiểm tra ]` để mở Start Run Modal và kích hoạt lượt chạy kiểm tra qua Adaptive Pipeline run (`startPipelineRun`), cũng như có thể chọn `[ Xem kết quả kiểm toán ]` để xem kết quả kiểm tra gần nhất.
+>    - **Ranh giới**: Khác với Admin (người có quyền can thiệp HITL, phê duyệt quy tắc và khắc phục bản ghi cách ly), lượt chạy do Auditor kích hoạt thuần túy phục vụ thẩm tra độc lập và tạo bằng chứng kiểm toán (Audit Trail ghi nhận `actor_role = 'AUDITOR'`); Auditor không có quyền can thiệp/phê duyệt rule trước và sau khi chạy.
 
 ---

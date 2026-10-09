@@ -39,7 +39,7 @@
 
 ## C. Run
 
-- Admin có thể start run.
+- Admin và Auditor đều có thể start run (kích hoạt lượt chạy kiểm tra).
 - UI hiển thị status.
 - UI hiển thị pipeline steps.
 - UI hiển thị progress.

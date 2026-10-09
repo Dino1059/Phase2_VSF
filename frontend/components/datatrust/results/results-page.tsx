@@ -265,9 +265,6 @@ export function ResultsPage() {
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
               Kiểm Soát 3 Làn & Sổ Cái Bằng Chứng IPO
             </span>
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-              Luật 91/2025/QH15 & NĐ 356/2025/NĐ-CP
-            </span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Kết Quả Kiểm Soát & Bằng Chứng Bất Biến

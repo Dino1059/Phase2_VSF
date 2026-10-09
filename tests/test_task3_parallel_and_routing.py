@@ -267,6 +267,16 @@ def test_database_persistence_integration():
         pytest.skip(f"PostgreSQL not accessible locally: {exc}")
 
     try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('policy.jurisdictions')")
+            if cur.fetchone()[0] is None:
+                pytest.skip("Lane B policy-pack migration is not applied to the local database")
+            cur.execute(
+                "SELECT 1 FROM policy.policy_packs "
+                "WHERE jurisdiction_id = 'VN' AND status = 'ACTIVE' LIMIT 1"
+            )
+            if cur.fetchone() is None:
+                pytest.skip("Active VN policy pack is not installed in the local database")
         records = [
             {"trip_id": "DB_VAL_01", "vehicle_vin": "VF8_01", "customer_phone": "0987654321", "fare_amount": 50000.0, "trip_distance_km": 3.0, "subject_zone": "VN", "pickup_latitude": 21.028511, "pickup_longitude": 105.854444},
             {"trip_id": "DB_FAIL_01", "vehicle_vin": "VF8_02", "customer_phone": "0912345678", "fare_amount": -100.0, "trip_distance_km": 3.0, "subject_zone": "VN"},

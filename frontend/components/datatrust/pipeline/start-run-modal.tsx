@@ -8,6 +8,7 @@ import {
   Database,
   AlertTriangle,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiBridge, type DatasetCatalogItem } from '@/lib/api-bridge';
@@ -57,7 +58,6 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
   if (!isOpen) return null;
 
   const handleStartRun = async () => {
-    if (isAuditor) return;
     setIsLoading(true);
     setErrorMessage(null);
 
@@ -111,16 +111,16 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
 
         {/* Content */}
         <div className="p-6 space-y-5">
-          {/* RBAC Auditor Warning */}
+          {/* Auditor Assurance Notice */}
           {isAuditor && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 flex items-start gap-3">
-              <AlertTriangle className="size-5 shrink-0 text-amber-400 mt-0.5" />
+            <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-xs text-cyan-300 flex items-start gap-3">
+              <ShieldCheck className="size-5 shrink-0 text-cyan-400 mt-0.5" />
               <div>
-                <p className="font-semibold text-amber-200">
-                  Chế độ Chỉ đọc (Auditor Restricted)
+                <p className="font-semibold text-cyan-200">
+                  Lượt chạy Kiểm toán Độc lập (Auditor Assurance Run)
                 </p>
                 <p className="mt-1 text-slate-300">
-                  Vai trò Kiểm toán viên (Auditor) chỉ có thẩm quyền thẩm tra kết quả và bằng chứng. Bạn không có quyền kích hoạt lượt chạy mới. Vui lòng chuyển sang vai trò Quản trị viên (Admin) để thực thi.
+                  Bạn đang khởi chạy quy trình kiểm tra dữ liệu với thẩm quyền Kiểm toán viên. Toàn bộ chữ ký số và bằng chứng sẽ được ghi nhận vào nhật ký kiểm toán độc lập.
                 </p>
               </div>
             </div>
@@ -144,7 +144,7 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
             <select
               value={selectedDataset}
               onChange={(e) => setSelectedDataset(e.target.value)}
-              disabled={isAuditor || isLoading}
+              disabled={isLoading}
               className="w-full rounded-xl border border-slate-700 bg-slate-800/90 px-3.5 py-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 disabled:opacity-50"
             >
               {datasets.map((d) => (
@@ -169,7 +169,7 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
           </Button>
           <Button
             onClick={handleStartRun}
-            disabled={isAuditor || isLoading}
+            disabled={isLoading}
             className="bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 shadow-md shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed gap-2"
           >
             {isLoading ? (

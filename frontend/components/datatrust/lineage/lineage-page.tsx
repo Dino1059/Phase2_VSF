@@ -43,7 +43,7 @@ export function LineagePage() {
   const [selectedDataset, setSelectedDataset] = useState<string>(initialDataset);
   const [selectedRunId, setSelectedRunId] = useState<string>(initialRunId);
 
-  const [status, setStatus] = useState<LineageStatus | null>(null);
+  const [_status, setStatus] = useState<LineageStatus | null>(null);
   const [graphData, setGraphData] = useState<LineageGraphResponse | null>(null);
   const [columnLineage, setColumnLineage] = useState<ColumnLineageItem[]>([]);
   const [runsList, setRunsList] = useState<LineageRunItem[]>([]);
@@ -223,17 +223,10 @@ export function LineagePage() {
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               OpenLineage & Metadata Governance
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800" title={status?.modeDescription}>
-              <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-              PostgreSQL Catalog Lineage (Bảo chứng 3 Làn)
-            </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
             Dòng Dữ Liệu & Nguồn Gốc (Data Lineage)
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Chuẩn OpenLineage 1.0 truy vết toàn diện: Nguồn thô ➔ Bronze ➔ Đánh giá 3 Làn ➔ Silver / Quarantine ➔ Ký số IPO
-          </p>
         </div>
 
         {/* Actions */}
@@ -249,45 +242,6 @@ export function LineagePage() {
             Làm mới
           </Button>
         </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card className="p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Datasets được bảo vệ</span>
-            <Database className="size-4 text-slate-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">8 Bảng</div>
-          <div className="mt-1 text-[11px] text-slate-500">100% Khởi tạo tại Bronze & Silver</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Airflow Pipeline Tasks</span>
-            <Workflow className="size-4 text-slate-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">6 Tasks</div>
-          <div className="mt-1 text-[11px] text-slate-500">Task 1 ➔ Task 2 ➔ Làn A/B/C ➔ Task 4</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Bảo vệ trường PII</span>
-            <ShieldCheck className="size-4 text-emerald-500" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-emerald-700">100% Tuân thủ</div>
-          <div className="mt-1 text-[11px] text-slate-500">Luật 91/2025/QH15 & GDPR che mờ</div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Bằng chứng kiểm toán</span>
-            <CheckCircle2 className="size-4 text-teal-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-teal-700">SHA-256 Chuỗi</div>
-          <div className="mt-1 text-[11px] text-slate-500">Chữ ký số bất biến audit.evidence</div>
-        </Card>
       </div>
 
       {/* Filter Toolbar & Tab Switcher */}

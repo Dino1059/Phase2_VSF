@@ -5,6 +5,8 @@ Covers all 5 Treatment Actions: REMOVE, PSEUDONYMIZE, KEEP_RESTRICTED, GENERALIZ
 """
 
 import hashlib
+import hmac
+import os
 import re
 from typing import Any, Tuple, Optional, Dict
 
@@ -72,6 +74,33 @@ def handler_hash_sha256(val: Any, salt: str = "gsm_global_salt_2026", **kwargs) 
         return None, True, None
     raw = f"{val}_{salt}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest(), True, None
+
+
+def handler_hmac_sha256(val: Any, secret_ref: str = "", **kwargs) -> Tuple[Any, bool, Optional[str]]:
+    """Pseudonymize with a secret supplied by the runtime secret store/env."""
+    if val is None:
+        return None, True, None
+    secret = os.getenv(secret_ref) if secret_ref else None
+    if not secret:
+        return val, False, "HMAC secret reference is missing or unavailable"
+    digest = hmac.new(secret.encode("utf-8"), str(val).encode("utf-8"), hashlib.sha256)
+    return digest.hexdigest(), True, None
+
+
+def handler_mask_contact(val: Any, **kwargs) -> Tuple[Any, bool, Optional[str]]:
+    if val is None:
+        return None, True, None
+    if "@" in str(val):
+        return handler_mask_email(val, **kwargs)
+    return handler_mask_phone(val, **kwargs)
+
+
+def handler_redact_pii_text(val: Any, replacement: str = "[REDACTED]", **kwargs) -> Tuple[Any, bool, Optional[str]]:
+    if val is None:
+        return None, True, None
+    text = re.sub(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?!\w)", replacement, str(val))
+    text = re.sub(r"(?<!\w)(?:\+?\d[\d .()-]{6,}\d)(?!\w)", replacement, text)
+    return text, True, None
 
 
 def handler_mask_name(val: Any, keep_first: bool = True, mask_char: str = "*", **kwargs) -> Tuple[Any, bool, Optional[str]]:
@@ -192,7 +221,10 @@ OPERATION_HANDLERS = {
     "mask_phone": handler_mask_phone,
     "mask_email": handler_mask_email,
     "hash_sha256": handler_hash_sha256,
+    "hmac_sha256": handler_hmac_sha256,
+    "mask_contact": handler_mask_contact,
     "mask_name": handler_mask_name,
+    "redact_pii_text": handler_redact_pii_text,
     # KEEP_RESTRICTED
     "column_encrypt_aes": handler_encrypt_aes,
     "access_restricted_view": handler_restricted_view,

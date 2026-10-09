@@ -38,7 +38,11 @@ class ExecutionPhase(str, Enum):
 
 
 class OnFailAction(str, Enum):
+    BLOCK = "BLOCK"
     QUARANTINE = "QUARANTINE"
+    QUARANTINE_HITL = "QUARANTINE_HITL"
+    WARNING = "WARNING"
+    FINDING_ONLY = "FINDING_ONLY"
     DROP_FIELD = "DROP_FIELD"
     REJECT_BATCH = "REJECT_BATCH"
     WARN = "WARN"
@@ -55,6 +59,52 @@ class RuleStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class ComplianceRuleStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+
+
+class ComplianceEvaluationPhase(str, Enum):
+    PRE_CHECK = "PRE_CHECK"
+    POST_CHECK = "POST_CHECK"
+
+
+class MissingBehavior(str, Enum):
+    FAIL = "FAIL"
+    WARNING = "WARNING"
+    SKIP = "SKIP"
+
+
+class InvalidTypeBehavior(str, Enum):
+    FAIL = "FAIL"
+    WARNING = "WARNING"
+
+
+class RuleRuntimeMode(str, Enum):
+    SHADOW = "SHADOW"
+    ENFORCED = "ENFORCED"
+
+
+class ReliabilityDetector(str, Enum):
+    REQUIRED = "REQUIRED"
+    TYPE = "TYPE"
+    RANGE = "RANGE"
+    ARITHMETIC = "ARITHMETIC"
+    CONDITION = "CONDITION"
+    ROBUST_Z = "ROBUST_Z"
+    RELATION = "RELATION"
+    CHANGEPOINT = "CHANGEPOINT"
+
+
+class ReliabilityRuleStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
 
 
 class QuarantineStatus(str, Enum):
@@ -152,8 +202,51 @@ class OperationRegistryModel(BaseModel):
     is_active: bool = True
 
 
+class ReliabilityRuleModel(BaseModel):
+    """Versioned, data-driven configuration for a code-owned Lane A detector."""
+
+    rule_id: str
+    version: int = Field(default=1, ge=1)
+    dataset_id: str
+    layer: str = Field(pattern=r"^L[1-4]$")
+    detector_id: ReliabilityDetector
+    target_fields: List[str] = Field(default_factory=list)
+    params_json: Dict[str, Any] = Field(default_factory=dict)
+    severity: RuleSeverity = RuleSeverity.HIGH
+    on_fail_action: OnFailAction = OnFailAction.WARNING
+    status: ReliabilityRuleStatus = ReliabilityRuleStatus.DRAFT
+    runtime_mode: RuleRuntimeMode = RuleRuntimeMode.SHADOW
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    effective_to: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approval_role: Optional[str] = None
+    description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_reliability_rule(self) -> "ReliabilityRuleModel":
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise ValueError("effective_to must be later than effective_from")
+        if not self.target_fields and self.detector_id not in {
+            ReliabilityDetector.CONDITION,
+        }:
+            raise ValueError("target_fields must not be empty for this detector")
+        if self.status is ReliabilityRuleStatus.ACTIVE and (
+            not self.approved_by
+            or self.approved_at is None
+            or self.approval_role not in {"ADMIN", "DATA_PLATFORM_OWNER"}
+        ):
+            raise ValueError("an ACTIVE reliability rule requires technical approval")
+        if self.detector_id is ReliabilityDetector.RANGE and not (
+            "min" in self.params_json or "max" in self.params_json
+        ):
+            raise ValueError("a RANGE rule requires min and/or max")
+        return self
+
+
 class ComplianceCheckRuleModel(BaseModel):
     rule_id: str
+    version: int = Field(default=1, ge=1)
     dataset_id: str
     target_column: str
     column_name: Optional[str] = None
@@ -164,10 +257,24 @@ class ComplianceCheckRuleModel(BaseModel):
     law_ref: str
     policy_id: Optional[str] = None
     policy_name: Optional[str] = None
-    jurisdiction: str = "GLOBAL"
+    pack_id: Optional[str] = None
+    clause_id: Optional[str] = None
+    jurisdiction: str = "UNSCOPED"
     country: Optional[str] = None
     severity: RuleSeverity = RuleSeverity.CRITICAL
     on_fail_action: OnFailAction = OnFailAction.QUARANTINE
+    status: ComplianceRuleStatus = ComplianceRuleStatus.ACTIVE
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    effective_to: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approval_role: Optional[str] = None
+    evaluation_phase: ComplianceEvaluationPhase = ComplianceEvaluationPhase.PRE_CHECK
+    condition_json: Dict[str, Any] = Field(default_factory=dict)
+    missing_behavior: MissingBehavior = MissingBehavior.FAIL
+    invalid_type_behavior: InvalidTypeBehavior = InvalidTypeBehavior.FAIL
+    legal_review_required: bool = False
+    runtime_mode: RuleRuntimeMode = RuleRuntimeMode.ENFORCED
     is_fixed: bool = True  # Cố định, không thể sửa trên UI, AI không có quyền đề xuất
     enforced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -181,9 +288,16 @@ class ComplianceCheckRuleModel(BaseModel):
                 data["target_column"] = data["column_name"]
         return data
 
+    @model_validator(mode="after")
+    def validate_effective_window(self) -> "ComplianceCheckRuleModel":
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise ValueError("effective_to must be later than effective_from")
+        return self
+
 
 class DataTreatmentRuleModel(BaseModel):
     rule_id: str
+    version: int = Field(default=1, ge=1)
     dataset_id: str
     column_name: str
     operation_id: str
@@ -193,16 +307,35 @@ class DataTreatmentRuleModel(BaseModel):
     description: Optional[str] = None
     policy_id: Optional[str] = None
     policy_name: Optional[str] = None
+    pack_id: Optional[str] = None
+    clause_id: Optional[str] = None
     law_ref: Optional[str] = None
-    jurisdiction: str = "GLOBAL"
+    jurisdiction: str = "UNSCOPED"
     country: Optional[str] = None
     is_ai_proposed: bool = False
     ai_rationale: Optional[str] = None
     ai_confidence: Optional[float] = None
-    status: str = "active"  # "active", "pending", "rejected", "paused"
+    status: str = "ACTIVE"
+    runtime_mode: RuleRuntimeMode = RuleRuntimeMode.ENFORCED
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    effective_to: Optional[datetime] = None
     enforced_by: str = "Admin"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @model_validator(mode="after")
+    def validate_treatment_lifecycle(self) -> "DataTreatmentRuleModel":
+        legacy_status = self.status.upper()
+        self.status = {
+            "PENDING": "DRAFT",
+            "REJECTED": "RETIRED",
+            "PAUSED": "RETIRED",
+        }.get(legacy_status, legacy_status)
+        if self.status not in {"DRAFT", "ACTIVE", "RETIRED"}:
+            raise ValueError("treatment status must be DRAFT, ACTIVE, or RETIRED")
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise ValueError("effective_to must be later than effective_from")
+        return self
 
 
 class FieldProcessConfigModel(BaseModel):
@@ -549,5 +682,3 @@ class PreventiveAlertModel(BaseModel):
     predicted_risk: str = "Nguy cơ vi phạm L1 Sensor trong các chu kỳ vận hành tới"
     recommended_proposal_id: Optional[str] = None
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-

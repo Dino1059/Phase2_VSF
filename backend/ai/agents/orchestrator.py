@@ -109,6 +109,10 @@ class DataTrustAgentOrchestrator:
         from fastapi import HTTPException
         from database.profiler_engine import get_db_connection
         from psycopg2.extras import RealDictCursor
+        from backend.ai.services.chat_session_manager import session_manager
+        from backend.ai.services.context_loader import (
+            RunContextLoader, load_catalog_columns, load_profiling_stats, load_compliance_rules
+        )
 
         context = context or {}
         run_id = (run_id or context.get("run_id") or "").strip()
@@ -118,19 +122,123 @@ class DataTrustAgentOrchestrator:
                 detail={"code": "MISSING_RUN_ID", "message": "run_id là bắt buộc để tương tác với AI Agent."}
             )
 
-        msg_lower = message.lower()
+        session_id = session_id or f"sess_{uuid.uuid4().hex[:8]}"
+        session_manager.verify_and_bind_session(session_id, run_id)
+        session_state = session_manager.get_session_state(session_id)
+
+        msg_lower = message.lower().strip()
+
+        # Classify User Intent using negation-aware priority rules
+        user_intent = IntentClassifier.classify(message)
+
+        # -------------------------------------------------------------
+        # 1. TOPIC SWITCH: Explicit request to change topic / reset
+        # -------------------------------------------------------------
+        if user_intent == UserIntent.TOPIC_SWITCH:
+            session_manager.clear_session_focus(session_id)
+            reset_reply = (
+                "Tôi đã làm mới ngữ cảnh tập trung của cuộc trò chuyện. "
+                "Bạn muốn tìm hiểu hoặc kiểm tra nội dung nào tiếp theo về lần chạy này?"
+            )
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=reset_reply,
+                updates={}
+            )
+            return {
+                "response": reset_reply,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {"status": "TOPIC_RESET"},
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
+        # Resolve target finding / entities with pronoun resolution
+        # -------------------------------------------------------------
         target_finding_id = finding_id or context.get("finding_id")
         if not target_finding_id:
             f_match = re.search(r'\b(FND-[a-zA-Z0-9_-]+|F-[a-zA-Z0-9_-]+)\b', message)
             if f_match:
                 target_finding_id = f_match.group(1)
 
-        # Classify User Intent using negation-aware priority rules
-        user_intent = IntentClassifier.classify(message)
-        selective_context = RunContextLoader.load_context(run_id, user_intent, target_finding_id)
+        # Pronoun & follow-up resolution: "nó", "bản ghi này", "lỗi đó", "tại sao?", "sửa thế nào?"
+        has_followup_reference = any(
+            re.search(p, msg_lower) for p in [
+                r"\bn\u00f3\b", r"b\u1ea3n\s+ghi\s+n\u00e0y", r"l\u1ed7i\s+(\u0111\u00f3|n\u00e0y)",
+                r"c\u1ed9t\s+n\u00e0y", r"v\u1ea5n\s+\u0111\u1ec1\s+(\u0111\u00f3|n\u00e0y)",
+                r"t\u1ea1i\s+sao\??$", r"s\u1eeda\s+(nh\u01b0\s+th\u1ebf\s+n\u00e0o|sao|th\u1ebf\s+n\u00e0o)",
+                r"kh\u1eafc\s+ph\u1ee5c\s+sao", r"chi\s+ti\u1ebft\s+h\u01a1n", r"gi\u1ea3i\s+th\u00edch\s+th\u00eam",
+                r"nguy\u00ean\s+nh\u00e2n\s+(c\u1ee7a\s+n\u00f3|l\u00e0\s+g\u00ec)"
+            ]
+        )
+        if not target_finding_id and has_followup_reference and session_state.get("active_finding_id"):
+            target_finding_id = session_state.get("active_finding_id")
 
-        # Special Case A: User asks for Run Overview and no specific finding was requested
+        # -------------------------------------------------------------
+        # 2. GENERAL CONVERSATION: Greetings, capabilities, small talk
+        # -------------------------------------------------------------
+        has_investigation_keywords = any(
+            k in msg_lower for k in ("finding", "rca", "nguyên nhân", "lý do vi phạm", "điều tra", "khắc phục", "sửa", "remediation", "tại sao")
+        )
+        if user_intent == UserIntent.GENERAL_CONVERSATION and not target_finding_id and not has_investigation_keywords:
+            is_unconfigured_mock = (
+                not self.llm_adapter.force_mock
+                and (
+                    self.llm_adapter.provider == "mock"
+                    or (self.llm_adapter.provider == "openai" and not self.llm_adapter._get_active_key())
+                )
+            )
+            if is_unconfigured_mock:
+                greeting_reply = (
+                    f"Xin chào! Tôi là trợ lý kiểm toán dữ liệu DataTrust OS. *(Hệ thống hiện hoạt động ở chế độ giới hạn do chưa kết nối LLM API Key)*.\n\n"
+                    f"Trong lần chạy `{run_id}`, tôi có thể hỗ trợ bạn xem tổng quan số liệu, kiểm tra danh sách vi phạm hoặc tra cứu catalog quy tắc."
+                )
+            else:
+                sys_inst = (
+                    "You are DataTrust Assistant, a polite, conversational AI data auditor. "
+                    f"Current run: {run_id}. "
+                    "Respond naturally and warmly in Vietnamese like ChatGPT. "
+                    "For greetings or small talk, keep it concise (1-2 sentences) and offer helpful assistance. "
+                    "Never use '**Kết luận:**' for greetings. Never output raw JSON or internal variable names."
+                )
+                res_llm = self.llm_adapter.complete(
+                    prompt=f"Người dùng nói: '{message}'. Hãy trả lời một cách tự nhiên và lịch sự.",
+                    system_instruction=sys_inst,
+                    context={"run_id": run_id, "active_entities": session_state.get("entities", {})},
+                    temperature=0.3,
+                    max_tokens=200
+                )
+                greeting_reply = sanitize_chat_markdown(res_llm.get("text", "")).strip()
+                if not greeting_reply:
+                    greeting_reply = (
+                        f"Xin chào! Tôi là trợ lý AI của DataTrust OS. Trong lần chạy `{run_id}`, "
+                        f"tôi có thể giúp bạn kiểm tra chất lượng dữ liệu, tìm nguyên nhân vi phạm (RCA), "
+                        f"đề xuất quy tắc khắc phục hoặc tra cứu catalog. Bạn cần hỗ trợ gì?"
+                    )
+
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=greeting_reply,
+                updates={}
+            )
+            return {
+                "response": greeting_reply,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {"intent": "GENERAL_CONVERSATION"},
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
+        # 3. RUN OVERVIEW: Explicit summary of pipeline metrics
+        # -------------------------------------------------------------
         if user_intent == UserIntent.RUN_OVERVIEW and not target_finding_id:
+            selective_context = RunContextLoader.load_context(run_id, user_intent, target_finding_id)
             pr = selective_context.get("pipeline_run", {})
             scanned = pr.get("scanned_count", 0)
             silver = pr.get("silver_count", 0)
@@ -141,15 +249,23 @@ class DataTrustAgentOrchestrator:
             total_findings = sum(f.get("cnt", 0) for f in f_summary)
 
             overview_ans = (
-                f"**Kết luận:** Lần chạy `{run_id}` đang ở trạng thái **{status}**, đã xử lý tổng cộng **{scanned:,} bản ghi** "
-                f"(gồm **{silver:,} bản ghi sạch** vào tầng Silver và **{quarantine:,} bản ghi cách ly**).\n\n"
+                f"Lần chạy `{run_id}` hiện ở trạng thái **{status}**, đã xử lý tổng cộng **{scanned:,} bản ghi** "
+                f"(gồm **{silver:,} bản ghi hợp lệ** vào tầng Silver và **{quarantine:,} bản ghi cách ly**).\n\n"
                 f"- **Vấn đề kiểm toán (Findings):** Ghi nhận tổng cộng **{total_findings}** vấn đề.\n"
                 f"- **Thời gian thực thi:** {duration_ms:,}ms.\n"
-                f"- **Đánh giá kiểm toán:** Dữ liệu vi phạm đã được cách ly nghiêm ngặt, bảo đảm tính toàn vẹn cho Silver layer."
+                f"- **Đánh giá chất lượng:** Dữ liệu vi phạm đã được cách ly theo chính sách kiểm soát."
+            )
+            clean_overview = sanitize_chat_markdown(overview_ans)
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_overview,
+                updates={}
             )
             return {
-                "response": sanitize_chat_markdown(overview_ans),
-                "session_id": session_id or f"sess_{uuid.uuid4().hex[:8]}",
+                "response": clean_overview,
+                "session_id": session_id,
                 "run_id": run_id,
                 "data": {
                     "structured_analysis": {
@@ -165,8 +281,11 @@ class DataTrustAgentOrchestrator:
                 "traces": []
             }
 
-        # Special Case B: User asks about pipeline progress or errors
+        # -------------------------------------------------------------
+        # 4. PIPELINE ERROR OR PROGRESS
+        # -------------------------------------------------------------
         if user_intent == UserIntent.PIPELINE_ERROR_OR_PROGRESS and not target_finding_id:
+            selective_context = RunContextLoader.load_context(run_id, user_intent, target_finding_id)
             pr = selective_context.get("pipeline_run", {})
             status = pr.get("status", "RUNNING")
             steps = selective_context.get("steps", [])
@@ -175,19 +294,27 @@ class DataTrustAgentOrchestrator:
 
             if failed_step:
                 progress_ans = (
-                    f"**Kết luận:** Pipeline lần chạy `{run_id}` gặp sự cố tại bước **{failed_step.get('step_name')}**.\n\n"
+                    f"Pipeline lần chạy `{run_id}` gặp sự cố tại bước **{failed_step.get('step_name')}**.\n\n"
                     f"- **Chi tiết lỗi:** {err_msg or 'Lỗi không xác định trong quá trình thực thi.'}\n"
                     f"- **Tác động:** Pipeline tạm dừng để bảo vệ tính toàn vẹn dữ liệu, không ghi nhận thêm dữ liệu vào Silver."
                 )
             else:
                 progress_ans = (
-                    f"**Kết luận:** Pipeline lần chạy `{run_id}` hiện có trạng thái **{status}** với **{len(steps)} bước** đã ghi nhận.\n\n"
+                    f"Pipeline lần chạy `{run_id}` hiện có trạng thái **{status}** với **{len(steps)} bước** đã ghi nhận.\n\n"
                     f"- **Tiến trình:** Các bước kiểm soát chất lượng L1-L4 đang được giám sát chặt chẽ."
                 )
 
+            clean_prog = sanitize_chat_markdown(progress_ans)
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_prog,
+                updates={}
+            )
             return {
-                "response": sanitize_chat_markdown(progress_ans),
-                "session_id": session_id or f"sess_{uuid.uuid4().hex[:8]}",
+                "response": clean_prog,
+                "session_id": session_id,
                 "run_id": run_id,
                 "data": {
                     "structured_analysis": {
@@ -200,10 +327,112 @@ class DataTrustAgentOrchestrator:
                 "traces": []
             }
 
-        # 1. Finding / Root Cause Analysis (RCA) / Remediation Query
-        if any(k in msg_lower for k in ("finding", "rca", "nguyên nhân", "giải thích", "lý do vi phạm", "điều tra", "khắc phục", "sửa", "remediation")) or target_finding_id:
+        # -------------------------------------------------------------
+        # 5. DATA OR CATALOG INQUIRY
+        # -------------------------------------------------------------
+        if user_intent == UserIntent.DATA_OR_CATALOG_INQUIRY:
+            target_ds = session_state.get("active_dataset_id")
+            cols = load_catalog_columns(target_ds)
+            prof = load_profiling_stats(target_ds, session_state.get("active_column"))
+
+            col_lines = "\n".join([f"- `{c['column_name']}` ({c['data_type']}){' [PII]' if c.get('pii_flag') else ''}" for c in cols[:10]])
+            catalog_reply = (
+                f"Thông tin catalog cho dữ liệu của lần chạy `{run_id}`:\n\n"
+                f"**Danh sách các cột:**\n{col_lines or '- Không có thông tin cột cụ thể.'}\n\n"
+                f"Bạn có thể hỏi thêm về tỷ lệ null, phân phối giá trị hoặc quy tắc kiểm tra cho từng cột cụ thể."
+            )
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=catalog_reply,
+                updates={"active_dataset_id": target_ds}
+            )
+            return {
+                "response": catalog_reply,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {"columns": cols, "profiling": prof},
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
+        # 6. POLICY OR LEGAL INQUIRY
+        # -------------------------------------------------------------
+        if user_intent == UserIntent.POLICY_OR_LEGAL_INQUIRY and not target_finding_id:
+            rules = load_compliance_rules()
+            rule_bullets = "\n".join([f"- **{r['rule_name']}** ({r['rule_id']}): Căn cứ `{r.get('standard_ref') or 'Nghị định 13 / Luật 91'}`" for r in rules[:5]])
+            policy_reply = (
+                f"Hệ thống DataTrust OS áp dụng các tiêu chuẩn quản trị và pháp lý sau:\n\n"
+                f"{rule_bullets or '- Các quy tắc tuân thủ cơ bản đang được kích hoạt.'}\n\n"
+                f"Các kiểm tra được phân định nghiêm ngặt giữa Lane A (Kỹ thuật/Vật lý xe) và Lane B (Chính sách/Bảo vệ dữ liệu cá nhân)."
+            )
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=policy_reply,
+                updates={}
+            )
+            return {
+                "response": policy_reply,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {"rules": rules},
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
+        # 7. FINDING RCA / REMEDIATION / INVESTIGATION
+        # -------------------------------------------------------------
+        if has_investigation_keywords or target_finding_id or user_intent in (UserIntent.ROOT_CAUSE_ONLY, UserIntent.REMEDIATION_ONLY, UserIntent.BOTH_RCA_AND_REMEDIATION):
             finding_row = None
             sample_q = None
+
+            # Retrieve findings in run for ambiguity check if target_finding_id is not yet pinned
+            run_findings = []
+            try:
+                conn = get_db_connection()
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT finding_id, column_name, dataset_id, severity, reason FROM audit.findings WHERE run_id = %s ORDER BY failed_record_count DESC LIMIT 5;",
+                        (run_id,)
+                    )
+                    run_findings = [dict(r) for r in cur.fetchall()]
+                conn.close()
+            except Exception as e:
+                logger.warning(f"Error querying run findings: {e}")
+
+            # Ambiguity check: user asks general error question, but there are multiple findings and no active focus
+            if not target_finding_id and len(run_findings) > 1 and not has_followup_reference:
+                finding_bullets = "\n".join([
+                    f"- **{f['finding_id']}** (cột `{f['column_name']}`): {f['reason']}"
+                    for f in run_findings[:3]
+                ])
+                clarification = (
+                    f"Trong lần chạy `{run_id}`, hệ thống ghi nhận **{len(run_findings)} vấn đề kiểm toán**:\n\n"
+                    f"{finding_bullets}\n\n"
+                    f"Bạn muốn tôi phân tích nguyên nhân (RCA) hoặc đề xuất giải pháp cho vấn đề nào trước?"
+                )
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clarification,
+                    updates={}
+                )
+                return {
+                    "response": clarification,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {"available_findings": [f["finding_id"] for f in run_findings]},
+                    "traces": []
+                }
+
+            # If only 1 finding exists in the run and user asks about root cause/error, auto-focus
+            if not target_finding_id and len(run_findings) == 1:
+                target_finding_id = run_findings[0]["finding_id"]
+
             try:
                 conn = get_db_connection()
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -222,7 +451,6 @@ class DataTrustAgentOrchestrator:
                                 }
                             )
                     else:
-                        # Find top finding strictly within this run_id
                         cur.execute(
                             "SELECT * FROM audit.findings WHERE run_id = %s ORDER BY failed_record_count DESC LIMIT 1;",
                             (run_id,)
@@ -242,9 +470,19 @@ class DataTrustAgentOrchestrator:
                 logger.warning(f"Error querying finding details for chat: {e}")
 
             if not finding_row:
-                session_id = session_id or f"sess_{uuid.uuid4().hex[:8]}"
+                no_finding_ans = (
+                    f"Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ vi phạm kiểm toán nào. "
+                    f"Toàn bộ dữ liệu của lần chạy này đều đáp ứng tiêu chuẩn kiểm soát chất lượng."
+                )
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=no_finding_ans,
+                    updates={}
+                )
                 return {
-                    "response": f"**Kết luận:** Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ vi phạm kiểm toán nào. Toàn bộ dữ liệu của lần chạy này đều đáp ứng tiêu chuẩn kiểm soát.",
+                    "response": no_finding_ans,
                     "session_id": session_id,
                     "run_id": run_id,
                     "data": {
@@ -257,150 +495,161 @@ class DataTrustAgentOrchestrator:
                     "traces": []
                 }
 
-            if finding_row:
-                fid = finding_row.get("finding_id")
-                col = finding_row.get("column_name") or "cột mục tiêu"
-                dataset = finding_row.get("dataset_id") or "bảng dữ liệu"
-                rule = finding_row.get("rule_id") or "RULE_CHECK"
-                sev = finding_row.get("severity") or "HIGH"
-                law = finding_row.get("law_ref")
-                reason = finding_row.get("reason") or "Dữ liệu không đạt tiêu chuẩn."
-                count = finding_row.get("failed_record_count", 1)
-                failure_lane = (sample_q.get("failure_lane") if sample_q else None) or "LANE_B"
-                if "LANE_A" in rule.upper() or "SENSOR" in rule.upper():
-                    failure_lane = "LANE_A"
+            fid = finding_row.get("finding_id")
+            col = finding_row.get("column_name") or "cột mục tiêu"
+            dataset = finding_row.get("dataset_id") or "bảng dữ liệu"
+            rule = finding_row.get("rule_id") or "RULE_CHECK"
+            sev = finding_row.get("severity") or "HIGH"
+            law = finding_row.get("law_ref")
+            reason = finding_row.get("reason") or "Dữ liệu không đạt tiêu chuẩn."
+            count = finding_row.get("failed_record_count", 1)
+            failure_lane = (sample_q.get("failure_lane") if sample_q else None) or "LANE_B"
+            if "LANE_A" in rule.upper() or "SENSOR" in rule.upper():
+                failure_lane = "LANE_A"
 
-                rca_context = {
-                    "finding": dict(finding_row),
-                    "evidence": [dict(sample_q)] if sample_q else [],
-                    "failure_lane": failure_lane,
-                    "rule_id": rule,
-                    "column_name": col,
-                    "law_ref": law,
-                    "user_query": message,
-                    "intent": user_intent.value
-                }
+            rca_context = {
+                "finding": dict(finding_row),
+                "evidence": [dict(sample_q)] if sample_q else [],
+                "failure_lane": failure_lane,
+                "rule_id": rule,
+                "column_name": col,
+                "law_ref": law,
+                "user_query": message,
+                "intent": user_intent.value
+            }
 
-                # Construct prompt strictly adhering to 5 standards
-                intent_instruction = ""
-                if user_intent == UserIntent.ROOT_CAUSE_ONLY:
-                    intent_instruction = (
-                        "YÊU CẦU TRỌNG TÂM: Người dùng CHỈ hỏi về nguyên nhân vi phạm. "
-                        "CHỈ giải thích nguyên nhân và cơ chế phát sinh lỗi. TUYỆT ĐỐI KHÔNG tự ý liệt kê hàng loạt giải pháp khắc phục hay remediation."
-                    )
-                elif user_intent == UserIntent.REMEDIATION_ONLY:
-                    intent_instruction = (
-                        "YÊU CẦU TRỌNG TÂM: Người dùng hỏi về giải pháp xử lý. "
-                        "Tập trung đề xuất quy tắc chuẩn hóa và khắc phục dữ liệu."
-                    )
-                else:
-                    intent_instruction = (
-                        "YÊU CẦU TRỌNG TÂM: Trình bày ngắn gọn nguyên nhân và đề xuất phương án khắc phục tương ứng."
-                    )
+            intent_instruction = ""
+            if user_intent == UserIntent.ROOT_CAUSE_ONLY:
+                intent_instruction = (
+                    "YÊU CẦU TRỌNG TÂM: Người dùng CHỈ hỏi về nguyên nhân vi phạm. "
+                    "CHỈ giải thích nguyên nhân và cơ chế phát sinh lỗi. TUYỆT ĐỐI KHÔNG tự ý liệt kê hàng loạt giải pháp khắc phục hay remediation."
+                )
+            elif user_intent == UserIntent.REMEDIATION_ONLY:
+                intent_instruction = (
+                    "YÊU CẦU TRỌNG TÂM: Người dùng hỏi về giải pháp xử lý. "
+                    "Tập trung đề xuất quy tắc chuẩn hóa và khắc phục dữ liệu."
+                )
+            else:
+                intent_instruction = (
+                    "YÊU CẦU TRỌNG TÂM: Trình bày ngắn gọn nguyên nhân và đề xuất phương án khắc phục tương ứng."
+                )
 
-                prompt = f"""Perform analysis for Finding '{fid}' on table '{dataset}', column '{col}'.
-Rule: '{rule}'.
-Violation reason: '{reason}'.
-Number of quarantined records: {count}.
-Failure Lane: {failure_lane}.
-Legal/Technical Reference: {law or 'No specific reference configured'}.
-User Question: "{message}".
+            prompt = f"""Phân tích Finding '{fid}' trên bảng '{dataset}', cột '{col}'.
+Quy tắc: '{rule}'.
+Lý do vi phạm: '{reason}'.
+Số bản ghi cách ly: {count}.
+Làn kiểm soát (Failure Lane): {failure_lane}.
+Căn cứ tham chiếu: {law or 'Không có tham chiếu cụ thể'}.
+Câu hỏi người dùng: "{message}".
 
 {intent_instruction}
 
-5 MANDATORY FORMATTING RULES:
-1. ĐÚNG TRỌNG TÂM: Trả lời ngắn gọn, đúng câu hỏi người dùng đặt ra.
-2. KẾT LUẬN LÊN ĐẦU: Bắt đầu văn bản bằng 1-2 câu tóm tắt trực diện Finding dạng '**Kết luận:** [Bản ghi vi phạm cái gì, ở đâu, tại sao]'. Tiếp theo mới nêu các giả thuyết RCA.
-3. GIẢM TRÙNG LẶP: Không lặp lại cùng một nội dung ở nhiều phần. CHỈ phân chia Lane A / Lane B khi vi phạm thực sự là vi phạm kép (BOTH). Nếu chỉ thuộc một làn, trình bày thành một luồng phân tích duy nhất.
-4. ẨN 100% JSON & THÔNG TIN KỸ THUẬT: Tuyệt đối KHÔNG hiển thị chuỗi JSON thô, code block ```json, hay các tên biến kỹ thuật nội bộ (như 'structured_analysis', 'requires_approval = True') trong phần văn bản trả lời.
-5. CHUẨN HÓA MARKDOWN: Không dùng các ký tự markdown escape lỗi (không viết '\\####', '1\\.', '\\*'). Hạn chế heading sâu và danh sách lồng nhau.
+HƯỚNG DẪN TRẢ LỜI TỰ NHIÊN (CHUẨN CHATGPT):
+1. ĐÚNG TRỌNG TÂM & TỰ NHIÊN: Trả lời trực diện, lịch sự, không dùng khuôn mẫu hành chính rập khuôn.
+2. ĐỘ DÀI TỶ LỆ VỚI ĐỘ PHỨC TẠP: Câu hỏi ngắn trả lời súc tích; câu hỏi điều tra sâu trình bày theo các phần rõ ràng (Phát hiện -> Giả thuyết nguyên nhân -> Hướng xử lý).
+3. KHÔNG ÉP CỤM TỪ '**Kết luận:**' Ở ĐẦU MỌI ĐOẠN VĂN: Bắt đầu tự nhiên bằng câu nhận xét trọng tâm.
+4. GIẢM TRÙNG LẶP: Không lặp lại cùng một nội dung. Chỉ phân tách Lane A / Lane B khi vi phạm kép (BOTH).
+5. ẨN 100% JSON & THÔNG TIN KỸ THUẬT: Tuyệt đối không hiển thị chuỗi JSON thô, code block ```json, hoặc biến nội bộ (requires_approval = True).
 
-Trả về JSON có cấu trúc gồm trường 'answer' (chứa toàn bộ văn bản phản hồi tự nhiên cho người dùng tuân thủ 5 quy tắc trên) và trường 'structured_analysis'."""
+Trả về JSON có cấu trúc gồm:
+- 'answer': Văn bản phản hồi tự nhiên cho người dùng.
+- 'structured_analysis': Dữ liệu phân tích có cấu trúc."""
 
-                system_inst = (
-                    "You are the Data Governance & Root Cause Analysis specialist for DataTrust OS. "
-                    "Analyze objectively using actual evidence. Respond in natural, professional Vietnamese. "
-                    "Always put conclusion first and respect all 5 formatting rules."
-                )
+            system_inst = (
+                "You are the Data Governance & Root Cause Analysis specialist for DataTrust OS. "
+                "Analyze objectively using actual evidence. Respond in natural, professional Vietnamese like ChatGPT. "
+                "Adapt response length to complexity and avoid repetitive bureaucratic prefixes."
+            )
 
-                llm_res = self.llm_adapter.complete(
-                    prompt=prompt,
-                    system_instruction=system_inst,
-                    context=rca_context,
-                    temperature=0.1
-                )
+            llm_res = self.llm_adapter.complete(
+                prompt=prompt,
+                system_instruction=system_inst,
+                context=rca_context,
+                temperature=0.1
+            )
 
-                raw_text = llm_res.get("text", "")
-                structured_data = None
-                clean_response = raw_text
+            raw_text = llm_res.get("text", "")
+            structured_data = None
+            clean_response = raw_text
 
-                # Extract embedded JSON if present
-                if "```json" in raw_text:
-                    try:
-                        parts = raw_text.split("```json")
-                        json_str = parts[1].split("```")[0].strip()
-                        parsed = json.loads(json_str)
-                        if isinstance(parsed, dict):
-                            structured_data = parsed.get("structured_analysis", parsed)
-                            clean_response = parsed.get("answer") or parsed.get("explanation") or parts[0].strip()
-                    except Exception as parse_err:
-                        logger.warning(f"Failed parsing embedded JSON from LLM: {parse_err}")
+            if "```json" in raw_text:
+                try:
+                    parts = raw_text.split("```json")
+                    json_str = parts[1].split("```")[0].strip()
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, dict):
+                        structured_data = parsed.get("structured_analysis", parsed)
+                        clean_response = parsed.get("answer") or parsed.get("explanation") or parts[0].strip()
+                except Exception as parse_err:
+                    logger.warning(f"Failed parsing embedded JSON from LLM: {parse_err}")
 
-                if not structured_data:
-                    try:
-                        parsed = json.loads(raw_text)
-                        if isinstance(parsed, dict):
-                            structured_data = parsed.get("structured_analysis", parsed)
-                            clean_response = parsed.get("answer") or parsed.get("explanation") or raw_text
-                    except Exception:
-                        pass
+            if not structured_data:
+                try:
+                    parsed = json.loads(raw_text)
+                    if isinstance(parsed, dict):
+                        structured_data = parsed.get("structured_analysis", parsed)
+                        clean_response = parsed.get("answer") or parsed.get("explanation") or raw_text
+                except Exception:
+                    pass
 
-                clean_response = sanitize_chat_markdown(clean_response)
+            clean_response = sanitize_chat_markdown(clean_response)
 
-                # Negation enforcement: If intent was ROOT_CAUSE_ONLY, strip any remediation sections
-                if user_intent == UserIntent.ROOT_CAUSE_ONLY:
-                    if "Đề xuất khắc phục" in clean_response or "Remediation" in clean_response:
-                        clean_response = re.split(r'(\*\*|\#\#+)?\s*(Đề xuất khắc phục|Remediation|Giải pháp khắc phục)', clean_response, flags=re.IGNORECASE)[0].strip()
+            # Negation enforcement: If intent was ROOT_CAUSE_ONLY, strip any remediation sections
+            if user_intent == UserIntent.ROOT_CAUSE_ONLY:
+                if "Đề xuất khắc phục" in clean_response or "Remediation" in clean_response:
+                    clean_response = re.split(r'(\*\*|\#\#+)?\s*(Đề xuất khắc phục|Remediation|Giải pháp khắc phục)', clean_response, flags=re.IGNORECASE)[0].strip()
 
-                # Ensure conclusion is clearly marked
-                if not clean_response.startswith("**Kết luận:**") and not clean_response.startswith("Kết luận:"):
-                    clean_response = f"**Kết luận:** Finding `{fid}` tại cột `{col}` vi phạm quy tắc `{rule}` ({reason}).\n\n" + clean_response
+            if not clean_response:
+                clean_response = f"Finding `{fid}` tại cột `{col}` ghi nhận vi phạm quy tắc `{rule}` ({reason})."
 
-                # Record reasoning step into ReAct tracer
-                session_id = session_id or f"sess_{uuid.uuid4().hex[:8]}"
-                step_trace = AgentTraceModel(
-                    session_id=session_id,
-                    agent_type="DiagnosisAgent",
-                    step_index=1,
-                    thought=f"Đã phân tích finding {fid} theo ranh giới {failure_lane} và intent {user_intent.value}.",
-                    action="CALL_LLM_RCA_ANALYSIS",
-                    tool_name="llm_adapter",
-                    tool_input={"finding_id": fid, "failure_lane": failure_lane, "rule_id": rule, "intent": user_intent.value},
-                    observation=f"Hoàn thành suy luận RCA từ {llm_res.get('provider', 'llm')}."
-                )
-                self.react_engine.add_trace(step_trace)
-                await self._broadcast_step(step_trace)
+            # Record reasoning step into ReAct tracer
+            step_trace = AgentTraceModel(
+                session_id=session_id,
+                agent_type="DiagnosisAgent",
+                step_index=1,
+                thought=f"Đã phân tích finding {fid} theo ranh giới {failure_lane} và intent {user_intent.value}.",
+                action="CALL_LLM_RCA_ANALYSIS",
+                tool_name="llm_adapter",
+                tool_input={"finding_id": fid, "failure_lane": failure_lane, "rule_id": rule, "intent": user_intent.value},
+                observation=f"Hoàn thành suy luận RCA từ {llm_res.get('provider', 'llm')}."
+            )
+            self.react_engine.add_trace(step_trace)
+            await self._broadcast_step(step_trace)
 
-                return {
-                    "response": clean_response or f"**Kết luận:** Đã hoàn thành phân tích cho Finding {fid}.",
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "data": {
-                        "finding": dict(finding_row),
-                        "structured_analysis": structured_data
-                    },
-                    "traces": [step_trace.model_dump()]
+            # Update session state with active finding & entities
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_response,
+                updates={
+                    "active_finding_id": fid,
+                    "active_dataset_id": dataset,
+                    "active_column": col,
+                    "active_failure_lane": failure_lane,
                 }
+            )
 
+            return {
+                "response": clean_response,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {
+                    "finding": dict(finding_row),
+                    "structured_analysis": structured_data
+                },
+                "traces": [step_trace.model_dump()]
+            }
 
-        # 2. If question is about proposing rules / Data Treatment
+        # -------------------------------------------------------------
+        # 8. DATA TREATMENT RULE PROPOSAL
+        # -------------------------------------------------------------
         if any(k in msg_lower for k in ("đề xuất rule", "treatment rule", "khắc phục", "quy tắc xử lý")):
-            target_ds = context.get("dataset_id", "trips")
-            target_col = context.get("column_name", "customer_phone")
+            target_ds = context.get("dataset_id") or session_state.get("active_dataset_id") or "trips"
+            target_col = context.get("column_name") or session_state.get("active_column") or "customer_phone"
             op_id = "mask_phone" if "phone" in target_col.lower() else ("round_decimal" if "lat" in target_col.lower() else "hash_sha256")
             params = {"prefix_len": 3, "suffix_len": 2, "mask_char": "*"} if op_id == "mask_phone" else {"decimals": 2}
 
-            # Run actual dry-run simulation via dry_run_tool
             dry_run_res = self.rule_proposer_agent.dry_run_tool.execute({
                 "proposal": {
                     "dataset_id": target_ds,
@@ -416,7 +665,6 @@ Trả về JSON có cấu trúc gồm trường 'answer' (chứa toàn bộ văn
             quar_rows = dry_run_res.get("simulated_quarantine_rows", 2)
             pass_rate = dry_run_res.get("pass_rate_pct", 99.0)
 
-            session_id = session_id or f"sess_{uuid.uuid4().hex[:8]}"
             rule_trace = AgentTraceModel(
                 session_id=session_id,
                 agent_type="RuleProposerAgent",
@@ -441,37 +689,28 @@ Trả về JSON có cấu trúc gồm trường 'answer' (chứa toàn bộ văn
                 f"  - Độ trễ dự kiến: **+0.7ms** (Đạt chuẩn SLA)\n\n"
                 f"👉 *Quy tắc đang ở trạng thái **PENDING** theo cơ chế Human-In-The-Loop. Vui lòng chuyển sang vai trò Admin để phê duyệt.*"
             )
+            clean_resp = sanitize_chat_markdown(resp)
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_resp,
+                updates={
+                    "active_dataset_id": target_ds,
+                    "active_column": target_col
+                }
+            )
             return {
-                "response": resp,
+                "response": clean_resp,
                 "session_id": session_id,
+                "run_id": run_id,
                 "data": {"dry_run_result": dry_run_res},
                 "traces": [rule_trace.model_dump()]
             }
 
-        # 3. If question is about profiling
-        if "profile" in msg_lower or "thống kê" in msg_lower:
-            dataset_id = context.get("dataset_id", "ride_hailing_xanh_sm_trips")
-            res = await self.profiler_agent.profile_dataset(dataset_id)
-            return {
-                "response": f"Đã hoàn thành phân tích profiling cho {dataset_id}.",
-                "session_id": res.get("session_id"),
-                "data": res.get("profile_data"),
-                "traces": res.get("traces", [])
-            }
-
-        # 4. If question is about anomalies or drift
-        if "drift" in msg_lower or "dị biệt" in msg_lower or "lệch" in msg_lower:
-            dataset_id = context.get("dataset_id", "ride_hailing_xanh_sm_trips")
-            col = context.get("column_name", "fare_amount")
-            res = await self.anomaly_agent.detect_anomalies(dataset_id, col)
-            return {
-                "response": f"Đã kiểm tra dị biệt và độ trôi phân phối cho cột {col}.",
-                "session_id": res.get("session_id"),
-                "data": res.get("anomaly_data"),
-                "traces": res.get("traces", [])
-            }
-
-        # 5. General conversational assistant via ReAct engine
+        # -------------------------------------------------------------
+        # 9. Fallback to ReAct assistant
+        # -------------------------------------------------------------
         tools = {"profiler": self.profiler_agent.tools["profiler"]}
         res = await self.react_engine.run(
             goal=message,
@@ -481,10 +720,19 @@ Trả về JSON có cấu trúc gồm trường 'answer' (chứa toàn bộ văn
             session_id=session_id,
             step_callback=self._broadcast_step
         )
-
+        final_ans = res.get("final_answer") or "Hệ thống DataTrust AI Agent đã ghi nhận yêu cầu và đối soát dữ liệu với catalog chính sách hiện hành."
+        clean_final = sanitize_chat_markdown(final_ans)
+        session_manager.append_chat_turn(
+            session_id=session_id,
+            run_id=run_id,
+            user_text=message,
+            ai_text=clean_final,
+            updates={}
+        )
         return {
-            "response": res.get("final_answer") or "Hệ thống DataTrust AI Agent đã ghi nhận yêu cầu và đối soát dữ liệu với catalog chính sách hiện hành.",
-            "session_id": res.get("session_id"),
+            "response": clean_final,
+            "session_id": res.get("session_id", session_id),
+            "run_id": run_id,
             "traces": res.get("traces", [])
         }
 

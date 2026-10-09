@@ -13,10 +13,10 @@ export interface UserProfile {
 }
 
 export const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<string>> = {
-  Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'manage_schedule', 'clear_alerts', 'reset', 'manage_acl']),
+  Admin: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'manage_schedule', 'clear_alerts', 'reset', 'manage_acl', 'start_run']),
   Analyst: new Set(['read', 'profile', 'propose_rules']),
-  Auditor: new Set(['read', 'review_rules']),
-  Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'hitl_write', 'execute_transform', 'manage_schedule', 'create_alert']),
+  Auditor: new Set(['read', 'review_rules', 'start_run']),
+  Steward: new Set(['read', 'profile', 'propose_rules', 'review_rules', 'hitl_write', 'execute_transform', 'manage_schedule', 'create_alert', 'start_run']),
   Viewer: new Set(['read']),
 };
 

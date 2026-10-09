@@ -6,7 +6,6 @@ import {
   Database,
   Eye,
   FileCheck2,
-  Lock,
   Play,
   RotateCcw,
   ShieldAlert,
@@ -114,11 +113,11 @@ export function OverviewPage() {
                       {/* Header & Prompt */}
                       <div>
                         <h2 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-                          Xin chào, {currentRole === 'auditor' ? 'Auditor (Viewer)' : 'Admin'}
+                          Xin chào, {currentRole === 'auditor' ? 'Auditor' : 'Admin'}
                         </h2>
                         <p className="mt-1.5 text-sm font-medium text-slate-600">
                           {currentRole === 'auditor'
-                            ? 'Hệ thống kiểm toán dữ liệu độc lập chuẩn IPO (Chế độ xem).'
+                            ? 'Hệ thống kiểm toán dữ liệu độc lập chuẩn IPO.'
                             : 'Tôi có thể giúp bạn kiểm tra tuân thủ dữ liệu.'}
                         </p>
                       </div>
@@ -322,35 +321,15 @@ export function OverviewPage() {
                       </Button>
 
                       <div className="flex items-center gap-2.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate('/rules')}
-                          className="h-9 gap-1.5 px-4 text-xs font-bold border-slate-300 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                        >
-                          <Lock size={13} className="text-slate-500" />
-                          <span>Xem rule</span>
-                        </Button>
 
-                        {currentRole === 'admin' ? (
-                          <Button
-                            size="sm"
-                            onClick={() => startPipelineRun(selectedDatasetId)}
-                            className="h-9 gap-1.5 px-5 text-xs font-bold bg-slate-950 text-[#04D3D4] hover:bg-slate-900 hover:text-white shadow-xs cursor-pointer transition-all"
-                          >
-                            <Play size={12} className="fill-current text-[#04D3D4]" />
-                            <span>Chạy kiểm tra</span>
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            onClick={() => navigate('/results')}
-                            className="h-9 gap-1.5 px-5 text-xs font-bold bg-slate-950 text-[#04D3D4] hover:bg-slate-900 hover:text-white shadow-xs cursor-pointer transition-all"
-                          >
-                            <FileCheck2 size={13} className="text-[#04D3D4]" />
-                            <span>Xem kết quả kiểm toán</span>
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => startPipelineRun(selectedDatasetId)}
+                          className="h-9 gap-1.5 px-5 text-xs font-bold bg-slate-950 text-[#04D3D4] hover:bg-slate-900 hover:text-white shadow-xs cursor-pointer transition-all"
+                        >
+                          <Play size={12} className="fill-current text-[#04D3D4]" />
+                          <span>Chạy kiểm tra</span>
+                        </Button>
                       </div>
                     </div>
                   </Card>

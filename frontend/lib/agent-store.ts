@@ -135,10 +135,10 @@ export const USER_ACCOUNTS: Record<'auditor' | 'admin', UserAccount> = {
     name: 'Trần Minh Hoàng',
     shortName: 'anh Hoàng',
     role: 'Senior Auditor (Big 4 / IPO Assurance)',
-    roleTitle: 'Auditor IPO (Viewer)',
+    roleTitle: 'Auditor IPO',
     email: 'hoang.tran@audit-ipo.com',
     avatar: 'TH',
-    badge: 'Kiểm toán viên (Viewer)',
+    badge: 'Kiểm toán viên (IPO Assurance)',
     company: 'Big 4 Audit Consortium',
   },
   admin: {
@@ -1844,10 +1844,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
   },
 
   startPipelineRun: async (datasetId?: string) => {
-    if (get().currentRole === 'auditor') {
-      // Auditor role is viewer only; cannot start pipeline run
-      return;
-    }
     const targetDatasetId = normalizeDatasetId(datasetId || get().selectedDatasetId);
     const dataset = get().datasets[targetDatasetId] || get().datasets.trips;
     const cleanDs = targetDatasetId.replace('.csv', '');

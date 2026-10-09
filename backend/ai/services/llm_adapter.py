@@ -374,9 +374,13 @@ class UnifiedLLMAdapter:
                 hyps = lane_b_analysis["hypotheses"]
 
             conclusion_text = f"Finding {finding.get('finding_id', 'F-001')} tại cột `{col}` vi phạm quy tắc `{rule_id}`: {finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}."
-            answer_text = f"**Kết luận:** {conclusion_text}\n\n**Các giả thuyết nguyên nhân (RCA):**\n"
+            answer_text = (
+                f"Finding {finding.get('finding_id', 'F-001')} tại cột `{col}` được ghi nhận do vi phạm quy tắc `{rule_id}` "
+                f"({finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}).\n\n"
+                f"**Các giả thuyết nguyên nhân (RCA):**\n"
+            )
             for idx, h in enumerate(hyps[:2], 1):
-                answer_text += f"- **Giả thuyết {idx}:** {h.get('hypothesis')}. {h.get('supporting_evidence')}\n"
+                answer_text += f"- **Giả thuyết {idx}:** {h.get('hypothesis')} ({h.get('supporting_evidence')}).\n"
 
             # Provide both old and new required keys for seamless compatibility
             response_payload = {
@@ -418,5 +422,17 @@ class UnifiedLLMAdapter:
             }, ensure_ascii=False)
             return response, 95
 
-        # Default conversational assistant response
-        return "Hệ thống DataTrust AI Agent đã ghi nhận yêu cầu và đối soát dữ liệu với catalog chính sách hiện hành.", 60
+        # Conversational assistant responses
+        if any(k in p_lower for k in ("chào", "hello", "hi", "bạn là ai", "giúp gì", "introduce")):
+            return (
+                "Xin chào! Tôi là trợ lý AI của DataTrust OS. Tôi có thể hỗ trợ bạn kiểm tra chất lượng dữ liệu, "
+                "điều tra nguyên nhân vi phạm (RCA), đề xuất quy tắc khắc phục hoặc tra cứu catalog cho lần chạy này. "
+                "Bạn cần tôi hỗ trợ gì?"
+            ), 50
+
+        if any(k in p_lower for k in ("đổi chủ đề", "chuyển chủ đề", "bắt đầu lại", "reset")):
+            return (
+                "Tôi đã làm mới ngữ cảnh tập trung. Bạn muốn kiểm tra hoặc tìm hiểu nội dung nào tiếp theo?"
+            ), 30
+
+        return "Tôi đã sẵn sàng hỗ trợ bạn kiểm tra dữ liệu và giải đáp các vấn đề kiểm toán cho lần chạy này. Bạn có câu hỏi cụ thể nào không?", 40

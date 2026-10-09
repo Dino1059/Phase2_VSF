@@ -259,7 +259,7 @@ export function AiChatPane() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <Sparkles size={14} className="text-[#04D3D4] fill-[#04D3D4] shrink-0" />
-            <span className="text-sm font-bold text-slate-900 truncate">AI đồng hành</span>
+            <span className="text-sm font-bold text-slate-900 truncate">DataTrust Agent</span>
             <span
               className={`size-2 rounded-full inline-block ml-0.5 shrink-0 ${
                 isSyncing ? 'bg-amber-400 animate-pulse' : isBackendLive ? 'bg-[#04D3D4]' : 'bg-slate-300'
@@ -304,14 +304,6 @@ export function AiChatPane() {
           )}
         </div>
       </div>
-
-      {/* Warning banner when no run is active */}
-      {!activeRunId && (
-        <div className="bg-amber-50/90 border-b border-amber-200/60 px-3.5 py-2 flex items-center gap-2 text-[11px] text-amber-800 shrink-0 font-medium">
-          <AlertTriangle size={13} className="text-amber-600 shrink-0" />
-          <span>Chưa có Run hoạt động. AI chỉ trả lời khi gắn với một Run cụ thể.</span>
-        </div>
-      )}
 
       {/* Error banner if chat error occurred */}
       {chatError && (

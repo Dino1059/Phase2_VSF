@@ -20,7 +20,7 @@ def test_resolver_normalizes_zone_without_inventing_country():
     resolver = JurisdictionHierarchyConfig()
     assert resolver.resolve_chain(" eu ") == ["GLOBAL", "EU"]
     assert resolver.resolve_chain("VN") == ["GLOBAL", "VN"]
-    assert resolver.resolve_chain("us") == ["GLOBAL", "US"]
+    assert resolver.resolve_chain("us") == ["GLOBAL", "US", "US-CA"]
     assert resolver.resolve_chain("EU", "DE") == ["GLOBAL", "EU", "DE"]
 
 

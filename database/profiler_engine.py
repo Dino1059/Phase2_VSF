@@ -393,7 +393,16 @@ class DataProfilerEngine:
                 )
 
                 # 9. Persist to catalog.column_profiles (referencing column_id directly)
+                cur.execute(
+                    "SELECT column_name, column_id FROM catalog.columns WHERE dataset_id = %s;",
+                    (dataset_id,)
+                )
+                latest_col_ids = {r["column_name"]: r["column_id"] for r in cur.fetchall()}
+
                 for cp in column_profiles:
+                    col_fk_id = latest_col_ids.get(cp["column_name"], cp["column_id"])
+                    if not col_fk_id:
+                        continue
                     cur.execute(
                         """
                         INSERT INTO catalog.column_profiles (
@@ -405,7 +414,7 @@ class DataProfilerEngine:
                         """,
                         (
                             profile_id,
-                            cp["column_id"],
+                            col_fk_id,
                             cp["null_count"],
                             cp["null_pct"],
                             cp["unique_count"],

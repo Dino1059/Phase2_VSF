@@ -173,10 +173,6 @@ export function SlideDownDashboard() {
   const startedAt = results?.started_at || runDetail?.started_at;
   const durationMs = results?.duration_ms ?? runDetail?.duration_ms;
 
-  const criticalFindingsCount = findings.filter((f) => f.severity === 'CRITICAL').length || (results?.severity_breakdown?.CRITICAL ?? 1);
-  const highFindingsCount = findings.filter((f) => f.severity === 'HIGH').length || (results?.severity_breakdown?.HIGH ?? 2);
-  const mediumFindingsCount = findings.filter((f) => f.severity === 'MEDIUM').length || (results?.severity_breakdown?.MEDIUM ?? 0);
-  const lowFindingsCount = findings.filter((f) => f.severity === 'LOW').length || (results?.severity_breakdown?.LOW ?? 0);
 
   // Top Violated Rules
   const topRules = results?.top_violated_rules && results.top_violated_rules.length > 0
@@ -292,58 +288,6 @@ export function SlideDownDashboard() {
           </div>
         </Card>
       </div>
-
-      {/* ========================================================================= */}
-      {/* 3. CARD: FINDING CẦN XỬ LÝ (BADGES & MULTI-COLORED PROGRESS BAR)          */}
-      {/* ========================================================================= */}
-      <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-3.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">Finding cần xử lý</h3>
-          <span className="text-xs text-slate-500">
-            {findings.length || 3} finding · {failCount.toLocaleString('vi-VN')} bản ghi cách ly
-          </span>
-        </div>
-
-        {/* Severity Badges Row */}
-        <div className="flex items-center gap-3 text-xs flex-wrap">
-          <span className="inline-flex items-center rounded-md bg-[#fee2e2] px-2 py-0.5 text-xs font-medium text-[#991b1b] border border-[#fecaca]">
-            Critical · {criticalFindingsCount}
-          </span>
-          <span className="inline-flex items-center rounded-md bg-[#fef3c7] px-2 py-0.5 text-xs font-medium text-[#92400e] border border-[#fde68a]">
-            High · {highFindingsCount}
-          </span>
-          <span className="text-xs text-slate-400">
-            Medium · {mediumFindingsCount}
-          </span>
-          <span className="text-xs text-slate-400">
-            Low · {lowFindingsCount}
-          </span>
-        </div>
-
-        {/* Multi-Colored Horizontal Progress Bar */}
-        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 flex">
-          <div
-            className="bg-emerald-500 transition-all duration-500"
-            style={{ width: `${Math.max(2, passRate)}%` }}
-            title={`Pass: ${passRate.toFixed(1)}%`}
-          />
-          <div
-            className="bg-amber-400 transition-all duration-500"
-            style={{ width: `${Math.max(1, warningRate)}%` }}
-            title={`Warning: ${warningRate.toFixed(1)}%`}
-          />
-          <div
-            className="bg-rose-500 transition-all duration-500"
-            style={{ width: `${Math.max(1, failRate)}%` }}
-            title={`Fail: ${failRate.toFixed(1)}%`}
-          />
-          <div
-            className="bg-slate-300 transition-all duration-500"
-            style={{ width: `${Math.max(0.5, notEvalRate)}%` }}
-            title={`Not Evaluated: ${notEvalRate.toFixed(1)}%`}
-          />
-        </div>
-      </Card>
 
       {/* ========================================================================= */}
       {/* 4. CARD: RULE VI PHẠM NHIỀU NHẤT (TABLE WITH HEADERS & ROWS)              */}

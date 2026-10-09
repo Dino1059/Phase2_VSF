@@ -39,11 +39,11 @@
 Topbar luôn cố định trên đầu trang và cung cấp:
 - **Trạng thái kết nối Backend & PostgreSQL**: Live indicator (`Live (PostgreSQL & FastAPI)` vs `Offline`).
 - **Bộ chuyển đổi vai trò (Role Switcher)**: Cho phép chuyển đổi qua lại giữa 2 vai trò:
-  1. **Auditor (Viewer)** (`Trần Minh Hoàng` — Senior Auditor Big 4 / IPO Assurance):
-     - **Chế độ xem độc lập (Read-only / Viewer)**: Kiểm toán viên có toàn quyền xem xét hồ sơ dữ liệu, cấu trúc trường PII, danh mục quy tắc tuân thủ (compliance rules), bằng chứng kiểm toán (Audit Evidence, chuỗi SHA-256 bất biến, chữ ký số `SIG-AIRFLOW-3LANE`), đồ thị Lineage và báo cáo kết quả kiểm tra.
-     - **Ranh giới bảo vệ**: Auditor **không có quyền** kích hoạt thực thi pipeline run (`startPipelineRun`) hoặc thao tác thay đổi, phê duyệt, từ chối quy tắc xử lý dữ liệu. Nút thao tác chính trên Trang chủ chuyển thành `[ Xem kết quả kiểm toán ]` (điều hướng sang kết quả).
+  1. **Auditor** (`Trần Minh Hoàng` — Senior Auditor Big 4 / IPO Assurance):
+     - **Thẩm định & Kiểm tra độc lập**: Kiểm toán viên có toàn quyền xem xét hồ sơ dữ liệu, cấu trúc trường PII, danh mục quy tắc tuân thủ (compliance rules), bằng chứng kiểm toán (Audit Evidence, chuỗi SHA-256 bất biến, chữ ký số `SIG-AIRFLOW-3LANE`), đồ thị Lineage, báo cáo kết quả kiểm tra và **có quyền kích hoạt lượt chạy kiểm tra (`startPipelineRun`)** để độc lập kiểm chứng dữ liệu và tạo bộ bằng chứng kiểm toán mới.
+     - **Ranh giới bảo vệ**: Auditor không có quyền thay đổi, phê duyệt hoặc từ chối quy tắc xử lý dữ liệu (Rule Engine), không được can thiệp vào bản ghi cách ly (Quarantine remediation/override) hay thay đổi trạng thái Finding.
   2. **Admin** (`Nguyễn Quốc Bảo` — Lead Data Platform):
-     - Toàn quyền quản trị, điều hành kỹ thuật và khởi chạy pipeline kiểm tra (`[ Chạy kiểm tra ]`), xem xét cảnh báo và phê duyệt remediation tại các chốt chặn HITL.
+     - Toàn quyền quản trị, điều hành kỹ thuật, khởi chạy pipeline kiểm tra (`[ Chạy kiểm tra ]`), xem xét cảnh báo và phê duyệt remediation tại các chốt chặn HITL.
 - **User Profile & Badge**: Hiển thị avatar viết tắt (`TH` / `QB`), tên người dùng và badge vai trò (`Kiểm toán viên (Viewer)` / `Quản trị viên hệ thống`).
 
 ## 2.2. Sidebar

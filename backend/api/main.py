@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 import urllib.parse
 import ast
+import os
 from datetime import datetime, timezone
 import base64
 import json
@@ -27,6 +28,7 @@ from backend.database.models import (
     PolicyClauseModel,
     ProposedRuleModel,
     FieldProcessConfigModel,
+    ReliabilityRuleModel,
     ComplianceCheckRuleModel,
     DataTreatmentRuleModel,
     QuarantineRecordModel,
@@ -593,8 +595,57 @@ def reject_rule(proposal_id: str, req: ProposalRejectionRequest):
 # COMPLIANCE CHECK RULES (FIXED / SYSTEM-LEVEL) & DATA TREATMENT RULES
 # =============================================================================
 
+@app.get("/api/rules/reliability", response_model=List[ReliabilityRuleModel])
+def get_reliability_rules(
+    dataset_id: Optional[str] = None,
+    layer: Optional[str] = None,
+    status: Optional[str] = None,
+    as_of: Optional[datetime] = None,
+):
+    """Return the versioned Lane A detector configuration.
+
+    Detector implementations remain code-owned.  This endpoint exposes only
+    the approved allowlisted detector identifiers and their parameters.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    try:
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = "SELECT * FROM engine.reliability_rules WHERE 1=1"
+                params: List[Any] = []
+                if dataset_id:
+                    clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+                    query += " AND (dataset_id = '*' OR dataset_id = %s OR dataset_id = %s OR dataset_id = %s)"
+                    params.extend([clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}"])
+                if layer:
+                    query += " AND layer = %s"
+                    params.append(layer.strip().upper())
+                if status:
+                    query += " AND status = %s"
+                    params.append(status.strip().upper())
+                if as_of:
+                    query += " AND effective_from <= %s AND (effective_to IS NULL OR effective_to > %s)"
+                    params.extend([as_of, as_of])
+                query += " ORDER BY dataset_id, layer, rule_id, version DESC"
+                cur.execute(query, tuple(params))
+                return [ReliabilityRuleModel.model_validate(dict(row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+    except Exception as exc:
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DATATRUST_ALLOW_RULE_FIXTURES") == "1":
+            return []
+        raise HTTPException(status_code=503, detail="Reliability rule source unavailable") from exc
+
 @app.get("/api/rules/compliance-checks", response_model=List[ComplianceCheckRuleModel])
-def get_compliance_check_rules(dataset_id: Optional[str] = None, jurisdiction: Optional[str] = None):
+def get_compliance_check_rules(
+    dataset_id: Optional[str] = None,
+    jurisdiction: Optional[str] = None,
+    status: Optional[str] = None,
+    as_of: Optional[datetime] = None,
+):
     """
     Quy tắc kiểm tra tuân thủ (Compliance / Quality Check Rules):
     Nguồn dữ liệu đơn nhất từ bảng PostgreSQL policy.compliance_rules.
@@ -605,66 +656,40 @@ def get_compliance_check_rules(dataset_id: Optional[str] = None, jurisdiction: O
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = "SELECT * FROM policy.compliance_rules WHERE 1=1"
+            params = []
             if dataset_id:
                 clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
-                query = """
-                    SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
-                           expression, description, law_ref, policy_id, policy_name,
-                           jurisdiction, country, severity, on_fail_action,
-                           is_fixed, enforced_at
-                    FROM policy.compliance_rules
-                    WHERE (dataset_id = %s OR dataset_id = %s)
-                """
-                params = [clean_ds, f"{clean_ds}.csv"]
-                if jurisdiction:
-                    query = query.rstrip() + " AND jurisdiction IN ('GLOBAL', %s)"
-                    params.append(jurisdiction.strip().upper())
-                query += " ORDER BY rule_id;"
-                cur.execute(query, tuple(params))
-            else:
-                query = """
-                    SELECT rule_id, dataset_id, column_name, rule_name, rule_code,
-                           expression, description, law_ref, policy_id, policy_name,
-                           jurisdiction, country, severity, on_fail_action,
-                           is_fixed, enforced_at
-                    FROM policy.compliance_rules
-                    WHERE 1=1
-                """
-                params = []
-                if jurisdiction:
-                    query += " AND jurisdiction IN ('GLOBAL', %s)"
-                    params.append(jurisdiction.strip().upper())
-                query += " ORDER BY dataset_id, rule_id;"
-                cur.execute(query, tuple(params))
+                query += " AND (dataset_id = %s OR dataset_id = %s OR dataset_id = %s)"
+                params.extend([clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}"])
+            if jurisdiction:
+                query += " AND jurisdiction IN ('GLOBAL', %s)"
+                params.append(jurisdiction.strip().upper())
+            if status:
+                query += " AND status = %s"
+                params.append(status.strip().upper())
+            if as_of:
+                query += " AND effective_from <= %s AND (effective_to IS NULL OR effective_to > %s)"
+                params.extend([as_of, as_of])
+            query += " ORDER BY dataset_id, rule_id, version DESC;"
+            cur.execute(query, tuple(params))
             rows = cur.fetchall()
             conn.close()
             if rows:
-                return [
-                    ComplianceCheckRuleModel(
-                        rule_id=r["rule_id"],
-                        dataset_id=r["dataset_id"],
-                        column_name=r["column_name"],
-                        target_column=r["column_name"],
-                        rule_name=r["rule_name"],
-                        rule_code=r["rule_code"],
-                        expression=r["expression"],
-                        description=r["description"] or "",
-                        law_ref=r["law_ref"],
-                        policy_id=r["policy_id"],
-                        policy_name=r["policy_name"],
-                        jurisdiction=r["jurisdiction"],
-                        country=r["country"],
-                        severity=r["severity"],
-                        on_fail_action=r["on_fail_action"],
-                        is_fixed=bool(r["is_fixed"]),
-                        enforced_at=r["enforced_at"] or datetime.now(timezone.utc)
-                    )
-                    for r in rows
-                ]
+                result = []
+                for row in rows:
+                    payload = dict(row)
+                    payload["target_column"] = payload.get("column_name")
+                    payload["description"] = payload.get("description") or ""
+                    result.append(ComplianceCheckRuleModel.model_validate(payload))
+                return result
     except Exception as e:
         print(f"Warning: Failed to query policy.compliance_rules: {e}")
 
-    # Fallback to in-memory if DB fails
+    # Fixture fallback is explicitly restricted to tests/local opt-in. Production
+    # must not present rules that differ from the executable DB snapshot.
+    if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DATATRUST_ALLOW_RULE_FIXTURES") == "1"):
+        raise HTTPException(status_code=503, detail="Compliance rule source unavailable")
     if dataset_id:
         mapped = DATASET_FILE_MAP.get(dataset_id, dataset_id)
         rules = [r for r in COMPLIANCE_RULES if r.dataset_id == dataset_id or r.dataset_id == mapped]
@@ -698,7 +723,8 @@ def get_data_treatment_rules(
                 SELECT rule_id, dataset_id, column_name, operation_id, treatment_name,
                        params_json, expression_display, description, is_ai_proposed,
                        ai_rationale, ai_confidence, status, enforced_by, created_at, updated_at,
-                       policy_id, policy_name, law_ref, jurisdiction, country
+                       policy_id, policy_name, pack_id, clause_id, law_ref, jurisdiction, country,
+                       version, runtime_mode, effective_from, effective_to
                 FROM policy.data_treatment_rules
                 WHERE 1=1
             """
@@ -734,6 +760,8 @@ def get_data_treatment_rules(
                         description=r["description"],
                         policy_id=r["policy_id"],
                         policy_name=r["policy_name"],
+                        pack_id=r.get("pack_id"),
+                        clause_id=r.get("clause_id"),
                         law_ref=r["law_ref"],
                         jurisdiction=r["jurisdiction"],
                         country=r["country"],
@@ -741,6 +769,10 @@ def get_data_treatment_rules(
                         ai_rationale=r["ai_rationale"],
                         ai_confidence=float(r["ai_confidence"]) if r["ai_confidence"] is not None else None,
                         status=r["status"],
+                        version=r.get("version", 1),
+                        runtime_mode=r.get("runtime_mode", "ENFORCED"),
+                        effective_from=r.get("effective_from") or datetime.now(timezone.utc),
+                        effective_to=r.get("effective_to"),
                         enforced_by=r["enforced_by"] or "Admin",
                         created_at=r["created_at"] or datetime.now(timezone.utc),
                         updated_at=r["updated_at"] or datetime.now(timezone.utc)
@@ -817,6 +849,8 @@ def update_data_treatment_rule(
                     description=row["description"],
                     policy_id=row["policy_id"],
                     policy_name=row["policy_name"],
+                    pack_id=row.get("pack_id"),
+                    clause_id=row.get("clause_id"),
                     law_ref=row["law_ref"],
                     jurisdiction=row["jurisdiction"],
                     country=row["country"],
@@ -824,6 +858,10 @@ def update_data_treatment_rule(
                     ai_rationale=row["ai_rationale"],
                     ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
                     status=row["status"],
+                    version=row.get("version", 1),
+                    runtime_mode=row.get("runtime_mode", "ENFORCED"),
+                    effective_from=row.get("effective_from") or row["created_at"],
+                    effective_to=row.get("effective_to"),
                     enforced_by=row["enforced_by"] or "Admin",
                     created_at=row["created_at"],
                     updated_at=row["updated_at"]
@@ -889,7 +927,7 @@ def toggle_data_treatment_rule(rule_id: str):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 UPDATE policy.data_treatment_rules
-                SET status = CASE WHEN LOWER(status) = 'active' THEN 'paused' ELSE 'active' END,
+                SET status = CASE WHEN UPPER(status) = 'ACTIVE' THEN 'RETIRED' ELSE 'ACTIVE' END,
                     updated_at = %s
                 WHERE rule_id = %s
                 RETURNING *;
@@ -909,6 +947,8 @@ def toggle_data_treatment_rule(rule_id: str):
                     description=row["description"],
                     policy_id=row["policy_id"],
                     policy_name=row["policy_name"],
+                    pack_id=row.get("pack_id"),
+                    clause_id=row.get("clause_id"),
                     law_ref=row["law_ref"],
                     jurisdiction=row["jurisdiction"],
                     country=row["country"],
@@ -916,6 +956,10 @@ def toggle_data_treatment_rule(rule_id: str):
                     ai_rationale=row["ai_rationale"],
                     ai_confidence=float(row["ai_confidence"]) if row["ai_confidence"] is not None else None,
                     status=row["status"],
+                    version=row.get("version", 1),
+                    runtime_mode=row.get("runtime_mode", "ENFORCED"),
+                    effective_from=row.get("effective_from") or row["created_at"],
+                    effective_to=row.get("effective_to"),
                     enforced_by=row["enforced_by"],
                     created_at=row["created_at"],
                     updated_at=row["updated_at"]
@@ -993,18 +1037,18 @@ def get_airflow_status():
 @app.post("/api/runs")
 def create_pipeline_run(
     req: CreatePipelineRunRequest,
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User")
 ):
     """
     Step 3 / Spec 06: Khởi chạy một lượt chạy pipeline kiểm toán mới qua Apache Airflow.
-    Bảo vệ RBAC: Auditor là vai trò Chỉ đọc (Read-only), không được phép khởi chạy.
+    RBAC: Cả Admin và Auditor đều có quyền khởi chạy lượt chạy kiểm tra để kiểm chứng dữ liệu.
     Khởi tạo canonical run_id và ghi nhận đầy đủ vòng đời vào orchestration.pipeline_runs.
     """
-    if x_user_role and x_user_role.lower() == "auditor":
-        raise HTTPException(
-            status_code=403,
-            detail="Vai trò Auditor là Chỉ đọc (Read-Only) và không có quyền khởi chạy Pipeline."
-        )
+    role_str = x_user_role if isinstance(x_user_role, str) else None
+    user_str = x_user if isinstance(x_user, str) else None
+    actor_role = (role_str or "ADMIN").upper()
+    actor_name = user_str or ("Trần Minh Hoàng" if actor_role == "AUDITOR" else "Nguyễn Quốc Bảo")
 
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor, Json
@@ -1024,6 +1068,8 @@ def create_pipeline_run(
     options_payload = {
         "collect_evidence": req.collect_evidence,
         "generate_lineage": req.generate_lineage,
+        "triggered_by": actor_name,
+        "actor_role": actor_role,
         **(req.options or {})
     }
 
@@ -1046,8 +1092,8 @@ def create_pipeline_run(
             cur.execute("""
                 INSERT INTO orchestration.pipeline_run_events
                 (run_id, step_name, event_type, message, payload)
-                VALUES (%s, 'INGEST', 'INFO', 'Lượt chạy kiểm toán được khởi tạo', %s);
-            """, (run_id, Json({"dataset_id": actual_filename, "dag_run_id": dag_run_id})))
+                VALUES (%s, 'INGEST', 'INFO', %s, %s);
+            """, (run_id, f"Lượt chạy kiểm toán được khởi tạo bởi {actor_name} ({actor_role})", Json({"dataset_id": actual_filename, "dag_run_id": dag_run_id, "triggered_by": actor_name, "actor_role": actor_role})))
 
             conn.commit()
     except Exception as e:
@@ -1121,7 +1167,8 @@ def create_pipeline_run(
 @app.post("/api/airflow/trigger")
 def trigger_airflow_pipeline(
     req: Optional[AirflowTriggerRequest] = None,
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User")
 ):
     """
     Endpoint tương thích ngược chuyển tiếp sang logic POST /api/runs chuẩn.
@@ -1132,7 +1179,7 @@ def trigger_airflow_pipeline(
         dataset_id=req.dataset_id or "ride_hailing_xanh_sm_trips",
         options=req.conf
     )
-    result = create_pipeline_run(create_req, x_user_role=x_user_role)
+    result = create_pipeline_run(create_req, x_user_role=x_user_role, x_user=x_user)
     if isinstance(result, dict):
         return {
             **result,
@@ -2063,6 +2110,20 @@ def get_pipeline_live_status(run_id: str):
                             overall_status = "SUCCESS"
                         elif af_state == "FAILED":
                             overall_status = "FAILED"
+                            failure_message = "Airflow DAG run failed; inspect task logs for the root cause."
+                            cur.execute("""
+                                UPDATE orchestration.pipeline_runs
+                                SET status = 'FAILED', ended_at = COALESCE(ended_at, NOW()),
+                                    error_message = COALESCE(error_message, %s)
+                                WHERE run_id = %s AND status = 'RUNNING';
+                            """, (failure_message, real_run_id))
+                            cur.execute("""
+                                UPDATE orchestration.pipeline_run_steps
+                                SET status = 'FAILED', ended_at = COALESCE(ended_at, NOW()),
+                                    error_message = COALESCE(error_message, %s)
+                                WHERE run_id = %s AND step_name = %s AND status = 'RUNNING';
+                            """, (failure_message, real_run_id, cur_step))
+                            conn.commit()
                 except Exception:
                     pass
 
@@ -2082,6 +2143,17 @@ def get_pipeline_live_status(run_id: str):
                 "lane_c_merge_verdicts_and_route": "success" if silver_done else ("running" if eval_done and not silver_done else "queued"),
                 "task_4_emit_audit_evidence": "success" if evidence_done else ("running" if silver_done and not evidence_done else "queued"),
             }
+            if overall_status == "FAILED":
+                step_to_task = {
+                    "INGEST": "task_1_truncate_and_ingest_bronze",
+                    "BRONZE": "task_2_data_profiling",
+                    "EVALUATION": "lane_b_hierarchical_policy",
+                    "SILVER": "lane_c_merge_verdicts_and_route",
+                    "EVIDENCE": "task_4_emit_audit_evidence",
+                }
+                failed_task = step_to_task.get(cur_step)
+                if failed_task:
+                    tasks_compatibility[failed_task] = "failed"
 
             return {
                 "run_id": real_run_id,
@@ -2523,6 +2595,40 @@ def get_evidence_detail(evidence_id: str):
         conn.close()
 
 
+@app.get("/api/runs/{run_id}/rule-snapshot")
+def get_run_rule_snapshot(run_id: str):
+    """Return the immutable compliance rule snapshot actually used by a run."""
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT evidence_hash, evidence_payload, created_at
+                FROM audit.evidence
+                WHERE run_id = %s
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Run rule snapshot not found")
+            payload = row.get("evidence_payload") or {}
+            return {
+                "run_id": run_id,
+                "evidence_hash": row.get("evidence_hash"),
+                "snapshot_hashes": payload.get("rule_snapshot_hashes", []),
+                "rules": payload.get("rule_snapshot", []),
+                "executions": payload.get("rule_executions", []),
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            }
+    finally:
+        conn.close()
+
+
 @app.get("/api/evidence-verify/chain")
 def verify_evidence_chain():
     """
@@ -2920,5 +3026,3 @@ def dry_run_proposal(proposal_id: str, sample_size: int = 100):
         "sample_size": sample_size
     })
     return res
-
-

@@ -48,7 +48,7 @@ def test_data_treatment_rules_model():
         status="pending"
     )
     assert rule.is_ai_proposed is True
-    assert rule.status == "pending"
+    assert rule.status == "DRAFT"
     assert rule.ai_confidence == 0.97
 
 

@@ -1,396 +1,134 @@
 'use client';
-import { useState, useMemo, useEffect } from 'react';
-import {
-  CheckCircle2,
-  Database,
-  Filter,
-  Info,
-  Lock,
-  RefreshCw,
-  Search,
-  Shield,
-  ShieldAlert,
-  Wand2,
-} from 'lucide-react';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, Database, RefreshCw, Scale, Search, Wand2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import {
-  useAgentStore,
-  type ComplianceCheckRule,
-  type DataTreatmentRule,
-} from '@/lib/agent-store';
+import { useAgentStore } from '@/lib/agent-store';
+import { apiBridge, type ComplianceCheckRule, type DataTreatmentRule, type ReliabilityRule } from '@/lib/api-bridge';
 import { RuleDetailDrawer, type UnifiedRuleItem } from './rule-detail-drawer';
 
+type RuleTab = 'reliability' | 'compliance' | 'treatment';
+const tabs = {
+  reliability: { label: 'Technical Rules', lane: 'Lane A', icon: Activity },
+  compliance: { label: 'Compliance Rules', lane: 'Lane B', icon: Scale },
+  treatment: { label: 'Data Treatments', lane: 'Lane B', icon: Wand2 },
+} satisfies Record<RuleTab, { label: string; lane: string; icon: typeof Activity }>;
+
+const badgeClass = (value: string) => {
+  const normalized = value.toUpperCase();
+  if (['ACTIVE', 'ENFORCED'].includes(normalized)) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (['SHADOW', 'PENDING', 'PENDING_APPROVAL'].includes(normalized)) return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (normalized === 'NOT CONFIGURED') return 'border-rose-200 bg-rose-50 text-rose-700';
+  return 'border-slate-200 bg-slate-100 text-slate-600';
+};
+
+const runtimeMode = (value?: string) => value?.toUpperCase() || 'NOT CONFIGURED';
+const versionLabel = (version?: number) => `v${version ?? 1}`;
+
 export function RuleApprovalPage() {
-  const {
-    datasets,
-    selectedDatasetId,
-    selectDataset,
-    complianceCheckRules,
-    dataTreatmentRules,
-    isBackendLive,
-    isSyncing,
-    syncWithBackend,
-  } = useAgentStore();
+  const { datasets, selectedDatasetId, selectDataset } = useAgentStore();
+  const [tab, setTab] = useState<RuleTab>('reliability');
+  const [query, setQuery] = useState('');
+  const [rules, setRules] = useState<UnifiedRuleItem[]>([]);
+  const [selected, setSelected] = useState<UnifiedRuleItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    syncWithBackend();
-  }, [syncWithBackend]);
-
-  // Drawer state
-  const [activeRuleForDrawer, setActiveRuleForDrawer] = useState<UnifiedRuleItem | null>(null);
-
-  // Filter states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'compliance' | 'treatment'>('all');
-
-  // Datasets options for dropdown
   const datasetOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    Object.values(datasets || {}).forEach((ds) => {
-      if (ds && (ds.id || ds.filename)) {
-        const canonicalKey = (ds.id || ds.filename || '').replace('.csv', '');
-        if (!map.has(canonicalKey)) {
-          map.set(canonicalKey, ds.title || canonicalKey);
-        }
-      }
+    const result = new Map<string, string>();
+    Object.values(datasets || {}).forEach((dataset) => {
+      const id = (dataset?.id || dataset?.filename || '').replace('.csv', '');
+      if (id) result.set(id, dataset.title || id);
     });
-    return Array.from(map.entries());
+    return [...result.entries()];
   }, [datasets]);
 
-  // Unify compliance and treatment rules into spec 18 format
-  const unifiedRules = useMemo<UnifiedRuleItem[]>(() => {
-    const list: UnifiedRuleItem[] = [];
-
-    // 1. Fixed Compliance Check Rules (from policy.compliance_rules)
-    complianceCheckRules.forEach((r: ComplianceCheckRule) => {
-      list.push({
-        ruleId: r.rule_id,
-        ruleName: r.rule_name,
-        datasetId: r.dataset_id,
-        columnName: r.column_name,
-        policy: r.law_ref,
-        version: 'v1.4',
-        scope: `${r.dataset_id.replace('.csv', '')}.${r.column_name}`,
-        condition: r.expression,
-        severity: r.severity || 'HIGH',
-        status: 'Active (Cố định)',
-        requiredTreatment: r.on_fail_action || 'QUARANTINE',
-        source: r.law_ref,
-        description: r.description || `Kiểm tra tuân thủ bắt buộc trên trường ${r.column_name}.`,
-        ruleType: 'compliance',
-        updatedAt: r.enforced_at,
-      });
-    });
-
-    // 2. Data Treatment Rules (from policy.data_treatment_rules)
-    dataTreatmentRules.forEach((r: DataTreatmentRule) => {
-      list.push({
-        ruleId: r.rule_id,
-        ruleName: r.treatment_name,
-        datasetId: r.dataset_id,
-        columnName: r.column_name,
-        policy: 'Luật 91/2025/QH15 & Nghị định 356/2025/NĐ-CP',
-        version: 'v1.2',
-        scope: `${r.dataset_id.replace('.csv', '')}.${r.column_name}`,
-        condition: r.expression_display,
-        severity: r.is_ai_proposed ? 'HIGH' : 'NORMAL',
-        status: r.status === 'active' ? 'Active' : r.status,
-        requiredTreatment: r.operation_id,
-        source: 'GSM Data Protection Standard',
-        description: r.description || r.treatment_name,
-        ruleType: 'treatment',
-        updatedAt: r.updated_at || r.created_at,
-      });
-    });
-
-    return list;
-  }, [complianceCheckRules, dataTreatmentRules]);
-
-  // Filter rules by selected dataset, search query, and rule type
-  const filteredRules = useMemo(() => {
-    return unifiedRules.filter((rule) => {
-      // Dataset filter
-      if (selectedDatasetId && selectedDatasetId !== 'all') {
-        const cleanSelected = selectedDatasetId.replace('.csv', '');
-        const cleanRuleDs = rule.datasetId.replace('.csv', '');
-        if (cleanRuleDs !== cleanSelected) return false;
+  const loadRules = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const datasetId = selectedDatasetId && selectedDatasetId !== 'all' ? selectedDatasetId : undefined;
+    try {
+      if (tab === 'reliability') {
+        const data = await apiBridge.fetchReliabilityRules(datasetId);
+        setRules(data.map((rule: ReliabilityRule) => ({
+          ruleId: rule.rule_id, ruleName: rule.rule_name || rule.detector_id, datasetId: rule.dataset_id,
+          columnName: rule.target_fields?.join(', ') || 'dataset', policy: 'Data quality configuration',
+          version: versionLabel(rule.version), scope: `${rule.dataset_id}.${rule.target_fields?.join(',') || '*'}`,
+          condition: `${rule.detector_id} ${JSON.stringify(rule.params_json || {})}`, severity: rule.severity || 'MEDIUM',
+          status: rule.status || 'DRAFT', requiredTreatment: rule.on_fail_action || 'QUARANTINE',
+          source: 'engine.reliability_rules', description: rule.description || 'Cấu hình detector kỹ thuật cho Lane A.',
+          ruleType: 'reliability', lane: 'Lane A', runtimeMode: runtimeMode(rule.runtime_mode),
+          effectiveFrom: rule.effective_from, effectiveTo: rule.effective_to, updatedAt: rule.updated_at,
+        })));
+      } else if (tab === 'compliance') {
+        const data = await apiBridge.fetchComplianceCheckRules(datasetId);
+        setRules(data.map((rule: ComplianceCheckRule) => ({
+          ruleId: rule.rule_id, ruleName: rule.rule_name, datasetId: rule.dataset_id, columnName: rule.column_name,
+          policy: rule.policy_name || rule.law_ref, policyId: rule.policy_id, packId: rule.pack_id, clauseId: rule.clause_id,
+          jurisdiction: rule.jurisdiction, country: rule.country, version: versionLabel(rule.version),
+          scope: `${rule.dataset_id}.${rule.column_name}`, condition: rule.expression || JSON.stringify(rule.condition_json || {}),
+          severity: rule.severity || 'HIGH', status: rule.status || 'DRAFT', requiredTreatment: rule.on_fail_action || 'QUARANTINE',
+          source: rule.law_ref, description: rule.description || 'Kiểm tra tuân thủ pháp lý cho Lane B.',
+          ruleType: 'compliance', lane: 'Lane B', runtimeMode: runtimeMode(rule.runtime_mode),
+          effectiveFrom: rule.effective_from, effectiveTo: rule.effective_to, updatedAt: rule.enforced_at,
+        })));
+      } else {
+        const data = await apiBridge.fetchDataTreatmentRules(datasetId);
+        setRules(data.map((rule: DataTreatmentRule) => ({
+          ruleId: rule.rule_id, ruleName: rule.treatment_name, datasetId: rule.dataset_id, columnName: rule.column_name,
+          policy: rule.policy_name || rule.law_ref || 'Data treatment', policyId: rule.policy_id, packId: rule.pack_id,
+          clauseId: rule.clause_id, jurisdiction: rule.jurisdiction, country: rule.country, version: versionLabel(rule.version),
+          scope: `${rule.dataset_id}.${rule.column_name}`, condition: rule.expression_display || JSON.stringify(rule.params_json || {}),
+          severity: rule.is_ai_proposed ? 'HIGH' : 'NORMAL', status: rule.status, requiredTreatment: rule.operation_id,
+          source: rule.law_ref || 'policy.data_treatment_rules', description: rule.description || rule.treatment_name,
+          ruleType: 'treatment', lane: 'Lane B', runtimeMode: runtimeMode(rule.runtime_mode),
+          effectiveFrom: rule.effective_from, effectiveTo: rule.effective_to, updatedAt: rule.updated_at,
+        })));
       }
+    } catch (cause) {
+      setRules([]);
+      setError(cause instanceof Error ? cause.message : 'Không thể tải rules từ backend');
+    } finally { setLoading(false); }
+  }, [selectedDatasetId, tab]);
 
-      // Type filter
-      if (typeFilter !== 'all' && rule.ruleType !== typeFilter) {
-        return false;
-      }
+  useEffect(() => { void loadRules(); }, [loadRules]);
+  const filtered = rules.filter((rule) => {
+    const value = query.trim().toLowerCase();
+    return !value || [rule.ruleId, rule.ruleName, rule.columnName, rule.policy, rule.jurisdiction, rule.country, rule.packId, rule.clauseId]
+      .some((field) => field?.toLowerCase().includes(value));
+  });
 
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        return (
-          rule.ruleId.toLowerCase().includes(q) ||
-          rule.ruleName.toLowerCase().includes(q) ||
-          rule.columnName.toLowerCase().includes(q) ||
-          rule.policy.toLowerCase().includes(q) ||
-          rule.condition.toLowerCase().includes(q) ||
-          rule.scope.toLowerCase().includes(q)
-        );
-      }
+  return <div className="page-enter mx-auto max-w-[1500px] space-y-5">
+    <div className="flex items-end justify-between gap-4"><div>
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Read-only policy registry</span>
+      <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Rules & Policies</h1>
+      <p className="mt-1 text-xs text-slate-600">Rule metadata được tải trực tiếp từ database; trang này không thay đổi hoặc phê duyệt rule.</p>
+    </div><button onClick={() => void loadRules()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Làm mới</button></div>
 
-      return true;
-    });
-  }, [unifiedRules, selectedDatasetId, typeFilter, searchQuery]);
+    <div className="grid gap-2 sm:grid-cols-3">{(Object.keys(tabs) as RuleTab[]).map((key) => {
+      const Icon = tabs[key].icon;
+      return <button key={key} onClick={() => setTab(key)} className={`rounded-2xl border p-4 text-left transition ${tab === key ? 'border-[#04D3D4] bg-[#04D3D4]/8 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+        <div className="flex items-center justify-between"><Icon size={17} className={tab === key ? 'text-[#008b8c]' : 'text-slate-500'} /><span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">{tabs[key].lane}</span></div><div className="mt-2 text-sm font-bold text-slate-950">{tabs[key].label}</div>
+      </button>;
+    })}</div>
 
-  const getSeverityBadge = (severity: string) => {
-    const s = severity.toUpperCase();
-    if (s === 'CRITICAL') {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-extrabold text-rose-700">
-          <ShieldAlert size={11} className="text-rose-600" />
-          CRITICAL
-        </span>
-      );
-    }
-    if (s === 'HIGH') {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-extrabold text-amber-700">
-          <ShieldAlert size={11} className="text-amber-600" />
-          HIGH
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-        <Shield size={11} className="text-slate-500" />
-        {s}
-      </span>
-    );
-  };
-
-  return (
-    <div className="page-enter mx-auto max-w-[1500px] space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            Data Governance & IPO Assurance · Applied Rules
-          </span>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-            Quy tắc & Chính sách Tuân thủ (Applied Rules)
-          </h1>
-          <p className="mt-1 text-xs text-slate-600">
-            Xem danh sách các quy tắc kiểm soát tuân thủ và xử lý dữ liệu đang áp dụng cho bộ dữ liệu
-            hiện tại. Chế độ kiểm tra chỉ đọc (Read-Only).
-          </p>
-        </div>
-
-        {/* Backend Status & Sync */}
-        <div className="flex items-center gap-2.5">
-          {isBackendLive ? (
-            <div className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
-              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Backend (:8000)</span>
-              <button
-                onClick={() => syncWithBackend()}
-                title="Làm mới dữ liệu từ PostgreSQL"
-                className="ml-1 text-emerald-600 hover:text-emerald-900 transition-colors cursor-pointer"
-              >
-                <RefreshCw className={`size-3 ${isSyncing ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-2xs">
-              <span className="size-2 rounded-full bg-amber-500" />
-              <span>Offline / Syncing</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Filter Bar Card */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-2xs space-y-3.5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Dataset Selector Dropdown */}
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1.5">
-              <Database size={14} className="text-[#04D3D4]" />
-              Bộ dữ liệu:
-            </span>
-            <select
-              value={selectedDatasetId || 'all'}
-              onChange={(e) => {
-                const val = e.target.value;
-                selectDataset(val === 'all' ? '' : val);
-              }}
-              className="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#04D3D4]/40 focus:border-[#04D3D4] transition"
-            >
-              <option value="all">Tất cả các bộ dữ liệu ({datasetOptions.length} bảng)</option>
-              {datasetOptions.map(([id, title]) => (
-                <option key={id} value={id}>
-                  {id} ({title})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Search Box */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="🔍 Tìm theo Rule ID, tên rule, cột đích, căn cứ pháp lý..."
-              className="w-full h-9.5 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#04D3D4]/40 focus:border-[#04D3D4] transition"
-            />
-          </div>
-        </div>
-
-        {/* Tab Filter (All / Compliance / Treatment) */}
-        <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
-          <span className="text-xs font-bold text-slate-500 mr-1 flex items-center gap-1">
-            <Filter size={12} />
-            Phân loại:
-          </span>
-          <button
-            onClick={() => setTypeFilter('all')}
-            className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer ${
-              typeFilter === 'all'
-                ? 'bg-slate-950 text-white shadow-2xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            Tất cả ({unifiedRules.length})
-          </button>
-          <button
-            onClick={() => setTypeFilter('compliance')}
-            className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              typeFilter === 'compliance'
-                ? 'bg-slate-950 text-[#04D3D4] shadow-2xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Lock size={12} className="text-rose-500" />
-            <span>Kiểm tra tuân thủ ({complianceCheckRules.length})</span>
-          </button>
-          <button
-            onClick={() => setTypeFilter('treatment')}
-            className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              typeFilter === 'treatment'
-                ? 'bg-slate-950 text-[#04D3D4] shadow-2xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Wand2 size={12} className="text-[#04D3D4]" />
-            <span>Xử lý dữ liệu ({dataTreatmentRules.length})</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Applied Rules Table matching Spec 18 */}
-      <Card className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                <th className="py-3.5 px-4">Rule ID</th>
-                <th className="py-3.5 px-4">Rule name</th>
-                <th className="py-3.5 px-4">Policy</th>
-                <th className="py-3.5 px-4">Version</th>
-                <th className="py-3.5 px-4">Scope</th>
-                <th className="py-3.5 px-4">Severity</th>
-                <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4 text-right">Updated</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredRules.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-xs text-slate-400">
-                    Không tìm thấy rule nào đang áp dụng cho bộ dữ liệu hoặc điều kiện lọc này.
-                  </td>
-                </tr>
-              ) : (
-                filteredRules.map((rule) => {
-                  return (
-                    <tr
-                      key={rule.ruleId}
-                      onClick={() => setActiveRuleForDrawer(rule)}
-                      className="group cursor-pointer hover:bg-slate-50/80 transition-colors"
-                      title="Bấm để xem chi tiết Rule Detail Drawer"
-                    >
-                      {/* Rule ID */}
-                      <td className="py-3.5 px-4">
-                        <span className="font-mono font-bold text-slate-950 group-hover:text-[#008b74] transition-colors">
-                          {rule.ruleId}
-                        </span>
-                        {rule.ruleType === 'compliance' ? (
-                          <span className="ml-1.5 inline-block rounded bg-rose-50 px-1.5 py-0.2 text-[9px] font-bold text-rose-700 border border-rose-200">
-                            Fixed
-                          </span>
-                        ) : null}
-                      </td>
-
-                      {/* Rule Name */}
-                      <td className="py-3.5 px-4 font-semibold text-slate-900 max-w-[260px] truncate">
-                        {rule.ruleName}
-                      </td>
-
-                      {/* Policy */}
-                      <td className="py-3.5 px-4 text-slate-600 max-w-[200px] truncate">
-                        {rule.policy}
-                      </td>
-
-                      {/* Version */}
-                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500">
-                        {rule.version || 'v1.0'}
-                      </td>
-
-                      {/* Scope */}
-                      <td className="py-3.5 px-4 font-mono text-slate-700 truncate max-w-[160px]">
-                        {rule.columnName}
-                      </td>
-
-                      {/* Severity */}
-                      <td className="py-3.5 px-4">{getSeverityBadge(rule.severity)}</td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-800">
-                          <CheckCircle2 size={11} className="text-emerald-600" />
-                          {rule.status}
-                        </span>
-                      </td>
-
-                      {/* Updated */}
-                      <td className="py-3.5 px-4 text-right font-mono text-[11px] text-slate-500">
-                        {rule.updatedAt
-                          ? new Date(rule.updatedAt).toLocaleDateString('vi-VN')
-                          : 'Hệ thống'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Footer info banner */}
-        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-[11px] text-slate-500">
-          <div className="flex items-center gap-2">
-            <Info size={13} className="text-slate-400" />
-            <span>
-              Bấm vào bất kỳ dòng nào để xem <strong>Rule Detail Drawer</strong> và lịch sử thực thi{' '}
-              <strong>[View usage]</strong>.
-            </span>
-          </div>
-          <span>Tổng số: {filteredRules.length} rule áp dụng</span>
-        </div>
-      </Card>
-
-      {/* Rule Detail Right Drawer */}
-      <RuleDetailDrawer
-        rule={activeRuleForDrawer}
-        onClose={() => setActiveRuleForDrawer(null)}
-      />
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
+      <label className="flex items-center gap-2 text-xs font-bold text-slate-700"><Database size={14} className="text-[#04D3D4]" /> Dataset<select value={selectedDatasetId || 'all'} onChange={(event) => selectDataset(event.target.value === 'all' ? '' : event.target.value)} className="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-xs"><option value="all">Tất cả datasets</option>{datasetOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+      <div className="relative flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm rule, jurisdiction, pack hoặc clause..." className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs" /></div>
     </div>
-  );
+
+    <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs"><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-extrabold uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Rule</th><th className="px-4 py-3">Jurisdiction</th><th className="px-4 py-3">Target</th><th className="px-4 py-3">Version</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Runtime</th><th className="px-4 py-3">Action / Function</th></tr></thead><tbody className="divide-y divide-slate-100">
+      {loading && <tr><td colSpan={7} className="p-10 text-center text-slate-400">Đang tải rules từ backend...</td></tr>}
+      {!loading && error && <tr><td colSpan={7} className="p-10 text-center text-rose-600"><strong>Không tải được dữ liệu.</strong><div className="mt-1 font-mono text-[11px]">{error}</div></td></tr>}
+      {!loading && !error && filtered.length === 0 && <tr><td colSpan={7} className="p-10 text-center text-slate-400">Không có rule phù hợp.</td></tr>}
+      {!loading && !error && filtered.map((rule) => <tr key={`${rule.ruleType}-${rule.ruleId}`} onClick={() => setSelected(rule)} className="cursor-pointer hover:bg-slate-50">
+        <td className="px-4 py-3"><div className="font-mono font-bold text-slate-950">{rule.ruleId}</div><div className="mt-0.5 max-w-[280px] truncate text-slate-500">{rule.ruleName}</div></td>
+        <td className="px-4 py-3"><div className="font-mono font-bold text-slate-700">{rule.jurisdiction || '—'}</div>{rule.country && <div className="text-[10px] text-slate-500">{rule.country}</div>}</td>
+        <td className="px-4 py-3 font-mono text-slate-700">{rule.columnName}</td><td className="px-4 py-3 font-mono text-slate-600">{rule.version}</td>
+        <td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${badgeClass(rule.status)}`}>{rule.status}</span></td>
+        <td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${badgeClass(rule.runtimeMode)}`}>{rule.runtimeMode}</span></td>
+        <td className="px-4 py-3 font-mono font-bold text-slate-700">{rule.requiredTreatment}</td>
+      </tr>)}</tbody></table></div></Card>
+    <RuleDetailDrawer rule={selected} onClose={() => setSelected(null)} />
+  </div>;
 }

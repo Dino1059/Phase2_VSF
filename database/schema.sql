@@ -143,6 +143,38 @@ CREATE TABLE IF NOT EXISTS engine.compliance_check_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_engine_compliance_rules_dataset ON engine.compliance_check_rules(dataset_id);
+COMMENT ON TABLE engine.compliance_check_rules IS
+    'LEGACY compatibility table. New Lane A configuration belongs in engine.reliability_rules; legal controls belong in policy.compliance_rules.';
+
+-- 3.2a Versioned Lane A detector configuration. Detector implementations remain
+-- code-owned and allowlisted; this table contains parameters only (never code).
+CREATE TABLE IF NOT EXISTS engine.reliability_rules (
+    rule_id VARCHAR(100) NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    dataset_id VARCHAR(100) NOT NULL,
+    layer VARCHAR(2) NOT NULL CHECK (layer IN ('L1', 'L2', 'L3', 'L4')),
+    detector_id VARCHAR(30) NOT NULL CHECK (detector_id IN
+        ('REQUIRED', 'TYPE', 'RANGE', 'ARITHMETIC', 'CONDITION', 'ROBUST_Z', 'RELATION', 'CHANGEPOINT')),
+    target_fields TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    params_json JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(params_json) = 'object'),
+    severity VARCHAR(20) NOT NULL DEFAULT 'HIGH' CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')),
+    on_fail_action VARCHAR(30) NOT NULL DEFAULT 'WARNING'
+        CHECK (on_fail_action IN ('BLOCK', 'QUARANTINE', 'QUARANTINE_HITL', 'WARNING', 'FINDING_ONLY')),
+    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT'
+        CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'ACTIVE', 'RETIRED')),
+    runtime_mode VARCHAR(20) NOT NULL DEFAULT 'SHADOW' CHECK (runtime_mode IN ('SHADOW', 'ENFORCED')),
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    effective_to TIMESTAMPTZ,
+    approved_by VARCHAR(200), approved_at TIMESTAMPTZ, approval_role VARCHAR(50),
+    description TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (rule_id, version),
+    CHECK (effective_to IS NULL OR effective_to > effective_from),
+    CHECK (status <> 'ACTIVE' OR
+           (approved_by IS NOT NULL AND approved_at IS NOT NULL AND approval_role IN ('ADMIN', 'DATA_PLATFORM_OWNER')))
+);
+CREATE INDEX IF NOT EXISTS idx_reliability_rules_lookup
+    ON engine.reliability_rules(dataset_id, status, runtime_mode, effective_from, effective_to);
 
 -- 3.3 Data Treatment & Transformation Rules (Masking, Hashing, Rounding, Sanitization - UI Editable & AI Proposable)
 CREATE TABLE IF NOT EXISTS engine.data_treatment_rules (

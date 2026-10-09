@@ -3,8 +3,10 @@ x-airflow-common:
   # In order to add custom dependencies or upgrade provider packages you can use your extended image.
   # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.5.0}
-  # build: .
+  image: ${AIRFLOW_IMAGE_NAME:-datatrust-airflow:2.5.0}
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
@@ -17,6 +19,9 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    # Required by metadata-driven Lane B HMAC_SHA256 treatment rules.
+    # Keep the real value in .env or a deployment secret store.
+    DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?DATATRUST_PSEUDONYMIZATION_KEY must be set}
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     PYTHONPATH: '/home/airflow/.local/lib/python3.7/site-packages:/root/.local/lib/python3.7/site-packages:/usr/local/lib/python3.7/site-packages:/opt/airflow:/opt/airflow/dags'
   volumes:

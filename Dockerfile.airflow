@@ -1,0 +1,7 @@
+FROM apache/airflow:2.5.0
+
+# Airflow 2.5.0 uses Python 3.7. Pydantic 1.10.12 is the compatible v1
+# dependency required by src/reliability/models/signal.py.
+RUN pip install --no-cache-dir \
+    pydantic==1.10.12 \
+    scikit-learn==1.0.2

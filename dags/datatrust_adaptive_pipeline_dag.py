@@ -154,6 +154,8 @@ def _load_bronze_dataset_records(context) -> tuple:
             for k, v in row_dict.items():
                 if isinstance(v, Decimal):
                     row_dict[k] = float(v)
+                elif isinstance(v, str):
+                    row_dict[k] = v.strip()
             rows.append(row_dict)
         conn.close()
         if rows:
@@ -176,7 +178,7 @@ def _load_bronze_dataset_records(context) -> tuple:
         with open(csv_file, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                row_dict = dict(row)
+                row_dict = {str(k).strip(): (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
                 if "_raw_id" not in row_dict or not row_dict["_raw_id"]:
                     row_dict["_raw_id"] = f"{table_name}_{i}"
                 rows.append(row_dict)
@@ -428,6 +430,12 @@ def task_4_emit_audit_evidence(**context):
 
     ti = context['ti']
     metrics = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_c_merge_verdicts_and_route', key='pipeline_metrics') or {}
+    lane_b_results = ti.xcom_pull(
+        task_ids='task_3_parallel_evaluation.lane_b_hierarchical_policy',
+        key='lane_b_results',
+    ) or []
+    if not isinstance(lane_b_results, list):
+        lane_b_results = []
     run_id = get_canonical_run_id(context)
     dag_id = context.get('dag').dag_id if context.get('dag') else "datatrust_adaptive_pipeline"
     dataset_id = str(metrics.get('dataset_id') or "ride_hailing_xanh_sm_trips")
@@ -451,7 +459,45 @@ def task_4_emit_audit_evidence(**context):
         print(f"Notice: Could not query previous evidence hash: {e}")
 
     # 2. Compute continuous SHA-256 evidence hash incorporating previous_hash
-    evidence_content = f"{previous_hash}:{run_id}:{dataset_id}:{json.dumps(metrics, sort_keys=True, default=str)}"
+    snapshot_hashes = sorted({
+        item.get("rule_snapshot_hash") for item in lane_b_results
+        if item.get("rule_snapshot_hash")
+    })
+    rule_snapshot = []
+    seen_rule_versions = set()
+    rule_executions = []
+    for item in lane_b_results:
+        for rule in item.get("rule_snapshot", []):
+            identity = (rule.get("rule_id"), rule.get("version", 1))
+            if identity not in seen_rule_versions:
+                seen_rule_versions.add(identity)
+                rule_snapshot.append(rule)
+    if not rule_snapshot:
+        try:
+            from dags.parallel_evaluation_engine import load_active_compliance_rules_from_db, _canonical_rule_dataset_id
+            c_ds = _canonical_rule_dataset_id(dataset_id)
+            rule_snapshot = load_active_compliance_rules_from_db(c_ds)
+        except Exception as e_snap:
+            print(f"Notice: load_active_compliance_rules_from_db in task 4: {e_snap}")
+        for execution in item.get("rule_executions", []):
+            # Evidence records outcomes and hashes, never raw observed PII.
+            rule_executions.append({
+                key: value for key, value in execution.items()
+                if key not in {"observed_value", "raw_value", "input_value"}
+            })
+
+    if snapshot_hashes or rule_snapshot or rule_executions:
+        evidence_material = {
+            "metrics": metrics,
+            "rule_snapshot_hashes": snapshot_hashes,
+            "rule_snapshot": rule_snapshot,
+            "rule_executions": rule_executions,
+        }
+        hash_payload = evidence_material
+    else:
+        # Preserve verification compatibility for legacy/no-snapshot runs.
+        hash_payload = metrics
+    evidence_content = f"{previous_hash}:{run_id}:{dataset_id}:{json.dumps(hash_payload, sort_keys=True, default=str)}"
     evidence_hash = hashlib.sha256(evidence_content.encode("utf-8")).hexdigest()
 
     # Build standard & custom OpenLineage facets
@@ -480,6 +526,13 @@ def task_4_emit_audit_evidence(**context):
         }
         actual_columns = []
 
+    for column_lineage in actual_columns:
+        for sample_key in ("sample_before", "sample_after"):
+            if sample_key in column_lineage and column_lineage[sample_key] not in (None, ""):
+                sample = str(column_lineage[sample_key])
+                column_lineage[f"{sample_key}_hash"] = hashlib.sha256(sample.encode("utf-8")).hexdigest()
+                column_lineage[sample_key] = "[REDACTED]"
+
     evidence_payload = {
         "dag_id": dag_id,
         "execution_date": context.get('ts'),
@@ -489,6 +542,9 @@ def task_4_emit_audit_evidence(**context):
         "digital_signature": signer_marker,
         "previous_hash": previous_hash,
         "evidence_hash": evidence_hash,
+        "rule_snapshot_hashes": snapshot_hashes,
+        "rule_snapshot": rule_snapshot,
+        "rule_executions": rule_executions,
         "dataTrustAuditAssurance": custom_audit_facet,
         "column_lineage": actual_columns
     }
@@ -497,6 +553,10 @@ def task_4_emit_audit_evidence(**context):
     if conn is not None:
         try:
             from psycopg2.extras import Json
+            try:
+                from dags.parallel_evaluation_engine import _json_safe
+            except ImportError:
+                from parallel_evaluation_engine import _json_safe
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO audit.evidence 
@@ -508,7 +568,7 @@ def task_4_emit_audit_evidence(**context):
                 evidence_hash, previous_hash,
                 metrics.get("scanned", 0), metrics.get("silver", 0),
                 metrics.get("quarantine", 0), metrics.get("warning", 0),
-                Json(metrics), Json(evidence_payload),
+                Json(_json_safe(metrics)), Json(_json_safe(evidence_payload)),
                 ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
             ))
 
@@ -540,8 +600,14 @@ def task_4_emit_audit_evidence(**context):
             conn.close()
 
     print("IPO Compliance Evidence Generated Successfully:")
-    print(json.dumps(evidence_payload, indent=2))
-    return evidence_payload
+    print(json.dumps(_json_safe(evidence_payload), indent=2, default=str))
+    return {
+        "status": "SUCCESS",
+        "run_id": run_id,
+        "evidence_hash": evidence_hash,
+        "previous_hash": previous_hash,
+        "metrics": _json_safe(metrics),
+    }
 
 
 # =============================================================================

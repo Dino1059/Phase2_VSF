@@ -217,7 +217,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     ? 'bg-slate-950 text-[#04D3D4] shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 )}
-                title="Chế độ Kiểm toán viên (Viewer - Chỉ đọc)"
+                title="Chế độ Kiểm toán viên (Thẩm tra & Kiểm toán độc lập)"
               >
                 <ShieldCheck size={14} className={currentRole === 'auditor' ? 'text-[#04D3D4]' : ''} />
                 <span>Auditor</span>

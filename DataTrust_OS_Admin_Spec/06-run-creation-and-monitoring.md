@@ -26,11 +26,9 @@ Policies
 GDPR
 NĐ 13/2023
 
-Evidence
-☑ Collect evidence
-
-Lineage
-☑ Generate lineage
+Audit & Traceability (Mặc định hệ thống)
+● Collect audit evidence: Enforced (Bắt buộc)
+● Generate data lineage: Enforced (Bắt buộc)
 
 AI
 ☑ Generate explanation after run
@@ -38,11 +36,14 @@ AI
                     [Hủy] [Start Run]
 ```
 
-## Validation
+## Validation & Business Rules
 
 - Không chọn dataset → Start disabled.
 - Dataset không có rule áp dụng → Start disabled hoặc hiển thị validation.
 - Rule áp dụng được xác định sẵn theo dataset; modal không có thao tác chọn/bỏ chọn hoặc approve/reject rule.
+- **Quyền kích hoạt**: Cả **Admin** và **Auditor** đều có quyền mở modal và nhấn `[Start Run]` để kích hoạt pipeline kiểm tra qua Apache Airflow. Khi Auditor kích hoạt, hệ thống ghi nhận `actor_role = 'AUDITOR'` trong audit trail.
+- **Không có checkbox cho `Collect evidence` và `Generate lineage`**: Cả hai tác vụ này là mặc định bắt buộc (enforced) cho mọi lần chạy dataset để đảm bảo tính toàn vẹn kiểm toán (audit trail), phát sinh chữ ký số và truy vết nguồn gốc; người vận hành không được phép tắt hay bỏ chọn.
+
 
 ---
 

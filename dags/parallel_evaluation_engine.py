@@ -9,12 +9,13 @@ import os
 import sys
 import json
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
 import psycopg2
-from psycopg2.extras import execute_values, Json
+from psycopg2.extras import execute_values, Json, RealDictCursor
 
 # Add workspace and dags to path
 workspace_dir = Path(__file__).resolve().parent.parent
@@ -51,6 +52,44 @@ def _normalize_jurisdiction(value: Any, default: str = "GLOBAL") -> str:
     """Return a stable jurisdiction key for persistence and aggregation."""
     normalized = str(value or "").strip().upper()
     return normalized or default
+
+
+def load_jurisdiction_hierarchy_from_db() -> JurisdictionHierarchyConfig:
+    """Load the routing hierarchy from policy metadata.
+
+    Tests and explicitly enabled fixture runs retain the built-in three-zone
+    contract; production fails closed when the canonical metadata is missing.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT child.jurisdiction_id AS code,
+                       child.parent_id AS parent_code,
+                       EXISTS (
+                           SELECT 1 FROM policy.jurisdictions parent
+                           WHERE parent.default_child_id = child.jurisdiction_id
+                       ) AS is_default
+                FROM policy.jurisdictions child
+                WHERE child.status = 'ACTIVE'
+                ORDER BY CASE child.level_type
+                    WHEN 'GLOBAL' THEN 0 WHEN 'ZONE' THEN 1 ELSE 2 END,
+                    child.jurisdiction_id
+                """
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+        if not rows:
+            raise RuntimeError("no active jurisdiction metadata")
+        return JurisdictionHierarchyConfig.from_rows(rows)
+    except Exception as exc:
+        if _lane_a_fixture_mode():
+            return JurisdictionHierarchyConfig()
+        raise RuntimeError(f"Jurisdiction hierarchy load failed: {exc}") from exc
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _policy_snapshot_from_verdict(verdict: Optional[LaneBVerdict]) -> Optional[Dict[str, Any]]:
@@ -161,7 +200,184 @@ def get_db_connection():
 # LANE A: DATA RELIABILITY & SENSOR ANOMALY SUITE (L1-L4)
 # =============================================================================
 
-def execute_lane_a_detectors(dataset_id: str, records: List[Dict[str, Any]], pk_col: Optional[str] = None) -> Dict[str, Any]:
+LANE_A_ALLOWED_DETECTORS = frozenset({
+    "REQUIRED", "TYPE", "RANGE", "ARITHMETIC", "CONDITION",
+    "ROBUST_Z", "RELATION", "CHANGEPOINT",
+})
+
+DATASET_RULE_ALIASES = {
+    "trips": "ride_hailing_xanh_sm_trips",
+}
+
+
+def _canonical_rule_dataset_id(dataset_id: str) -> str:
+    clean = dataset_id.replace(".csv", "").replace("bronze.", "")
+    return DATASET_RULE_ALIASES.get(clean, clean)
+
+
+def _lane_a_fixture_mode() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or os.getenv("DATATRUST_ALLOW_RULE_FIXTURES") == "1"
+
+
+def _lane_a_snapshot_hash(snapshot: List[Dict[str, Any]]) -> str:
+    canonical = json.dumps(_json_safe(snapshot), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _as_field_list(value: Any) -> List[str]:
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+            if isinstance(decoded, list):
+                return [str(item) for item in decoded]
+        except (TypeError, ValueError):
+            return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    return []
+
+
+def _compile_lane_a_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compile declarative rows into detector configuration; never executable code."""
+    config: Dict[str, Any] = {"ranges": {}, "required_fields": [], "field_types": {},
+                              "arithmetic_checks": [], "condition_checks": [],
+                              "l2_metrics": [], "l3_relations": [], "l4_metrics": [],
+                              "_replace_configurable": True}
+    versions: List[str] = []
+    for row in rows:
+        detector_id = str(row.get("detector_id") or "").upper()
+        if detector_id not in LANE_A_ALLOWED_DETECTORS:
+            raise ValueError(f"Unsupported Lane A detector_id: {detector_id or '<empty>'}")
+        params = row.get("params_json") or {}
+        if isinstance(params, str):
+            params = json.loads(params)
+        if not isinstance(params, dict):
+            raise ValueError(f"params_json must be an object for {row.get('rule_id')}")
+        fields = _as_field_list(row.get("target_fields"))
+        versions.append(str(row.get("version", 1)))
+
+        # A full, declarative config fragment is useful for seeded baseline rows.
+        fragment = params.get("config")
+        if fragment is not None:
+            if not isinstance(fragment, dict):
+                raise ValueError(f"config fragment must be an object for {row.get('rule_id')}")
+            config = L1toL4DetectorSuite._deep_merge(config, fragment)
+            continue
+        if detector_id == "REQUIRED":
+            config["required_fields"].extend(fields)
+        elif detector_id == "TYPE":
+            expected = params.get("type")
+            if expected not in {"number", "float", "integer", "string", "boolean", "datetime"}:
+                raise ValueError(f"Unsupported field type for {row.get('rule_id')}: {expected}")
+            config["field_types"].update({field: expected for field in fields})
+        elif detector_id == "RANGE":
+            for field in fields:
+                config["ranges"][field] = {
+                    **{key: params[key] for key in ("min", "max") if key in params},
+                    "rule_id": row.get("rule_id"),
+                }
+        elif detector_id == "ARITHMETIC":
+            total_field = params.get("total_field") or (fields[0] if fields else None)
+            sum_fields = params.get("sum_fields") or fields[1:]
+            if not total_field or not isinstance(sum_fields, list) or not sum_fields:
+                raise ValueError(f"ARITHMETIC requires total_field and sum_fields for {row.get('rule_id')}")
+            config["arithmetic_checks"].append({
+                "rule_id": row.get("rule_id"), "total_field": str(total_field),
+                "sum_fields": [str(field) for field in sum_fields],
+                "tolerance": params.get("tolerance", 1.0),
+            })
+        elif detector_id == "CONDITION":
+            condition_id = str(params.get("condition_id") or "").upper()
+            if condition_id != "ZERO_SPEED_HIGH_RPM":
+                raise ValueError(f"Unsupported condition_id for {row.get('rule_id')}: {condition_id or '<empty>'}")
+            if len(fields) != 2:
+                raise ValueError(f"ZERO_SPEED_HIGH_RPM requires speed/rpm target_fields for {row.get('rule_id')}")
+            config["condition_checks"].append({
+                "rule_id": row.get("rule_id"), "condition_id": condition_id,
+                "speed_field": fields[0], "rpm_field": fields[1],
+                "rpm_max": params.get("rpm_max", 12000),
+            })
+        elif detector_id == "ROBUST_Z":
+            config["l2_metrics"].extend(fields)
+            config["l2"] = {key: params[key] for key in ("z_threshold", "warmup_days", "min_samples") if key in params}
+            if "baseline_min_samples" in params:
+                config["baseline_min_samples"] = params["baseline_min_samples"]
+        elif detector_id == "RELATION":
+            relations = params.get("relations")
+            if relations is not None:
+                if not isinstance(relations, list) or not all(
+                    isinstance(item, dict) and item.get("x") and item.get("y")
+                    for item in relations
+                ):
+                    raise ValueError(f"RELATION relations must contain x/y objects for {row.get('rule_id')}")
+                config["l3_relations"].extend(
+                    {**item, "rule_id": item.get("rule_id") or row.get("rule_id")}
+                    for item in relations
+                )
+            else:
+                if len(fields) != 2:
+                    raise ValueError(f"RELATION requires exactly two target_fields for {row.get('rule_id')}")
+                config["l3_relations"].append({"x": fields[0], "y": fields[1], "rule_id": row.get("rule_id")})
+            config["l3"] = {key: params[key] for key in ("residual_z_threshold",) if key in params}
+        elif detector_id == "CHANGEPOINT":
+            config["l4_metrics"].extend(fields)
+            config["l4"] = {key: params[key] for key in
+                            ("penalty", "min_segment_len", "persistence_window", "attribution_window") if key in params}
+            if "pen" in params:
+                config["l4"]["penalty"] = params["pen"]
+    config["required_fields"] = list(dict.fromkeys(config["required_fields"]))
+    config["l2_metrics"] = list(dict.fromkeys(config["l2_metrics"]))
+    config["l4_metrics"] = list(dict.fromkeys(config["l4_metrics"]))
+    config["version"] = "+".join(sorted(set(versions))) or "db"
+    return config
+
+
+def load_active_lane_a_config_from_db(
+    dataset_id: str,
+    as_of: Optional[datetime] = None,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], str]:
+    """Load one approved/effective Lane A configuration snapshot."""
+    conn = None
+    snapshot_time = as_of or datetime.now(timezone.utc)
+    clean_ds = _canonical_rule_dataset_id(dataset_id)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM engine.reliability_rules
+                WHERE status = 'ACTIVE'
+                  AND runtime_mode = 'ENFORCED'
+                  AND (dataset_id = '*' OR dataset_id = %s OR dataset_id = %s OR dataset_id = %s)
+                  AND effective_from <= %s
+                  AND (effective_to IS NULL OR effective_to > %s)
+                  AND approved_by IS NOT NULL
+                ORDER BY rule_id, version
+                """,
+                (clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}", snapshot_time, snapshot_time),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+        if not rows:
+            raise RuntimeError("no approved active reliability rules")
+        snapshot = [_json_safe(row) for row in rows]
+        return _compile_lane_a_config(rows), snapshot, _lane_a_snapshot_hash(snapshot)
+    except Exception as exc:
+        if _lane_a_fixture_mode():
+            snapshot = [{"source": "DEFAULT_CONFIG", "version": L1toL4DetectorSuite.DEFAULT_CONFIG["version"]}]
+            return {}, snapshot, _lane_a_snapshot_hash(snapshot)
+        raise RuntimeError(f"Lane A rule snapshot load failed for {dataset_id}: {exc}") from exc
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def execute_lane_a_detectors(
+    dataset_id: str,
+    records: List[Dict[str, Any]],
+    pk_col: Optional[str] = None,
+    reliability_config: Optional[Dict[str, Any]] = None,
+    rule_snapshot: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """
     Executes Lane A detectors on records DataFrame.
     Returns serializable dictionary for XCom.
@@ -169,8 +385,15 @@ def execute_lane_a_detectors(dataset_id: str, records: List[Dict[str, Any]], pk_
     if not records:
         return {}
 
+    if reliability_config is None:
+        reliability_config, loaded_snapshot, snapshot_hash = load_active_lane_a_config_from_db(dataset_id)
+        rule_snapshot = loaded_snapshot
+    else:
+        rule_snapshot = rule_snapshot or [{"source": "INJECTED_CONFIG", "config": reliability_config}]
+        snapshot_hash = _lane_a_snapshot_hash(rule_snapshot)
+
     df = pd.DataFrame(records)
-    suite = L1toL4DetectorSuite(project_id="gsm_3zone_pilot")
+    suite = L1toL4DetectorSuite(project_id="gsm_3zone_pilot", reliability_config=reliability_config)
     raw_results = suite.evaluate_records(dataset_id, df, pk_col=pk_col)
 
     # Serialize for XCom
@@ -179,6 +402,8 @@ def execute_lane_a_detectors(dataset_id: str, records: List[Dict[str, Any]], pk_
         serializable[pk] = {
             "status": res["status"],
             "evidence": res["evidence"],
+            "rule_snapshot_hash": snapshot_hash,
+            "rule_snapshot": [],
             "signals": [
                 {
                     "signal_id": s.signal_id,
@@ -198,20 +423,28 @@ def execute_lane_a_detectors(dataset_id: str, records: List[Dict[str, Any]], pk_
 # LANE B: HIERARCHICAL POLICY & COMPLIANCE EVALUATION (7 STEPS)
 # =============================================================================
 
-def load_active_treatments_from_db(dataset_id: str) -> List[Dict[str, Any]]:
+def load_active_treatments_from_db(
+    dataset_id: str, as_of: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
     """Loads active treatments for dataset from policy.data_treatment_rules."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+        clean_ds = _canonical_rule_dataset_id(dataset_id)
+        snapshot_time = as_of or datetime.now(timezone.utc)
         cur.execute("""
             SELECT rule_id, column_name, operation_id, params_json,
                    treatment_name, description, policy_id, policy_name,
-                   law_ref, jurisdiction, country
+                   law_ref, jurisdiction, country, version, runtime_mode,
+                   effective_from, effective_to, pack_id, clause_id
             FROM policy.data_treatment_rules
-            WHERE status = 'active' AND (dataset_id = %s OR dataset_id = %s OR dataset_id = %s);
-        """, (clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}"))
+            WHERE UPPER(status) = 'ACTIVE'
+              AND UPPER(runtime_mode) = 'ENFORCED'
+              AND effective_from <= %s
+              AND (effective_to IS NULL OR effective_to > %s)
+              AND (dataset_id = '*' OR dataset_id = %s OR dataset_id = %s OR dataset_id = %s);
+        """, (snapshot_time, snapshot_time, clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}"))
         rows = cur.fetchall()
         treatments = []
         for r in rows:
@@ -227,16 +460,97 @@ def load_active_treatments_from_db(dataset_id: str) -> List[Dict[str, Any]]:
                 "law_ref": r[8],
                 "jurisdiction": _normalize_jurisdiction(r[9]),
                 "country": r[10],
+                "version": r[11],
+                "runtime_mode": r[12],
+                "effective_from": r[13],
+                "effective_to": r[14],
+                "pack_id": r[15],
+                "clause_id": r[16],
             })
         return treatments
-    except Exception:
-        return []
+    except Exception as exc:
+        if _lane_a_fixture_mode():
+            return []
+        raise RuntimeError(f"Treatment rule snapshot load failed for {dataset_id}: {exc}") from exc
     finally:
         if conn is not None:
             conn.close()
 
 
-def execute_lane_b_policy(dataset_id: str, records: List[Dict[str, Any]], pk_col: Optional[str] = None) -> List[Dict[str, Any]]:
+def load_active_compliance_rules_from_db(
+    dataset_id: str,
+    as_of: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Load the approved, effective compliance snapshot used by Lane B.
+
+    Unlike the former API seed fallback, a database/configuration failure is
+    fatal outside tests. This prevents a run from silently evaluating a
+    different policy than the one presented to auditors.
+    """
+    conn = None
+    snapshot_time = as_of or datetime.now(timezone.utc)
+    clean_ds = _canonical_rule_dataset_id(dataset_id)
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM policy.compliance_rules
+                WHERE status = 'ACTIVE'
+                  AND (dataset_id = '*' OR dataset_id = %s OR dataset_id = %s OR dataset_id = %s)
+                  AND effective_from <= %s
+                  AND (effective_to IS NULL OR effective_to > %s)
+                ORDER BY rule_id, version
+                """,
+                (clean_ds, f"{clean_ds}.csv", f"bronze.{clean_ds}", snapshot_time, snapshot_time),
+            )
+            rules = [dict(row) for row in cur.fetchall()]
+
+        identities = set()
+        for rule in rules:
+            identity = (
+                rule.get("rule_id"),
+                str(rule.get("jurisdiction") or "GLOBAL").upper(),
+                rule.get("country"),
+            )
+            if identity in identities:
+                raise RuntimeError(f"Overlapping ACTIVE compliance rule versions: {identity}")
+            identities.add(identity)
+            rule["jurisdiction"] = identity[1]
+            rule["condition_json"] = rule.get("condition_json") or {}
+        return rules
+    except Exception as exc:
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DATATRUST_ALLOW_RULE_FIXTURES") == "1":
+            return []
+        raise RuntimeError(f"Compliance rule snapshot load failed for {dataset_id}: {exc}") from exc
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def compute_rule_snapshot_hash(rules: List[Dict[str, Any]]) -> str:
+    canonical = [
+        {
+            "rule_id": rule.get("rule_id"),
+            "version": rule.get("version", 1),
+            "condition_json": rule.get("condition_json") or {},
+            "jurisdiction": rule.get("jurisdiction", "GLOBAL"),
+            "effective_from": _json_safe(rule.get("effective_from")),
+            "effective_to": _json_safe(rule.get("effective_to")),
+        }
+        for rule in rules
+    ]
+    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def execute_lane_b_policy(
+    dataset_id: str,
+    records: List[Dict[str, Any]],
+    pk_col: Optional[str] = None,
+    run_started_at: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
     """
     Executes Lane B: Resolve -> Policy -> Pre-check -> Treatment -> Process -> Post-check -> Verdict.
     Returns serializable verdicts for XCom.
@@ -244,9 +558,19 @@ def execute_lane_b_policy(dataset_id: str, records: List[Dict[str, Any]], pk_col
     if not records:
         return []
 
-    active_treatments = load_active_treatments_from_db(dataset_id)
-    processor = HierarchicalPolicyProcessor(active_treatments=active_treatments)
-    verdicts = processor.process_records(dataset_id, records, pk_col=pk_col)
+    canonical_dataset_id = _canonical_rule_dataset_id(dataset_id)
+    hierarchy_config = load_jurisdiction_hierarchy_from_db()
+    active_treatments = load_active_treatments_from_db(canonical_dataset_id, as_of=run_started_at)
+    active_rules = load_active_compliance_rules_from_db(canonical_dataset_id, as_of=run_started_at)
+    snapshot_hash = compute_rule_snapshot_hash(active_rules)
+    processor = HierarchicalPolicyProcessor(
+        hierarchy_config=hierarchy_config,
+        active_treatments=active_treatments,
+        active_compliance_rules=active_rules,
+        compliance_mode=os.getenv("DATATRUST_COMPLIANCE_MODE", "ENFORCED").upper(),
+        rule_snapshot_hash=snapshot_hash,
+    )
+    verdicts = processor.process_records(canonical_dataset_id, records, pk_col=pk_col)
 
     serializable: List[Dict[str, Any]] = []
     for v in verdicts:
@@ -254,7 +578,7 @@ def execute_lane_b_policy(dataset_id: str, records: List[Dict[str, Any]], pk_col
             "record_id": v.record_id,
             "status": v.status,
             "treated_record": v.treated_record,
-            "raw_record": v.raw_record,
+            "raw_record": None,
             "compliance_evidence": v.compliance_evidence,
             "required_treatments": v.required_treatments,
             "failure_reasons": v.failure_reasons,
@@ -262,6 +586,13 @@ def execute_lane_b_policy(dataset_id: str, records: List[Dict[str, Any]], pk_col
             "normalized_zone": v.normalized_zone,
             "applied_policy_ids": v.applied_policy_ids,
             "violations": [item.to_dict() for item in v.violations],
+            "rule_snapshot_hash": getattr(v, "rule_snapshot_hash", snapshot_hash),
+            "rule_snapshot": [],
+            "executed_rule_keys": getattr(v, "executed_rule_keys", []),
+            "skipped_rule_keys": getattr(v, "skipped_rule_keys", []),
+            "rule_executions": getattr(v, "rule_executions", []),
+            "treatment_executions": getattr(v, "treatment_executions", []),
+            "shadow_mode": getattr(v, "shadow_mode", False),
         })
     return _json_safe(serializable)
 
@@ -296,6 +627,13 @@ def execute_lane_c_merge_and_persist(
             normalized_zone=d.get("normalized_zone", "GLOBAL"),
             applied_policy_ids=d.get("applied_policy_ids", []),
             violations=[PolicyViolation(**item) for item in d.get("violations", [])],
+            rule_snapshot_hash=d.get("rule_snapshot_hash"),
+            rule_snapshot=d.get("rule_snapshot", []),
+            executed_rule_keys=d.get("executed_rule_keys", []),
+            skipped_rule_keys=d.get("skipped_rule_keys", []),
+            rule_executions=d.get("rule_executions", []),
+            treatment_executions=d.get("treatment_executions", []),
+            shadow_mode=bool(d.get("shadow_mode", False)),
         )
         for d in lane_b_data
     ]
@@ -323,6 +661,7 @@ def execute_lane_c_merge_and_persist(
     if conn is not None:
         try:
             persist_consolidated_results(conn, result)
+            persist_lane_b_execution_evidence(conn, run_id, dataset_id, lane_b_data)
         finally:
             if should_close:
                 conn.close()
@@ -338,6 +677,86 @@ def execute_lane_c_merge_and_persist(
         "warning_sample": result.warning_records[:3]
     }
     return metrics
+
+
+def persist_lane_b_execution_evidence(
+    conn, run_id: str, dataset_id: str, lane_b_data: List[Dict[str, Any]]
+) -> None:
+    """Persist PII-safe, per-record compliance and treatment evidence."""
+    rows: List[tuple] = []
+    canonical_dataset_id = _canonical_rule_dataset_id(dataset_id)
+    try:
+        cached_rules = load_active_compliance_rules_from_db(canonical_dataset_id)
+    except Exception:
+        cached_rules = []
+    dataset_snapshots = {
+        (str(item.get("rule_id")), str(item.get("version", 1))): item
+        for item in cached_rules
+    }
+    for verdict in lane_b_data:
+        record_id = str(verdict.get("record_id", "unknown"))
+        chain = verdict.get("jurisdiction_chain") or ["GLOBAL"]
+        zone = verdict.get("normalized_zone") or (chain[1] if len(chain) > 1 else "GLOBAL")
+        snapshots = {
+            (str(item.get("rule_id")), str(item.get("version", 1))): item
+            for item in verdict.get("rule_snapshot", [])
+        } or dataset_snapshots
+        treatments = {
+            (str(item.get("rule_id")), str(item.get("version", 1))): item
+            for item in verdict.get("required_treatments", [])
+            if item.get("rule_id")
+        }
+        for execution in verdict.get("rule_executions", []):
+            key = (str(execution.get("rule_id")), str(execution.get("version", 1)))
+            snapshot = snapshots.get(key, {})
+            result = str(execution.get("result", "SKIP")).upper()
+            runtime = "SHADOWED" if execution.get("runtime_state") == "shadowed" else "ENFORCED"
+            rows.append((
+                run_id, dataset_id, record_id, zone, chain,
+                execution.get("pack_id") or snapshot.get("pack_id"), snapshot.get("policy_id"),
+                execution.get("clause_id") or snapshot.get("clause_id"), key[0], int(key[1]),
+                "COMPLIANCE", snapshot.get("evaluation_phase", "PRE_CHECK"), result, runtime,
+                None, None, Json(_json_safe(snapshot)), Json({"jurisdiction": execution.get("jurisdiction")}),
+            ))
+        for execution in verdict.get("treatment_executions", []):
+            key = (str(execution.get("rule_id")), str(execution.get("version", 1)))
+            snapshot = treatments.get(key, {})
+            raw_result = str(execution.get("result", "SKIPPED")).upper()
+            result = {"APPLIED": "PASS", "FAILED": "FAIL", "SKIPPED": "SKIP"}.get(raw_result, "SKIP")
+            rows.append((
+                run_id, dataset_id, record_id, zone, chain,
+                execution.get("pack_id") or snapshot.get("pack_id"), snapshot.get("policy_id"),
+                execution.get("clause_id") or snapshot.get("clause_id"), key[0], int(key[1]),
+                "TREATMENT", "TREATMENT", result, "ENFORCED",
+                execution.get("before_hash"), execution.get("after_hash"), Json(_json_safe(snapshot)),
+                Json({
+                    "jurisdiction": execution.get("jurisdiction"),
+                    "column": execution.get("column"),
+                    "operation": execution.get("operation"),
+                }),
+            ))
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        execute_values(cur, """
+            INSERT INTO audit.record_policy_executions (
+                run_id, dataset_id, record_id, subject_zone, jurisdiction_chain,
+                pack_id, policy_id, clause_id, rule_id, rule_version,
+                execution_type, phase, result, runtime_state, input_hash, output_hash,
+                rule_snapshot, details
+            ) VALUES %s
+            ON CONFLICT (
+                run_id, dataset_id, record_id, execution_type, rule_id, rule_version, phase
+            ) DO UPDATE SET
+                result = EXCLUDED.result,
+                runtime_state = EXCLUDED.runtime_state,
+                input_hash = EXCLUDED.input_hash,
+                output_hash = EXCLUDED.output_hash,
+                rule_snapshot = EXCLUDED.rule_snapshot,
+                details = EXCLUDED.details,
+                created_at = CURRENT_TIMESTAMP
+        """, rows)
+    conn.commit()
 
 
 # =============================================================================

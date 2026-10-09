@@ -179,3 +179,35 @@ def test_openai_failure_is_not_presented_as_ai_analysis(monkeypatch, tmp_path):
     response = TestClient(api_main.app).post("/api/findings/F-001/ai-explanation")
     assert response.status_code == 503
     assert "OpenAI" in response.json()["detail"]
+
+
+def test_auditor_can_trigger_pipeline_run(monkeypatch):
+    """Kiểm tra vai trò AUDITOR được phép kích hoạt lượt chạy kiểm tra qua /api/runs (không bị 403)."""
+    from unittest.mock import MagicMock
+    import io
+
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+    # Mock database connection
+    import database.profiler_engine as profiler_engine
+    monkeypatch.setattr(profiler_engine, "get_db_connection", lambda: mock_conn)
+
+    # Mock Airflow urlopen
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b'{"execution_date": "2026-10-09T07:30:00Z"}'
+    mock_resp.__enter__.return_value = mock_resp
+    monkeypatch.setattr(api_main, "urlopen", lambda *_args, **_kwargs: mock_resp)
+
+    client = TestClient(api_main.app)
+    response = client.post(
+        "/api/runs",
+        headers={"X-User-Role": "AUDITOR", "X-User": "DataTrust Auditor"},
+        json={"dataset_id": "ride_hailing_xanh_sm_trips", "collect_evidence": True, "generate_lineage": True}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "RUNNING"
+    assert "run_id" in data
+

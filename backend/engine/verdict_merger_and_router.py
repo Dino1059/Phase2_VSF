@@ -255,7 +255,15 @@ class VerdictMergerAndRouter:
             elif status_a == "WARNING" or status_b == "WARNING":
                 # Warning Lane (Controlled PII Storage)
                 result.warning_count += 1
-                redacted = self.redact_pii_for_warning(raw_item)
+                # Preserve the exact Lane B treatment output for advisory records.
+                # Redaction remains a final storage guard, never a substitute for
+                # the policy-selected treatment.
+                warning_source = (
+                    verdict_b.treated_record
+                    if verdict_b and verdict_b.treated_record is not None
+                    else raw_item
+                )
+                redacted = self.redact_pii_for_warning(warning_source)
                 lineage = self.compute_lineage_hash(run_id, pk_val, redacted)
 
                 warn_signals = res_a.get("signals", [])
@@ -294,4 +302,10 @@ class VerdictMergerAndRouter:
                 treated["lineage_hash"] = self.compute_lineage_hash(run_id, pk_val, treated)
                 result.silver_records.append(treated)
 
+        routed_count = result.silver_count + result.quarantine_count + result.warning_count
+        if routed_count != result.scanned_count:
+            raise RuntimeError(
+                "Batch reconciliation failed: "
+                f"scanned={result.scanned_count}, routed={routed_count}"
+            )
         return result

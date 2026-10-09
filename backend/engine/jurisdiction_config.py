@@ -1,6 +1,4 @@
-from typing import Dict, Any, List, Optional
-import os
-import json
+from typing import Dict, Any, Iterable, List, Optional
 
 
 class JurisdictionHierarchyConfig:
@@ -19,7 +17,7 @@ class JurisdictionHierarchyConfig:
             "supported_countries": ["DE", "FR", "NL", "IT", "ES", "BE"]
         },
         "US": {
-            "default_country": "US-NY",
+            "default_country": "US-CA",
             "supported_countries": ["US-NY", "US-CA", "US-TX", "US-FL", "US-MI"]
         }
     }
@@ -39,7 +37,55 @@ class JurisdictionHierarchyConfig:
     }
 
     def __init__(self, mapping: Optional[Dict[str, Any]] = None):
-        self.mapping = mapping or dict(self.DEFAULT_MAPPING)
+        # Copy nested values so callers/cache refreshes cannot mutate defaults.
+        source = mapping if mapping is not None else self.DEFAULT_MAPPING
+        self.mapping = self._normalize_mapping(source)
+
+    @classmethod
+    def from_rows(cls, rows: Iterable[Dict[str, Any]]) -> "JurisdictionHierarchyConfig":
+        """Build the hierarchy from DB/API rows without coupling to a DB client.
+
+        Accepted rows use ``code``/``jurisdiction_code``, ``parent_code`` and
+        optional ``is_default``. Zone rows have parent GLOBAL; child rows have
+        their zone as parent. Invalid/incomplete input safely falls back to the
+        built-in three-zone hierarchy.
+        """
+        materialized = [dict(row) for row in rows]
+        zones: Dict[str, Dict[str, Any]] = {}
+        for row in materialized:
+            code = cls.normalize_zone(row.get("code") or row.get("jurisdiction_code"))
+            parent = cls.normalize_zone(row.get("parent_code") or row.get("parent"))
+            if code != "GLOBAL" and parent == "GLOBAL":
+                zones.setdefault(code, {"default_country": code, "supported_countries": [code]})
+        for row in materialized:
+            code = cls.normalize_zone(row.get("code") or row.get("jurisdiction_code"))
+            parent = cls.normalize_zone(row.get("parent_code") or row.get("parent"))
+            if parent in zones and code not in {"GLOBAL", parent}:
+                zones[parent]["supported_countries"].append(code)
+                if row.get("is_default") or row.get("default_for_parent"):
+                    zones[parent]["default_country"] = code
+        return cls(zones or None)
+
+    @classmethod
+    def _normalize_mapping(cls, source: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        result: Dict[str, Dict[str, Any]] = {}
+        for raw_zone, raw_config in source.items():
+            zone = cls.normalize_zone(raw_zone)
+            if zone == "GLOBAL" or not isinstance(raw_config, dict):
+                continue
+            countries = [
+                cls.normalize_zone(item)
+                for item in raw_config.get("supported_countries", [])
+                if item
+            ]
+            default = cls.normalize_zone(raw_config.get("default_country") or zone)
+            if default not in countries:
+                countries.append(default)
+            result[zone] = {
+                "default_country": default,
+                "supported_countries": list(dict.fromkeys(countries)),
+            }
+        return result
 
     @classmethod
     def normalize_zone(cls, zone: Optional[str]) -> str:
@@ -61,9 +107,12 @@ class JurisdictionHierarchyConfig:
             chain.append(normalized_zone)
             zone_cfg = self.mapping[normalized_zone]
             
-            resolved_country = None
+            # US is the product's US-CA legal scope, so the zone alias must
+            # resolve to California. Other zones only add a country when the
+            # record explicitly supplies it.
+            resolved_country = zone_cfg.get("default_country") if normalized_zone == "US" else None
             if country:
-                cand = str(country).strip().upper()
+                cand = self.normalize_zone(country)
                 if cand in zone_cfg.get("supported_countries", []):
                     resolved_country = cand
 
@@ -75,3 +124,6 @@ class JurisdictionHierarchyConfig:
                 chain.append(str(country).strip().upper())
 
         return chain
+
+    def is_known_zone(self, zone: Optional[str]) -> bool:
+        return self.normalize_zone(zone) in self.mapping

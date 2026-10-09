@@ -23,12 +23,46 @@ export interface ComplianceCheckRule {
   law_ref: string;
   policy_id?: string | null;
   policy_name?: string | null;
+  pack_id?: string | null;
+  clause_id?: string | null;
   jurisdiction?: string;
   country?: string | null;
   severity: string;
   on_fail_action: string;
   is_fixed: boolean;
   enforced_at: string;
+  version?: number;
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'ACTIVE' | 'RETIRED';
+  effective_from?: string;
+  effective_to?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  approval_role?: string | null;
+  evaluation_phase?: 'PRE_CHECK' | 'POST_CHECK';
+  condition_json?: Record<string, unknown>;
+  missing_behavior?: 'FAIL' | 'WARNING' | 'SKIP';
+  invalid_type_behavior?: 'FAIL' | 'WARNING';
+  legal_review_required?: boolean;
+  runtime_mode?: 'SHADOW' | 'ENFORCED' | string;
+  runtime_state?: 'configured' | 'active' | 'shadowed' | 'executed' | 'skipped';
+}
+
+export interface ReliabilityRule {
+  rule_id: string;
+  dataset_id: string;
+  detector_id: string;
+  target_fields: string[];
+  params_json: Record<string, unknown>;
+  rule_name?: string;
+  description?: string;
+  severity: string;
+  on_fail_action: string;
+  version: number;
+  status: 'DRAFT' | 'SHADOW' | 'ACTIVE' | 'RETIRED' | string;
+  runtime_mode?: 'SHADOW' | 'ENFORCED' | string;
+  effective_from?: string;
+  effective_to?: string | null;
+  updated_at?: string;
 }
 
 export interface DataTreatmentRule {
@@ -42,13 +76,19 @@ export interface DataTreatmentRule {
   description?: string;
   policy_id?: string | null;
   policy_name?: string | null;
+  pack_id?: string | null;
+  clause_id?: string | null;
   law_ref?: string | null;
   jurisdiction?: string;
   country?: string | null;
   is_ai_proposed: boolean;
   ai_rationale?: string;
   ai_confidence?: number;
-  status: 'active' | 'pending' | 'rejected' | 'paused';
+  version?: number;
+  status: 'DRAFT' | 'ACTIVE' | 'RETIRED' | 'active' | 'pending' | 'rejected' | 'paused' | string;
+  runtime_mode?: 'SHADOW' | 'ENFORCED' | string;
+  effective_from?: string | null;
+  effective_to?: string | null;
   enforced_by: string;
   created_at: string;
   updated_at: string;
@@ -648,12 +688,29 @@ export const apiBridge = {
   /**
    * Lấy danh sách Compliance Check Rules (Cố định, Read-Only, AI không có quyền đề xuất)
    */
-  async fetchComplianceCheckRules(datasetId?: string): Promise<ComplianceCheckRule[]> {
-    const url = datasetId
-      ? `${API_ROOT}/rules/compliance-checks?dataset_id=${encodeURIComponent(datasetId)}`
-      : `${API_ROOT}/rules/compliance-checks`;
+  async fetchComplianceCheckRules(
+    datasetId?: string,
+    filters?: { jurisdiction?: string; status?: string; asOf?: string },
+  ): Promise<ComplianceCheckRule[]> {
+    const params = new URLSearchParams();
+    if (datasetId) params.append('dataset_id', datasetId);
+    if (filters?.jurisdiction) params.append('jurisdiction', filters.jurisdiction);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.asOf) params.append('as_of', filters.asOf);
+    const url = `${API_ROOT}/rules/compliance-checks${params.size ? `?${params.toString()}` : ''}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp compliance check rules`);
+    return res.json();
+  },
+
+  /** Load data-quality detector configuration used by Lane A. */
+  async fetchReliabilityRules(datasetId?: string, status?: string): Promise<ReliabilityRule[]> {
+    const params = new URLSearchParams();
+    if (datasetId) params.append('dataset_id', datasetId);
+    if (status) params.append('status', status);
+    const url = `${API_ROOT}/rules/reliability${params.size ? `?${params.toString()}` : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp technical rules`);
     return res.json();
   },
 
@@ -940,7 +997,7 @@ export const apiBridge = {
     status: string;
     message: string;
   }> {
-    const roleHeaders = getUserRoleHeader();
+    const roleHeaders = getUserIdentityHeaders();
     const res = await fetch(`${API_ROOT}/runs`, {
       method: 'POST',
       headers: {
@@ -1297,4 +1354,3 @@ export interface LineageRunItem {
   createdAt: string;
   hasOpenLineage: boolean;
 }
-

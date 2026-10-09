@@ -6,9 +6,10 @@ Persists across server restarts using SQLite/PostgreSQL/Local storage.
 """
 
 import os
+import json
 import sqlite3
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any
 from datetime import datetime, timezone
 from fastapi import HTTPException
 
@@ -35,6 +36,19 @@ class ChatSessionManager:
                         run_id TEXT NOT NULL,
                         tenant_id TEXT NOT NULL DEFAULT 'default',
                         created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS chat_session_states (
+                        session_id TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        active_finding_id TEXT,
+                        active_dataset_id TEXT,
+                        active_column TEXT,
+                        active_failure_lane TEXT,
+                        entities_json TEXT DEFAULT '{}',
+                        recent_messages_json TEXT DEFAULT '[]',
                         updated_at TEXT NOT NULL
                     );
                 """)
@@ -133,6 +147,135 @@ class ChatSessionManager:
         except Exception as e:
             logger.error(f"Error fetching session run_id: {e}")
             return None
+
+    def get_session_state(self, session_id: str) -> Dict[str, Any]:
+        """Retrieves active session state including current focus entities and recent message history."""
+        if not session_id:
+            return {}
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT run_id, active_finding_id, active_dataset_id, active_column,
+                           active_failure_lane, entities_json, recent_messages_json
+                    FROM chat_session_states WHERE session_id = ?
+                    """,
+                    (session_id.strip(),)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return {}
+                entities = {}
+                recent_messages = []
+                try:
+                    entities = json.loads(row[5]) if row[5] else {}
+                except Exception:
+                    pass
+                try:
+                    recent_messages = json.loads(row[6]) if row[6] else []
+                except Exception:
+                    pass
+
+                return {
+                    "session_id": session_id.strip(),
+                    "run_id": row[0],
+                    "active_finding_id": row[1],
+                    "active_dataset_id": row[2],
+                    "active_column": row[3],
+                    "active_failure_lane": row[4],
+                    "entities": entities,
+                    "recent_messages": recent_messages
+                }
+        except Exception as e:
+            logger.warning(f"Error reading session state: {e}")
+            return {}
+
+    def update_session_state(self, session_id: str, run_id: str, updates: Dict[str, Any]):
+        """Persists or updates active scope and entity state for a session."""
+        if not session_id or not run_id:
+            return
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            curr = self.get_session_state(session_id)
+            active_finding = updates.get("active_finding_id", curr.get("active_finding_id"))
+            active_dataset = updates.get("active_dataset_id", curr.get("active_dataset_id"))
+            active_column = updates.get("active_column", curr.get("active_column"))
+            active_lane = updates.get("active_failure_lane", curr.get("active_failure_lane"))
+            
+            entities = curr.get("entities", {})
+            if "entities" in updates and isinstance(updates["entities"], dict):
+                entities.update(updates["entities"])
+            
+            recent_msgs = updates.get("recent_messages", curr.get("recent_messages", []))
+
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO chat_session_states (
+                        session_id, run_id, active_finding_id, active_dataset_id,
+                        active_column, active_failure_lane, entities_json, recent_messages_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        run_id = excluded.run_id,
+                        active_finding_id = excluded.active_finding_id,
+                        active_dataset_id = excluded.active_dataset_id,
+                        active_column = excluded.active_column,
+                        active_failure_lane = excluded.active_failure_lane,
+                        entities_json = excluded.entities_json,
+                        recent_messages_json = excluded.recent_messages_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        session_id.strip(), run_id.strip(), active_finding, active_dataset,
+                        active_column, active_lane, json.dumps(entities, ensure_ascii=False),
+                        json.dumps(recent_msgs[-6:], ensure_ascii=False), now_iso
+                    )
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Error updating session state: {e}")
+
+    def append_chat_turn(
+        self,
+        session_id: str,
+        run_id: str,
+        user_text: str,
+        ai_text: str,
+        updates: Optional[Dict[str, Any]] = None
+    ):
+        """Appends a user/AI dialogue turn (keeping last 6 turns) and updates scope."""
+        if not session_id or not run_id:
+            return
+        curr = self.get_session_state(session_id)
+        recent = curr.get("recent_messages", [])
+        recent.append({"role": "user", "text": user_text})
+        recent.append({"role": "assistant", "text": ai_text})
+        recent = recent[-6:]  # Keep last 3 full turns (6 messages)
+
+        up = dict(updates or {})
+        up["recent_messages"] = recent
+        self.update_session_state(session_id, run_id, up)
+
+    def clear_session_focus(self, session_id: str):
+        """Clears specific finding/column focus when topic switches."""
+        if not session_id:
+            return
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE chat_session_states
+                    SET active_finding_id = NULL, active_column = NULL, active_failure_lane = NULL
+                    WHERE session_id = ?
+                    """,
+                    (session_id.strip(),)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Error clearing session focus: {e}")
 
 
 session_manager = ChatSessionManager()

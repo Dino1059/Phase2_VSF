@@ -18,6 +18,11 @@ export type UnifiedRuleItem = {
   datasetId: string;
   columnName: string;
   policy: string;
+  policyId?: string | null;
+  packId?: string | null;
+  clauseId?: string | null;
+  jurisdiction?: string;
+  country?: string | null;
   version?: string;
   scope: string;
   condition: string;
@@ -26,8 +31,12 @@ export type UnifiedRuleItem = {
   requiredTreatment: string;
   source: string;
   description: string;
-  ruleType: 'compliance' | 'treatment';
-  updatedAt: string;
+  ruleType: 'reliability' | 'compliance' | 'treatment';
+  lane: 'Lane A' | 'Lane B' | 'Treatment';
+  runtimeMode: string;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  updatedAt?: string;
 };
 
 interface RuleDetailDrawerProps {
@@ -173,6 +182,18 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
                 </div>
               </div>
 
+              <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Traceability</span>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <div><dt className="text-slate-400">Jurisdiction</dt><dd className="font-mono font-bold text-slate-900">{rule.jurisdiction || '—'}</dd></div>
+                  <div><dt className="text-slate-400">Country / State</dt><dd className="font-mono font-bold text-slate-900">{rule.country || '—'}</dd></div>
+                  <div><dt className="text-slate-400">Policy ID</dt><dd className="break-all font-mono text-slate-700">{rule.policyId || '—'}</dd></div>
+                  <div><dt className="text-slate-400">Policy pack</dt><dd className="break-all font-mono text-slate-700">{rule.packId || '—'}</dd></div>
+                  <div><dt className="text-slate-400">Clause</dt><dd className="break-all font-mono text-slate-700">{rule.clauseId || '—'}</dd></div>
+                  <div><dt className="text-slate-400">Rule version</dt><dd className="font-mono text-slate-700">{rule.version || '—'}</dd></div>
+                </dl>
+              </div>
+
               {/* Target & Scope */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
@@ -194,6 +215,17 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Effective from</span>
+                  <div className="mt-1 font-mono text-slate-700">{rule.effectiveFrom ? new Date(rule.effectiveFrom).toLocaleString('vi-VN') : '—'}</div>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Effective to</span>
+                  <div className="mt-1 font-mono text-slate-700">{rule.effectiveTo ? new Date(rule.effectiveTo).toLocaleString('vi-VN') : 'Không giới hạn'}</div>
+                </div>
+              </div>
+
               {/* Condition / Expression */}
               <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -205,6 +237,17 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
               </div>
 
               {/* Severity & Required Treatment */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Lane</span>
+                  <div className="mt-1 font-bold text-slate-900">{rule.lane}</div>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Runtime mode</span>
+                  <div className="mt-1 font-mono font-bold text-slate-900">{rule.runtimeMode}</div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-2xs">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -237,7 +280,7 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
                     Updated
                   </span>
                   <div className="mt-1 font-mono text-slate-700">
-                    {rule.updatedAt ? new Date(rule.updatedAt).toLocaleDateString('vi-VN') : 'Mặc định hệ thống'}
+                    {rule.updatedAt ? new Date(rule.updatedAt).toLocaleDateString('vi-VN') : '—'}
                   </div>
                 </div>
               </div>
@@ -247,9 +290,9 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
             <div className="border-t border-slate-100 pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-bold text-slate-900 block">Lịch sử áp dụng</span>
+                  <span className="text-xs font-bold text-slate-900 block">Lịch sử pipeline theo dataset</span>
                   <span className="text-[11px] text-slate-500">
-                    Truy vết lần chạy pipeline đã kiểm tra bằng rule này
+                    Các run cùng dataset; không thay thế execution evidence theo rule.
                   </span>
                 </div>
                 <Button

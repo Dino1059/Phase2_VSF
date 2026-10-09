@@ -12,13 +12,17 @@ def init_postgres():
     db_url = os.getenv("DATABASE_URL", "postgresql://airflow:airflow@localhost:5432/airflow")
     database_dir = Path(__file__).parent
     schema_paths = [
-        database_dir / "schema.sql",
+        # The Bronze bootstrap intentionally resets shared schemas, so it must
+        # precede the canonical policy/engine schema on a fresh initialization.
         database_dir / "schema_bronze_and_catalog.sql",
+        database_dir / "schema.sql",
         database_dir / "schema_audit_and_policy_rules.sql",
+        database_dir / "migration_data_driven_lane_rules.sql",
         database_dir / "schema_silver_quarantine_warning.sql",
         database_dir / "schema_profiling.sql",
         database_dir / "schema_step3_step5_hardening.sql",
         database_dir / "schema_jurisdiction_policy_isolation.sql",
+        database_dir / "migration_lane_b_policy_packs.sql",
     ]
     seed_path = Path(__file__).parent / "seed_data.sql"
 
