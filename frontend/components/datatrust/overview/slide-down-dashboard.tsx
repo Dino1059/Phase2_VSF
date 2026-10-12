@@ -156,11 +156,11 @@ export function SlideDownDashboard() {
   }
 
   // Real KPIs calculations
-  const totalScanned = results?.kpis?.total_scanned ?? runDetail?.metrics?.scanned ?? 6902;
-  const silverCount = results?.kpis?.pass_count ?? runDetail?.metrics?.silver ?? 6100;
-  const failCount = results?.kpis?.fail_count ?? runDetail?.metrics?.quarantine ?? 565;
-  const warningCount = results?.kpis?.warning_count ?? runDetail?.metrics?.warning ?? 200;
-  const notEvalCount = results?.kpis?.not_evaluated_count ?? runDetail?.metrics?.not_evaluated ?? 37;
+  const totalScanned = results?.kpis?.total_scanned ?? runDetail?.metrics?.scanned ?? 0;
+  const silverCount = results?.kpis?.pass_count ?? runDetail?.metrics?.silver ?? 0;
+  const failCount = results?.kpis?.fail_count ?? runDetail?.metrics?.quarantine ?? 0;
+  const warningCount = results?.kpis?.warning_count ?? runDetail?.metrics?.warning ?? 0;
+  const notEvalCount = results?.kpis?.not_evaluated_count ?? runDetail?.metrics?.not_evaluated ?? 0;
 
   // Strict bounded percentages
   const denom = Math.max(1, totalScanned);

@@ -1288,6 +1288,62 @@ export const apiBridge = {
     }
     return [];
   },
+
+  /**
+   * Unified Lineage API: Lọc theo run_id, finding_id, record_id, column
+   */
+  async fetchUnifiedLineage(params: {
+    runId?: string;
+    findingId?: string;
+    recordId?: string;
+    column?: string;
+    datasetId?: string;
+  }): Promise<UnifiedLineageResponse> {
+    const qs = new URLSearchParams();
+    if (params.runId) qs.set('run_id', params.runId);
+    if (params.findingId) qs.set('finding_id', params.findingId);
+    if (params.recordId) qs.set('record_id', params.recordId);
+    if (params.column) qs.set('column', params.column);
+    if (params.datasetId) qs.set('dataset_id', params.datasetId);
+    const url = `${API_ROOT}/lineage${qs.toString() ? `?${qs.toString()}` : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp phả hệ dữ liệu`);
+    return res.json();
+  },
+
+  /**
+   * Lấy Targeted Root-Cause Lineage cho Finding cụ thể
+   */
+  async fetchFindingLineage(findingId: string): Promise<UnifiedLineageResponse> {
+    const res = await fetch(`${API_ROOT}/findings/${encodeURIComponent(findingId)}/lineage`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp phả hệ Finding`);
+    return res.json();
+  },
+
+  /**
+   * Lấy Full Pipeline Run Lineage cho Run cụ thể
+   */
+  async fetchRunLineage(runId: string, column?: string): Promise<UnifiedLineageResponse> {
+    const qs = column ? `?column=${encodeURIComponent(column)}` : '';
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage${qs}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp phả hệ lượt chạy`);
+    return res.json();
+  },
+
+  /**
+   * Xuất phả hệ OpenLineage 1.0 JSON Facets
+   */
+  async exportRunOpenLineage(runId: string): Promise<any> {
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage/export-openlineage`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể xuất dữ liệu OpenLineage`);
+    return res.json();
+  },
 };
 
 export interface LineageStatus {
@@ -1310,12 +1366,19 @@ export interface LineageNode {
   recordCount?: number;
   description?: string;
   operator?: string;
+  duration?: number;
+  isHighlighted?: boolean;
+  role?: string;
+  legalBasis?: string;
+  policyName?: string;
+  severity?: string;
   facets?: Record<string, any>;
 }
 
 export interface LineageEdge {
   from: string;
   to: string;
+  isHighlighted?: boolean;
 }
 
 export interface LineageGraphResponse {
@@ -1339,6 +1402,55 @@ export interface ColumnLineageItem {
   sample_before: string;
   sample_after: string;
   status: string;
+  rule_id?: string;
+  reason?: string;
+}
+
+export interface SchemaDiffItem {
+  sourceColumn: string;
+  sourceType: string;
+  targetColumn: string;
+  targetType: string;
+  diffType: 'UNCHANGED' | 'TRANSFORMED' | 'QUARANTINED' | 'ADDED';
+  treatmentOperation?: string;
+  ruleId?: string;
+  legalBasis?: string;
+  sampleBefore?: string | null;
+  sampleAfter?: string | null;
+}
+
+export interface UnifiedLineageResponse {
+  scope: 'FINDING_TARGETED' | 'FULL_RUN';
+  runId?: string;
+  datasetId?: string;
+  findingId?: string;
+  focusedColumn?: string;
+  ruleId?: string;
+  createdAt?: string;
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  totalNodes: number;
+  totalEdges: number;
+  transformations: ColumnLineageItem[];
+  schemaDiff?: SchemaDiffItem[];
+  metrics?: {
+    scannedCount?: number;
+    silverCount?: number;
+    quarantineCount?: number;
+    warningCount?: number;
+    passRate?: number;
+  };
+  digitalSignature?: string;
+  evidenceHash?: string;
+  aiExplanationContext?: {
+    summary?: string;
+    legalBasis?: string;
+    ruleId?: string;
+    suggestedRemediation?: string;
+    evidenceProof?: string;
+    quarantineCount?: number;
+    totalStages?: number;
+  };
 }
 
 export interface LineageRunItem {

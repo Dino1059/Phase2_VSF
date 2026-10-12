@@ -1360,7 +1360,11 @@ def get_pipeline_run_detail(run_id: str):
             silver = run_row.get("silver_count") or 0
             quarantine = run_row.get("quarantine_count") or 0
             warning = run_row.get("warning_count") or 0
-            not_eval = run_row.get("not_evaluated_count") or max(0, scanned - silver - quarantine)
+            stored_not_eval = run_row.get("not_evaluated_count")
+            if stored_not_eval is not None:
+                not_eval = int(stored_not_eval)
+            else:
+                not_eval = max(0, scanned - silver - quarantine - warning)
 
             dur_detail_ms = run_row.get("execution_duration_ms")
             if not dur_detail_ms and run_row.get("started_at") and run_row.get("ended_at"):
@@ -1431,7 +1435,11 @@ def get_run_results(run_id: str):
             silver = run_row.get("silver_count") or 0
             quarantine = run_row.get("quarantine_count") or 0
             warning = run_row.get("warning_count") or 0
-            not_eval = run_row.get("not_evaluated_count") or max(0, scanned - silver - quarantine)
+            stored_not_eval = run_row.get("not_evaluated_count")
+            if stored_not_eval is not None:
+                not_eval = int(stored_not_eval)
+            else:
+                not_eval = max(0, scanned - silver - quarantine - warning)
 
             total_denom = max(1, scanned)
             pass_pct = round((silver / total_denom) * 100, 2)
@@ -2166,7 +2174,7 @@ def get_pipeline_live_status(run_id: str):
                     "silver": row.get("silver_count") or 0,
                     "quarantine": row.get("quarantine_count") or 0,
                     "warning": row.get("warning_count") or 0,
-                    "not_evaluated": row.get("not_evaluated_count") or 0
+                    "not_evaluated": 0 if row.get("not_evaluated_count") is None else int(row.get("not_evaluated_count"))
                 },
                 "steps": [dict(s) for s in steps],
                 "task_status_map": task_status_map,
@@ -2210,7 +2218,7 @@ def get_latest_completed_pipeline_run(dataset_id: Optional[str] = None):
                 "silver_count": row["silver_count"] or 0,
                 "quarantine_count": row["quarantine_count"] or 0,
                 "warning_count": row["warning_count"] or 0,
-                "not_evaluated_count": row.get("not_evaluated_count") or 0,
+                "not_evaluated_count": 0 if row.get("not_evaluated_count") is None else int(row.get("not_evaluated_count")),
                 "started_at": row["started_at"].isoformat() if row["started_at"] else None,
                 "ended_at": row["ended_at"].isoformat() if row["ended_at"] else None
             }
@@ -2822,11 +2830,77 @@ def get_lineage_graph(dataset_id: Optional[str] = None, run_id: Optional[str] = 
     return LineageService.get_graph(dataset_id=dataset_id, run_id=run_id)
 
 
-@app.get("/api/runs/{run_id}/lineage")
-def get_run_lineage(run_id: str):
-    """Returns lineage scoped to a pipeline run."""
+@app.get("/api/lineage")
+def get_unified_lineage(
+    run_id: Optional[str] = None,
+    finding_id: Optional[str] = None,
+    record_id: Optional[str] = None,
+    column: Optional[str] = None,
+    dataset_id: Optional[str] = None
+):
+    """
+    Unified Lineage Endpoint:
+    Returns lineage filtered by run_id, finding_id, record_id, or column.
+    """
     from backend.lineage.lineage_service import LineageService
-    return LineageService.get_graph(run_id=run_id)
+    return LineageService.get_lineage(
+        run_id=run_id,
+        finding_id=finding_id,
+        record_id=record_id,
+        column=column,
+        dataset_id=dataset_id
+    )
+
+
+@app.get("/api/findings/{finding_id}/lineage")
+def get_finding_lineage(finding_id: str):
+    """Returns targeted root-cause lineage subgraph for a specific Finding."""
+    from backend.lineage.lineage_service import LineageService
+    return LineageService.get_lineage(finding_id=finding_id)
+
+
+@app.get("/api/runs/{run_id}/lineage")
+def get_run_lineage(run_id: str, column: Optional[str] = None):
+    """Returns lineage scoped to a pipeline run with optional column focus."""
+    from backend.lineage.lineage_service import LineageService
+    return LineageService.get_lineage(run_id=run_id, column=column)
+
+
+@app.get("/api/runs/{run_id}/lineage/export-openlineage")
+def export_run_openlineage(run_id: str):
+    """Exports OpenLineage 1.0 JSON Facets for compliance/IPO audit."""
+    from backend.lineage.lineage_service import LineageService
+    from datetime import datetime, timezone
+    lineage_data = LineageService.get_lineage(run_id=run_id)
+    return {
+        "_producer": "https://github.com/datatrust-os/datatrust",
+        "_schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json",
+        "eventType": "COMPLETE",
+        "eventTime": lineage_data.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+        "run": {
+            "runId": lineage_data.get("runId"),
+            "facets": {
+                "dataTrustAuditAssurance": {
+                    "digitalSignature": lineage_data.get("digitalSignature"),
+                    "evidenceHash": lineage_data.get("evidenceHash"),
+                    "metrics": lineage_data.get("metrics")
+                },
+                "schemaDiff": lineage_data.get("schemaDiff"),
+                "columnTransformations": lineage_data.get("transformations")
+            }
+        },
+        "job": {
+            "namespace": "datatrust",
+            "name": lineage_data.get("datasetId", "ride_hailing")
+        },
+        "inputs": [
+            {"namespace": "raw", "name": f"{lineage_data.get('datasetId')}.csv"}
+        ],
+        "outputs": [
+            {"namespace": "silver", "name": lineage_data.get("datasetId")},
+            {"namespace": "quarantine", "name": "quarantine_records"}
+        ]
+    }
 
 
 @app.get("/api/datasets/{dataset_id}/lineage")

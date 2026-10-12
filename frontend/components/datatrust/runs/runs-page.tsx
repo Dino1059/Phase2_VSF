@@ -238,9 +238,9 @@ export function RunsPage() {
                         )}
                       </Link>
                       <Link
-                        to={`/lineage?run_id=${encodeURIComponent(run.id)}&dataset=${encodeURIComponent((run as any).datasetId || 'ride_hailing_xanh_sm_trips')}`}
+                        to={`/runs/${encodeURIComponent(run.id)}/lineage`}
                         className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-[#008b74] hover:text-[#008b74]"
-                        title="Xem Dòng dữ liệu (OpenLineage)"
+                        title="Xem Phả hệ Dữ liệu (Lineage)"
                       >
                         <GitFork size={12} />
                         <span>Lineage</span>

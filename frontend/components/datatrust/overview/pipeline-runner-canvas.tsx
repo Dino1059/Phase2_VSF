@@ -78,11 +78,11 @@ export function PipelineRunnerCanvas() {
   }, [loadRunData, isCompleted]);
 
   // Real Counts from Database
-  const scannedCount = runDetail?.metrics?.scanned ?? runResults?.kpis?.total_scanned ?? dataset.records ?? 6902;
-  const passCount = runDetail?.metrics?.silver ?? runResults?.kpis?.pass_count ?? task3LaneC.silver ?? 6100;
-  const failCount = runDetail?.metrics?.quarantine ?? runResults?.kpis?.fail_count ?? task3LaneC.quarantine ?? 565;
-  const warningCount = runDetail?.metrics?.warning ?? runResults?.kpis?.warning_count ?? task3LaneC.warning ?? 200;
-  const notEvalCount = runDetail?.metrics?.not_evaluated ?? runResults?.kpis?.not_evaluated_count ?? (scannedCount > passCount + failCount ? scannedCount - passCount - failCount : 37);
+  const scannedCount = runDetail?.metrics?.scanned ?? runResults?.kpis?.total_scanned ?? dataset.records ?? 0;
+  const passCount = runDetail?.metrics?.silver ?? runResults?.kpis?.pass_count ?? (task3LaneC.status === 'done' ? task3LaneC.silver : 0);
+  const failCount = runDetail?.metrics?.quarantine ?? runResults?.kpis?.fail_count ?? (task3LaneC.status === 'done' ? task3LaneC.quarantine : 0);
+  const warningCount = runDetail?.metrics?.warning ?? runResults?.kpis?.warning_count ?? (task3LaneC.status === 'done' ? task3LaneC.warning : 0);
+  const notEvalCount = runDetail?.metrics?.not_evaluated ?? runResults?.kpis?.not_evaluated_count ?? Math.max(0, scannedCount - passCount - failCount - warningCount);
   const quarantineCount = failCount;
 
   // Real Timings

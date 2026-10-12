@@ -16,11 +16,16 @@
 
 # 8. Run Result Dashboard
 
+> Lưu ý điều hướng: Tab "Kết quả" độc lập (`/results`) trên thanh điều hướng chính đã được loại bỏ theo chuẩn Dual-Pane mới.
+> Bảng kết quả KPI được gắn với từng Run cụ thể và truy cập trực tiếp từ **Workspace Lần chạy (`/runs`, `/runs/:id`)** qua nút `[Xem KPIs]` trên thanh công cụ.
+
 Route:
 
 ```text
 /runs/:runId/results
 ```
+
+(Mọi truy cập trực tiếp vào `/results` sẽ tự động redirect về `/runs`).
 
 ## 8.1. KPI cards
 

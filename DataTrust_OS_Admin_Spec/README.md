@@ -4,10 +4,15 @@ Bộ đặc tả UI/UX cho **Admin**, chia từ `Pasted markdown(20261007-031107
 
 ## Ràng buộc giao diện hiện tại phải giữ
 
-- Giữ nguyên visual identity hiện tại: palette, typography, spacing, radius, border và shadow; không redesign sang một theme mới.
-- Giữ UI dual-pane hiện tại: **AI Chat cố định bên trái** như một companion và **workspace nghiệp vụ bên phải** triển khai các màn hình theo spec.
-- AI Chat giữ context theo dataset/run/finding đang mở, hỗ trợ giải thích và điều hướng nhưng không thay thế thao tác hay quyết định của Admin/Auditor.
-- Trên desktop, hai pane có vùng cuộn độc lập. Trên màn hình nhỏ, AI Chat chuyển thành pane/drawer có thể mở đóng để không che workspace.
+- Giữ nguyên visual identity hiện tại: palette cyan/slate, typography, spacing, radius, border và shadow; chuẩn hóa theo `example/base_UI.png`.
+- **Kiến trúc Dual-Pane toàn cục cấp Shell (`AppShell`)**:
+  - **Slim Vertical Icon Rail (`w-[68px]`)** bên trái cùng: Logo đen tia chớp cyan, icon Trang chủ (`/overview`), Lần chạy & Lineage (`/runs`), Quy tắc & Chính sách (`/rules`). Hỗ trợ đầy đủ accessibility (tooltip, aria-label, focus bàn phím).
+  - **AI Chat cố định xuyên suốt (Persistent Companion)**: Nằm cố định bên trái (`w-[380px]-w-[430px]`) qua mọi màn hình/thao tác, không bị re-mount hay mất trạng thái khi đổi trang. Có nút chevron `<` / `>` ở mép ranh giới (phím tắt `Alt + [`) để thu gọn mở rộng linh hoạt.
+  - **Responsive trên màn hình nhỏ (`< 1024px`)**: AI Chat tự động chuyển thành slide-over drawer có backdrop, mở/đóng qua nút `[✨ AI Chat]` trên Topbar/Rail mà không che lấp Workspace.
+  - **prefers-reduced-motion**: Áp dụng `motion-reduce:transition-none motion-reduce:transform-none` cho mọi chuyển động thu/mở.
+- **Dynamic Workspace bên phải**: Tự động chuyển đổi hiển thị nội dung `{children}` tương ứng theo thao tác người dùng (Trang chủ $\to$ Lần chạy Lineage $\to$ Quy tắc & Chính sách).
+- **Loại bỏ hoàn toàn tab "Kết quả" (`/results`)**: Các chỉ số KPI kiểm toán và Findings được tích hợp trực tiếp vào Workspace của Lần chạy (`/runs`).
+- **Data Lineage không phụ thuộc Marquez**: Lineage được hợp nhất vào Workspace Lần chạy (`/runs`) và tab trong Finding Detail, trích xuất từ metadata thực tế của từng Run, hỗ trợ Schema Diff và truy vết upstream/downstream theo cột.
 
 ## Cách sử dụng với coding agent
 
@@ -71,6 +76,8 @@ Việc chia file giữ nguyên nội dung nghiệp vụ, ví dụ, data model v�
 6. **Giá trị minh họa:** policy/version, record count, confidence và thời gian trong spec là ví dụ hiển thị. Không coi đó là kiểm chứng pháp lý, kết quả audit hay số liệu realtime thực tế.
 7. **Phân quyền Admin vs Auditor:** Hệ thống tích hợp Role Switcher tại Topbar hỗ trợ chuyển đổi giữa Admin (`Nguyễn Quốc Bảo`) và Auditor (`Trần Minh Hoàng`). Auditor có quyền xem toàn bộ bằng chứng, kết quả kiểm toán, Lineage và **có quyền kích hoạt lượt chạy kiểm tra (`startPipelineRun`)** để thẩm tra độc lập tính tuân thủ của dữ liệu; tuy nhiên Auditor không có quyền thay đổi/duyệt rule hay can thiệp vào khu vực cách ly (Quarantine). Trên Trang chủ, cả Admin và Auditor đều có thể nhấn `[ Chạy kiểm tra ]` hoặc `[ Xem kết quả kiểm toán ]`.
 8. **Tinh gọn giao diện theo feedback người dùng:** Đã bỏ hiển thị thông tin số lượng cột (columns count) tại Quick Access chips, Dataset Selector modal và Dataset Selected state card (chỉ giữ 3 chỉ số PII trọng yếu: personal data fields, direct identifiers, contextual fields). Đã bỏ ô tìm kiếm dataset tại thẻ chào mừng Initial State. AI Chat companion hiển thị đầy đủ danh mục cả 8 bộ dữ liệu PostgreSQL thực tế trong quick actions. Đã loại bỏ 2 checkbox `Collect evidence` và `Generate lineage` tại Start Run Modal — hệ thống mặc định luôn thu thập bằng chứng kiểm toán và phát sinh lineage cho mọi lượt chạy dataset, không cho phép tắt.
+9. **Chuyển đổi giao diện sang Dual-Pane toàn cục (`base_UI.png`) và bỏ tab Kết quả:** Đưa `AiChatPane` lên cấp `AppShell` làm companion xuyên suốt không bị remount. Dải icon rail bên trái thu gọn còn `68px` với 3 biểu tượng chính (`/overview`, `/runs`, `/rules`). Loại bỏ hoàn toàn tab `/results` khỏi thanh điều hướng và router, đưa số liệu KPI và Findings vào trực tiếp trong Workspace Lần chạy (`/runs`).
+10. **Tái thiết kế Data Lineage (Loại bỏ Marquez):** Bỏ trang `/lineage` độc lập, hợp nhất Data Lineage vào Workspace Lần chạy (`/runs`, `/runs/:id`) và tab Data Lineage trong Finding Detail (`/findings/:id`). Xây dựng Unified Lineage Engine chuẩn OpenLineage 1.0 trích xuất metadata thực tế `source → transformation → target` theo từng Run, bổ sung Schema Diff so sánh cột Bronze vs Silver và tính năng truy vết upstream/downstream theo cột (`?column=...`).
 
 ## Thứ tự triển khai
 

@@ -243,19 +243,56 @@ class DataTrustAgentOrchestrator:
             scanned = pr.get("scanned_count", 0)
             silver = pr.get("silver_count", 0)
             quarantine = pr.get("quarantine_count", 0)
+            warning = pr.get("warning_count", 0)
+            not_eval = pr.get("not_evaluated_count", 0)
             status = pr.get("status", "COMPLETED")
             duration_ms = pr.get("execution_duration_ms") or 0
             f_summary = selective_context.get("findings_summary", [])
             total_findings = sum(f.get("cnt", 0) for f in f_summary)
 
-            overview_ans = (
-                f"Lần chạy `{run_id}` hiện ở trạng thái **{status}**, đã xử lý tổng cộng **{scanned:,} bản ghi** "
-                f"(gồm **{silver:,} bản ghi hợp lệ** vào tầng Silver và **{quarantine:,} bản ghi cách ly**).\n\n"
+            fallback_overview = (
+                f"Lần chạy `{run_id}` hiện ở trạng thái **{status}**, đã quét tổng cộng **{scanned:,} bản ghi** "
+                f"(gồm **{silver:,} bản ghi đạt chuẩn (Silver)**, **{quarantine:,} bản ghi cách ly**, "
+                f"và **{warning:,} bản ghi cảnh báo**).\n\n"
                 f"- **Vấn đề kiểm toán (Findings):** Ghi nhận tổng cộng **{total_findings}** vấn đề.\n"
+                f"- **Bản ghi chưa đánh giá (Not Evaluated):** {not_eval:,}.\n"
                 f"- **Thời gian thực thi:** {duration_ms:,}ms.\n"
-                f"- **Đánh giá chất lượng:** Dữ liệu vi phạm đã được cách ly theo chính sách kiểm soát."
+                f"- **Đánh giá chất lượng:** Dữ liệu vi phạm đã được cách ly an toàn theo chính sách kiểm soát."
             )
-            clean_overview = sanitize_chat_markdown(overview_ans)
+
+            clean_overview = sanitize_chat_markdown(fallback_overview)
+            if not self.llm_adapter.force_mock and self.llm_adapter.provider != "mock":
+                try:
+                    sys_inst = (
+                        "You are DataTrust AI Auditor, an expert data governance and compliance auditor. "
+                        "All metrics provided in the prompt are ground-truth facts verified by PostgreSQL. "
+                        "Do NOT calculate or invent numbers. Provide a concise, professional executive interpretation "
+                        "in natural Vietnamese (like ChatGPT). Explain the overall health of the run based on the numbers."
+                    )
+                    prompt = (
+                        f"Hãy diễn giải tóm tắt kết quả kiểm toán lần chạy {run_id}:\n"
+                        f"- Tổng bản ghi quét: {scanned:,}\n"
+                        f"- Đạt chuẩn Silver: {silver:,}\n"
+                        f"- Cách ly (Quarantine): {quarantine:,}\n"
+                        f"- Cảnh báo (Warning): {warning:,}\n"
+                        f"- Chưa đánh giá (Not Evaluated): {not_eval:,}\n"
+                        f"- Số vấn đề kiểm toán (Findings): {total_findings}\n"
+                        f"- Trạng thái: {status}\n\n"
+                        f"Yêu cầu: Viết tự nhiên, súc tích (3-4 câu), nêu rõ tỷ lệ và trọng tâm cần chú ý."
+                    )
+                    llm_res = self.llm_adapter.complete(
+                        prompt=prompt,
+                        system_instruction=sys_inst,
+                        context={"run_id": run_id, "metrics": pr},
+                        temperature=0.2,
+                        max_tokens=300
+                    )
+                    llm_text = llm_res.get("text", "").strip()
+                    if llm_text:
+                        clean_overview = sanitize_chat_markdown(llm_text)
+                except Exception as e:
+                    logger.warning(f"LLM interpretation fallback to template: {e}")
+
             session_manager.append_chat_turn(
                 session_id=session_id,
                 run_id=run_id,
@@ -274,6 +311,8 @@ class DataTrustAgentOrchestrator:
                         "scanned_count": scanned,
                         "silver_count": silver,
                         "quarantine_count": quarantine,
+                        "warning_count": warning,
+                        "not_evaluated_count": not_eval,
                         "total_findings": total_findings,
                         "duration_ms": duration_ms
                     }

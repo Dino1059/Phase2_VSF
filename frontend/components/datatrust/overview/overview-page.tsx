@@ -18,7 +18,6 @@ import { useAgentStore, type DatasetItem } from '@/lib/agent-store';
 import { FindingInspectorModal } from '@/components/datatrust/findings/finding-inspector-modal';
 import { DatasetPreviewModal } from '@/components/datatrust/datasets/dataset-preview-modal';
 import { DatasetSelectorModal } from './dataset-selector-modal';
-import { AiChatPane } from './ai-chat-pane';
 import { PipelineRunnerCanvas } from './pipeline-runner-canvas';
 import { SlideDownDashboard } from './slide-down-dashboard';
 
@@ -85,15 +84,6 @@ export function OverviewPage() {
 
   return (
     <div className="page-enter mx-auto max-w-[1600px] space-y-4">
-      {/* Main Dual-Pane Layout: Left Chat Sticky & Fixed, Right Canvas Scrollable */}
-      <div className="flex flex-col lg:flex-row gap-5 items-start">
-        {/* Left Pane: AI Chat (Fixed position with independent scrollbar) */}
-        <aside className="shrink-0 w-full lg:sticky lg:top-[80px] lg:h-[calc(100vh-108px)] z-10 lg:w-[380px] xl:w-[420px]">
-          <AiChatPane />
-        </aside>
-
-        {/* Right Pane: Dynamic Interactive Canvas (Scrolls independently) */}
-        <main className="flex-1 min-w-0 w-full space-y-4">
           {homepageViewMode === 'welcome' && (
             <div className="space-y-4 animate-in fade-in-50 duration-300">
               {/* ========================================================================= */}
@@ -391,8 +381,6 @@ export function OverviewPage() {
           {homepageViewMode === 'running_pipeline' && <PipelineRunnerCanvas />}
 
           {homepageViewMode === 'results_dashboard' && <SlideDownDashboard />}
-        </main>
-      </div>
 
       {/* Global Inspector Modal for deep dive into Findings */}
       <FindingInspectorModal />

@@ -18,7 +18,8 @@ import {
   Layers,
   Copy,
   Check,
-  Play
+  Play,
+  GitFork
 } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -200,6 +201,14 @@ export function PipelineRunDetail({ runId: propRunId }: { runId?: string }) {
                 >
                   <ShieldAlert className="size-4 text-amber-400" />
                   <span>Danh sách Findings ({detail.findings_summary?.total || 0})</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/runs/${detail.run_id}/lineage`)}
+                  className="border-slate-700 text-slate-200 hover:bg-slate-800 gap-1.5"
+                >
+                  <GitFork className="size-4 text-emerald-400" />
+                  <span>Phả hệ Dữ liệu (Lineage)</span>
                 </Button>
               </>
             )}

@@ -24,10 +24,19 @@ import {
   Globe,
   Layers,
   TableProperties,
-  AlertTriangle
+  AlertTriangle,
+  ArrowRight,
+  ExternalLink,
+  Workflow,
+  AlertOctagon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { apiBridge, type FindingAIAnalysis, type FindingDetailData } from '@/lib/api-bridge';
+import {
+  apiBridge,
+  type FindingAIAnalysis,
+  type FindingDetailData,
+  type UnifiedLineageResponse
+} from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
 
 const formatDateTime = (value?: string | null) => {
@@ -209,13 +218,22 @@ export function FindingDetailModal({
     }
   };
 
+  const [findingLineage, setFindingLineage] = useState<UnifiedLineageResponse | null>(null);
+  const [isLineageLoading, setIsLineageLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'lineage' && !findingLineage && findingId) {
+      setIsLineageLoading(true);
+      apiBridge.fetchFindingLineage(findingId)
+        .then(setFindingLineage)
+        .catch(() => {})
+        .finally(() => setIsLineageLoading(false));
+    }
+  }, [activeTab, findingId, findingLineage]);
+
   const handleTraceLineage = () => {
     if (!detail) return;
-    const searchParams = new URLSearchParams({
-      dataset: detail.dataset_id,
-      run_id: detail.run_id,
-    });
-    navigate(`/lineage?${searchParams.toString()}`);
+    navigate(`/runs/${encodeURIComponent(detail.run_id)}/lineage?column=${encodeURIComponent(detail.column_name || '')}`);
   };
 
   const samplesCount = detail?.sample_records?.length || 10;
@@ -782,29 +800,185 @@ export function FindingDetailModal({
                   )}
 
                   {/* ======================================================= */}
-                  {/* TAB 4: LINEAGE CONTEXT                                  */}
+                  {/* TAB 4: TARGETED ROOT-CAUSE DATA LINEAGE                  */}
                   {/* ======================================================= */}
                   {activeTab === 'lineage' && (
                     <div className="space-y-4 text-xs">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3 shadow-2xs">
-                        <div className="flex items-center gap-2">
-                          <GitFork className="size-4 text-slate-700" />
-                          <h4 className="font-bold text-slate-900 text-sm">Truy vết Dòng dữ liệu (Lineage)</h4>
+                      {isLineageLoading ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-2xs space-y-3">
+                          <Loader2 className="size-6 animate-spin text-teal-600 mx-auto" />
+                          <p className="font-semibold text-slate-700">Đang trích xuất lát cắt phả hệ nguyên nhân gốc rễ...</p>
+                          <p className="text-[11px] text-slate-400">Truy vấn quan hệ Source → Column → Rule → Quarantine từ PostgreSQL Catalog</p>
                         </div>
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          Finding này thuộc lượt chạy kiểm toán <strong className="font-mono text-slate-900">{detail.run_id}</strong> trên bảng <strong className="text-slate-900">{detail.dataset_id}</strong>, liên quan đến cột <strong className="font-mono text-teal-700">{detail.column_name}</strong>.
-                        </p>
-                        <div className="pt-2">
-                          <Button
-                            size="sm"
-                            onClick={handleTraceLineage}
-                            className="bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 gap-1.5 cursor-pointer"
-                          >
-                            <GitFork size={13} />
-                            <span>Mở màn hình Lineage chi tiết</span>
-                          </Button>
-                        </div>
-                      </div>
+                      ) : (
+                        <>
+                          {/* Header Bar */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-0.5 text-[10px] font-bold text-teal-800 border border-teal-200">
+                                  <GitFork className="size-3 text-teal-600" />
+                                  Targeted Root-Cause Lineage
+                                </span>
+                                <span className="font-mono text-slate-500 text-[11px]">Run: {findingLineage?.runId || detail.run_id}</span>
+                              </div>
+                              <p className="text-slate-600 text-xs">
+                                Lát cắt phả hệ cô lập 5 mắt xích dẫn đến vi phạm của cột <strong className="font-mono text-teal-800 font-bold">{detail.column_name}</strong>.
+                              </p>
+                            </div>
+
+                            <Button
+                              size="sm"
+                              onClick={handleTraceLineage}
+                              className="bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 gap-1.5 shrink-0 cursor-pointer shadow-xs"
+                            >
+                              <ExternalLink size={13} />
+                              <span>Xem Toàn bộ Lineage của Lần chạy</span>
+                            </Button>
+                          </div>
+
+                          {/* 5-Node Visual Flow */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs space-y-4">
+                            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-[11px] flex items-center gap-2">
+                              <span>Hành trình Dữ liệu Gây ra Vi phạm (5 Mắt xích)</span>
+                            </h4>
+
+                            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pt-1 overflow-x-auto pb-2">
+                              {/* Node 1: Raw File */}
+                              <div className="flex-1 min-w-[170px] rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">1. Nguồn Gốc</span>
+                                  <Database className="size-3.5 text-slate-600" />
+                                </div>
+                                <p className="font-mono font-bold text-slate-900 text-xs truncate" title={`${detail.dataset_id}.csv`}>
+                                  {detail.dataset_id}.csv
+                                </p>
+                                <p className="text-[11px] text-slate-500">Tệp tin dữ liệu thô ban đầu</p>
+                              </div>
+
+                              <ArrowRight className="hidden lg:block size-4 text-slate-300 shrink-0" />
+
+                              {/* Node 2: Task 1 Ingest */}
+                              <div className="flex-1 min-w-[170px] rounded-xl border border-sky-200 bg-sky-50/70 p-3 space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700">2. Nạp Liệu</span>
+                                  <Workflow className="size-3.5 text-sky-600" />
+                                </div>
+                                <p className="font-bold text-sky-950 text-xs truncate">
+                                  Task 1: Ingest & Catalog
+                                </p>
+                                <p className="text-[11px] text-sky-700">Làm sạch & gắn mã batch</p>
+                              </div>
+
+                              <ArrowRight className="hidden lg:block size-4 text-slate-300 shrink-0" />
+
+                              {/* Node 3: Bronze Subject Column */}
+                              <div className="flex-1 min-w-[170px] rounded-xl border border-amber-300 bg-amber-50/80 p-3 space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">3. Cột Lớp Bronze</span>
+                                  <Layers className="size-3.5 text-amber-600" />
+                                </div>
+                                <p className="font-mono font-bold text-amber-950 text-xs truncate">
+                                  bronze.{detail.column_name}
+                                </p>
+                                <p className="text-[11px] text-amber-700">Chưa qua xử lý chuẩn hóa</p>
+                              </div>
+
+                              <ArrowRight className="hidden lg:block size-4 text-slate-300 shrink-0" />
+
+                              {/* Node 4: Violated Rule Evaluation */}
+                              <div className="flex-1 min-w-[170px] rounded-xl border border-rose-300 bg-rose-50/80 p-3 space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700">4. Đánh Giá Chính Sách</span>
+                                  <ShieldAlert className="size-3.5 text-rose-600" />
+                                </div>
+                                <p className="font-mono font-bold text-rose-950 text-xs truncate" title={detail.rule_id}>
+                                  {detail.rule_id}
+                                </p>
+                                <span className="inline-block text-[10px] font-semibold text-rose-800 bg-rose-100/80 px-1.5 py-0.5 rounded truncate max-w-full">
+                                  {findingLineage?.aiExplanationContext?.legalBasis || detail.policy_name || 'Quy tắc Kiểm định'}
+                                </span>
+                              </div>
+
+                              <ArrowRight className="hidden lg:block size-4 text-slate-300 shrink-0" />
+
+                              {/* Node 5: Quarantine Target */}
+                              <div className="flex-1 min-w-[170px] rounded-xl border border-red-400 bg-red-50/90 p-3 space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-red-800">5. Điểm Đến Cách Ly</span>
+                                  <AlertOctagon className="size-3.5 text-red-600" />
+                                </div>
+                                <p className="font-bold text-red-950 text-xs truncate">
+                                  Quarantine Record
+                                </p>
+                                <span className="inline-block text-[10px] font-bold text-red-800 bg-red-100 px-1.5 py-0.5 rounded">
+                                  {detail.severity} · {detail.status}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Root Cause Details & AI Context */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Transformation & Legal Matrix */}
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-2.5">
+                              <h5 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                <Scale className="size-3.5 text-slate-600" />
+                                <span>Căn cứ Pháp lý & Thao tác Điều hướng</span>
+                              </h5>
+                              <div className="space-y-2 text-[11px] text-slate-600">
+                                <div className="flex justify-between py-1 border-b border-slate-100">
+                                  <span className="text-slate-500">Cột nguồn (Bronze):</span>
+                                  <strong className="font-mono text-slate-800">{detail.column_name}</strong>
+                                </div>
+                                <div className="flex justify-between py-1 border-b border-slate-100">
+                                  <span className="text-slate-500">Quy tắc áp dụng:</span>
+                                  <strong className="font-mono text-teal-800">{detail.rule_id}</strong>
+                                </div>
+                                <div className="flex justify-between py-1 border-b border-slate-100">
+                                  <span className="text-slate-500">Căn cứ pháp luật:</span>
+                                  <span className="font-medium text-slate-800 text-right max-w-[220px]">
+                                    {findingLineage?.aiExplanationContext?.legalBasis || detail.policy_name || 'Quy chuẩn tuân thủ'}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between py-1">
+                                  <span className="text-slate-500">Hành động thực thi:</span>
+                                  <span className="font-bold text-rose-700">ROUTED_TO_QUARANTINE</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* AI Copilot Explanation */}
+                            <div className="rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50/50 to-white p-4 shadow-2xs space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <h5 className="font-bold text-teal-950 text-xs flex items-center gap-1.5">
+                                  <Sparkles className="size-3.5 text-teal-600" />
+                                  <span>AI Governance Copilot — Phân tích</span>
+                                </h5>
+                              </div>
+                              <p className="text-[11px] text-slate-700 leading-relaxed">
+                                {findingLineage?.aiExplanationContext?.summary ||
+                                  `Bản ghi bị cách ly do vi phạm quy tắc ${detail.rule_id}. Dữ liệu chưa đáp ứng tiêu chuẩn nên không được đưa vào lớp Silver.`}
+                              </p>
+                              {findingLineage?.aiExplanationContext?.suggestedRemediation && (
+                                <div className="rounded-lg bg-teal-100/50 p-2 text-[11px] text-teal-900">
+                                  <strong>Khuyến nghị:</strong> {findingLineage.aiExplanationContext.suggestedRemediation}
+                                </div>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleAskAIExplain}
+                                disabled={isAILoading}
+                                className="w-full text-xs font-bold border-teal-300 text-teal-800 hover:bg-teal-50 gap-1.5"
+                              >
+                                <Sparkles size={12} />
+                                <span>Hỏi AI Copilot thêm chi tiết</span>
+                              </Button>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 

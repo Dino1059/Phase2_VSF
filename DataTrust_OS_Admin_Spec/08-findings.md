@@ -114,4 +114,11 @@ Mỗi Finding nên có nhóm action dễ thấy:
 [Xem Rule]
 ```
 
+## 10.2. Tab Data Lineage trong Finding Detail
+
+Finding Detail tích hợp trực tiếp tab **Data Lineage** để thẩm tra nguồn gốc vi phạm:
+- **Tập trung vào vi phạm (Scoped Subgraph)**: Mặc định lọc chỉ hiển thị các node, edge và cột liên quan trực tiếp đến Finding hiện tại (Node nguồn $\to$ Task kiểm tra chính sách thất bại $\to$ Node Quarantine), thay vì tải toàn bộ sơ đồ pipeline đồ sộ.
+- **Trace Column**: Hiển thị chính xác cột dữ liệu vi phạm (`column_name`) và luồng di chuyển qua các vùng dữ liệu.
+- **Truy cập nhanh**: Người dùng có thể nhấn `[Trace Lineage]` hoặc chuyển tab để soi sâu ngay trong cùng màn hình mà không bị mất ngữ cảnh hội thoại AI Chat bên trái.
+
 ---

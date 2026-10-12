@@ -1090,7 +1090,7 @@ def persist_consolidated_results(conn, result: ConsolidatedRunResult):
         execute_values(cur, w_sql, w_values)
 
     # 4. Upsert Pipeline Run tracking with not_evaluated_count
-    not_eval = max(0, result.scanned_count - result.silver_count - result.quarantine_count)
+    not_eval = max(0, result.scanned_count - result.silver_count - result.quarantine_count - result.warning_count)
     cur.execute("""
         INSERT INTO orchestration.pipeline_runs 
         (run_id, dag_id, dataset_id, started_at, ended_at, status, scanned_count, silver_count, quarantine_count, warning_count, not_evaluated_count, current_step, current_step_progress)
