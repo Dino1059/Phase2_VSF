@@ -89,6 +89,49 @@ DATASET_FILE_MAP = {
 }
 
 
+def get_declared_lineage_manifest() -> Dict[str, Any]:
+    """Versionable logical topology used to snapshot a run before it is queued."""
+    tasks = [
+        "task_1_truncate_and_ingest_bronze", "task_2_data_profiling",
+        "task_3_parallel_evaluation.lane_a_l1_l4_detectors",
+        "task_3_parallel_evaluation.lane_b_hierarchical_policy",
+        "task_3_parallel_evaluation.lane_c_merge_verdicts_and_route",
+        "task_4_emit_audit_evidence",
+    ]
+    dependencies = [
+        (tasks[0], tasks[1]), (tasks[1], tasks[2]), (tasks[1], tasks[3]),
+        (tasks[2], tasks[4]), (tasks[3], tasks[4]), (tasks[4], tasks[5]),
+    ]
+    io_map = {
+        tasks[0]: (["raw.source_datasets_csv"], ["bronze.all_tables"]),
+        tasks[1]: (["bronze.all_tables"], ["catalog.dataset_profiles"]),
+        tasks[2]: (["bronze.all_tables"], []), tasks[3]: (["bronze.all_tables"], []),
+        tasks[4]: (["bronze.all_tables"], ["silver.compliant_tables",
+                   "quarantine.quarantine_records", "warning.warning_records"]),
+        tasks[5]: (["silver.compliant_tables", "quarantine.quarantine_records",
+                   "warning.warning_records"], ["audit.evidence"]),
+    }
+    logical_tasks = [{
+        "taskId": task_id, "operator": "PythonOperator", "isMapped": False,
+        "ioInstrumentation": bool(io_map[task_id][0] or io_map[task_id][1]),
+        "columnLineageInstrumentation": task_id.endswith("lane_c_merge_verdicts_and_route"),
+        "evidenceEmitter": task_id.endswith("task_4_emit_audit_evidence"),
+    } for task_id in tasks]
+    declared_io = []
+    for task_id, (inputs, outputs) in io_map.items():
+        declared_io.extend({"taskId": task_id, "dataset": name, "direction": "INPUT"}
+                           for name in inputs)
+        declared_io.extend({"taskId": task_id, "dataset": name, "direction": "OUTPUT"}
+                           for name in outputs)
+    topology = {"tasks": logical_tasks,
+                "dependencies": [{"from": source, "to": target} for source, target in dependencies],
+                "declaredIO": declared_io}
+    source_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    topology["dagHash"] = source_hash
+    topology["dagVersion"] = source_hash[:16]
+    return topology
+
+
 def resolve_target_dataset(conf: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
     """
     Resolves configuration into (clean_table_name, actual_filename).
@@ -122,6 +165,159 @@ def get_canonical_run_id(context: dict) -> str:
     if dag_run and getattr(dag_run, 'run_id', None):
         return str(dag_run.run_id)
     return str(context.get('run_id') or f"RUN-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}")
+
+
+def _lineage_entity_name(entity: Any) -> str:
+    """Return a stable dataset name for Airflow lineage entities and test doubles."""
+    if isinstance(entity, str):
+        return entity
+    name = getattr(entity, "name", None)
+    database = getattr(entity, "database", None)
+    return f"{database}.{name}" if database and name else str(name or entity)
+
+
+def _ensure_run_lineage_snapshot(context: Dict[str, Any]) -> None:
+    """Capture the logical DAG version once; runtime callbacks only add instances/evidence."""
+    try:
+        from src.lineage.run_lineage_store import RunLineageStore, new_snapshot
+
+        run_id = get_canonical_run_id(context)
+        store = RunLineageStore()
+        existing = store.get(run_id)
+        if existing.ok and existing.snapshot:
+            return
+
+        dag = context.get("dag") or getattr(context.get("task"), "dag", None)
+        if dag is None:
+            return
+        manifest = get_declared_lineage_manifest()
+        snapshot = new_snapshot(
+            run_id=run_id,
+            dag_id=dag.dag_id,
+            dag_version=manifest["dagVersion"],
+            dag_hash=manifest["dagHash"],
+            logical_tasks=manifest["tasks"],
+            logical_dependencies=manifest["dependencies"],
+            declared_io=manifest["declaredIO"],
+        )
+        created = store.create(snapshot)
+        if not created.ok:
+            print(f"[Lineage] Snapshot creation unavailable: {created.error}")
+    except Exception as exc:
+        # Lineage telemetry must never change the business task outcome.
+        print(f"[Lineage] Snapshot capture unavailable: {exc}")
+
+
+def _record_task_lineage(context: Dict[str, Any], state: str, sequence: int,
+                         record_observed_io: bool = False) -> None:
+    """Idempotently project one Airflow task transition into the run snapshot."""
+    try:
+        from src.lineage.run_lineage_store import RunLineageStore, utc_now
+
+        _ensure_run_lineage_snapshot(context)
+        store = RunLineageStore()
+        ti = context.get("ti") or context.get("task_instance")
+        task = context.get("task")
+        if ti is None or task is None:
+            return
+        run_id = get_canonical_run_id(context)
+        task_id = str(task.task_id)
+        raw_map_index = getattr(ti, "map_index", -1)
+        map_index = int(-1 if raw_map_index is None else raw_map_index)
+        try_number = int(getattr(ti, "try_number", 0) or 0)
+        event_time = utc_now()
+        base_id = f"{run_id}:{task_id}:{map_index}:{try_number}:{state}"
+        store.record_event(run_id, {
+            "eventId": f"task:{base_id}", "eventType": "TASK_INSTANCE",
+            "eventTime": event_time, "sourceSequence": sequence,
+            "payload": {"taskId": task_id, "mapIndex": map_index, "state": state},
+        })
+        started = getattr(ti, "start_date", None)
+        ended = getattr(ti, "end_date", None)
+        duration = ((ended - started).total_seconds() if started and ended else None)
+        store.record_event(run_id, {
+            "eventId": f"attempt:{base_id}", "eventType": "ATTEMPT",
+            "eventTime": event_time, "sourceSequence": sequence,
+            "payload": {
+                "taskId": task_id, "mapIndex": map_index, "tryNumber": try_number,
+                "state": state, "startedAt": started.isoformat() if started else None,
+                "endedAt": ended.isoformat() if ended else None, "duration": duration,
+            },
+        })
+        if record_observed_io and state == "SUCCESS":
+            for direction, entities in (("INPUT", getattr(task, "inlets", None) or []),
+                                        ("OUTPUT", getattr(task, "outlets", None) or [])):
+                for index, entity in enumerate(entities):
+                    store.record_event(run_id, {
+                        "eventId": f"io:{base_id}:{direction}:{index}",
+                        "eventType": "OBSERVED_IO", "eventTime": event_time,
+                        "sourceSequence": sequence,
+                        "payload": {
+                            "taskId": task_id, "mapIndex": map_index,
+                            "tryNumber": try_number, "dataset": _lineage_entity_name(entity),
+                            "direction": direction, "instrumentation": "airflow_task_callback",
+                        },
+                    })
+            if task_id.endswith("task_4_emit_audit_evidence"):
+                emitted = ti.xcom_pull(task_ids=task_id) or {}
+                if isinstance(emitted, dict):
+                    store.record_event(run_id, {
+                        "eventId": f"evidence:{base_id}", "eventType": "EVIDENCE",
+                        "eventTime": event_time, "sourceSequence": sequence,
+                        "payload": {
+                            "taskId": task_id, "mapIndex": map_index,
+                            "tryNumber": try_number, "evidenceHash": emitted.get("evidence_hash"),
+                            "metrics": emitted.get("metrics") or {},
+                        },
+                    })
+    except Exception as exc:
+        print(f"[Lineage] Task telemetry unavailable: {exc}")
+
+
+def _lineage_task_started(context: Dict[str, Any]) -> None:
+    _record_task_lineage(context, "RUNNING", 10)
+
+
+def _lineage_task_retried(context: Dict[str, Any]) -> None:
+    _record_task_lineage(context, "UP_FOR_RETRY", 20)
+
+
+def _lineage_task_succeeded(context: Dict[str, Any]) -> None:
+    _record_task_lineage(context, "SUCCESS", 30, record_observed_io=True)
+
+
+def _lineage_task_failed(context: Dict[str, Any]) -> None:
+    _record_task_lineage(context, "FAILED", 30)
+
+
+def _lineage_task_skipped(context: Dict[str, Any]) -> None:
+    _record_task_lineage(context, "SKIPPED", 30)
+
+
+def _finalize_run_lineage(context: Dict[str, Any], state: str) -> None:
+    try:
+        from src.lineage.run_lineage_store import RunLineageStore, utc_now
+        _ensure_run_lineage_snapshot(context)
+        run_id = get_canonical_run_id(context)
+        store = RunLineageStore()
+        # Capture SKIPPED/REMOVED and the last known attempt before the
+        # revision becomes immutable.
+        store.sync_task_instances(run_id)
+        result = store.finalize(
+            run_id, state, f"run:{run_id}:{state}", utc_now(), source_sequence=100
+        )
+        if not result.ok:
+            print(f"[Lineage] Finalization unavailable: {result.error}")
+    except Exception as exc:
+        print(f"[Lineage] Finalization unavailable: {exc}")
+
+
+def _lineage_run_succeeded(context: Dict[str, Any]) -> None:
+    _finalize_run_lineage(context, "SUCCESS")
+
+
+def _lineage_run_failed(context: Dict[str, Any]) -> None:
+    _finalize_run_lineage(context, "FAILED")
 
 
 def _load_bronze_dataset_records(context) -> tuple:
@@ -404,14 +600,46 @@ def task_3c_run_lane_c(**context):
 
     ti.xcom_push(key='pipeline_metrics', value=metrics)
 
-    # Record actual run-level column transformations
+    # Record only transformations explicitly reported by Lane B execution.
     try:
         try:
-            from src.lineage.datatrust_facets import get_actual_run_column_lineage, record_run_column_transformations
+            from src.lineage.datatrust_facets import record_run_column_transformations
+            from src.lineage.run_lineage_store import RunLineageStore, utc_now
         except ImportError:
-            from datatrust_facets import get_actual_run_column_lineage, record_run_column_transformations
-        col_lineage = get_actual_run_column_lineage(table_name, run_id=run_id)
-        record_run_column_transformations(run_id=run_id, dataset_id=table_name, transformations=col_lineage)
+            from datatrust_facets import record_run_column_transformations
+            from lineage.run_lineage_store import RunLineageStore, utc_now
+        observed = {}
+        for verdict in lane_b_data:
+            for execution in verdict.get("treatment_executions", []):
+                if str(execution.get("result", "")).upper() != "APPLIED":
+                    continue
+                key = (str(execution.get("rule_id") or ""), str(execution.get("column") or ""),
+                       str(execution.get("operation") or ""))
+                item = observed.setdefault(key, {
+                    "rule_id": key[0], "source_column": key[1], "target_column": key[1],
+                    "treatment_operation": key[2], "transformation_type": key[2],
+                    "status": "APPLIED", "recordCount": 0,
+                })
+                item["recordCount"] += 1
+        col_lineage = list(observed.values())
+        raw_map_index = getattr(ti, "map_index", -1)
+        map_index = int(-1 if raw_map_index is None else raw_map_index)
+        try_number = int(getattr(ti, "try_number", 0) or 0)
+        task_id = str(getattr(ti, "task_id", "task_3_parallel_evaluation.lane_c_merge_verdicts_and_route"))
+        if col_lineage:
+            record_run_column_transformations(
+                run_id, table_name, col_lineage, task_id, map_index, try_number
+            )
+            store = RunLineageStore()
+            event_time = utc_now()
+            for index, transformation in enumerate(col_lineage):
+                store.record_event(run_id, {
+                    "eventId": f"column:{run_id}:{task_id}:{map_index}:{try_number}:{index}",
+                    "eventType": "COLUMN_LINEAGE", "eventTime": event_time,
+                    "sourceSequence": 25,
+                    "payload": {**transformation, "taskId": task_id, "mapIndex": map_index,
+                                "tryNumber": try_number, "datasetId": table_name},
+                })
     except Exception as e:
         print(f"Notice: Could not record run column transformations: {e}")
 
@@ -472,19 +700,19 @@ def task_4_emit_audit_evidence(**context):
             if identity not in seen_rule_versions:
                 seen_rule_versions.add(identity)
                 rule_snapshot.append(rule)
-    if not rule_snapshot:
-        try:
-            from dags.parallel_evaluation_engine import load_active_compliance_rules_from_db, _canonical_rule_dataset_id
-            c_ds = _canonical_rule_dataset_id(dataset_id)
-            rule_snapshot = load_active_compliance_rules_from_db(c_ds)
-        except Exception as e_snap:
-            print(f"Notice: load_active_compliance_rules_from_db in task 4: {e_snap}")
         for execution in item.get("rule_executions", []):
             # Evidence records outcomes and hashes, never raw observed PII.
             rule_executions.append({
                 key: value for key, value in execution.items()
                 if key not in {"observed_value", "raw_value", "input_value"}
             })
+    if not rule_snapshot and lane_b_results:
+        try:
+            from dags.parallel_evaluation_engine import load_active_compliance_rules_from_db, _canonical_rule_dataset_id
+            c_ds = _canonical_rule_dataset_id(dataset_id)
+            rule_snapshot = load_active_compliance_rules_from_db(c_ds)
+        except Exception as e_snap:
+            print(f"Notice: load_active_compliance_rules_from_db in task 4: {e_snap}")
 
     if snapshot_hashes or rule_snapshot or rule_executions:
         evidence_material = {
@@ -601,13 +829,7 @@ def task_4_emit_audit_evidence(**context):
 
     print("IPO Compliance Evidence Generated Successfully:")
     print(json.dumps(_json_safe(evidence_payload), indent=2, default=str))
-    return {
-        "status": "SUCCESS",
-        "run_id": run_id,
-        "evidence_hash": evidence_hash,
-        "previous_hash": previous_hash,
-        "metrics": _json_safe(metrics),
-    }
+    return {**_json_safe(evidence_payload), "status": "SUCCESS"}
 
 
 # =============================================================================
@@ -620,6 +842,8 @@ with DAG(
     description='DataTrust OS: 3-Lane Adaptive Pipeline (L1-L4 // Policy Processing -> Merge Verdict -> Silver/Quarantine/Warning)',
     schedule_interval=None,
     catchup=False,
+    on_success_callback=_lineage_run_succeeded,
+    on_failure_callback=_lineage_run_failed,
     params={
         "dataset_id": Param(
             default="ride_hailing_xanh_sm_trips",
@@ -654,6 +878,10 @@ with DAG(
         python_callable=task_1_truncate_and_ingest_bronze,
         inlets=[_tbl('raw.source_datasets_csv')],
         outlets=[_tbl('bronze.all_tables')],
+        on_execute_callback=_lineage_task_started,
+        on_retry_callback=_lineage_task_retried,
+        on_success_callback=_lineage_task_succeeded,
+        on_failure_callback=_lineage_task_failed,
         provide_context=True,
     )
 
@@ -662,6 +890,10 @@ with DAG(
         python_callable=task_2_data_profiling,
         inlets=[_tbl('bronze.all_tables')],
         outlets=[_tbl('catalog.dataset_profiles')],
+        on_execute_callback=_lineage_task_started,
+        on_retry_callback=_lineage_task_retried,
+        on_success_callback=_lineage_task_succeeded,
+        on_failure_callback=_lineage_task_failed,
         provide_context=True,
     )
 
@@ -670,6 +902,10 @@ with DAG(
             task_id='lane_a_l1_l4_detectors',
             python_callable=task_3a_run_lane_a,
             inlets=[_tbl('bronze.all_tables')],
+            on_execute_callback=_lineage_task_started,
+            on_retry_callback=_lineage_task_retried,
+            on_success_callback=_lineage_task_succeeded,
+            on_failure_callback=_lineage_task_failed,
             provide_context=True,
         )
 
@@ -677,6 +913,10 @@ with DAG(
             task_id='lane_b_hierarchical_policy',
             python_callable=task_3b_run_lane_b,
             inlets=[_tbl('bronze.all_tables')],
+            on_execute_callback=_lineage_task_started,
+            on_retry_callback=_lineage_task_retried,
+            on_success_callback=_lineage_task_succeeded,
+            on_failure_callback=_lineage_task_failed,
             provide_context=True,
         )
 
@@ -689,6 +929,10 @@ with DAG(
                 _tbl('quarantine.quarantine_records'),
                 _tbl('warning.warning_records')
             ],
+            on_execute_callback=_lineage_task_started,
+            on_retry_callback=_lineage_task_retried,
+            on_success_callback=_lineage_task_succeeded,
+            on_failure_callback=_lineage_task_failed,
             provide_context=True,
         )
 
@@ -704,6 +948,10 @@ with DAG(
             _tbl('warning.warning_records')
         ],
         outlets=[_tbl('audit.evidence')],
+        on_execute_callback=_lineage_task_started,
+        on_retry_callback=_lineage_task_retried,
+        on_success_callback=_lineage_task_succeeded,
+        on_failure_callback=_lineage_task_failed,
         provide_context=True,
     )
 

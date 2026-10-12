@@ -21,6 +21,7 @@ def init_postgres():
         database_dir / "schema_silver_quarantine_warning.sql",
         database_dir / "schema_profiling.sql",
         database_dir / "schema_step3_step5_hardening.sql",
+        database_dir / "migration_run_lineage_snapshots.sql",
         database_dir / "schema_jurisdiction_policy_isolation.sql",
         database_dir / "migration_lane_b_policy_packs.sql",
     ]

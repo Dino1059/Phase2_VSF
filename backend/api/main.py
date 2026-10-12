@@ -15,6 +15,7 @@ import os
 from datetime import datetime, timezone
 import base64
 import json
+import logging
 import uuid
 from pydantic import BaseModel
 
@@ -49,12 +50,17 @@ from backend.database.models import (
     RemediationDecisionModel,
     RemediationStatus,
     ActionType,
+    StructuredRemediationProposalModel,
+    ProposalStatus,
+    RemediationRiskLevel,
+    DryRunResultModel,
 )
 from backend.engine.dynamic_runner import DynamicRuleRunner
 from backend.engine.quarantine_manager import QuarantineManager
 from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
 from backend.ai.agents.orchestrator import DataTrustAgentOrchestrator
 from backend.ai.services.finding_analysis_store import FindingAnalysisStore
+from backend.ai.services.remediation_service import remediation_service
 from backend.ai.services.guardrails import pre_llm_guard
 from backend.ingestion.load_3zone_pilot import (
     get_3zone_datasets,
@@ -67,6 +73,9 @@ from backend.ingestion.load_3zone_pilot import (
     DATASET_FILE_MAP,
     resolve_csv_path
 )
+
+
+logger = logging.getLogger("DataTrust.API")
 
 
 app = FastAPI(
@@ -190,6 +199,39 @@ class AgentPreventiveScanRequest(BaseModel):
 
 class RemediationReviewRequest(BaseModel):
     comment: Optional[str] = None
+
+
+class CreateRemediationProposalRequest(BaseModel):
+    finding_id: str
+    run_id: str
+    dataset_id: str
+    column: str
+    quarantine_ids: List[str]
+    operation_id: str
+    params: Dict[str, Any] = {}
+    reason: str
+    proposer: Optional[str] = "AI_AGENT"
+    confidence: Optional[str] = "SUPPORTED"
+    grounding_evidence_ids: Optional[List[str]] = None
+    risk_level: Optional[RemediationRiskLevel] = None
+
+
+class UpdateRemediationParamsRequest(BaseModel):
+    params: Dict[str, Any]
+    operation_id: Optional[str] = None
+    target_quarantine_ids: Optional[List[str]] = None
+
+
+class ApproveRemediationProposalRequest(BaseModel):
+    comment: Optional[str] = None
+
+
+class RejectRemediationProposalRequest(BaseModel):
+    reason: str = ""
+
+
+class ExecuteRemediationTransactionRequest(BaseModel):
+    idempotency_key: Optional[str] = None
 
 
 # =============================================================================
@@ -1101,6 +1143,38 @@ def create_pipeline_run(
             conn.close()
         raise HTTPException(status_code=500, detail=f"Lỗi khởi tạo lượt chạy trong PostgreSQL: {e}")
 
+    # Capture the exact logical DAG source version before the run is queued.
+    # Runtime callbacks may add mapped instances, but never replace this graph.
+    try:
+        from dags.datatrust_adaptive_pipeline_dag import get_declared_lineage_manifest
+        from src.lineage.run_lineage_store import RunLineageStore, new_snapshot
+        manifest = get_declared_lineage_manifest()
+        snapshot = new_snapshot(
+            run_id=run_id, dag_id=dag_id,
+            dag_version=manifest["dagVersion"], dag_hash=manifest["dagHash"],
+            logical_tasks=manifest["tasks"],
+            logical_dependencies=manifest["dependencies"],
+            declared_io=manifest["declaredIO"],
+        )
+        snapshot["datasetId"] = actual_filename
+        created_snapshot = RunLineageStore().create(snapshot)
+        if not created_snapshot.ok:
+            raise RuntimeError(created_snapshot.error or "lineage snapshot creation failed")
+    except Exception as lineage_exc:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE orchestration.pipeline_runs
+                    SET status='FAILED', ended_at=NOW(), error_message=%s WHERE run_id=%s""",
+                    (f"Lineage snapshot creation failed: {lineage_exc}", run_id))
+                conn.commit()
+        except Exception:
+            pass
+        finally:
+            if conn and not conn.closed:
+                conn.close()
+        raise HTTPException(status_code=503,
+                            detail=f"Không thể khởi tạo lineage snapshot: {lineage_exc}")
+
     # 2. Kích hoạt Apache Airflow REST API với Canonical Run ID
     auth_str = base64.b64encode(f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")).decode("utf-8")
     target_param_id = "ALL" if actual_filename == "ALL" else actual_filename.replace(".csv", "")
@@ -1150,6 +1224,14 @@ def create_pipeline_run(
                     WHERE run_id = %s AND step_name = 'INGEST';
                 """, (str(e), run_id))
                 conn.commit()
+        except Exception:
+            pass
+        try:
+            from src.lineage.run_lineage_store import RunLineageStore
+            RunLineageStore().finalize(
+                run_id, "FAILED", f"run:{run_id}:trigger-failed",
+                datetime.now(timezone.utc).isoformat(), source_sequence=100,
+            )
         except Exception:
             pass
         finally:
@@ -1670,6 +1752,21 @@ def get_finding_detail(finding_id: str):
                 raise HTTPException(status_code=404, detail=f"Không tìm thấy Finding '{finding_id}'.")
 
             res = dict(finding)
+            if res.get("column_name") == "SENSOR_OR_LEDGER":
+                reason_lower = (res.get("reason") or "").lower()
+                if "fare_amount" in reason_lower:
+                    res["column_name"] = "fare_amount"
+                elif "total_fare" in reason_lower or "discrepancy_delta" in reason_lower or "computed_sum" in reason_lower:
+                    res["column_name"] = "total_fare"
+                elif "battery_soc" in reason_lower:
+                    res["column_name"] = "battery_soc"
+                elif "battery_temp" in reason_lower:
+                    res["column_name"] = "battery_temp_c"
+                elif "trip_distance" in reason_lower:
+                    res["column_name"] = "trip_distance_km"
+                elif "motor_rpm" in reason_lower or "speed_kmh" in reason_lower:
+                    res["column_name"] = "motor_rpm"
+
             res["subject_zone"] = res.get("jurisdiction")
             if res.get("detected_at"):
                 res["detected_at"] = res["detected_at"].isoformat()
@@ -2027,6 +2124,275 @@ def reject_finding_remediation(
     return _review_finding_remediation(
         finding_id, RemediationStatus.REJECTED, payload.comment if payload else None, actor
     )
+
+
+# =============================================================================
+# STRUCTURED QUARANTINE REMEDIATION ENDPOINTS (EVIDENCE-OR-ABSTAIN & HITL)
+# =============================================================================
+
+@app.post("/api/remediation/propose", response_model=StructuredRemediationProposalModel)
+def create_remediation_proposal(req: CreateRemediationProposalRequest):
+    """
+    Tạo hoặc khởi tạo đề xuất xử lý cách ly có cấu trúc từ AI Agent (Maker).
+    Tuyệt đối không sinh SQL tự do.
+    """
+    try:
+        prop = remediation_service.create_proposal(
+            finding_id=req.finding_id,
+            run_id=req.run_id,
+            dataset_id=req.dataset_id,
+            column=req.column,
+            quarantine_ids=req.quarantine_ids,
+            operation_id=req.operation_id,
+            params=req.params,
+            reason=req.reason,
+            proposer=req.proposer or "AI_AGENT",
+            confidence=req.confidence or "SUPPORTED",
+            grounding_evidence_ids=req.grounding_evidence_ids,
+            risk_level=req.risk_level
+        )
+        return prop
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/remediation/proposals/{proposal_id}", response_model=StructuredRemediationProposalModel)
+def get_remediation_proposal(proposal_id: str):
+    """Lấy thông tin chi tiết một đề xuất xử lý cách ly."""
+    prop = remediation_service.proposals.get(proposal_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    return prop
+
+
+@app.get("/api/remediation/proposals/by-finding/{finding_id}", response_model=StructuredRemediationProposalModel)
+def get_or_create_remediation_proposal_for_finding(finding_id: str):
+    """
+    Lấy đề xuất xử lý cách ly liên kết với Finding.
+    Nếu chưa có, tự động phân tích Finding và tạo proposal dự thảo (DRAFT) từ các bản ghi cách ly.
+    """
+    for p in reversed(list(remediation_service.proposals.values())):
+        if p.finding_id == finding_id:
+            return p
+
+    try:
+        detail = get_finding_detail(finding_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy Finding '{finding_id}': {e}")
+
+    sample_recs = detail.get("sample_records", [])
+    q_ids = [str(r.get("quarantine_id")) for r in sample_recs if r.get("quarantine_id")]
+    if not q_ids:
+        if detail.get("quarantine_id"):
+            q_ids = [str(detail.get("quarantine_id"))]
+        else:
+            raise HTTPException(status_code=404, detail=f"Finding '{finding_id}' không có bản ghi cách ly nào liên kết.")
+
+    col = detail.get("column_name") or detail.get("target_column") or "customer_phone"
+    if col == "SENSOR_OR_LEDGER":
+        reason_lower = (detail.get("reason") or "").lower()
+        if "fare_amount" in reason_lower:
+            col = "fare_amount"
+        elif "total_fare" in reason_lower or "discrepancy_delta" in reason_lower or "computed_sum" in reason_lower:
+            col = "total_fare"
+        elif "battery_soc" in reason_lower:
+            col = "battery_soc"
+        elif "battery_temp" in reason_lower:
+            col = "battery_temp_c"
+        elif "trip_distance" in reason_lower:
+            col = "trip_distance_km"
+        elif "motor_rpm" in reason_lower or "speed_kmh" in reason_lower:
+            col = "motor_rpm"
+
+    dataset = detail.get("dataset_id") or "trips"
+    run_id = detail.get("run_id") or "RUN-DEFAULT"
+
+    norm_col = col.lower()
+    risk_level = None
+    if "phone" in norm_col or "contact" in norm_col:
+        op = "MASK_PHONE"
+        params = {"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}
+        reason = f"Che mờ số điện thoại tại cột '{col}' theo chuẩn Nghị định 13/2023/NĐ-CP Điều 9."
+        risk_level = RemediationRiskLevel.LOW
+    elif "email" in norm_col:
+        op = "MASK_EMAIL"
+        params = {"mask_char": "*", "keep_domain": True}
+        reason = f"Che mờ địa chỉ email tại cột '{col}' bảo vệ dữ liệu cá nhân."
+        risk_level = RemediationRiskLevel.LOW
+    elif "lat" in norm_col or "lon" in norm_col or "coord" in norm_col:
+        op = "ROUND_DECIMAL"
+        params = {"decimals": 4}
+        reason = f"Làm tròn tọa độ địa lý tại cột '{col}' bảo vệ vị trí chính xác."
+        risk_level = RemediationRiskLevel.LOW
+    elif "fare" in norm_col or "tip" in norm_col or "total" in norm_col or "price" in norm_col or "amount" in norm_col:
+        op = "RECONCILE_LEDGER"
+        params = {"action_type": "FLAG_DISCREPANCY", "require_reconciliation": True}
+        reason = (
+            f"Phát hiện sai lệch số học / sổ cái tài chính tại cột '{col}'. "
+            "Theo chuẩn kiểm toán IPO & IFRS 15, AI tuyệt đối không tự ý sửa đổi hoặc che mờ số tiền. "
+            "Đề xuất Kế toán viên đối soát chứng từ thực tế (voucher/hoàn tiền) hoặc đánh dấu Từ chối bản ghi (Reject/Discard)."
+        )
+        risk_level = RemediationRiskLevel.HIGH
+    elif "soc" in norm_col or "temp" in norm_col or "speed" in norm_col or "rpm" in norm_col or "battery" in norm_col:
+        op = "CALIBRATE_TELEMETRY"
+        params = {"action_type": "INSPECT_SENSOR"}
+        reason = (
+            f"Chỉ số cảm biến vật lý telemetry vượt ngưỡng an toàn tại cột '{col}'. "
+            "Đề xuất Kỹ sư phần cứng kiểm tra thiết bị IoT trên xe hoặc loại bỏ bản ghi lỗi khỏi tập phân tích."
+        )
+        risk_level = RemediationRiskLevel.HIGH
+    else:
+        op = "MASK"
+        params = {"prefix_len": 2, "suffix_len": 2, "mask_char": "*"}
+        reason = f"Chuẩn hóa bảo vệ dữ liệu nhạy cảm tại cột '{col}'."
+        risk_level = RemediationRiskLevel.MEDIUM
+
+    evidence_id = detail.get("evidence_id") or (detail.get("evidence", {}).get("evidence_id") if isinstance(detail.get("evidence"), dict) else None)
+    evi_ids = [str(evidence_id)] if evidence_id else []
+
+    prop = remediation_service.create_proposal(
+        finding_id=finding_id,
+        run_id=run_id,
+        dataset_id=dataset,
+        column=col,
+        quarantine_ids=q_ids,
+        operation_id=op,
+        params=params,
+        reason=reason,
+        proposer="AI_AGENT",
+        confidence="SUPPORTED",
+        grounding_evidence_ids=evi_ids,
+        risk_level=risk_level
+    )
+
+    try:
+        remediation_service.simulate_dry_run(prop.proposal_id)
+    except Exception as dry_err:
+        print(f"[AutoDryRun Notice] {dry_err}")
+
+    return prop
+
+
+@app.post("/api/remediation/{proposal_id}/dry-run", response_model=DryRunResultModel)
+def dry_run_remediation_proposal(proposal_id: str):
+    """
+    Thực hiện mô phỏng In-Memory Dry-Run trên lô bản ghi cách ly.
+    Tính toán diff Trước/Sau có che PII, đo thời gian thực thi (latency).
+    """
+    try:
+        return remediation_service.simulate_dry_run(proposal_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/update-params", response_model=StructuredRemediationProposalModel)
+def update_remediation_params(
+    proposal_id: str,
+    req: UpdateRemediationParamsRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """
+    Chỉnh sửa tham số xử lý của proposal.
+    Tăng version (version = version + 1) và reset trạng thái về DRAFT (yêu cầu chạy lại Dry-Run).
+    """
+    actor = x_user or "DataTrust Admin"
+    try:
+        return remediation_service.update_proposal_params(
+            proposal_id=proposal_id,
+            params=req.params,
+            operation_id=req.operation_id,
+            target_quarantine_ids=req.target_quarantine_ids,
+            actor_id=actor
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/submit", response_model=StructuredRemediationProposalModel)
+def submit_remediation_proposal(
+    proposal_id: str,
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """Gửi proposal đã pass Dry-Run sang trạng thái PENDING_APPROVAL chờ duyệt."""
+    actor = x_user or "AI_AGENT"
+    try:
+        return remediation_service.submit_for_approval(proposal_id, actor)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/approve", response_model=StructuredRemediationProposalModel)
+def approve_remediation_proposal(
+    proposal_id: str,
+    payload: Optional[ApproveRemediationProposalRequest] = None,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """
+    Checker phê duyệt đề xuất.
+    Thực thi nguyên tắc Maker-Checker: Người tạo đề xuất không được tự phê duyệt.
+    """
+    actor = _require_admin_identity(x_user_role, x_user)
+    try:
+        return remediation_service.approve_proposal(proposal_id, actor_id=actor, actor_role="ADMIN")
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/reject", response_model=StructuredRemediationProposalModel)
+def reject_remediation_proposal(
+    proposal_id: str,
+    req: RejectRemediationProposalRequest,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """Checker từ chối đề xuất xử lý cách ly."""
+    actor = _require_admin_identity(x_user_role, x_user)
+    try:
+        return remediation_service.reject_proposal(proposal_id, actor_id=actor, reason=req.reason)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/execute")
+def execute_remediation_transaction(
+    proposal_id: str,
+    req: Optional[ExecuteRemediationTransactionRequest] = None,
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """
+    Thực thi Transaction Remediation có bảo vệ chống Race Condition & Tự động Rollback.
+    """
+    actor = _require_admin_identity(x_user_role, x_user)
+    idempotency_key = req.idempotency_key if req else None
+    try:
+        return remediation_service.execute_remediation_transaction(
+            proposal_id=proposal_id,
+            actor_id=actor,
+            actor_role="ADMIN",
+            idempotency_key=idempotency_key
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @app.patch("/api/findings/{finding_id}/status")
@@ -2420,6 +2786,7 @@ def override_quarantine(
 
 @app.get("/api/warnings")
 def list_warnings(
+    run_id: Optional[str] = None,
     dataset_id: Optional[str] = None,
     signal_lane: Optional[str] = None,
     signal_layer: Optional[str] = None,
@@ -2447,6 +2814,10 @@ def list_warnings(
             """
             count_query = "SELECT count(*) FROM warning.records WHERE 1=1"
             params = []
+            if run_id:
+                query += " AND run_id = %s"
+                count_query += " AND run_id = %s"
+                params.append(run_id)
             if dataset_id:
                 clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
                 query += " AND (dataset_id = %s OR dataset_id = %s)"
@@ -2824,10 +3195,10 @@ def get_lineage_status():
 
 
 @app.get("/api/lineage/graph")
-def get_lineage_graph(dataset_id: Optional[str] = None, run_id: Optional[str] = None):
+def get_lineage_graph(dataset_id: Optional[str] = None, run_id: Optional[str] = None, revision: Optional[int] = None):
     """Returns the visual DAG node-and-edge lineage topology."""
     from backend.lineage.lineage_service import LineageService
-    return LineageService.get_graph(dataset_id=dataset_id, run_id=run_id)
+    return LineageService.get_graph(dataset_id=dataset_id, run_id=run_id, revision=revision)
 
 
 @app.get("/api/lineage")
@@ -2836,7 +3207,8 @@ def get_unified_lineage(
     finding_id: Optional[str] = None,
     record_id: Optional[str] = None,
     column: Optional[str] = None,
-    dataset_id: Optional[str] = None
+    dataset_id: Optional[str] = None,
+    revision: Optional[int] = None
 ):
     """
     Unified Lineage Endpoint:
@@ -2848,7 +3220,8 @@ def get_unified_lineage(
         finding_id=finding_id,
         record_id=record_id,
         column=column,
-        dataset_id=dataset_id
+        dataset_id=dataset_id,
+        revision=revision
     )
 
 
@@ -2860,23 +3233,28 @@ def get_finding_lineage(finding_id: str):
 
 
 @app.get("/api/runs/{run_id}/lineage")
-def get_run_lineage(run_id: str, column: Optional[str] = None):
+def get_run_lineage(run_id: str, column: Optional[str] = None, revision: Optional[int] = None):
     """Returns lineage scoped to a pipeline run with optional column focus."""
     from backend.lineage.lineage_service import LineageService
-    return LineageService.get_lineage(run_id=run_id, column=column)
+    return LineageService.get_lineage(run_id=run_id, column=column, revision=revision)
 
 
 @app.get("/api/runs/{run_id}/lineage/export-openlineage")
-def export_run_openlineage(run_id: str):
+def export_run_openlineage(run_id: str, revision: Optional[int] = None):
     """Exports OpenLineage 1.0 JSON Facets for compliance/IPO audit."""
     from backend.lineage.lineage_service import LineageService
     from datetime import datetime, timezone
-    lineage_data = LineageService.get_lineage(run_id=run_id)
+    lineage_data = LineageService.get_lineage(run_id=run_id, revision=revision)
+    lifecycle = lineage_data.get("lifecycleStatus")
+    run_state = str(lineage_data.get("runState") or "").upper()
+    event_type = ({"SUCCESS": "COMPLETE", "FAILED": "FAIL", "CANCELLED": "ABORT",
+                   "CANCELED": "ABORT"}.get(run_state)
+                  or ("RUNNING" if lifecycle == "BUILDING" else "OTHER"))
     return {
         "_producer": "https://github.com/datatrust-os/datatrust",
         "_schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json",
-        "eventType": "COMPLETE",
-        "eventTime": lineage_data.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+        "eventType": event_type,
+        "eventTime": lineage_data.get("asOf") or datetime.now(timezone.utc).isoformat(),
         "run": {
             "runId": lineage_data.get("runId"),
             "facets": {
@@ -2887,19 +3265,23 @@ def export_run_openlineage(run_id: str):
                 },
                 "schemaDiff": lineage_data.get("schemaDiff"),
                 "columnTransformations": lineage_data.get("transformations")
+                ,"lineageQuality": {
+                    "lifecycleStatus": lifecycle,
+                    "dataStatus": lineage_data.get("dataStatus"),
+                    "revision": lineage_data.get("revision"),
+                    "missingMetadata": lineage_data.get("missingMetadata", []),
+                    "sourceErrors": lineage_data.get("sourceErrors", [])
+                }
             }
         },
         "job": {
             "namespace": "datatrust",
-            "name": lineage_data.get("datasetId", "ride_hailing")
+            "name": lineage_data.get("datasetId") or lineage_data.get("runId")
         },
-        "inputs": [
-            {"namespace": "raw", "name": f"{lineage_data.get('datasetId')}.csv"}
-        ],
-        "outputs": [
-            {"namespace": "silver", "name": lineage_data.get("datasetId")},
-            {"namespace": "quarantine", "name": "quarantine_records"}
-        ]
+        "inputs": [],
+        "outputs": [],
+        "nodes": lineage_data.get("nodes", []),
+        "edges": lineage_data.get("edges", [])
     }
 
 

@@ -278,3 +278,197 @@ def test_insufficient_evidence_handling():
     payload = json.loads(res["text"])
 
     assert payload["confidence_method"] == "INSUFFICIENT_EVIDENCE"
+
+
+@pytest.mark.asyncio
+async def test_warning_inquiry_avoids_finding_ambiguity_clarification(mock_orchestrator, monkeypatch):
+    """
+    Test: Người dùng hỏi 'tôi không biết 200 warning vi phạm gì' trong lần chạy có 5 Finding.
+    AI phải trả lời về warning records, KHÔNG được rơi vào mẫu câu Ambiguity của Finding.
+    Đồng thời kiểm tra COUNT(*) độc lập hoạt động đúng khi có nhiều hơn 10 nhóm cảnh báo.
+    """
+    session_id = f"test-sess-warn-{uuid.uuid4().hex[:6]}"
+    run_id = "run-test-warn-01"
+
+    # Mock 12 groups to verify independent COUNT(*) is not truncated by LIMIT 10
+    mock_groups = [
+        {"warning_type": f"DRIFT_L{i}", "signal_lane": "LANE_A", "signal_layer": "L2", "warning_reason": f"Drift {i}", "count": 15}
+        for i in range(12)
+    ]
+    # 12 * 15 = 180 + 20 = 200
+
+    class MockCursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, query, params=None):
+            self.last_query = query
+        def fetchone(self):
+            if "pipeline_runs" in self.last_query:
+                return {"warning_count": 200}
+            if "COUNT(*)" in self.last_query:
+                return {"total_records": 200}
+            return None
+        def fetchall(self):
+            if "GROUP BY" in self.last_query:
+                return mock_groups[:10]  # LIMIT 10
+            if "LIMIT 3" in self.last_query:
+                return [
+                    {
+                        "warning_id": "w-01",
+                        "source_row_pk": "pk-1",
+                        "signal_lane": "LANE_A",
+                        "signal_layer": "L2",
+                        "warning_type": "DRIFT_L0",
+                        "warning_reason": "Drift 0",
+                        "score_or_zvalue": 2.5,
+                        "redacted_record_json": {"trip_id": "pk-1", "trip_distance_km": 10.5}
+                    }
+                ]
+            return []
+
+    class MockConn:
+        def cursor(self, cursor_factory=None):
+            return MockCursor()
+        def close(self):
+            pass
+
+    monkeypatch.setattr("database.profiler_engine.get_db_connection", lambda: MockConn())
+
+    res = await mock_orchestrator.chat(
+        message="tôi không biết 200 warning vi phạm gì",
+        run_id=run_id,
+        session_id=session_id
+    )
+
+    # 1. Must NOT trigger ambiguity question for audit.findings
+    assert "Bạn muốn tôi phân tích nguyên nhân" not in res["response"]
+    assert "vấn đề kiểm toán" not in res["response"]
+
+    # 2. Must respond about Warning records
+    assert res["data"]["intent"] == "WARNING_INQUIRY"
+    assert res["data"]["actual_records_count"] == 200
+    assert res["data"]["pipeline_warning_count"] == 200
+    assert res["data"]["is_reconciled"] is True
+    assert "200" in res["response"]
+    assert "cảnh báo" in res["response"].lower() or "warning" in res["response"].lower()
+
+    # The response must adapt to the question instead of reusing the former
+    # four-section, run-specific template.
+    assert "58 Warning" not in res["response"]
+    assert "### 1." not in res["response"]
+    assert "### 2." not in res["response"]
+    assert "hoàn toàn hợp lệ" not in res["response"].lower()
+
+
+@pytest.mark.asyncio
+async def test_warning_inquiry_with_discrepancy(mock_orchestrator, monkeypatch):
+    """
+    Test: Khi pipeline_runs báo 200 warning nhưng warning.records chỉ có 50 bản ghi,
+    AI phát hiện độ lệch và thông báo minh bạch trong phản hồi.
+    """
+    session_id = f"test-sess-warn-discrep-{uuid.uuid4().hex[:6]}"
+    run_id = "run-test-warn-02"
+
+    class MockCursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, query, params=None):
+            self.last_query = query
+        def fetchone(self):
+            if "pipeline_runs" in self.last_query:
+                return {"warning_count": 200}
+            if "COUNT(*)" in self.last_query:
+                return {"total_records": 50}
+            return None
+        def fetchall(self):
+            return []
+
+    class MockConn:
+        def cursor(self, cursor_factory=None):
+            return MockCursor()
+        def close(self):
+            pass
+
+    monkeypatch.setattr("database.profiler_engine.get_db_connection", lambda: MockConn())
+
+    res = await mock_orchestrator.chat(
+        message="tại sao có 200 warning?",
+        run_id=run_id,
+        session_id=session_id
+    )
+
+    assert res["data"]["intent"] == "WARNING_INQUIRY"
+    assert res["data"]["is_reconciled"] is False
+    assert res["data"]["pipeline_warning_count"] == 200
+    assert res["data"]["actual_records_count"] == 50
+    assert "đối soát" in res["response"].lower() or "độ lệch" in res["response"].lower()
+
+
+@pytest.mark.asyncio
+async def test_warning_inquiry_db_resilience(mock_orchestrator, monkeypatch):
+    """
+    Test: Khi kết nối DB gặp sự cố, hệ thống không bị crash 500
+    mà trả về thông báo lỗi kết nối an toàn.
+    """
+    session_id = f"test-sess-warn-err-{uuid.uuid4().hex[:6]}"
+    run_id = "run-test-warn-03"
+
+    def faulty_conn():
+        raise ConnectionError("PostgreSQL cluster unavailable")
+
+    monkeypatch.setattr("database.profiler_engine.get_db_connection", faulty_conn)
+
+    res = await mock_orchestrator.chat(
+        message="giải thích các bản ghi warning",
+        run_id=run_id,
+        session_id=session_id
+    )
+
+    assert res["data"]["status"] == "DB_CONNECTION_ERROR"
+    assert "gián đoạn kết nối" in res["response"] or "chưa thể truy xuất" in res["response"]
+
+
+@pytest.mark.asyncio
+async def test_warning_inquiry_zero_warnings(mock_orchestrator, monkeypatch):
+    """
+    Test: Khi lần chạy có 0 warning, AI trả lời xác nhận không có cảnh báo nào.
+    """
+    session_id = f"test-sess-warn-zero-{uuid.uuid4().hex[:6]}"
+    run_id = "run-test-warn-04"
+
+    class MockCursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, query, params=None):
+            self.last_query = query
+        def fetchone(self):
+            if "pipeline_runs" in self.last_query:
+                return {"warning_count": 0}
+            if "COUNT(*)" in self.last_query:
+                return {"total_records": 0}
+            return None
+        def fetchall(self):
+            return []
+
+    class MockConn:
+        def cursor(self, cursor_factory=None):
+            return MockCursor()
+        def close(self):
+            pass
+
+    monkeypatch.setattr("database.profiler_engine.get_db_connection", lambda: MockConn())
+
+    res = await mock_orchestrator.chat(
+        message="lần chạy này có cảnh báo gì không?",
+        run_id=run_id,
+        session_id=session_id
+    )
+
+    assert res["data"]["warning_count"] == 0
+    assert "không ghi nhận bất kỳ bản ghi cảnh báo nào" in res["response"]

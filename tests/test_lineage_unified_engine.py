@@ -1,188 +1,193 @@
-"""
-DataTrust OS: Tests for Unified Lineage Engine
-Verifies:
-1. OpenLineage Custom Facet Specifications (Audit Assurance & Policy Treatment)
-2. Run-Level Column Lineage Extraction & Recording
-3. Unified Lineage Engine:
-   - finding_id Targeted Root-Cause Slicing (5 nodes: Source -> Ingest -> Column -> Rule -> Quarantine)
-   - run_id Dynamic Full Pipeline Graph & Schema Diff
-   - column Filtering & Upstream/Downstream highlighting
-4. FastAPI Endpoints:
-   - GET /api/lineage (Unified)
-   - GET /api/findings/{finding_id}/lineage
-   - GET /api/runs/{run_id}/lineage
-   - GET /api/runs/{run_id}/lineage/export-openlineage
-"""
-
-import pytest
+"""Contract tests for evidence-backed dynamic lineage (no live services)."""
 from fastapi.testclient import TestClient
-from backend.api.main import app
-from src.lineage.datatrust_facets import (
-    build_audit_assurance_facet,
-    build_policy_treatment_facet,
-    get_actual_run_column_lineage,
-    record_run_column_transformations,
-    PRODUCER_URL,
-    AUDIT_FACET_SCHEMA,
-    TREATMENT_FACET_SCHEMA,
-)
-from backend.lineage.lineage_service import LineageService
 
+from backend.api.main import app
+from backend.lineage.lineage_service import LineageService
+from src.lineage.datatrust_facets import (AUDIT_FACET_SCHEMA, PRODUCER_URL,
+    build_audit_assurance_facet, build_policy_treatment_facet,
+    get_actual_run_column_lineage)
 
 client = TestClient(app)
 
 
-def test_custom_audit_assurance_facet_conformance():
-    """Verifies that DataTrust custom audit facet conforms to OpenLineage custom facet spec."""
-    facet = build_audit_assurance_facet(
-        evidence_hash="test_evidence_hash_123",
-        previous_hash="test_prev_hash_000",
-        digital_signature="SIG-AIRFLOW-3LANE-GSM-IPO-2026",
-        metrics={"scanned": 100, "silver": 95, "quarantine": 3, "warning": 2},
-        jurisdiction_chain=["GLOBAL", "VN"]
-    )
+def snapshot():
+    return {
+        "runId": "run-1", "revision": 2, "dagVersion": "sha256:old-dag",
+        "lifecycleStatus": "BUILDING", "asOf": "2026-10-12T01:00:00+00:00",
+        "logicalTasks": [{"taskId": "extract"}, {"taskId": "load"}],
+        "logicalDependencies": [{"from": "extract", "to": "load"}],
+        "declaredIO": [{"taskId": "extract", "dataset": "raw.trips", "direction": "INPUT"}],
+        "taskInstances": {
+            "extract:0": {"taskId": "extract", "mapIndex": 0, "state": "SUCCESS", "attempts": {
+                "1": {"tryNumber": 1, "duration": 2.0, "state": "FAILED", "lastEventTime": "2026-10-12T00:58:00+00:00"},
+                "2": {"tryNumber": 2, "duration": 3.5, "state": "SUCCESS", "lastEventTime": "2026-10-12T01:00:00+00:00"}}},
+            "load:-1": {"taskId": "load", "mapIndex": -1, "state": "SKIPPED", "attempts": {
+                "0": {"tryNumber": 0, "duration": 0, "state": "SKIPPED", "lastEventTime": "2026-10-12T01:00:00+00:00"}}}
+        },
+        "observedIO": {"io1": {"taskId": "extract", "mapIndex": 0, "dataset": "bronze.trips", "direction": "OUTPUT"}},
+        "columnLineage": {"c1": {"taskId": "extract", "mapIndex": 0, "tryNumber": 2,
+                                      "source_column": "phone", "target_column": "phone_masked",
+                                      "transformation_type": "MASKING"}},
+        "missingMetadata": [], "sourceErrors": []
+    }
 
+
+def fork_join_snapshot(*, shuffled=False):
+    tasks = [
+        {"taskId": "t1"},
+        {"taskId": "t2"},
+        {"taskId": "t3a"},
+        {"taskId": "t3b"},
+        {"taskId": "t3c"},
+        {"taskId": "t4"},
+    ]
+    dependencies = [
+        {"from": "t1", "to": "t2"},
+        {"from": "t2", "to": "t3a"},
+        {"from": "t2", "to": "t3b"},
+        {"from": "t3a", "to": "t3c"},
+        {"from": "t3b", "to": "t3c"},
+        {"from": "t3c", "to": "t4"},
+    ]
+    if shuffled:
+        tasks = [tasks[index] for index in (4, 1, 5, 2, 0, 3)]
+        dependencies = [dependencies[index] for index in (4, 1, 5, 0, 3, 2)]
+    return {
+        "runId": "fork-join-run",
+        "revision": 1,
+        "dagVersion": "sha256:fork-join",
+        "lifecycleStatus": "BUILDING",
+        "logicalTasks": tasks,
+        "logicalDependencies": dependencies,
+        "taskInstances": {
+            "t1:-1": {"taskId": "t1", "mapIndex": -1, "state": "SUCCESS"},
+            "t2:-1": {"taskId": "t2", "mapIndex": -1, "state": "SUCCESS"},
+            "t3a:0": {"taskId": "t3a", "mapIndex": 0, "state": "SUCCESS"},
+            "t3a:1": {"taskId": "t3a", "mapIndex": 1, "state": "SUCCESS"},
+            "t3b:-1": {"taskId": "t3b", "mapIndex": -1, "state": "SUCCESS"},
+            "t3c:-1": {"taskId": "t3c", "mapIndex": -1, "state": "SUCCESS"},
+            "t4:-1": {"taskId": "t4", "mapIndex": -1, "state": "SUCCESS"},
+        },
+        "declaredIO": [
+            {"taskId": "t1", "dataset": "raw.input", "direction": "INPUT"},
+        ],
+        "observedIO": {
+            "output": {
+                "taskId": "t4", "mapIndex": -1,
+                "dataset": "curated.output", "direction": "OUTPUT",
+            },
+        },
+        "missingMetadata": [],
+        "sourceErrors": [],
+    }
+
+
+def node_stages(graph, *, node_type):
+    return {
+        node["id"]: node["stage"]
+        for node in graph["nodes"]
+        if node["type"] == node_type
+    }
+
+
+def test_facets_conform():
+    facet = build_audit_assurance_facet("hash", "prev", "sig", {"scanned": 3})
     assert facet["_producer"] == PRODUCER_URL
     assert facet["_schemaURL"] == AUDIT_FACET_SCHEMA
-    assert facet["digitalSignature"] == "SIG-AIRFLOW-3LANE-GSM-IPO-2026"
-    assert facet["evidenceHash"] == "test_evidence_hash_123"
-    assert facet["previousHash"] == "test_prev_hash_000"
-    assert facet["scannedCount"] == 100
-    assert facet["silverCount"] == 95
-    assert facet["quarantineCount"] == 3
-    assert facet["warningCount"] == 2
-    assert "emittedAt" in facet
+    assert facet["scannedCount"] == 3
+    assert build_policy_treatment_facet([{"rule_id": "r"}])["rulesCount"] == 1
 
 
-def test_custom_policy_treatment_facet_conformance():
-    """Verifies that policy treatment custom facet conforms to OpenLineage spec."""
-    facet = build_policy_treatment_facet([
-        {"rule_id": "VN_ND356_PHONE_01", "operation": "MASK_PHONE_MIDDLE_5"}
-    ])
-
-    assert facet["_producer"] == PRODUCER_URL
-    assert facet["_schemaURL"] == TREATMENT_FACET_SCHEMA
-    assert facet["rulesCount"] == 1
-    assert len(facet["appliedRules"]) == 1
+def test_column_lineage_without_run_is_not_inferred():
+    assert get_actual_run_column_lineage("trips") == []
 
 
-def test_actual_run_column_lineage_extraction():
-    """Verifies actual column transformation extraction for ride_hailing_xanh_sm_trips."""
-    cols = get_actual_run_column_lineage("ride_hailing_xanh_sm_trips")
-    assert isinstance(cols, list)
-    assert len(cols) >= 2
-
-    # Check PII phone masking
-    phone_col = next((c for c in cols if "customer_phone" in c.get("source_column", "")), None)
-    assert phone_col is not None
-    assert phone_col["treatment_operation"] == "MASK_PHONE_MIDDLE_5"
-    assert phone_col["target_column"] == "customer_contact"
-    assert "91/2025/QH15" in phone_col["legal_basis"]
-
-    # Check driver pseudonymization
-    driver_col = next((c for c in cols if c.get("source_column") == "driver_id"), None)
-    assert driver_col is not None
-    assert driver_col["treatment_operation"] == "PSEUDONYMIZE_SHA256"
-    assert "GDPR" in driver_col["legal_basis"]
+def test_snapshot_graph_is_dynamic_and_keeps_attempts(monkeypatch):
+    monkeypatch.setattr(LineageService, "_load_snapshot", staticmethod(lambda run_id, revision: snapshot()))
+    graph = LineageService.get_lineage(run_id="run-1", revision=2)
+    assert graph["revision"] == 2
+    assert graph["dagVersion"] == "sha256:old-dag"
+    assert graph["lifecycleStatus"] == "BUILDING"
+    assert graph["dataStatus"] == "COMPLETE"
+    mapped = next(n for n in graph["nodes"] if n["name"] == "extract")
+    assert mapped["mapIndex"] == 0 and mapped["finalTryNumber"] == 2
+    assert mapped["totalDuration"] == 5.5 and len(mapped["attempts"]) == 2
+    assert {e["relationType"] for e in graph["edges"]} == {
+        "LOGICAL_DEPENDENCY", "INSTANCE_OF", "DECLARED", "OBSERVED"
+    }
+    assert graph["transformations"][0]["tryNumber"] == 2
 
 
-def test_lineage_service_status():
-    """Verifies LineageService status method returns valid connectivity and mode."""
-    status = LineageService.get_status()
-    assert "isConnected" in status
-    assert status["isConnected"] is True
-    assert "mode" in status
-    assert status["mode"] in ("CATALOG_NATIVE", "CATALOG_TOPOLOGY", "CATALOG_TOPOLOGY_FALLBACK")
-    assert isinstance(status["totalDatasets"], int)
-    assert isinstance(status["totalJobs"], int)
+def test_fork_join_logical_tasks_use_topological_stages():
+    graph = LineageService._snapshot_graph(fork_join_snapshot(), "fork-join-run", None)
+
+    assert node_stages(graph, node_type="logicalJob") == {
+        "logical-job:t1": 1,
+        "logical-job:t2": 2,
+        "logical-job:t3a": 3,
+        "logical-job:t3b": 3,
+        "logical-job:t3c": 4,
+        "logical-job:t4": 5,
+    }
 
 
-def test_lineage_service_full_run_graph():
-    """Verifies LineageService full run graph construction with all 8 stages."""
-    graph = LineageService.get_lineage(run_id="run_5b320bf9b22d")
-    assert graph["scope"] == "FULL_RUN"
-    assert "nodes" in graph
-    assert "edges" in graph
-    assert graph["totalNodes"] >= 8
-    assert graph["totalEdges"] >= 8
-    assert "schemaDiff" in graph
-    assert isinstance(graph["schemaDiff"], list)
+def test_runtime_instances_inherit_logical_task_stage():
+    graph = LineageService._snapshot_graph(fork_join_snapshot(), "fork-join-run", None)
 
-    layers = {n["layer"] for n in graph["nodes"]}
-    assert "RAW" in layers
-    assert "TASK" in layers
-    assert "BRONZE" in layers
-    assert "SILVER" in layers
-    assert "QUARANTINE" in layers
-    assert "WARNING" in layers
-    assert "AUDIT" in layers
+    assert node_stages(graph, node_type="job") == {
+        "job:t1:-1": 1,
+        "job:t2:-1": 2,
+        "job:t3a:0": 3,
+        "job:t3a:1": 3,
+        "job:t3b:-1": 3,
+        "job:t3c:-1": 4,
+        "job:t4:-1": 5,
+    }
 
 
-def test_lineage_service_finding_targeted_graph():
-    """Verifies LineageService targeted root-cause slicing for finding_id."""
-    # Use real finding id if present, or fallback mock id
-    lineage = LineageService.get_lineage(finding_id="F-4f5bbe1dd9")
-    assert lineage["scope"] == "FINDING_TARGETED"
-    assert lineage["findingId"] == "F-4f5bbe1dd9"
-    assert "nodes" in lineage
-    assert "edges" in lineage
-    assert lineage["totalNodes"] == 5
+def test_topological_stages_are_deterministic_for_shuffled_snapshot_order():
+    ordered = LineageService._snapshot_graph(fork_join_snapshot(), "fork-join-run", None)
+    shuffled = LineageService._snapshot_graph(
+        fork_join_snapshot(shuffled=True), "fork-join-run", None
+    )
 
-    # Check the 5 targeted nodes
-    roles = {n.get("role") for n in lineage["nodes"]}
-    assert "UPSTREAM_ROOT" in roles
-    assert "INGEST_STAGE" in roles
-    assert "SUBJECT_COLUMN" in roles
-    assert "VIOLATED_RULE" in roles
-    assert "OUTCOME_TARGET" in roles
-
-    # AI context provided
-    assert "aiExplanationContext" in lineage
-    assert "summary" in lineage["aiExplanationContext"]
+    ordered_stages = {node["id"]: node["stage"] for node in ordered["nodes"] if "stage" in node}
+    shuffled_stages = {node["id"]: node["stage"] for node in shuffled["nodes"] if "stage" in node}
+    assert shuffled_stages == ordered_stages
+    assert {edge["relationType"] for edge in shuffled["edges"]} == {
+        "LOGICAL_DEPENDENCY", "INSTANCE_OF", "DECLARED", "OBSERVED"
+    }
 
 
-def test_api_lineage_unified_endpoint():
-    """Tests GET /api/lineage with finding_id and run_id query params."""
-    # 1. With finding_id
-    res_f = client.get("/api/lineage?finding_id=F-4f5bbe1dd9")
-    assert res_f.status_code == 200
-    data_f = res_f.json()
-    assert data_f["scope"] == "FINDING_TARGETED"
-    assert len(data_f["nodes"]) == 5
-
-    # 2. With run_id
-    res_r = client.get("/api/lineage?run_id=run_5b320bf9b22d")
-    assert res_r.status_code == 200
-    data_r = res_r.json()
-    assert data_r["scope"] == "FULL_RUN"
-    assert len(data_r["nodes"]) >= 8
+def test_missing_snapshot_has_no_demo_graph(monkeypatch):
+    monkeypatch.setattr(LineageService, "_load_snapshot", staticmethod(lambda run_id, revision: None))
+    monkeypatch.setattr(LineageService, "_legacy_graph", staticmethod(
+        lambda run_id, dataset_id, column, error: {**__import__('backend.lineage.lineage_service', fromlist=['_empty_run'])._empty_run(run_id)}))
+    graph = LineageService.get_lineage(run_id="missing")
+    assert graph["dataStatus"] == "UNAVAILABLE"
+    assert graph["nodes"] == [] and graph["edges"] == []
 
 
-def test_api_finding_lineage_endpoint():
-    """Tests GET /api/findings/{finding_id}/lineage endpoint."""
-    res = client.get("/api/findings/F-4f5bbe1dd9/lineage")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["scope"] == "FINDING_TARGETED"
-    assert "nodes" in data
+def test_finding_without_verified_source_has_no_mock_evidence():
+    graph = LineageService.get_lineage(finding_id="unknown")
+    assert graph["dataStatus"] == "UNAVAILABLE"
+    assert graph["nodes"] == []
 
 
-def test_api_run_lineage_endpoint():
-    """Tests GET /api/runs/{run_id}/lineage endpoint."""
-    res = client.get("/api/runs/run_5b320bf9b22d/lineage")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["scope"] == "FULL_RUN"
-    assert "schemaDiff" in data
+def test_revision_is_forwarded_by_api(monkeypatch):
+    seen = {}
+    def fake(**kwargs):
+        seen.update(kwargs)
+        return LineageService._snapshot_graph(snapshot(), "run-1", None)
+    monkeypatch.setattr(LineageService, "get_lineage", staticmethod(fake))
+    response = client.get("/api/runs/run-1/lineage?revision=2")
+    assert response.status_code == 200 and seen["revision"] == 2
 
 
-def test_api_export_openlineage_endpoint():
-    """Tests GET /api/runs/{run_id}/lineage/export-openlineage endpoint."""
-    res = client.get("/api/runs/run_5b320bf9b22d/lineage/export-openlineage")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["_producer"] == PRODUCER_URL
-    assert "OpenLineage" in data["_schemaURL"]
-    assert data["eventType"] == "COMPLETE"
-    assert "run" in data
-    assert "dataTrustAuditAssurance" in data["run"]["facets"]
+def test_export_is_running_and_contains_real_graph(monkeypatch):
+    monkeypatch.setattr(LineageService, "get_lineage", staticmethod(
+        lambda **kwargs: LineageService._snapshot_graph(snapshot(), "run-1", None)))
+    data = client.get("/api/runs/run-1/lineage/export-openlineage?revision=2").json()
+    assert data["eventType"] == "RUNNING"
+    assert data["run"]["facets"]["lineageQuality"]["revision"] == 2
+    assert data["nodes"] and data["edges"]

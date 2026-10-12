@@ -117,6 +117,21 @@ class OperationRegistry:
         """Loại bỏ hoàn toàn trường dữ liệu."""
         return None
 
+    @staticmethod
+    def reconcile_ledger(val: Any, **_: Any) -> Any:
+        """
+        Bảo toàn giá trị số liệu tài chính phục vụ đối soát kế toán thủ công (Manual Reconciliation / IFRS 15).
+        Tuyệt đối không tự ý sửa đổi hoặc che mờ số tiền.
+        """
+        return val
+
+    @staticmethod
+    def calibrate_telemetry(val: Any, **_: Any) -> Any:
+        """
+        Bảo toàn giá trị cảm biến vật lý phục vụ kiểm định phần cứng IoT.
+        """
+        return val
+
     @classmethod
     def get_handler(cls, operation_id: str) -> Callable:
         normalized = operation_id.strip().upper()
@@ -136,6 +151,10 @@ class OperationRegistry:
             "REMOVE": cls.remove_value,
             "REDACT": cls.remove_value,
             "REDACT_PII_TEXT": cls.redact_pii_text,
+            "RECONCILE_LEDGER": cls.reconcile_ledger,
+            "MANUAL_RECONCILIATION": cls.reconcile_ledger,
+            "FLAG_AUDIT_REVIEW": cls.reconcile_ledger,
+            "CALIBRATE_TELEMETRY": cls.calibrate_telemetry,
         }
         handler = mapping.get(normalized)
         if not handler:

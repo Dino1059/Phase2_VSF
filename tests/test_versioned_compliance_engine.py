@@ -38,6 +38,7 @@ def rule(rule_id, condition, *, phase="PRE_CHECK", action="BLOCK", **extra):
         ({"operator": "regex", "field": "code", "pattern": r"[A-Z]{2}"}, {"code": "VN"}, {}),
         ({"operator": "masked", "field": "phone"}, {"phone": "098*****21"}, {"phone": "0987654321"}),
         ({"operator": "hashed", "field": "driver"}, {"driver": "a" * 64}, {"driver": "D1"}),
+        ({"operator": "precision", "field": "lat", "max_decimals": 2}, {"lat": round(52.519207, 2)}, {"lat": 52.519207}),
         ({"operator": "geofence", "latitude_field": "lat", "longitude_field": "lon", "bounds": {"min_lat": 8, "max_lat": 24, "min_lon": 102, "max_lon": 110}}, {"lat": 21, "lon": 105}, {}),
     ],
 )
@@ -45,6 +46,22 @@ def test_allowlisted_operators_pass(condition, record, raw):
     evaluator = ComplianceRuleEvaluator([rule("R", condition)])
     applicable, _ = evaluator.applicable_rules("trips", ["GLOBAL"], datetime(2026, 2, 1, tzinfo=timezone.utc))
     assert evaluator.evaluate(applicable, record, raw or record, "PRE_CHECK").findings == []
+
+
+def test_precision_operator_evaluation():
+    evaluator = ComplianceRuleEvaluator([
+        rule("PREC", {"operator": "precision", "field": "lat", "max_decimals": 2}, phase="POST_CHECK")
+    ])
+    applicable, _ = evaluator.applicable_rules("trips", ["GLOBAL"], datetime(2026, 2, 1, tzinfo=timezone.utc))
+    # Passing case: treated coordinate with float rounding (e.g. 52.52)
+    treated_record = {"lat": round(52.519207, 2)}
+    res_pass = evaluator.evaluate(applicable, treated_record, {"lat": 52.519207}, "POST_CHECK")
+    assert res_pass.findings == []
+    # Failing case: unrounded raw coordinate (e.g. 52.519207)
+    raw_record = {"lat": 52.519207}
+    res_fail = evaluator.evaluate(applicable, raw_record, raw_record, "POST_CHECK")
+    assert len(res_fail.findings) == 1
+    assert "exceeds permitted coordinate precision" in res_fail.findings[0].reason
 
 
 def test_rejects_unknown_operator_and_overlapping_versions():

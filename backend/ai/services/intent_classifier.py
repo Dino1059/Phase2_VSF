@@ -27,6 +27,7 @@ class UserIntent(str, Enum):
     DATA_OR_CATALOG_INQUIRY = "DATA_OR_CATALOG_INQUIRY"
     POLICY_OR_LEGAL_INQUIRY = "POLICY_OR_LEGAL_INQUIRY"
     TOPIC_SWITCH = "TOPIC_SWITCH"
+    WARNING_INQUIRY = "WARNING_INQUIRY"
 
 
 class IntentClassifier:
@@ -126,6 +127,14 @@ class IntentClassifier:
         r"ti\u00eau\s+chu\u1ea9n\s+(ph\u00e1p\s+l\u00fd|ki\u1ec3m\s+to\u00e1n)",
     ]
 
+    # Patterns for warning records inquiry
+    WARNING_PATTERNS = [
+        r"\bwarning(s)?\b",
+        r"c\u1ea3nh\s+b\u00e1o",
+        r"b\u1ea3n\s+ghi\s+(warning|c\u1ea3nh\s+b\u00e1o)",
+        r"s\u1ed1\s+(warning|c\u1ea3nh\s+b\u00e1o)",
+    ]
+
     @classmethod
     def classify(cls, message: str) -> UserIntent:
         """
@@ -144,6 +153,10 @@ class IntentClassifier:
         # 3. Pipeline Execution Errors / Progress
         if any(re.search(p, text) for p in cls.PIPELINE_ERROR_PATTERNS):
             return UserIntent.PIPELINE_ERROR_OR_PROGRESS
+
+        # 4. Warning Inquiry (explicit questions about warning records, warnings count, or reasons)
+        if any(re.search(p, text) for p in cls.WARNING_PATTERNS):
+            return UserIntent.WARNING_INQUIRY
 
         # 4. Check for Negation of Remediation (User strictly does NOT want remediation)
         has_remediation_negation = any(

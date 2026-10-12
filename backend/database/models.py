@@ -682,3 +682,106 @@ class PreventiveAlertModel(BaseModel):
     predicted_risk: str = "Nguy cơ vi phạm L1 Sensor trong các chu kỳ vận hành tới"
     recommended_proposal_id: Optional[str] = None
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# =============================================================================
+# STRUCTURED QUARANTINE REMEDIATION MODELS (EVIDENCE-OR-ABSTAIN & HITL)
+# =============================================================================
+
+class ProposalStatus(str, Enum):
+    DRAFT = "DRAFT"
+    DRY_RUN_PASSED = "DRY_RUN_PASSED"
+    DRY_RUN_FAILED = "DRY_RUN_FAILED"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    PENDING_2ND_APPROVAL = "PENDING_2ND_APPROVAL"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXECUTING = "EXECUTING"
+    REMEDIATED = "REMEDIATED"
+    ROLLED_BACK = "ROLLED_BACK"
+    STALE = "STALE"
+
+
+class RemediationRiskLevel(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class ProposalTargetModel(BaseModel):
+    run_id: str
+    dataset_id: str
+    column: str
+    quarantine_ids: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_quarantine_targets(self) -> "ProposalTargetModel":
+        if not self.quarantine_ids:
+            raise ValueError("quarantine_ids không được để trống")
+        if len(set(self.quarantine_ids)) != len(self.quarantine_ids):
+            raise ValueError("quarantine_ids không được chứa các phần tử trùng lặp")
+        if len(self.quarantine_ids) > 1000:
+            raise ValueError("Kích thước lô xử lý vượt quá giới hạn tối đa 1000 bản ghi")
+        return self
+
+
+class DiffSampleModel(BaseModel):
+    quarantine_id: str
+    column: str
+    data_type: str = "string"
+    before_length: int = 0
+    after_length: int = 0
+    before_preview: str
+    after_preview: str
+    format_validation_status: str = "PASS"
+    before_hash: str
+    after_hash: str
+
+
+class DryRunResultModel(BaseModel):
+    dry_run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    proposal_id: str
+    status: str = "DRY_RUN_PASSED"
+    execution_time_ms: float = 0.0
+    expected_rows: int
+    actual_rows: int
+    row_count_match: bool = True
+    diff_samples: List[DiffSampleModel] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    rollback_guaranteed: bool = True
+    dry_run_hash: str = ""
+
+
+class StructuredRemediationProposalModel(BaseModel):
+    proposal_id: str = Field(default_factory=lambda: f"PROP-REM-{uuid.uuid4().hex[:8].upper()}")
+    finding_id: str
+    version: int = Field(default=1, ge=1)
+    status: ProposalStatus = ProposalStatus.DRAFT
+    created_by: str = "AI_AGENT"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: Optional[datetime] = None
+    idempotency_key: str = Field(default_factory=lambda: f"IDEM-{uuid.uuid4()}")
+    risk_level: RemediationRiskLevel = RemediationRiskLevel.MEDIUM
+    requires_second_approval: bool = False
+    second_approved_by: Optional[str] = None
+    proposal_hash: str = ""
+    source_snapshot_hash: str = ""
+    operation_id: str
+    target: ProposalTargetModel
+    params: Dict[str, Any] = Field(default_factory=dict)
+    reason: str
+    expected_rows: int
+    confidence: str = "SUPPORTED"
+    grounding_evidence_ids: List[str] = Field(default_factory=list)
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejected_by: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    reject_reason: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    resolution_note: Optional[str] = None
+    latest_dry_run: Optional[DryRunResultModel] = None
+    audit_trail_id: Optional[str] = None
+

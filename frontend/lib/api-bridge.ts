@@ -305,7 +305,9 @@ export interface FindingAIAnalysis {
   finding_id: string;
   explanation: string;
   root_cause: string;
-  confidence: number;
+  confidence: number | null;
+  grounding_level?: 'SUPPORTED' | 'PARTIAL' | 'INSUFFICIENT_EVIDENCE' | string;
+  source_label?: string;
   issues: Array<{
     field: string;
     issue: string;
@@ -343,6 +345,71 @@ export interface FindingRemediationDecision {
   reviewed_by?: string;
   reviewed_at?: string;
   message?: string;
+}
+
+export interface DiffSample {
+  quarantine_id: string;
+  column: string;
+  data_type: string;
+  before_length: number;
+  after_length: number;
+  before_preview: string;
+  after_preview: string;
+  format_validation_status: string;
+  before_hash: string;
+  after_hash: string;
+}
+
+export interface DryRunResult {
+  dry_run_id: string;
+  proposal_id: string;
+  status: string;
+  execution_time_ms: number;
+  expected_rows: number;
+  actual_rows: number;
+  row_count_match: boolean;
+  diff_samples: DiffSample[];
+  warnings: string[];
+  rollback_guaranteed: boolean;
+  dry_run_hash: string;
+}
+
+export interface StructuredRemediationProposal {
+  proposal_id: string;
+  finding_id: string;
+  version: number;
+  status: 'DRAFT' | 'DRY_RUN_PASSED' | 'DRY_RUN_FAILED' | 'PENDING_APPROVAL' | 'PENDING_2ND_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXECUTING' | 'REMEDIATED' | 'ROLLED_BACK' | 'STALE';
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  expires_at?: string;
+  idempotency_key: string;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  requires_second_approval: boolean;
+  second_approved_by?: string;
+  proposal_hash: string;
+  source_snapshot_hash: string;
+  operation_id: string;
+  target: {
+    run_id: string;
+    dataset_id: string;
+    column: string;
+    quarantine_ids: string[];
+  };
+  params: Record<string, any>;
+  reason: string;
+  expected_rows: number;
+  confidence: string;
+  grounding_evidence_ids: string[];
+  approved_by?: string;
+  approved_at?: string;
+  rejected_by?: string;
+  rejected_at?: string;
+  reject_reason?: string;
+  resolved_by?: string;
+  resolved_at?: string;
+  resolution_note?: string;
+  latest_dry_run?: DryRunResult;
 }
 
 export interface DashboardOverview {
@@ -917,6 +984,7 @@ export const apiBridge = {
    * Lấy danh sách Warning Records (Statistical Anomalies: L2 Drift, L3 Relational, L4 Changepoint)
    */
   async fetchWarningRecords(params?: {
+    runId?: string;
     datasetId?: string;
     signalLane?: string;
     signalLayer?: string;
@@ -925,6 +993,7 @@ export const apiBridge = {
   }): Promise<{ total: number; limit: number; offset: number; records: WarningRecord[] }> {
     let url = `${API_ROOT}/warnings`;
     const qp = new URLSearchParams();
+    if (params?.runId) qp.append('run_id', params.runId);
     if (params?.datasetId) qp.append('dataset_id', params.datasetId);
     if (params?.signalLane) qp.append('signal_lane', params.signalLane);
     if (params?.signalLayer) qp.append('signal_layer', params.signalLayer);
@@ -1142,6 +1211,118 @@ export const apiBridge = {
   },
 
   /**
+   * Structured Quarantine Remediation APIs (Evidence-or-Abstain & HITL)
+   */
+  async fetchRemediationProposalForFinding(findingId: string): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/proposals/by-finding/${encodeURIComponent(findingId)}`, {
+      headers: getUserIdentityHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Không thể nạp proposal cho finding (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async runDryRunForProposal(proposalId: string): Promise<DryRunResult> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/dry-run`, {
+      method: 'POST',
+      headers: getUserIdentityHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi chạy mô phỏng Dry-Run (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async updateProposalParams(
+    proposalId: string,
+    params: Record<string, any>,
+    operationId?: string,
+    targetQuarantineIds?: string[]
+  ): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/update-params`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({
+        params,
+        operation_id: operationId,
+        target_quarantine_ids: targetQuarantineIds,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi cập nhật tham số (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async submitProposalForReview(proposalId: string): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/submit`, {
+      method: 'POST',
+      headers: getUserIdentityHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi gửi phê duyệt (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async approveStructuredProposal(proposalId: string, comment?: string): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({ comment }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi phê duyệt đề xuất (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async rejectStructuredProposal(proposalId: string, reason: string): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi từ chối đề xuất (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async executeStructuredRemediation(proposalId: string, idempotencyKey?: string): Promise<any> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify({ idempotency_key: idempotencyKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi thực thi transaction remediation (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+
+  /**
    * Step 5 / Spec 08: Cập nhật trạng thái Finding (RBAC: Auditor cấm)
    */
   async updateFindingStatus(findingId: string, status: string, note?: string): Promise<any> {
@@ -1233,20 +1414,9 @@ export const apiBridge = {
    * Trạng thái kết nối PostgreSQL Catalog Lineage
    */
   async fetchLineageStatus(): Promise<LineageStatus> {
-    try {
-      const res = await fetch(`${API_ROOT}/lineage/status`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) return res.json();
-    } catch {
-      // Fallback
-    }
-    return {
-      isConnected: true,
-      mode: 'CATALOG_NATIVE',
-      modeDescription: 'Sơ đồ kiến trúc & phả hệ dữ liệu trích xuất từ PostgreSQL Catalog (Native Engine)',
-      totalDatasets: 8,
-      totalJobs: 6,
-      checkedAt: new Date().toISOString(),
-    };
+    const res = await fetch(`${API_ROOT}/lineage/status`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể kiểm tra trạng thái Lineage`);
+    return res.json();
   },
 
   /**
@@ -1280,13 +1450,9 @@ export const apiBridge = {
    * Lấy danh sách lần chạy có dữ liệu Lineage
    */
   async fetchLineageRuns(): Promise<LineageRunItem[]> {
-    try {
-      const res = await fetch(`${API_ROOT}/lineage/runs`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) return res.json();
-    } catch {
-      // Fallback
-    }
-    return [];
+    const res = await fetch(`${API_ROOT}/lineage/runs`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp danh sách Lineage`);
+    return res.json();
   },
 
   /**
@@ -1325,9 +1491,12 @@ export const apiBridge = {
   /**
    * Lấy Full Pipeline Run Lineage cho Run cụ thể
    */
-  async fetchRunLineage(runId: string, column?: string): Promise<UnifiedLineageResponse> {
-    const qs = column ? `?column=${encodeURIComponent(column)}` : '';
-    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage${qs}`, {
+  async fetchRunLineage(runId: string, column?: string, revision?: number): Promise<UnifiedLineageResponse> {
+    const qs = new URLSearchParams();
+    if (column) qs.set('column', column);
+    if (revision !== undefined) qs.set('revision', String(revision));
+    const query = qs.toString();
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage${query ? `?${query}` : ''}`, {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp phả hệ lượt chạy`);
@@ -1337,8 +1506,9 @@ export const apiBridge = {
   /**
    * Xuất phả hệ OpenLineage 1.0 JSON Facets
    */
-  async exportRunOpenLineage(runId: string): Promise<any> {
-    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage/export-openlineage`, {
+  async exportRunOpenLineage(runId: string, revision?: number): Promise<any> {
+    const qs = revision !== undefined ? `?revision=${encodeURIComponent(String(revision))}` : '';
+    const res = await fetch(`${API_ROOT}/runs/${encodeURIComponent(runId)}/lineage/export-openlineage${qs}`, {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể xuất dữ liệu OpenLineage`);
@@ -1348,7 +1518,7 @@ export const apiBridge = {
 
 export interface LineageStatus {
   isConnected: boolean;
-  mode: 'CATALOG_NATIVE' | 'CATALOG_TOPOLOGY' | 'CATALOG_TOPOLOGY_FALLBACK';
+  mode: 'RUN_SNAPSHOT' | 'CATALOG_NATIVE' | 'CATALOG_TOPOLOGY' | 'CATALOG_TOPOLOGY_FALLBACK';
   modeDescription: string;
   totalDatasets: number;
   totalJobs: number;
@@ -1373,12 +1543,46 @@ export interface LineageNode {
   policyName?: string;
   severity?: string;
   facets?: Record<string, any>;
+  taskId?: string;
+  mapIndex?: number;
+  finalTryNumber?: number;
+  totalDuration?: number;
+  attempts?: LineageTaskAttempt[];
+}
+
+export interface LineageTaskAttempt {
+  tryNumber: number;
+  status: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  duration?: number | null;
+  eventTime?: string | null;
+  sourceSequence?: number | null;
 }
 
 export interface LineageEdge {
   from: string;
   to: string;
   isHighlighted?: boolean;
+  relationType?: 'LOGICAL_DEPENDENCY' | 'INSTANCE_OF' | 'DECLARED' | 'OBSERVED';
+  direction?: 'INPUT' | 'OUTPUT';
+}
+
+export type LineageLifecycleStatus = 'BUILDING' | 'FINALIZED';
+export type LineageDataStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
+
+export interface LineageSource {
+  source: string;
+  status: 'AVAILABLE' | 'UNAVAILABLE';
+  observedAt?: string | null;
+}
+
+export interface LineageSourceError {
+  source: string;
+  code: string;
+  message: string;
+  retryable: boolean;
+  observedAt?: string | null;
 }
 
 export interface LineageGraphResponse {
@@ -1442,6 +1646,18 @@ export interface UnifiedLineageResponse {
   };
   digitalSignature?: string;
   evidenceHash?: string;
+  lifecycleStatus?: LineageLifecycleStatus;
+  dataStatus?: LineageDataStatus;
+  dagVersion?: string;
+  snapshotStatus?: LineageLifecycleStatus;
+  revision?: number;
+  schemaVersion?: number | string;
+  asOf?: string;
+  finalizedAt?: string | null;
+  repairedFromRevision?: number | null;
+  sources?: LineageSource[];
+  missingMetadata?: string[];
+  sourceErrors?: LineageSourceError[];
   aiExplanationContext?: {
     summary?: string;
     legalBasis?: string;
@@ -1455,14 +1671,18 @@ export interface UnifiedLineageResponse {
 
 export interface LineageRunItem {
   runId: string;
-  dagId: string;
-  datasetId: string;
-  digitalSignature: string;
-  evidenceHash: string;
-  scannedCount: number;
-  silverCount: number;
-  quarantineCount: number;
-  warningCount: number;
-  createdAt: string;
+  dagId?: string;
+  datasetId?: string;
+  digitalSignature?: string;
+  evidenceHash?: string;
+  scannedCount?: number;
+  silverCount?: number;
+  quarantineCount?: number;
+  warningCount?: number;
+  createdAt?: string;
   hasOpenLineage: boolean;
+  lifecycleStatus?: LineageLifecycleStatus;
+  dataStatus?: LineageDataStatus;
+  revision?: number;
+  asOf?: string;
 }

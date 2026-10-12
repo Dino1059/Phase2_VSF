@@ -13,6 +13,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
@@ -223,15 +224,25 @@ class ComplianceRuleEvaluator:
             ok = value != original and all(re.search(str(pattern), value) is None for pattern in patterns)
             return ok, field, "[REDACTED]", f"{field} still contains disallowed personal data"
         if operator in {"precision", "generalized"}:
-            value = self._number(record[field])
             max_decimals = int(c.get("max_decimals", c.get("decimals", 2)))
-            rendered = format(value, ".15f").rstrip("0").rstrip(".")
-            decimals = len(rendered.partition(".")[2])
             raw_value = raw.get(field)
+            val_str = str(record[field]).strip()
+            try:
+                dec_val = Decimal(val_str)
+                exponent = abs(dec_val.as_tuple().exponent) if dec_val.as_tuple().exponent < 0 else 0
+                val_num = float(dec_val)
+                is_rounded = exponent <= max_decimals or abs(val_num - round(val_num, max_decimals)) < 1e-7
+            except (InvalidOperation, TypeError, ValueError):
+                val_num = self._number(record[field])
+                is_rounded = abs(val_num - round(val_num, max_decimals)) < 1e-7
+
             changed = str(record[field]) != str(raw_value)
             if raw_value not in (None, ""):
-                changed = changed or value != self._number(raw_value)
-            ok = decimals <= max_decimals and (changed or not c.get("require_changed", False))
+                try:
+                    changed = changed or val_num != self._number(raw_value)
+                except (ValueError, TypeError):
+                    pass
+            ok = is_rounded and (changed or not c.get("require_changed", False))
             return ok, field, "[LOCATION]", f"{field} exceeds permitted coordinate precision ({max_decimals} decimals)"
         if operator == "geofence":
             lat_field, lon_field = str(c.get("latitude_field", "latitude")), str(c.get("longitude_field", "longitude"))

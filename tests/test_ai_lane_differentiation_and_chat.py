@@ -29,7 +29,7 @@ async def test_chat_invokes_llm_adapter_dynamically(mock_orchestrator, monkeypat
     """
     call_tracker = {"called": False, "prompt": "", "context": {}}
 
-    def spy_complete(prompt, system_instruction="", context=None, temperature=0.1, max_tokens=1024):
+    def spy_complete(prompt, system_instruction="", context=None, temperature=0.1, max_tokens=1024, **kwargs):
         call_tracker["called"] = True
         call_tracker["prompt"] = prompt
         call_tracker["context"] = context

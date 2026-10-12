@@ -193,6 +193,9 @@ def test_auditor_can_trigger_pipeline_run(monkeypatch):
     # Mock database connection
     import database.profiler_engine as profiler_engine
     monkeypatch.setattr(profiler_engine, "get_db_connection", lambda: mock_conn)
+    from src.lineage.run_lineage_store import RunLineageStore, StoreResult
+    monkeypatch.setattr(RunLineageStore, "create",
+                        lambda self, snapshot: StoreResult(True, snapshot=snapshot))
 
     # Mock Airflow urlopen
     mock_resp = MagicMock()

@@ -111,7 +111,7 @@ class DataTrustAgentOrchestrator:
         from psycopg2.extras import RealDictCursor
         from backend.ai.services.chat_session_manager import session_manager
         from backend.ai.services.context_loader import (
-            RunContextLoader, load_catalog_columns, load_profiling_stats, load_compliance_rules
+            RunContextLoader, load_catalog_columns, load_profiling_stats, load_compliance_rules, load_warning_evidence
         )
 
         context = context or {}
@@ -422,9 +422,205 @@ class DataTrustAgentOrchestrator:
             }
 
         # -------------------------------------------------------------
+        # 6.5 WARNING INQUIRY: Queries about warning records, reasons & counts
+        # -------------------------------------------------------------
+        if user_intent == UserIntent.WARNING_INQUIRY:
+            we = load_warning_evidence(run_id)
+
+            # A. Resilience / Fallback on DB connection failure
+            if we.get("db_error"):
+                db_err_reply = (
+                    f"Hệ thống hiện chưa thể truy xuất dữ liệu chi tiết từ bảng cảnh báo (`warning.records`) của lần chạy `{run_id}` "
+                    f"do gián đoạn kết nối cơ sở dữ liệu. Bạn vui lòng thử lại sau giây lát hoặc kiểm tra dịch vụ lưu trữ."
+                )
+                clean_db_err = sanitize_chat_markdown(db_err_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_db_err,
+                    updates={}
+                )
+                return {
+                    "response": clean_db_err,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {"intent": "WARNING_INQUIRY", "status": "DB_CONNECTION_ERROR"},
+                    "traces": []
+                }
+
+            pipeline_cnt = we.get("pipeline_warning_count", 0)
+            actual_cnt = we.get("actual_records_count", 0)
+            grouped = we.get("grouped_warnings", [])
+            discrepancy_note = we.get("discrepancy_note")
+            samples = we.get("sanitized_samples", [])
+
+            # B. Zero warnings case
+            if pipeline_cnt == 0 and actual_cnt == 0:
+                zero_reply = (
+                    f"Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ bản ghi cảnh báo nào (`warning_count = 0`). "
+                    f"Toàn bộ dữ liệu được định tuyến trực tiếp vào chuẩn Silver hoặc khu vực Cách ly (Quarantine) nếu có vi phạm cứng."
+                )
+                clean_zero = sanitize_chat_markdown(zero_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_zero,
+                    updates={}
+                )
+                return {
+                    "response": clean_zero,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {"intent": "WARNING_INQUIRY", "warning_count": 0, "actual_records_count": 0},
+                    "traces": []
+                }
+
+            # C. Warning records exist - Quantitative, rule-bound, fact-grounded presentation
+            cp_summary = we.get("changepoint_summary")
+            cp_section = ""
+            if cp_summary:
+                rule_id = cp_summary.get("rule_id", "L4-DEFAULT-METRICS")
+                t_metric = cp_summary.get("target_metric", "trip_distance_km")
+                pen = cp_summary.get("penalty_threshold", 3.0)
+                dirs = cp_summary.get("shift_directions", {})
+                up_cnt = dirs.get("UP", 0)
+                down_cnt = dirs.get("DOWN", 0)
+                mag_range = cp_summary.get("magnitude_range", {})
+                score_range = cp_summary.get("score_range", {})
+                events = cp_summary.get("events", [])
+
+                events_text = "\n".join([
+                    f"  - `{e.get('event_time')}`: Dịch chuyển **{e.get('direction')}** (biên độ `{e.get('magnitude'):+.2f} km`), trung bình dịch từ `{e.get('pre_mean')}` sang `{e.get('post_mean')}` (ảnh hưởng {e.get('affected_records')} bản ghi liên tiếp)."
+                    for e in events[:3]
+                ])
+
+                direction_bits = []
+                if up_cnt:
+                    direction_bits.append(f"{up_cnt} lần tăng")
+                if down_cnt:
+                    direction_bits.append(f"{down_cnt} lần giảm")
+                direction_text = ", ".join(direction_bits) or "chưa có phân loại hướng dịch chuyển"
+
+                metric_bits = []
+                if mag_range.get("min") is not None and mag_range.get("max") is not None:
+                    metric_bits.append(
+                        f"Biên độ từ `{mag_range['min']:+.2f}` đến `{mag_range['max']:+.2f}`"
+                    )
+                if score_range.get("min") is not None and score_range.get("max") is not None:
+                    metric_bits.append(
+                        f"điểm bất thường từ `{score_range['min']:.2f}` đến `{score_range['max']:.2f}`"
+                    )
+                metric_text = "; ".join(metric_bits)
+
+                cp_section = (
+                    f"\n\nCác cảnh báo `CHANGEPOINT_SHIFT` thuộc Lane A: quy tắc `{rule_id}` phát hiện "
+                    f"phân phối của `{t_metric}` thay đổi giữa các cửa sổ quan sát "
+                    f"(ngưỡng kỹ thuật `penalty = {pen}`; {direction_text}"
+                    f"{f'; {metric_text}' if metric_text else ''}). "
+                    "Đây là tín hiệu thống kê, tự nó chưa chứng minh vi phạm pháp lý (Lane B), "
+                    "cũng chưa đủ để kết luận dữ liệu là bình thường hay hoàn toàn hợp lệ."
+                    f"{f'\n\nMột số điểm quan sát có bằng chứng:\n{events_text}' if events_text else ''}"
+                    "\n\nNên đối chiếu các điểm có biên độ lớn với ngưỡng của rule và bối cảnh vận hành trước khi kết luận hoặc xử lý dữ liệu."
+                )
+
+            bullets = []
+            for g in grouped:
+                w_type = g.get("warning_type") or "ADVISORY"
+                w_reason = g.get("warning_reason") or "Cảnh báo độ lệch dữ liệu"
+                g_cnt = g.get("count", 0)
+                lane = g.get("signal_lane")
+                layer = g.get("signal_layer")
+                lane_info = f" (Làn: `{lane}`" if lane else ""
+                if layer:
+                    lane_info += f", Lớp: `{layer}`" if lane_info else f" (Lớp: `{layer}`"
+                if lane_info:
+                    lane_info += ")"
+                bullets.append(f"- **{g_cnt:,} bản ghi**: Loại `{w_type}` - {w_reason}{lane_info}")
+
+            bullet_text = "\n".join(bullets) if bullets else "- Không có phân nhóm chi tiết."
+            discrepancy_text = f"\n\n> ⚠️ **Lưu ý đối soát**: {discrepancy_note}" if discrepancy_note else ""
+
+            default_warning_reply = (
+                f"Lần chạy `{run_id}` ghi nhận **{actual_cnt:,}** bản ghi Warning. Đây là các tín hiệu cảnh báo thống kê kỹ thuật (Lane A), "
+                f"**không phải là vi phạm pháp lý** hay chính sách tuân thủ (Lane B). "
+                f"Theo chính sách định tuyến hiện tại, riêng tín hiệu Warning không tự động đưa bản ghi vào Quarantine; "
+                f"việc bản ghi có đi tiếp vào Silver còn phụ thuộc các rule khác. Các mô hình ở tầng Gold cần lưu ý độ trôi phân phối này.\n\n"
+                f"**Thống kê tổng quan**:\n"
+                f"- Số bản ghi cảnh báo thực tế: **{actual_cnt:,}**\n"
+                f"- Chỉ số ghi nhận tại pipeline: **{pipeline_cnt:,}**\n\n"
+                f"**Phân nhóm cảnh báo**:\n"
+                f"{bullet_text}"
+                f"{cp_section}"
+                f"{discrepancy_text}"
+            )
+
+            clean_warning_reply = sanitize_chat_markdown(default_warning_reply)
+
+            if not self.llm_adapter.force_mock and self.llm_adapter.provider != "mock":
+                try:
+                    sys_inst = (
+                        "You are DataTrust AI Auditor, an expert data governance and reliability engineer. "
+                        "All metrics provided are verified ground truths from PostgreSQL. "
+                        "Answer the user's exact question first in natural Vietnamese. Adapt the form to intent: "
+                        "use 1-3 concise sentences for a short factual question; focus on cause and evidence for a why-question; "
+                        "use headings or bullets only when the user asks for detail or the evidence is complex. "
+                        "Do not force an analogy or a fixed section structure. "
+                        "Do NOT invent numbers or minimize issues with empty phrases like 'normal phenomenon'. "
+                        "Differentiate clearly: Lane A statistical anomalies are NOT legal/compliance violations."
+                    )
+                    prompt = (
+                        f"Người dùng hỏi về cảnh báo: '{message}'.\n"
+                        f"Dữ liệu kiểm toán lần chạy {run_id}:\n"
+                        f"- Số bản ghi cảnh báo thực tế: {actual_cnt:,}\n"
+                        f"- Số bản ghi pipeline ghi nhận: {pipeline_cnt:,}\n"
+                        f"- Phân nhóm cảnh báo:\n{bullet_text}\n"
+                        f"{f'- Phân tích changepoint: {json.dumps(cp_summary, default=str)}' if cp_summary else ''}\n"
+                        f"{f'- Lưu ý đối soát: {discrepancy_note}' if discrepancy_note else ''}\n\n"
+                        f"Yêu cầu: Trả lời trực tiếp câu hỏi người dùng, chỉ rõ rule_id, ngưỡng threshold, change_magnitude và phân biệt rõ Lane A (kỹ thuật) vs Lane B (pháp lý)."
+                    )
+                    llm_res = self.llm_adapter.complete(
+                        prompt=prompt,
+                        system_instruction=sys_inst,
+                        context={"run_id": run_id, "warning_evidence": we},
+                        temperature=0.2,
+                        max_tokens=450
+                    )
+                    llm_text = llm_res.get("text", "").strip()
+                    if llm_text:
+                        clean_warning_reply = sanitize_chat_markdown(llm_text)
+                except Exception as e:
+                    logger.warning(f"LLM interpretation for warning inquiry failed: {e}")
+
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_warning_reply,
+                updates={}
+            )
+            return {
+                "response": clean_warning_reply,
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {
+                    "intent": "WARNING_INQUIRY",
+                    "pipeline_warning_count": pipeline_cnt,
+                    "actual_records_count": actual_cnt,
+                    "is_reconciled": we.get("is_reconciled", True),
+                    "grouped_warnings": grouped
+                },
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
         # 7. FINDING RCA / REMEDIATION / INVESTIGATION
         # -------------------------------------------------------------
-        if has_investigation_keywords or target_finding_id or user_intent in (UserIntent.ROOT_CAUSE_ONLY, UserIntent.REMEDIATION_ONLY, UserIntent.BOTH_RCA_AND_REMEDIATION):
+        if (
+            user_intent != UserIntent.WARNING_INQUIRY
+            and (has_investigation_keywords or target_finding_id or user_intent in (UserIntent.ROOT_CAUSE_ONLY, UserIntent.REMEDIATION_ONLY, UserIntent.BOTH_RCA_AND_REMEDIATION))
+        ):
             finding_row = None
             sample_q = None
 
@@ -496,12 +692,21 @@ class DataTrustAgentOrchestrator:
                         )
                         finding_row = cur.fetchone()
 
+                    grounded_samples = []
                     if finding_row:
-                        cur.execute(
-                            "SELECT source_row_pk, failure_lane, violation_reason, raw_record_json, quarantine_id FROM quarantine.records WHERE run_id = %s LIMIT 3;",
-                            (run_id,)
+                        from backend.ai.services.context_loader import fetch_grounded_quarantine_samples
+                        fid_for_query = finding_row.get("finding_id")
+                        rule_for_query = finding_row.get("rule_id")
+                        col_for_query = finding_row.get("column_name")
+                        grounded_samples = fetch_grounded_quarantine_samples(
+                            cur,
+                            run_id=run_id,
+                            finding_id=fid_for_query,
+                            rule_id=rule_for_query,
+                            column_name=col_for_query,
+                            limit=3
                         )
-                        sample_q = cur.fetchone()
+                        sample_q = grounded_samples[0] if grounded_samples else None
                 conn.close()
             except HTTPException:
                 raise
@@ -546,9 +751,11 @@ class DataTrustAgentOrchestrator:
             if "LANE_A" in rule.upper() or "SENSOR" in rule.upper():
                 failure_lane = "LANE_A"
 
+            grounding_level = "SUPPORTED" if grounded_samples else "INSUFFICIENT_EVIDENCE"
             rca_context = {
                 "finding": dict(finding_row),
-                "evidence": [dict(sample_q)] if sample_q else [],
+                "evidence": grounded_samples,
+                "grounding_level": grounding_level,
                 "failure_lane": failure_lane,
                 "rule_id": rule,
                 "column_name": col,
@@ -558,8 +765,14 @@ class DataTrustAgentOrchestrator:
             }
 
             intent_instruction = ""
+            if grounding_level == "INSUFFICIENT_EVIDENCE":
+                intent_instruction += (
+                    "NGUYÊN TẮC EVIDENCE-OR-ABSTAIN (BẮT BUỘC): Không tìm thấy bản ghi cách ly thực nghiệm khớp chính xác với finding này trong lần chạy. "
+                    "TUYỆT ĐỐI KHÔNG SUY ĐOÁN hoặc tự bịa nguyên nhân vật lý cụ thể (như quá tải, lỗi làm mát, trôi cảm biến). "
+                    "Hãy nêu rõ vi phạm được phát hiện theo định nghĩa quy tắc kiểm toán nhưng chưa có mẫu dữ liệu đối chứng để kết luận nguyên nhân vật lý cụ thể.\n"
+                )
             if user_intent == UserIntent.ROOT_CAUSE_ONLY:
-                intent_instruction = (
+                intent_instruction += (
                     "YÊU CẦU TRỌNG TÂM: Người dùng CHỈ hỏi về nguyên nhân vi phạm. "
                     "CHỈ giải thích nguyên nhân và cơ chế phát sinh lỗi. TUYỆT ĐỐI KHÔNG tự ý liệt kê hàng loạt giải pháp khắc phục hay remediation."
                 )
@@ -583,12 +796,13 @@ Câu hỏi người dùng: "{message}".
 
 {intent_instruction}
 
-HƯỚNG DẪN TRẢ LỜI TỰ NHIÊN (CHUẨN CHATGPT):
-1. ĐÚNG TRỌNG TÂM & TỰ NHIÊN: Trả lời trực diện, lịch sự, không dùng khuôn mẫu hành chính rập khuôn.
-2. ĐỘ DÀI TỶ LỆ VỚI ĐỘ PHỨC TẠP: Câu hỏi ngắn trả lời súc tích; câu hỏi điều tra sâu trình bày theo các phần rõ ràng (Phát hiện -> Giả thuyết nguyên nhân -> Hướng xử lý).
-3. KHÔNG ÉP CỤM TỪ '**Kết luận:**' Ở ĐẦU MỌI ĐOẠN VĂN: Bắt đầu tự nhiên bằng câu nhận xét trọng tâm.
-4. GIẢM TRÙNG LẶP: Không lặp lại cùng một nội dung. Chỉ phân tách Lane A / Lane B khi vi phạm kép (BOTH).
-5. ẨN 100% JSON & THÔNG TIN KỸ THUẬT: Tuyệt đối không hiển thị chuỗi JSON thô, code block ```json, hoặc biến nội bộ (requires_approval = True).
+HƯỚNG DẪN TRẢ LỜI TỰ NHIÊN, ĐÚNG TRỌNG TÂM:
+1. Trả lời trực tiếp câu hỏi ngay ở câu đầu; không chào lại và không nhắc lại nguyên văn câu hỏi.
+2. Điều chỉnh hình thức theo ý định: câu hỏi ngắn cần 1-3 câu; câu hỏi "vì sao" tập trung vào nguyên nhân và evidence; chỉ dùng tiêu đề hoặc bullet khi người dùng yêu cầu chi tiết hoặc nội dung thực sự phức tạp.
+3. Các ý về bản chất vấn đề, bằng chứng, ảnh hưởng và hành động là nội dung cần cân nhắc khi phù hợp, không phải bốn mục bắt buộc. Chỉ dùng ví dụ đời thường nếu ví dụ giúp làm rõ và không đưa thêm dữ kiện chưa có trong evidence.
+4. Không dùng khuôn mẫu hành chính, không ép cụm từ "Kết luận:" ở đầu đoạn, không lặp lại cùng một nội dung. Chỉ phân tách Lane A / Lane B khi điều đó liên quan trực tiếp hoặc khi vi phạm kép (BOTH).
+5. Không gọi dữ liệu là bình thường, an toàn hoặc hợp lệ nếu evidence không chứng minh. Khi thiếu evidence, nêu rõ điều đã biết và điều chưa thể kết luận.
+6. ẨN 100% JSON & THÔNG TIN KỸ THUẬT: Tuyệt đối không hiển thị chuỗi JSON thô, code block JSON, hoặc biến nội bộ.
 
 Trả về JSON có cấu trúc gồm:
 - 'answer': Văn bản phản hồi tự nhiên cho người dùng.
@@ -596,14 +810,20 @@ Trả về JSON có cấu trúc gồm:
 
             system_inst = (
                 "You are the Data Governance & Root Cause Analysis specialist for DataTrust OS. "
-                "Analyze objectively using actual evidence. Respond in natural, professional Vietnamese like ChatGPT. "
-                "Adapt response length to complexity and avoid repetitive bureaucratic prefixes."
+                "Analyze objectively using actual evidence. Explain in intuitive, easy-to-understand Vietnamese like ChatGPT. "
+                "Answer the exact question first and adapt response length and structure to the user's intent. "
+                "Short questions should receive concise answers; why-questions should prioritize causes and supporting evidence; "
+                "headings, bullets, analogies, impact, and next actions are optional and should appear only when useful. "
+                "Never add facts through an analogy or claim that data is normal, safe, or valid without supporting evidence. "
+                "Avoid repetitive bureaucratic prefixes while preserving the required structured JSON response contract."
             )
 
+            history_turns = session_state.get("recent_messages", []) if session_state else []
             llm_res = self.llm_adapter.complete(
                 prompt=prompt,
                 system_instruction=system_inst,
                 context=rca_context,
+                history=history_turns,
                 temperature=0.1
             )
 
@@ -669,13 +889,23 @@ Trả về JSON có cấu trúc gồm:
                 }
             )
 
+            source_label = llm_res.get("source") or ("OPENAI" if llm_res.get("provider") == "openai" else "DETERMINISTIC_FALLBACK")
+            evidence_ids = [str(s.get("quarantine_id")) for s in grounded_samples if s.get("quarantine_id")]
+
             return {
                 "response": clean_response,
                 "session_id": session_id,
                 "run_id": run_id,
                 "data": {
                     "finding": dict(finding_row),
-                    "structured_analysis": structured_data
+                    "structured_analysis": structured_data,
+                    "grounding_level": grounding_level,
+                    "source_label": source_label,
+                    "rule_id": rule,
+                    "law_ref": law,
+                    "tools_called": ["QuarantineSampler", "PolicyRegistry", "ComplianceEvaluator"],
+                    "evidence_ids": evidence_ids,
+                    "evidence_samples": grounded_samples
                 },
                 "traces": [step_trace.model_dump()]
             }
@@ -703,6 +933,12 @@ Trả về JSON có cấu trúc gồm:
             pass_rows = dry_run_res.get("simulated_pass_rows", 198)
             quar_rows = dry_run_res.get("simulated_quarantine_rows", 2)
             pass_rate = dry_run_res.get("pass_rate_pct", 99.0)
+            data_source = dry_run_res.get("data_source", "SYNTHETIC_SIMULATION")
+            synth_notice = dry_run_res.get("synthetic_notice")
+            p50_str = f"{dry_run_res.get('latency_p50_ms', 0.0):.3f}ms"
+            p95_str = f"{dry_run_res.get('latency_p95_ms', 0.0):.3f}ms"
+            data_src_label = "Mẫu dữ liệu thực tế (Real Dataset Sample)" if data_source == "REAL_DATASET_SAMPLE" else "Dữ liệu mô phỏng tổng hợp (Synthetic Simulation)"
+            scope_label = dry_run_res.get("benchmark_scope", "Microbenchmark mô phỏng trên tập mẫu")
 
             rule_trace = AgentTraceModel(
                 session_id=session_id,
@@ -712,7 +948,7 @@ Trả về JSON có cấu trúc gồm:
                 action="EXECUTE_DRY_RUN",
                 tool_name="dry_run",
                 tool_input={"operation_id": op_id, "column": target_col, "sample_size": total_sim},
-                observation=f"Tỷ lệ sạch (Silver Pass): {pass_rate}%, Cách ly: {quar_rows} dòng."
+                observation=f"Tỷ lệ sạch (Silver Pass): {pass_rate}%, Cách ly: {quar_rows} dòng. Nguồn: {data_source}."
             )
             self.react_engine.add_trace(rule_trace)
             await self._broadcast_step(rule_trace)
@@ -721,11 +957,13 @@ Trả về JSON có cấu trúc gồm:
                 f"📜 **Đề xuất Quy tắc Khắc phục (Data Treatment Rule) từ AI Agent**:\n\n"
                 f"• **Quy tắc đề xuất**: `{op_id}({', '.join(f'{k}={v}' for k, v in params.items())})` trên cột `{target_col}`\n"
                 f"• **Mục tiêu**: Chuẩn hóa dữ liệu trước khi chuyển tiếp vào tầng Silver\n"
+                f"• **Nguồn dữ liệu kiểm thử**: {data_src_label}" + (f" ({synth_notice})" if synth_notice else "") + "\n"
                 f"• **Kết quả Mô phỏng Thử nghiệm (Dry-Run)**:\n"
                 f"  - Tập mẫu quét: **{total_sim:,} bản ghi**\n"
                 f"  - Dữ liệu sạch (Silver Pass): **{pass_rows:,} ({pass_rate}%)**\n"
                 f"  - Cách ly (Quarantine): **{quar_rows:,} ({round(100 - pass_rate, 2)}%)**\n"
-                f"  - Độ trễ dự kiến: **+0.7ms** (Đạt chuẩn SLA)\n\n"
+                f"  - Độ trễ vi điểm (Microbenchmark): **p50 = {p50_str} / p95 = {p95_str}**\n"
+                f"  - Lưu ý phạm vi đo: *{scope_label}*\n\n"
                 f"👉 *Quy tắc đang ở trạng thái **PENDING** theo cơ chế Human-In-The-Loop. Vui lòng chuyển sang vai trò Admin để phê duyệt.*"
             )
             clean_resp = sanitize_chat_markdown(resp)

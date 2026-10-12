@@ -469,5 +469,110 @@
         "actor": "AI_AGENT"
       }
     ]
+  },
+  "F-2671532f92": {
+    "analysis_id": "c730063c-422f-49d5-af8c-29bd29884cc3",
+    "finding_id": "F-2671532f92",
+    "failure_lane": "LANE_A",
+    "rule_id": "DATA_RELIABILITY_ANOMALY",
+    "violation_type": "COMPLIANCE_GATE",
+    "observation": "fare_amount (-23623.51) < min_val (1e-06); observed_value=-23623.51; observed_total_fare=199,145.00; computed_sum_fare_amount+tip_amount=-6,814.51; discrepancy_delta=205,959.51",
+    "explanation": "Chúng tôi phát hiện rằng một số bản ghi trong dữ liệu của bạn có giá trị fare_amount âm, điều này vi phạm quy tắc về an toàn dữ liệu. Cụ thể, fare_amount phải lớn hơn 0 nhưng một vài bản ghi có giá trị như -26188.85, -72781.84 và nhiều hơn nữa.",
+    "root_cause": "Nguyên nhân có thể do lỗi trong quá trình nhập liệu hoặc tính toán phí. Tuy nhiên, chúng tôi không thể chắc chắn nguyên nhân chính xác vì không đủ thông tin.",
+    "confidence": 0.0,
+    "confidence_method": "evidence_grounded_ratio",
+    "issues": [
+      {
+        "field": "fare_amount",
+        "issue": "giá trị âm",
+        "observed_condition": "-26188.85",
+        "likely_cause": "nguyên nhân không xác định",
+        "suggested_action": "kiểm tra và sửa lại giá trị fare_amount cho các bản ghi bị ảnh hưởng",
+        "evidence_reference": "XANH_TRIP_2134"
+      },
+      {
+        "field": "fare_amount",
+        "issue": "giá trị âm",
+        "observed_condition": "-72781.84",
+        "likely_cause": "nguyên nhân không xác định",
+        "suggested_action": "kiểm tra và sửa lại giá trị fare_amount cho các bản ghi bị ảnh hưởng",
+        "evidence_reference": "XANH_TRIP_3170"
+      },
+      {
+        "field": "fare_amount",
+        "issue": "giá trị âm",
+        "observed_condition": "-34038.15",
+        "likely_cause": "nguyên nhân không xác định",
+        "suggested_action": "kiểm tra và sửa lại giá trị fare_amount cho các bản ghi bị ảnh hưởng",
+        "evidence_reference": "XANH_TRIP_0460"
+      }
+    ],
+    "hypotheses": [],
+    "evidence_references": [
+      "1703c346-8023-49cf-a508-03af53fb6019",
+      "1f0f9873-6b0a-4816-9668-af1acd29a3f9",
+      "25a1a3b6-8d96-424a-ac10-707a1ec7c092",
+      "272a4093-a520-426c-91ce-35f3fe3d2abf",
+      "2a7c603c-a4be-433c-994d-36a72393bb9a",
+      "331aefad-38a9-407e-ab3b-0457878d0d76",
+      "3376ab35-5cd9-4f5a-a039-93d1770ac714",
+      "37aa854a-3399-476a-a449-a839374cd27e",
+      "442da35f-f352-4c4e-8c3d-6aa820fb6953",
+      "4442a5cf-0d96-4ede-91bc-4b5233ba4bdf",
+      "cdb4e84b31890b0ba5820ea068484b82cd312432ae3dde8b8f3597566dfeddef",
+      "3d094aca2477f5a9d089cbeeea17da589c56f488c1615402f86ca04d7aae6914",
+      "d65f29b6be239cd4475c5b098afc4f5eeafc0252067505f5369f9144f38dc7f6",
+      "32250be1b8728e8f34253264e13dd8ae1d62c226db6c59cb34fcba3d12796622",
+      "8856aa6c7f2314d543989a0248f8b63d5f7484651dcee776577c0c1601c99f40",
+      "cecbcb1c0db0e60dbafcfc8c6df4239bf8bf52b4cfe120331b18cd7eebdf10c5",
+      "26e178b813425f1f0f43682ef5c7a9966bbe3d3aad19cc869f382a8c998740c0",
+      "c8a44c26c8e1d15440207e41da3e9fbf17cf93607156fef2857e14c6e31e129e",
+      "eac75343242d475b6b3e312365a0f96f74d51755e1314fd7ee2ccba505fe6b1d",
+      "b040bbec4d8fc10885bc5f9e3059111d67d685e2db7b798cb26a4193cc2d8bb1"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule",
+      "policy"
+    ],
+    "lane_specific_details": null,
+    "remediation": {
+      "status": "suggested",
+      "action": "fare_amount: giá trị âm → kiểm tra và sửa lại giá trị fare_amount cho các bản ghi bị ảnh hưởng",
+      "scope": {
+        "finding_id": "F-2671532f92",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_47e891be8ffa",
+        "affected_records": 25
+      },
+      "rationale": "Việc sửa các giá trị âm giúp đảm bảo tính chính xác và đáng tin cậy của dữ liệu, đồng thời tuân thủ các quy tắc về an toàn dữ liệu, tránh vi phạm trong kiểm toán.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null,
+      "action_type": "MANUAL_INSPECTION",
+      "parameters": {},
+      "expected_outcome": "Việc sửa các giá trị âm giúp đảm bảo tính chính xác và đáng tin cậy của dữ liệu, đồng thời tuân thủ các quy tắc về an toàn dữ liệu, tránh vi phạm trong kiểm toán.",
+      "dry_run_supported": false,
+      "requires_approval": true
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 0,
+        "vins_masked": 16,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-12T09:01:03.502176Z",
+    "updated_at": "2026-10-12T09:01:03.502176Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-12T09:01:03.502176+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
   }
 }

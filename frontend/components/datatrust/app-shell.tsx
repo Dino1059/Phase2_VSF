@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import {
   CheckSquare,
@@ -33,8 +33,66 @@ const navigation: NavItem[] = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useLocation().pathname;
+  // Desktop chat width & drag resize state
+  const [chatWidth, setChatWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('datatrust_ai_chat_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 280 && parsed <= 850) return parsed;
+      }
+    } catch {}
+    return 410;
+  });
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+
+  // Drag-to-resize handlers
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsDragging(false);
+    try {
+      localStorage.setItem('datatrust_ai_chat_width', String(chatWidth));
+    } catch {}
+  }, [chatWidth]);
+
+  const resize = useCallback((e: MouseEvent) => {
+    // 68px is the fixed left navigation bar width
+    const rawWidth = e.clientX - 68;
+    if (rawWidth < 160) {
+      setIsChatCollapsed(true);
+      return;
+    }
+    if (isChatCollapsed) {
+      setIsChatCollapsed(false);
+    }
+    const maxWidth = Math.min(850, Math.max(380, window.innerWidth - 360));
+    const clamped = Math.max(280, Math.min(rawWidth, maxWidth));
+    setChatWidth(clamped);
+  }, [isChatCollapsed]);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    } else {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+  }, [isDragging, resize, stopResizing]);
 
   const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
   const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
@@ -186,14 +244,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside
         aria-label="Khung trợ lý DataTrust AI"
         data-testid="persistent-ai-chat-pane"
+        style={{
+          width: isChatCollapsed ? 0 : `${chatWidth}px`,
+        }}
         className={cn(
           // Base shared styles
-          'h-full flex flex-col bg-white border-r border-[#e2ece8] z-30 transition-all duration-300 ease-in-out motion-reduce:transition-none motion-reduce:transform-none',
+          'h-full flex flex-col bg-white border-r border-[#e2ece8] z-30',
+          !isDragging && 'transition-[width] duration-200 ease-in-out motion-reduce:transition-none motion-reduce:transform-none',
           // Desktop styles: inline side-by-side with dynamic workspace
           'hidden lg:flex relative shrink-0',
-          isChatCollapsed ? 'lg:w-0 lg:border-r-0 lg:overflow-hidden' : 'lg:w-[380px] xl:w-[410px] 2xl:w-[430px]',
+          isChatCollapsed && 'lg:border-r-0 lg:overflow-hidden',
           // Mobile styles: slide-over overlay drawer when open
-          isMobileChatOpen && 'flex! fixed inset-y-0 left-[68px] z-50 w-[min(400px,calc(100vw-68px))] shadow-2xl'
+          isMobileChatOpen && 'flex! fixed inset-y-0 left-[68px] z-50 w-[min(400px,calc(100vw-68px))]! shadow-2xl'
         )}
       >
         {/* Mobile close header */}
@@ -213,23 +275,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 min-h-0 h-full overflow-hidden">
           <AiChatPane />
         </div>
-      </aside>
 
-      {/* Desktop Chevron Toggle Button at Chat boundary */}
-      <button
-        type="button"
-        onClick={() => setIsChatCollapsed((prev) => !prev)}
-        aria-label={isChatCollapsed ? 'Mở rộng khung AI Chat' : 'Thu gọn khung AI Chat'}
-        aria-expanded={!isChatCollapsed}
-        title={isChatCollapsed ? 'Mở rộng khung AI Chat (Alt + [)' : 'Thu gọn khung AI Chat (Alt + [)'}
-        className={cn(
-          'hidden lg:flex fixed top-1/2 -translate-y-1/2 z-40 items-center justify-center size-6 rounded-full bg-white border border-slate-300 text-slate-600 shadow-md hover:text-slate-950 hover:border-[#04D3D4] hover:scale-110 transition-all motion-reduce:transition-none cursor-pointer',
-          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]',
-          isChatCollapsed ? 'left-[68px] translate-x-1.5' : 'left-[calc(68px+380px-12px)] xl:left-[calc(68px+410px-12px)] 2xl:left-[calc(68px+430px-12px)]'
+        {/* Desktop Draggable Resize Handle */}
+        {!isChatCollapsed && (
+          <div
+            onMouseDown={startResizing}
+            role="separator"
+            aria-orientation="vertical"
+            title="Kéo sang trái/phải để tùy chỉnh kích thước khung chat"
+            className={cn(
+              'hidden lg:flex absolute top-0 -right-1 w-2.5 h-full cursor-col-resize z-40 items-center justify-center transition-colors select-none group',
+              isDragging ? 'bg-[#04D3D4]/80' : 'hover:bg-[#04D3D4]/40'
+            )}
+          >
+            <div
+              className={cn(
+                'w-1 h-9 rounded-full transition-colors',
+                isDragging ? 'bg-white shadow-xs' : 'bg-slate-300 group-hover:bg-[#008b74]'
+              )}
+            />
+          </div>
         )}
-      >
-        {isChatCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-      </button>
+      </aside>
 
       {/* ========================================================================= */}
       {/* 3. DYNAMIC WORKSPACE CANVAS (DUAL-PANE RIGHT)                             */}
@@ -239,6 +306,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-20 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-[#e2ece8] bg-white/95 px-4 sm:px-6 backdrop-blur-md">
           {/* Breadcrumb Title */}
           <div className="flex items-center gap-2.5 min-w-0">
+            {/* Desktop Toggle Button for AI Chat (Collapse/Expand) */}
+            <button
+              type="button"
+              onClick={() => setIsChatCollapsed((prev) => !prev)}
+              aria-label={isChatCollapsed ? "Mở rộng khung AI Chat" : "Thu gọn khung AI Chat"}
+              aria-expanded={!isChatCollapsed}
+              title={isChatCollapsed ? "Mở rộng khung AI Chat (Alt + [)" : "Thu gọn khung AI Chat (Alt + [)"}
+              className="hidden lg:grid size-7 place-items-center rounded-lg border border-[#e2ece8] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
+            >
+              {isChatCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+
             <span className="grid size-7 place-items-center rounded-lg bg-teal-50 text-[#008b74] border border-teal-200 shrink-0">
               <SectionIcon size={15} />
             </span>

@@ -71,6 +71,24 @@ def test_intent_classification_run_overview():
     assert IntentClassifier.classify(msg) == UserIntent.RUN_OVERVIEW
 
 
+def test_intent_classification_warning_inquiry():
+    """
+    Test: User asks about warning records, reasons, or counts.
+    Must resolve to WARNING_INQUIRY even if 'vi phạm' or 'tại sao' is present.
+    """
+    msg1 = "tôi không biết 200 warning vi phạm gì"
+    assert IntentClassifier.classify(msg1) == UserIntent.WARNING_INQUIRY
+
+    msg2 = "Tại sao có 200 warning trong lần chạy này?"
+    assert IntentClassifier.classify(msg2) == UserIntent.WARNING_INQUIRY
+
+    msg3 = "Giải thích các bản ghi cảnh báo trong run này"
+    assert IntentClassifier.classify(msg3) == UserIntent.WARNING_INQUIRY
+
+    msg4 = "Bản ghi warning này vi phạm điều gì?"
+    assert IntentClassifier.classify(msg4) == UserIntent.WARNING_INQUIRY
+
+
 def test_pii_masking_and_allowlist():
     """
     Test: PII fields are masked and unwhitelisted fields are removed.

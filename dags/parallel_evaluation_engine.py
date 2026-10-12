@@ -24,6 +24,12 @@ if str(workspace_dir) not in sys.path:
 if str(workspace_dir / "dags") not in sys.path:
     sys.path.insert(0, str(workspace_dir / "dags"))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(workspace_dir / ".env")
+except Exception:
+    pass
+
 from src.detectors.detector_suite import L1toL4DetectorSuite
 from backend.engine.jurisdiction_config import JurisdictionHierarchyConfig
 from backend.engine.hierarchical_policy_processor import (
@@ -403,7 +409,7 @@ def execute_lane_a_detectors(
             "status": res["status"],
             "evidence": res["evidence"],
             "rule_snapshot_hash": snapshot_hash,
-            "rule_snapshot": [],
+            "rule_snapshot": rule_snapshot,
             "signals": [
                 {
                     "signal_id": s.signal_id,

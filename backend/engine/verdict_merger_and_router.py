@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import hashlib
 import json
 import uuid
@@ -29,6 +29,54 @@ class VerdictMergerAndRouter:
     and enforces strict precedence (FAIL > WARNING > PASS).
     Routes to Silver, Quarantine, or Warning with PII Storage Controls.
     """
+
+    @staticmethod
+    def extract_lane_a_violation_column_and_rule(
+        res_a: Dict[str, Any], raw_item: Dict[str, Any]
+    ) -> Tuple[str, str]:
+        """
+        Trích xuất chính xác tên cột và mã rule vi phạm từ Lane A,
+        thay vì dùng nhãn kỹ thuật placeholder SENSOR_OR_LEDGER.
+        """
+        signals = res_a.get("signals", [])
+        evidence_list = res_a.get("evidence", [])
+        evidence_text = " ".join(evidence_list).lower()
+
+        # 1. Trích xuất từ signals nếu có metric_or_relationship
+        for s in signals:
+            metric = None
+            rule_id = "DATA_RELIABILITY_ANOMALY"
+            if isinstance(s, dict):
+                metric = s.get("metric_or_relationship")
+                rule_id = s.get("rule_id") or rule_id
+            elif hasattr(s, "metric_or_relationship"):
+                metric = getattr(s, "metric_or_relationship")
+                rule_id = getattr(s, "rule_id", rule_id)
+            if metric and (not raw_item or metric in raw_item):
+                return metric, rule_id
+
+        # 2. Phân tích nội dung evidence_text
+        if "fare_amount" in evidence_text:
+            return "fare_amount", "L1_PHYSICAL_RANGE_FARE_AMOUNT"
+        elif "total_fare" in evidence_text or "discrepancy_delta" in evidence_text or "computed_sum" in evidence_text:
+            return "total_fare", "L1_LEDGER_ARITHMETIC_TOTAL_FARE"
+        elif "battery_soc" in evidence_text:
+            return "battery_soc", "L1_PHYSICAL_RANGE_BATTERY_SOC"
+        elif "battery_temp" in evidence_text:
+            return "battery_temp_c", "L1_PHYSICAL_RANGE_BATTERY_TEMP"
+        elif "trip_distance" in evidence_text:
+            return "trip_distance_km", "L1_PHYSICAL_RANGE_DISTANCE"
+        elif "motor_rpm" in evidence_text or "speed_kmh" in evidence_text:
+            return "motor_rpm", "L1_TELEMETRY_RPM_SPEED_CONDITION"
+        elif "power_kw" in evidence_text:
+            return "power_kw", "L1_PHYSICAL_RANGE_POWER"
+
+        # 3. Quét các key trong raw_item
+        for col_key in raw_item.keys():
+            if col_key.lower() in evidence_text:
+                return col_key, "DATA_RELIABILITY_ANOMALY"
+
+        return "SENSOR_OR_LEDGER", "DATA_RELIABILITY_ANOMALY"
 
     @staticmethod
     def compute_lineage_hash(run_id: str, pk_val: str, payload: Dict[str, Any]) -> str:
@@ -121,9 +169,10 @@ class VerdictMergerAndRouter:
                     )
 
             primary_violation = policy_violations[0] if policy_violations else {}
+            lane_a_col, lane_a_rule = self.extract_lane_a_violation_column_and_rule(res_a, raw_item)
             reliability_violation = {
-                "rule_id": "DATA_RELIABILITY_ANOMALY",
-                "column_name": "SENSOR_OR_LEDGER",
+                "rule_id": lane_a_rule,
+                "column_name": lane_a_col,
                 "reason": "; ".join(res_a.get("evidence", []))
                 or "Violated L1 physical or ledger constraints",
                 "severity": "CRITICAL",
@@ -205,8 +254,8 @@ class VerdictMergerAndRouter:
                     "source_table": f"bronze.{dataset_id}",
                     "source_row_pk": pk_val,
                     "failure_lane": "LANE_A",
-                    "violation_column": "SENSOR_OR_LEDGER",
-                    "violation_rule_id": "DATA_RELIABILITY_ANOMALY",
+                    "violation_column": lane_a_col,
+                    "violation_rule_id": lane_a_rule,
                     "violation_reason": "; ".join(fail_reasons) or "Violated L1 physical or ledger constraints",
                     "violation_severity": "CRITICAL",
                     "raw_record_json": raw_item,

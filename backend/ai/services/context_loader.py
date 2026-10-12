@@ -25,18 +25,20 @@ from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger("DataTrust.ContextLoader")
 
-# Allowlist of business fields safe for LLM context
+# Allowlist of business & technical fields safe for LLM context
 SAFE_FIELD_ALLOWLIST = {
-    "trip_id", "trip_distance_km", "trip_distance", "fare_amount",
+    "trip_id", "record_id", "session_id", "feedback_id",
+    "trip_distance_km", "trip_distance", "fare_amount", "tip_amount", "total_fare",
     "pickup_latitude", "pickup_longitude", "dropoff_latitude", "dropoff_longitude",
-    "speed_kmh", "battery_temp_c", "battery_soc", "voltage_v", "power_kw",
-    "status", "timestamp", "pickup_time", "zone_id", "duration_min"
+    "speed_kmh", "motor_rpm", "battery_temp_c", "battery_soc", "battery_voltage", "voltage_v",
+    "battery_current", "power_kw", "duration_mins", "duration_min", "kwh_consumed", "cost_vnd",
+    "subject_zone", "country", "status", "timestamp", "start_time"
 }
 
-# Known PII field patterns for mandatory masking
+# Known PII field patterns
 PII_FIELD_PATTERNS = [
     r"phone", r"tel", r"email", r"name", r"customer", r"driver",
-    r"id_card", r"passport", r"ssn", r"cccd", r"license"
+    r"id_card", r"passport", r"ssn", r"cccd", r"license", r"address"
 ]
 
 
@@ -49,28 +51,50 @@ def mask_pii_value(key: str, val: Any) -> Any:
         return s
 
     k_lower = key.lower()
-    is_pii = any(re.search(p, k_lower) for p in PII_FIELD_PATTERNS)
-    if not is_pii:
-        return s
+    if "email" in k_lower or "@" in s:
+        parts = s.split("@", 1)
+        return f"{parts[0][:1]}***@{parts[1]}" if len(parts) == 2 else "***@***"
+    if "phone" in k_lower or "tel" in k_lower or re.match(r"^\+?\d{9,12}$", s):
+        if len(s) >= 7:
+            return f"{s[:3]}*****{s[-2:]}"
+        return "***"
+    if any(p in k_lower for p in ("cccd", "id_card", "passport", "ssn", "license")):
+        return "[REDACTED_IDENTIFIER]"
+    if "address" in k_lower:
+        return "[REDACTED_ADDRESS]"
+    if "name" in k_lower:
+        tokens = s.split()
+        return " ".join(t[:1] + "***" for t in tokens) if tokens else "***"
 
     if len(s) <= 4:
         return "***"
     return f"{s[:2]}***{s[-2:]}"
 
 
-def sanitize_sample_record(raw_record: Dict[str, Any]) -> Dict[str, Any]:
-    """Filters fields through safe allowlist and applies mandatory PII masking."""
+def sanitize_sample_record(raw_record: Dict[str, Any], target_column: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Enforces Strict Field Allowlist and Isolated Token Masking (Privacy-First).
+    Avoids sending unneeded PII fields into LLM context.
+    - If target_column is specified: only keeps allowlisted fields plus isolated masked target_column.
+    - If target_column is not specified: keeps allowlisted fields and masks any detected PII fields.
+    """
+    if not isinstance(raw_record, dict):
+        return {}
     sanitized = {}
+    target_lower = target_column.lower().strip() if target_column else None
+
     for k, v in raw_record.items():
-        k_lower = k.lower()
-        is_pii = any(re.search(p, k_lower) for p in PII_FIELD_PATTERNS)
-        if is_pii:
-            sanitized[k] = mask_pii_value(k, v)
-        elif k_lower in SAFE_FIELD_ALLOWLIST:
+        k_lower = k.lower().strip()
+        if k_lower in SAFE_FIELD_ALLOWLIST:
             sanitized[k] = v
+        elif target_lower:
+            if k_lower == target_lower:
+                sanitized[k] = mask_pii_value(k, v)
         else:
-            # Drop unwhitelisted/raw system columns
-            pass
+            # When target_column is not specified, mask recognized PII fields
+            is_pii = any(re.search(p, k_lower) for p in PII_FIELD_PATTERNS)
+            if is_pii:
+                sanitized[k] = mask_pii_value(k, v)
     return sanitized
 
 
@@ -184,8 +208,86 @@ def load_compliance_rules(dataset_id: Optional[str] = None, rule_id: Optional[st
         return []
 
 
+def fetch_grounded_quarantine_samples(
+    cur,
+    run_id: str,
+    finding_id: Optional[str] = None,
+    rule_id: Optional[str] = None,
+    column_name: Optional[str] = None,
+    limit: int = 3
+) -> List[Dict[str, Any]]:
+    """
+    Evidence-or-Abstain: Fetches quarantine records strictly grounded to the given finding.
+    1. Priority 1: JOIN audit.finding_quarantine_records by finding_id AND run_id.
+    2. Priority 2: Strict composite match on run_id AND rule_id AND column_name (all three).
+    3. Abstain: If no grounded record matches, returns [] (never pulls arbitrary records).
+    """
+    samples: List[Dict[str, Any]] = []
+
+    # 1. Primary: FK Junction Table
+    if finding_id:
+        cur.execute(
+            """
+            SELECT q.quarantine_id, q.source_row_pk, q.failure_lane, q.violation_reason,
+                   q.violation_column, q.violation_rule_id, q.raw_record_json, q.lineage_hash
+            FROM quarantine.records q
+            JOIN audit.finding_quarantine_records fqr ON q.quarantine_id = fqr.quarantine_id
+            WHERE fqr.finding_id = %s AND q.run_id = %s
+            LIMIT %s;
+            """,
+            (finding_id, run_id, limit)
+        )
+        rows = cur.fetchall()
+        if rows:
+            for r in rows:
+                raw_json = r.get("raw_record_json") or {}
+                safe_payload = sanitize_sample_record(raw_json, target_column=column_name or r.get("violation_column"))
+                samples.append({
+                    "quarantine_id": str(r.get("quarantine_id")),
+                    "source_row_pk": r.get("source_row_pk"),
+                    "violation_column": r.get("violation_column"),
+                    "violation_rule_id": r.get("violation_rule_id"),
+                    "failure_lane": r.get("failure_lane"),
+                    "reason": r.get("violation_reason"),
+                    "lineage_hash": r.get("lineage_hash"),
+                    "sanitized_payload": safe_payload
+                })
+            return samples
+
+    # 2. Strict Composite Fallback: Must match run_id AND rule_id AND column_name
+    if rule_id and column_name:
+        cur.execute(
+            """
+            SELECT quarantine_id, source_row_pk, failure_lane, violation_reason,
+                   violation_column, violation_rule_id, raw_record_json, lineage_hash
+            FROM quarantine.records
+            WHERE run_id = %s AND violation_rule_id = %s AND violation_column = %s
+            LIMIT %s;
+            """,
+            (run_id, rule_id, column_name, limit)
+        )
+        rows = cur.fetchall()
+        for r in rows:
+            raw_json = r.get("raw_record_json") or {}
+            safe_payload = sanitize_sample_record(raw_json, target_column=column_name)
+            samples.append({
+                "quarantine_id": str(r.get("quarantine_id")),
+                "source_row_pk": r.get("source_row_pk"),
+                "violation_column": r.get("violation_column"),
+                "violation_rule_id": r.get("violation_rule_id"),
+                "failure_lane": r.get("failure_lane"),
+                "reason": r.get("violation_reason"),
+                "lineage_hash": r.get("lineage_hash"),
+                "sanitized_payload": safe_payload
+            })
+        return samples
+
+    # 3. Abstain: Never guess or pick unrelated records
+    return []
+
+
 def load_finding_evidence(run_id: str, finding_id: Optional[str] = None) -> Dict[str, Any]:
-    """Loads finding and associated sanitized quarantine records."""
+    """Loads finding and associated sanitized quarantine records via Evidence-or-Abstain."""
     result: Dict[str, Any] = {}
     try:
         conn = get_db_connection()
@@ -203,30 +305,15 @@ def load_finding_evidence(run_id: str, finding_id: Optional[str] = None) -> Dict
             f_row = cur.fetchone()
             if f_row:
                 result["finding"] = dict(f_row)
-
-            cur.execute(
-                """
-                SELECT quarantine_id, violation_column, violation_reason, failure_lane,
-                       raw_record_json, lineage_hash
-                FROM quarantine.records
-                WHERE run_id = %s
-                LIMIT 3;
-                """,
-                (run_id,)
-            )
-            samples = []
-            for qr in cur.fetchall():
-                raw_json = qr.get("raw_record_json") or {}
-                safe_payload = sanitize_sample_record(raw_json) if isinstance(raw_json, dict) else {}
-                samples.append({
-                    "quarantine_id": qr.get("quarantine_id"),
-                    "violation_column": qr.get("violation_column"),
-                    "failure_lane": qr.get("failure_lane"),
-                    "reason": qr.get("violation_reason"),
-                    "lineage_hash": qr.get("lineage_hash"),
-                    "sanitized_payload": safe_payload
-                })
-            result["sanitized_samples"] = samples
+                fid = f_row.get("finding_id")
+                rid = f_row.get("rule_id")
+                col = f_row.get("column_name")
+                samples = fetch_grounded_quarantine_samples(
+                    cur, run_id=run_id, finding_id=fid, rule_id=rid, column_name=col, limit=3
+                )
+                result["sanitized_samples"] = samples
+            else:
+                result["sanitized_samples"] = []
         conn.close()
     except Exception as e:
         logger.warning(f"load_finding_evidence failed: {e}")
@@ -285,6 +372,187 @@ def load_lineage_topology(run_id: str) -> Dict[str, Any]:
         conn.close()
     except Exception as e:
         logger.warning(f"load_lineage_topology failed: {e}")
+    return result
+
+
+def load_warning_evidence(run_id: str) -> Dict[str, Any]:
+    """
+    Loads warning record counts, grouped distributions, and sanitized sample records.
+    Implements:
+    - Dedicated SELECT COUNT(*) for 100% accurate reconciliation (avoiding GROUP BY LIMIT distortion)
+    - Safe fallback on DB errors or missing tables
+    - PII-controlled sample payloads
+    """
+    result: Dict[str, Any] = {
+        "run_id": run_id,
+        "pipeline_warning_count": 0,
+        "actual_records_count": 0,
+        "is_reconciled": True,
+        "discrepancy_note": None,
+        "grouped_warnings": [],
+        "sanitized_samples": [],
+        "db_error": False,
+    }
+    try:
+        from database.profiler_engine import get_db_connection
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # 1. Pipeline Run warning count
+            cur.execute(
+                "SELECT warning_count FROM orchestration.pipeline_runs WHERE run_id = %s LIMIT 1;",
+                (run_id,)
+            )
+            run_row = cur.fetchone()
+            pipeline_warn_count = (run_row.get("warning_count") if run_row else 0) or 0
+            result["pipeline_warning_count"] = pipeline_warn_count
+
+            # 2. Independent, exact COUNT(*) from warning.records
+            cur.execute(
+                "SELECT COUNT(*) AS total_records FROM warning.records WHERE run_id = %s;",
+                (run_id,)
+            )
+            count_row = cur.fetchone()
+            actual_count = (count_row.get("total_records") if count_row else 0) or 0
+            result["actual_records_count"] = actual_count
+
+            # 3. Reconciliation check
+            if pipeline_warn_count != actual_count:
+                result["is_reconciled"] = False
+                result["discrepancy_note"] = (
+                    f"Ghi nhận độ lệch: Chỉ số pipeline báo {pipeline_warn_count:,} cảnh báo, "
+                    f"nhưng bảng warning.records hiện lưu trữ {actual_count:,} bản ghi."
+                )
+
+            # 4. Grouped distributions for display (Top 10 groups by frequency)
+            cur.execute(
+                """
+                SELECT warning_type, signal_lane, signal_layer, warning_reason, count(*) as count
+                FROM warning.records
+                WHERE run_id = %s
+                GROUP BY warning_type, signal_lane, signal_layer, warning_reason
+                ORDER BY count DESC
+                LIMIT 10;
+                """,
+                (run_id,)
+            )
+            result["grouped_warnings"] = [dict(r) for r in cur.fetchall()]
+
+            # 5. Sanitized sample records with evidence parsing
+            cur.execute(
+                """
+                SELECT warning_id, source_row_pk, signal_lane, signal_layer, warning_type,
+                       warning_reason, score_or_zvalue, evidence_json, redacted_record_json
+                FROM warning.records
+                WHERE run_id = %s
+                LIMIT 5;
+                """,
+                (run_id,)
+            )
+            samples = []
+            for wr in cur.fetchall():
+                redacted_json = wr.get("redacted_record_json") or {}
+                safe_payload = sanitize_sample_record(redacted_json) if isinstance(redacted_json, dict) else {}
+                samples.append({
+                    "warning_id": str(wr.get("warning_id")),
+                    "source_row_pk": str(wr.get("source_row_pk") or "").strip(),
+                    "signal_lane": wr.get("signal_lane"),
+                    "signal_layer": wr.get("signal_layer"),
+                    "warning_type": wr.get("warning_type"),
+                    "warning_reason": wr.get("warning_reason"),
+                    "score_or_zvalue": float(wr["score_or_zvalue"]) if wr.get("score_or_zvalue") is not None else None,
+                    "evidence_json": wr.get("evidence_json"),
+                    "sanitized_payload": safe_payload,
+                })
+            result["sanitized_samples"] = samples
+
+            # 6. Deep Quantitative Changepoint Extraction for L4 warnings
+            cur.execute(
+                """
+                SELECT warning_id, source_row_pk, score_or_zvalue, warning_reason, evidence_json
+                FROM warning.records
+                WHERE run_id = %s AND warning_type = 'CHANGEPOINT_SHIFT';
+                """,
+                (run_id,)
+            )
+            cp_rows = cur.fetchall()
+            if cp_rows:
+                # Query governing rule from engine.reliability_rules
+                cur.execute(
+                    """
+                    SELECT rule_id, detector_id, layer, target_fields, params_json, status, version
+                    FROM engine.reliability_rules
+                    WHERE detector_id = 'CHANGEPOINT' AND status = 'ACTIVE'
+                    LIMIT 1;
+                    """
+                )
+                cp_rule = cur.fetchone()
+
+                cp_scores = []
+                cp_mags = []
+                cp_dirs = {"UP": 0, "DOWN": 0}
+                events_map = {}
+
+                for r in cp_rows:
+                    reason = r.get("warning_reason") or ""
+                    sc = float(r["score_or_zvalue"]) if r.get("score_or_zvalue") is not None else None
+                    if sc is not None:
+                        cp_scores.append(sc)
+
+                    t_match = re.search(r'change_time=([^;]+)', reason)
+                    m_match = re.search(r'change_magnitude=([-\d.]+)', reason)
+                    d_match = re.search(r'shift_direction=([A-Z]+)', reason)
+                    p_match = re.search(r'pelt_penalty=([-\d.]+)', reason)
+                    pre_m = re.search(r'pre_window_mean=([-\d.]+)', reason)
+                    post_m = re.search(r'post_window_mean=([-\d.]+)', reason)
+
+                    c_time = t_match.group(1) if t_match else "UNKNOWN"
+                    c_mag = float(m_match.group(1)) if m_match else 0.0
+                    c_dir = d_match.group(1) if d_match else "UNKNOWN"
+                    p_pen = float(p_match.group(1)) if p_match else 3.0
+                    pre_val = float(pre_m.group(1)) if pre_m else None
+                    post_val = float(post_m.group(1)) if post_m else None
+
+                    cp_mags.append(c_mag)
+                    if c_dir in cp_dirs:
+                        cp_dirs[c_dir] += 1
+
+                    if c_time not in events_map:
+                        events_map[c_time] = {
+                            "event_time": c_time,
+                            "direction": c_dir,
+                            "magnitude": c_mag,
+                            "pelt_penalty": p_pen,
+                            "pre_mean": pre_val,
+                            "post_mean": post_val,
+                            "anchor_pk": str(r.get("source_row_pk") or "").strip(),
+                            "affected_records": 0
+                        }
+                    events_map[c_time]["affected_records"] += 1
+
+                result["changepoint_summary"] = {
+                    "rule_id": cp_rule["rule_id"] if cp_rule else "L4-DEFAULT-METRICS",
+                    "rule_version": cp_rule["version"] if cp_rule else 1,
+                    "target_metric": "trip_distance_km",
+                    "target_fields": cp_rule["target_fields"] if cp_rule else ["trip_distance_km"],
+                    "penalty_threshold": 3.0,
+                    "total_warnings": len(cp_rows),
+                    "distinct_changepoint_events": len(events_map),
+                    "shift_directions": cp_dirs,
+                    "magnitude_range": {
+                        "min": min(cp_mags) if cp_mags else 0.0,
+                        "max": max(cp_mags) if cp_mags else 0.0
+                    },
+                    "score_range": {
+                        "min": min(cp_scores) if cp_scores else 0.0,
+                        "max": max(cp_scores) if cp_scores else 0.0,
+                        "avg": round(sum(cp_scores) / len(cp_scores), 2) if cp_scores else 0.0
+                    },
+                    "events": list(events_map.values())[:5]
+                }
+        conn.close()
+    except Exception as e:
+        logger.warning(f"load_warning_evidence failed: {e}")
+        result["db_error"] = True
     return result
 
 
@@ -348,6 +616,10 @@ def resolve_on_demand_context(
     # 6. RUN_OVERVIEW: Full overview metrics
     if intent == UserIntent.RUN_OVERVIEW:
         return RunContextLoader.load_context(run_id, intent)
+
+    # 7. WARNING_INQUIRY: Load warning counts, grouped distribution, samples
+    if intent == UserIntent.WARNING_INQUIRY:
+        return load_warning_evidence(run_id)
 
     return context
 
@@ -428,30 +700,12 @@ class RunContextLoader:
 
                     if finding_row:
                         context["finding"] = dict(finding_row)
-                        cur.execute(
-                            """
-                            SELECT quarantine_id, violation_column, violation_reason, failure_lane,
-                                   raw_record_json, lineage_hash
-                            FROM quarantine.records
-                            WHERE run_id = %s
-                            LIMIT 3;
-                            """,
-                            (run_id,)
+                        fid = finding_row.get("finding_id")
+                        rid = finding_row.get("rule_id")
+                        col = finding_row.get("column_name")
+                        context["sanitized_samples"] = fetch_grounded_quarantine_samples(
+                            cur, run_id=run_id, finding_id=fid, rule_id=rid, column_name=col, limit=3
                         )
-                        q_records = cur.fetchall()
-                        sanitized_samples = []
-                        for qr in q_records:
-                            raw_json = qr.get("raw_record_json") or {}
-                            safe_payload = sanitize_sample_record(raw_json) if isinstance(raw_json, dict) else {}
-                            sanitized_samples.append({
-                                "quarantine_id": qr.get("quarantine_id"),
-                                "violation_column": qr.get("violation_column"),
-                                "failure_lane": qr.get("failure_lane"),
-                                "reason": qr.get("violation_reason"),
-                                "lineage_hash": qr.get("lineage_hash"),
-                                "sanitized_payload": safe_payload
-                            })
-                        context["sanitized_samples"] = sanitized_samples
 
                         if dataset_id and started_at:
                             cur.execute(
@@ -510,28 +764,12 @@ class RunContextLoader:
                     finding_row = cur.fetchone()
                     if finding_row:
                         context["finding"] = dict(finding_row)
-                        cur.execute(
-                            """
-                            SELECT quarantine_id, violation_column, violation_reason, failure_lane,
-                                   raw_record_json, lineage_hash
-                            FROM quarantine.records
-                            WHERE run_id = %s
-                            LIMIT 3;
-                            """,
-                            (run_id,)
+                        fid = finding_row.get("finding_id")
+                        rid = finding_row.get("rule_id")
+                        col = finding_row.get("column_name")
+                        context["sanitized_samples"] = fetch_grounded_quarantine_samples(
+                            cur, run_id=run_id, finding_id=fid, rule_id=rid, column_name=col, limit=3
                         )
-                        sanitized_samples = [
-                            {
-                                "quarantine_id": qr.get("quarantine_id"),
-                                "violation_column": qr.get("violation_column"),
-                                "failure_lane": qr.get("failure_lane"),
-                                "reason": qr.get("violation_reason"),
-                                "lineage_hash": qr.get("lineage_hash"),
-                                "sanitized_payload": sanitize_sample_record(qr.get("raw_record_json") or {})
-                            }
-                            for qr in cur.fetchall()
-                        ]
-                        context["sanitized_samples"] = sanitized_samples
 
                     if dataset_id and started_at:
                         cur.execute(
@@ -569,6 +807,11 @@ class RunContextLoader:
                         (run_id,)
                     )
                     context["recent_events"] = [dict(r) for r in cur.fetchall()]
+
+                # F. INTENT: WARNING_INQUIRY
+                elif intent == UserIntent.WARNING_INQUIRY:
+                    we = load_warning_evidence(run_id)
+                    context.update(we)
 
             conn.close()
         except Exception as e:

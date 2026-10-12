@@ -3,7 +3,6 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   RotateCw,
-  GitFork,
   Database,
   Layers,
   ShieldCheck,
@@ -18,14 +17,9 @@ import {
   Download,
   Copy,
   Check,
-  Scale,
-  TableProperties,
-  FileText,
-  ShieldAlert,
   Play
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
   apiBridge,
   type LineageNode,
@@ -34,6 +28,7 @@ import {
 } from '@/lib/api-bridge';
 import { StartRunModal } from '@/components/datatrust/pipeline/start-run-modal';
 import { LineageNodeDrawer } from './lineage-node-drawer';
+import { buildLineageLayout } from './lineage-layout';
 
 export function LineagePage() {
   const { id: paramId, runId: paramRunId } = useParams<{ id?: string; runId?: string }>();
@@ -42,17 +37,17 @@ export function LineagePage() {
 
   const queryRunId = searchParams.get('run_id');
   const focusedColumn = searchParams.get('column') || '';
+  const revisionParam = searchParams.get('revision');
+  const revision = revisionParam && Number.isInteger(Number(revisionParam)) ? Number(revisionParam) : undefined;
   const initialRunId = paramId || paramRunId || queryRunId || '';
 
   const [runsList, setRunsList] = useState<LineageRunItem[]>([]);
-  const [effectiveRunId, setEffectiveRunId] = useState<string>(initialRunId || 'run_5b320bf9b22d');
-  const [activeView, setActiveView] = useState<'graph' | 'diff'>('graph');
+  const [effectiveRunId, setEffectiveRunId] = useState<string>(initialRunId);
   const [lineageData, setLineageData] = useState<UnifiedLineageResponse | null>(null);
   const [selectedNode, setSelectedNode] = useState<LineageNode | null>(null);
-  const [selectedColumn, setSelectedColumn] = useState<string>(focusedColumn);
+  const selectedColumn = focusedColumn;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [zoom, setZoom] = useState(1);
   const [copiedHash, setCopiedHash] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -68,7 +63,9 @@ export function LineagePage() {
           setEffectiveRunId(list[0].runId);
         }
       }
-    }).catch(() => {});
+    }).catch((err: Error) => {
+      setError(err.message || 'Không thể nạp danh sách lineage.');
+    });
   }, [initialRunId]);
 
   // Sync effectiveRunId when params change
@@ -84,7 +81,7 @@ export function LineagePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiBridge.fetchRunLineage(effectiveRunId, selectedColumn || undefined);
+      const data = await apiBridge.fetchRunLineage(effectiveRunId, selectedColumn || undefined, revision);
       setLineageData(data);
     } catch (err: any) {
       setError(err.message || 'Không thể tải phả hệ dữ liệu của lần chạy.');
@@ -95,7 +92,7 @@ export function LineagePage() {
 
   useEffect(() => {
     loadLineage();
-  }, [effectiveRunId, selectedColumn]);
+  }, [effectiveRunId, selectedColumn, revision]);
 
   // Compute Upstream and Downstream reachable nodes for selectedNode
   const { upstreamNodes, downstreamNodes } = useMemo(() => {
@@ -143,38 +140,11 @@ export function LineagePage() {
     return { upstreamNodes: upSet, downstreamNodes: downSet };
   }, [selectedNode, lineageData]);
 
-  // Group nodes by stage for visual layout
-  const stages = useMemo(() => {
-    if (!lineageData?.nodes) return [];
-    const map = new Map<number, LineageNode[]>();
-    lineageData.nodes.forEach((n) => {
-      const s = n.stage || 1;
-      if (!map.has(s)) map.set(s, []);
-      map.get(s)!.push(n);
-    });
-    return Array.from(map.entries()).sort(([a], [b]) => a - b);
-  }, [lineageData]);
-
-  const graphLayout = useMemo(() => {
-    const nodeWidth = 210;
-    const nodeHeight = 84;
-    const columnGap = 96;
-    const rowGap = 28;
-    const padding = 48;
-    const maxRows = Math.max(1, ...stages.map(([, nodes]) => nodes.length));
-    const width = Math.max(1100, padding * 2 + stages.length * nodeWidth + Math.max(0, stages.length - 1) * columnGap);
-    const height = Math.max(400, padding * 2 + maxRows * nodeHeight + Math.max(0, maxRows - 1) * rowGap);
-    const positions = new Map<string, { x: number; y: number }>();
-
-    stages.forEach(([, nodes], columnIndex) => {
-      const stackHeight = nodes.length * nodeHeight + Math.max(0, nodes.length - 1) * rowGap;
-      nodes.forEach((node, rowIndex) => positions.set(node.id, {
-        x: padding + columnIndex * (nodeWidth + columnGap),
-        y: (height - stackHeight) / 2 + rowIndex * (nodeHeight + rowGap),
-      }));
-    });
-    return { nodeWidth, nodeHeight, width, height, positions };
-  }, [stages]);
+  const graphLayout = useMemo(() => buildLineageLayout(
+    lineageData?.nodes || [],
+    lineageData?.edges || [],
+  ), [lineageData]);
+  const stages = graphLayout.stages;
 
   const fitGraph = () => {
     const container = graphContainerRef.current;
@@ -211,7 +181,7 @@ export function LineagePage() {
   const handleExportOpenLineage = async () => {
     setIsExporting(true);
     try {
-      const json = await apiBridge.exportRunOpenLineage(effectiveRunId);
+      const json = await apiBridge.exportRunOpenLineage(effectiveRunId, revision);
       const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -227,6 +197,7 @@ export function LineagePage() {
   };
 
   const getNodeColor = (node: LineageNode) => {
+    const executionStatus = node.status.toUpperCase();
     const isSelected = selectedNode?.id === node.id;
     const isUpstream = upstreamNodes.has(node.id);
     const isDownstream = downstreamNodes.has(node.id);
@@ -236,6 +207,10 @@ export function LineagePage() {
     if (isDownstream) return 'border-amber-400 bg-amber-50 text-amber-950 ring-1 ring-amber-400 shadow-xs';
 
     if (selectedNode) return 'border-slate-200 bg-slate-50/50 text-slate-400 opacity-40';
+    if (executionStatus === 'FAILED') return 'border-rose-400 bg-rose-50 text-rose-900';
+    if (executionStatus === 'SKIPPED') return 'border-slate-300 bg-slate-100 text-slate-500 border-dashed';
+    if (executionStatus === 'RUNNING') return 'border-blue-400 bg-blue-50 text-blue-900';
+    if (node.type !== 'dataset' && executionStatus === 'SUCCESS') return 'border-emerald-400 bg-emerald-50 text-emerald-950';
 
     switch (node.layer) {
       case 'RAW':
@@ -276,6 +251,45 @@ export function LineagePage() {
     }
   };
 
+  const statusBadge = (status?: string) => {
+    const tone = status === 'COMPLETE' || status === 'FINALIZED'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : status === 'UNAVAILABLE'
+      ? 'border-rose-200 bg-rose-50 text-rose-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
+    return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${tone}`}>{status || '—'}</span>;
+  };
+
+  const stageLabel = (stage: number) => ({
+    1: 'Nguồn',
+    2: 'Ingestion & Profiling',
+    3: 'Kiểm tra',
+    4: 'Phân tuyến',
+    5: 'Evidence',
+  }[stage] || `Bước ${stage}`);
+
+  const nodeDisplayName = (node: LineageNode) => {
+    if (node.type === 'dataset') return node.label || node.name;
+    const task = (node.taskId || node.name).toLowerCase();
+    if (task.includes('lane_a')) return 'Kiểm tra Lane A';
+    if (task.includes('lane_b')) return 'Kiểm tra Lane B';
+    if (task.includes('lane_c')) return 'Phân tuyến dữ liệu';
+    if (task.includes('task_1_')) return 'Nạp dữ liệu';
+    if (task.includes('task_2_')) return 'Lập hồ sơ dữ liệu';
+    if (task.includes('task_4_')) return 'Phát hành Evidence';
+    return node.label || node.name;
+  };
+
+  const nodeStatusDot = (node: LineageNode) => {
+    const status = node.status.toUpperCase();
+    if (node.type === 'dataset') return status === 'OBSERVED' ? 'bg-teal-500' : 'bg-sky-400';
+    if (status === 'SUCCESS') return 'bg-emerald-500';
+    if (status === 'FAILED') return 'bg-rose-500';
+    if (status === 'SKIPPED') return 'bg-slate-400';
+    if (status === 'RUNNING') return 'bg-blue-500';
+    return 'bg-amber-400';
+  };
+
   return (
     <div className="page-enter mx-auto max-w-[1600px] space-y-4 pb-12">
           {/* Header & Control Bar */}
@@ -287,9 +301,10 @@ export function LineagePage() {
                     <Workflow className="size-3 text-teal-600" />
                     Workspace Phả hệ Lần chạy
                   </span>
-                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
-                    COMPLETED
-                  </span>
+                  <span className="text-[10px] text-slate-500">Vòng đời</span>
+                  {statusBadge(lineageData?.lifecycleStatus || lineageData?.snapshotStatus)}
+                  <span className="text-[10px] text-slate-500">Chất lượng</span>
+                  {statusBadge(lineageData?.dataStatus)}
                 </div>
 
                 {/* Run Switcher Dropdown */}
@@ -303,40 +318,22 @@ export function LineagePage() {
                     {runsList.length > 0 ? (
                       runsList.map((r) => (
                         <option key={r.runId} value={r.runId}>
-                          {r.runId} ({r.datasetId} · {new Date(r.createdAt).toLocaleTimeString('vi-VN')})
+                          {r.runId}{r.datasetId ? ` (${r.datasetId})` : ''}{(r.createdAt || r.asOf) ? ` · ${new Date((r.createdAt || r.asOf)!).toLocaleTimeString('vi-VN')}` : ''}
                         </option>
                       ))
-                    ) : (
+                    ) : effectiveRunId ? (
                       <option value={effectiveRunId}>{effectiveRunId}</option>
+                    ) : (
+                      <option value="">Chưa có run</option>
                     )}
                   </select>
-                  <span className="text-xs text-slate-400 font-mono">
-                    Dataset: <strong className="text-slate-800">{lineageData?.datasetId || 'ride_hailing_xanh_sm_trips'}</strong>
-                  </span>
+                  {lineageData?.datasetId && <span className="text-xs text-slate-400 font-mono">Dataset: <strong className="text-slate-800">{lineageData.datasetId}</strong></span>}
+                  {lineageData?.revision !== undefined && <span className="text-xs text-slate-500 font-mono">Revision {lineageData.revision}{lineageData.dagVersion ? ` · DAG ${lineageData.dagVersion}` : ''}{lineageData.asOf ? ` · ${new Date(lineageData.asOf).toLocaleString('vi-VN')}` : ''}</span>}
                 </div>
               </div>
 
               {/* Header Action Buttons */}
               <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                  size="sm"
-                  onClick={() => navigate(`/runs/${effectiveRunId}/results`)}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold gap-1.5 shadow-xs"
-                >
-                  <FileText className="size-3.5" />
-                  <span>Xem KPIs</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate(`/runs/${effectiveRunId}/findings`)}
-                  className="gap-1.5 text-xs font-semibold border-slate-200 text-amber-700 hover:bg-amber-50 shadow-2xs"
-                >
-                  <ShieldAlert className="size-3.5 text-amber-600" />
-                  <span>Findings ({lineageData?.metrics?.quarantineCount || 0})</span>
-                </Button>
-
                 <Button
                   variant="outline"
                   size="sm"
@@ -351,7 +348,7 @@ export function LineagePage() {
                   variant="outline"
                   size="sm"
                   onClick={handleExportOpenLineage}
-                  disabled={isExporting}
+                  disabled={isExporting || !effectiveRunId || lineageData?.dataStatus === 'UNAVAILABLE'}
                   className="gap-1.5 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs"
                 >
                   <Download className={`size-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
@@ -373,24 +370,20 @@ export function LineagePage() {
 
             {/* Evidence & Metrics Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-slate-500">
-                  Quét thô: <strong className="text-slate-800 font-mono">{lineageData?.metrics?.scannedCount?.toLocaleString() || 1000}</strong>
-                </span>
-                <span>•</span>
-                <span className="text-emerald-700">
-                  Silver (Đạt chuẩn): <strong className="font-mono">{lineageData?.metrics?.silverCount?.toLocaleString() || 965}</strong>
-                </span>
-                <span>•</span>
-                <span className="text-rose-700">
-                  Quarantine (Cách ly): <strong className="font-mono">{lineageData?.metrics?.quarantineCount?.toLocaleString() || 25}</strong>
-                </span>
-                <span>•</span>
-                <span className="text-amber-700">
-                  Warning: <strong className="font-mono">{lineageData?.metrics?.warningCount?.toLocaleString() || 10}</strong>
-                </span>
+              <div className="space-y-1">
+                {!!lineageData?.missingMetadata?.length && (
+                  <div className="text-amber-700"><strong>Metadata chưa thu thập:</strong> {lineageData.missingMetadata.join(', ')}</div>
+                )}
+                {!!lineageData?.sourceErrors?.length && (
+                  <div className="text-rose-700"><strong>Lỗi nguồn dữ liệu:</strong> {lineageData.sourceErrors.map((item) => `${item.source}: ${item.message}`).join('; ')}</div>
+                )}
+                {!!lineageData?.sources?.length && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-slate-500">
+                    <strong>Nguồn:</strong>
+                    {lineageData.sources.map((item) => <span key={item.source} className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${item.status === 'AVAILABLE' ? 'border-emerald-200 text-emerald-700' : 'border-slate-200 text-slate-500'}`}>{item.source}: {item.status}</span>)}
+                  </div>
+                )}
               </div>
-
               {lineageData?.evidenceHash && (
                 <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
                   <ShieldCheck className="size-3.5 text-teal-600" />
@@ -407,55 +400,28 @@ export function LineagePage() {
             </div>
           </div>
 
-          {/* View Switcher & Toolbar */}
-          <Card className="p-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              {/* 2 Modes */}
-              <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
-                <button
-                  onClick={() => setActiveView('graph')}
-                  className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                    activeView === 'graph'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <GitFork className="size-3.5" />
-                  Sơ đồ Thực thi (DAG Lineage)
-                </button>
-                <button
-                  onClick={() => setActiveView('diff')}
-                  className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                    activeView === 'diff'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <TableProperties className="size-3.5" />
-                  So sánh Schema Diff & Cột ({lineageData?.schemaDiff?.length || 0})
-                </button>
+          {/* Upstream / Downstream Trace Help Badge */}
+          {selectedNode && (
+            <div className="flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50/70 p-2.5 px-4 text-xs shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-600 font-semibold">Đang truy vết:</span>
+                <span className="font-bold font-mono text-teal-900 bg-white px-2 py-0.5 rounded border border-teal-300 truncate max-w-[280px]">
+                  {selectedNode.name}
+                </span>
+                <span className="text-[11px] text-teal-700 hidden sm:inline">
+                  (Khối xanh: Thượng nguồn · Khối hổ phách: Hạ nguồn)
+                </span>
               </div>
-
-              {/* Upstream / Downstream Trace Help Badge */}
-              {selectedNode && (
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-slate-500 font-medium">Đang truy vết:</span>
-                  <span className="font-bold font-mono text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 truncate max-w-[180px]">
-                    {selectedNode.name}
-                  </span>
-                  <button
-                    onClick={() => setSelectedNode(null)}
-                    className="text-slate-400 hover:text-slate-700 text-xs font-bold underline cursor-pointer"
-                  >
-                    Bỏ chọn
-                  </button>
-                </div>
-              )}
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="text-teal-700 hover:text-teal-900 text-xs font-bold underline cursor-pointer"
+              >
+                Bỏ chọn
+              </button>
             </div>
-          </Card>
+          )}
 
-          {/* VIEW 1: INTERACTIVE DAG LINEAGE */}
-          {activeView === 'graph' && (
+          {/* INTERACTIVE DAG LINEAGE */}
             <div className="relative rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
               {/* Controls bar */}
               <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/95 p-1 shadow-md backdrop-blur-xs">
@@ -473,9 +439,18 @@ export function LineagePage() {
                 </Button>
               </div>
 
+              <div className="flex min-h-16 flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-200 bg-slate-950 px-5 py-3 pr-48 text-[11px] text-slate-300">
+                <span><strong className="text-white">Run</strong> <span className="font-mono">{lineageData?.runId || effectiveRunId || '—'}</span></span>
+                <span><strong className="text-white">DAG version</strong> <span className="font-mono">{lineageData?.dagVersion || '—'}</span></span>
+                <span><strong className="text-white">Snapshot</strong> {lineageData?.lifecycleStatus || lineageData?.snapshotStatus || '—'}{lineageData?.revision !== undefined ? ` · r${lineageData.revision}` : ''}</span>
+                <span><strong className="text-white">Metadata</strong> {lineageData?.dataStatus || '—'}</span>
+              </div>
+
               {/* Canvas */}
               <div ref={graphContainerRef} className="h-[560px] overflow-auto bg-slate-50/50 p-6 relative">
-                {isLoading ? (
+                {!effectiveRunId ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-500">Chưa có lần chạy để hiển thị lineage.</div>
+                ) : isLoading ? (
                   <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500">
                     <RotateCw className="size-4 animate-spin text-teal-600" />
                     Đang nạp phả hệ dữ liệu thực tế của lần chạy...
@@ -487,6 +462,12 @@ export function LineagePage() {
                     <p className="mt-1 text-xs">{error}</p>
                     <Button variant="outline" size="sm" className="mt-4" onClick={loadLineage}>Thử lại</Button>
                   </div>
+                ) : lineageData?.dataStatus === 'UNAVAILABLE' || !lineageData?.nodes?.length ? (
+                  <div className="flex h-full flex-col items-center justify-center text-center text-sm text-slate-600">
+                    <AlertTriangle className="mb-2 size-7 text-amber-500" />
+                    <strong>Lineage chưa khả dụng</strong>
+                    <span className="mt-1 max-w-md text-xs text-slate-500">Không đủ metadata đã xác minh để dựng graph cho run này.</span>
+                  </div>
                 ) : (
                   <svg
                     width={graphLayout.width * zoom}
@@ -497,11 +478,14 @@ export function LineagePage() {
                     aria-label="Đồ thị phả hệ dòng dữ liệu thực tế"
                   >
                     <defs>
-                      <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <marker id="arrow-dependency" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                         <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
                       </marker>
-                      <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <marker id="arrow-observed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                         <path d="M 0 1 L 10 5 L 0 9 z" fill="#0d9488" />
+                      </marker>
+                      <marker id="arrow-declared" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#0284c7" />
                       </marker>
                     </defs>
 
@@ -527,49 +511,45 @@ export function LineagePage() {
                             textAnchor="middle"
                             className="fill-slate-400 font-sans text-[10px] font-bold uppercase tracking-wider"
                           >
-                            Chặng {stageNum}
+                            {stageLabel(stageNum)}
                           </text>
                         </g>
                       );
                     })}
 
                     {/* Edges */}
-                    {lineageData?.edges.map((edge, idx) => {
-                      const fromPos = graphLayout.positions.get(edge.from);
-                      const toPos = graphLayout.positions.get(edge.to);
-                      if (!fromPos || !toPos) return null;
-
-                      const startX = fromPos.x + graphLayout.nodeWidth;
-                      const startY = fromPos.y + graphLayout.nodeHeight / 2;
-                      const endX = toPos.x;
-                      const endY = toPos.y + graphLayout.nodeHeight / 2;
-                      const c1X = startX + (endX - startX) * 0.45;
-                      const c2X = endX - (endX - startX) * 0.45;
-                      const d = `M ${startX} ${startY} C ${c1X} ${startY}, ${c2X} ${endY}, ${endX} ${endY}`;
-
+                    {graphLayout.routedEdges.map((edge) => {
                       const isEdgeUpstream = selectedNode && upstreamNodes.has(edge.from) && (upstreamNodes.has(edge.to) || edge.to === selectedNode.id);
                       const isEdgeDownstream = selectedNode && (downstreamNodes.has(edge.to) || edge.from === selectedNode.id) && downstreamNodes.has(edge.to);
                       const isHighlighted = isEdgeUpstream || isEdgeDownstream;
+                      const isObserved = edge.relationType === 'OBSERVED';
+                      const isDeclared = edge.relationType === 'DECLARED';
+                      const edgeColor = isHighlighted ? '#0f766e' : selectedNode ? '#cbd5e1' : isObserved ? '#0d9488' : isDeclared ? '#0284c7' : '#94a3b8';
+                      const marker = isHighlighted || isObserved ? 'url(#arrow-observed)' : isDeclared ? 'url(#arrow-declared)' : 'url(#arrow-dependency)';
 
                       return (
                         <path
-                          key={`edge-${idx}`}
-                          d={d}
+                          key={edge.key}
+                          d={edge.path}
                           fill="none"
-                          stroke={isHighlighted ? '#0d9488' : selectedNode ? '#cbd5e1' : '#94a3b8'}
-                          strokeWidth={isHighlighted ? 2.5 : 1.5}
-                          strokeOpacity={selectedNode && !isHighlighted ? 0.3 : 0.8}
-                          markerEnd={isHighlighted ? 'url(#arrow-active)' : 'url(#arrow)'}
+                          stroke={edgeColor}
+                          strokeWidth={isHighlighted ? 2.75 : isObserved ? 2.25 : 1.5}
+                          strokeOpacity={selectedNode && !isHighlighted ? 0.25 : isObserved ? 0.9 : 0.65}
+                          markerEnd={marker}
+                          strokeDasharray={isDeclared ? '7 5' : undefined}
                         />
                       );
                     })}
 
                     {/* Nodes */}
-                    {lineageData?.nodes.map((node) => {
+                    {graphLayout.nodes.map((node) => {
                       const pos = graphLayout.positions.get(node.id);
                       if (!pos) return null;
                       const Icon = getNodeIcon(node.layer);
                       const colorClass = getNodeColor(node);
+                      const fullTechnicalName = `${node.label || node.name}${node.mapIndex !== undefined && node.mapIndex >= 0 ? ` [${node.mapIndex}]` : ''}`;
+                      const displayName = nodeDisplayName(node);
+                      const isDataset = node.type === 'dataset';
 
                       return (
                         <foreignObject
@@ -581,12 +561,14 @@ export function LineagePage() {
                         >
                           <div
                             onClick={() => setSelectedNode(node)}
-                            className={`group h-full w-full cursor-pointer rounded-xl border p-2.5 transition-all ${colorClass}`}
+                            title={fullTechnicalName}
+                            aria-label={`${isDataset ? 'Dataset' : 'Task'}: ${fullTechnicalName}; trạng thái ${node.status}`}
+                            className={`group h-full w-full cursor-pointer border p-2.5 transition-all ${isDataset ? 'rounded-[28px] border-2 px-4' : 'rounded-lg border-l-4'} ${colorClass}`}
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
                                 <Icon className="size-3 shrink-0" />
-                                <span className="truncate">{node.layer}</span>
+                                <span className="truncate">{isDataset ? 'DATASET' : 'TASK'}</span>
                               </span>
                               {node.duration !== undefined ? (
                                 <span className="text-[10px] font-mono text-slate-500 font-semibold">{node.duration}s</span>
@@ -594,11 +576,12 @@ export function LineagePage() {
                                 <span className="text-[10px] font-mono font-bold">{node.recordCount.toLocaleString()}</span>
                               ) : null}
                             </div>
-                            <div className="mt-1 font-bold text-xs truncate" title={node.name}>
-                              {node.label || node.name}
+                            <div className="mt-1 flex items-center gap-2 font-bold text-xs">
+                              <span className={`size-2 shrink-0 rounded-full ${nodeStatusDot(node)}`} />
+                              <span className="truncate">{displayName}{node.mapIndex !== undefined && node.mapIndex >= 0 ? ` [${node.mapIndex}]` : ''}</span>
                             </div>
                             <div className="text-[10px] text-slate-500 truncate" title={node.description}>
-                              {node.description || 'Chặng xử lý phả hệ'}
+                              {node.status}{node.finalTryNumber ? ` · try ${node.finalTryNumber}` : ''}
                             </div>
                           </div>
                         </foreignObject>
@@ -607,123 +590,18 @@ export function LineagePage() {
                   </svg>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* VIEW 2: SCHEMA DIFF & COLUMN LINEAGE MATRIX */}
-          {activeView === 'diff' && (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                      <Scale className="size-4 text-teal-600" />
-                      <span>Bảng Đối Chiếu Schema Diff (Bronze vs Silver)</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Phân loại toàn bộ các trường dữ liệu trước và sau khi thực thi 3-Lane Compliance Engine
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">Tìm kiếm cột:</span>
-                    <input
-                      type="text"
-                      placeholder="Lọc tên cột..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="h-8 rounded-lg border border-slate-200 px-2.5 text-xs focus:border-teal-600 focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                {/* Diff Table */}
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
-                      <tr>
-                        <th className="px-4 py-3">Cột Bronze (Nguồn)</th>
-                        <th className="px-3 py-3">Kiểu Bronze</th>
-                        <th className="px-4 py-3">Cột Silver (Đích)</th>
-                        <th className="px-3 py-3">Kiểu Silver</th>
-                        <th className="px-3 py-3">Phân Loại Diff</th>
-                        <th className="px-4 py-3">Quy Tắc & Căn Cứ Pháp Lý</th>
-                        <th className="px-3 py-3 text-right">Thao Tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {(lineageData?.schemaDiff || [])
-                        .filter((item) => {
-                          const q = searchQuery.toLowerCase();
-                          return !q || item.sourceColumn.toLowerCase().includes(q) || item.targetColumn.toLowerCase().includes(q);
-                        })
-                        .map((item, idx) => {
-                          const isTransformed = item.diffType === 'TRANSFORMED';
-                          const isQuarantined = item.diffType === 'QUARANTINED';
-                          const isAdded = item.diffType === 'ADDED';
-                          const isSelected = selectedColumn === item.sourceColumn;
-
-                          return (
-                            <tr
-                              key={`diff-${idx}`}
-                              className={`hover:bg-slate-50/80 transition-colors ${
-                                isSelected ? 'bg-teal-50/60 font-semibold' : ''
-                              }`}
-                            >
-                              <td className="px-4 py-3 font-mono font-medium text-slate-900">
-                                {item.sourceColumn}
-                              </td>
-                              <td className="px-3 py-3 font-mono text-[11px] text-slate-500">
-                                {item.sourceType}
-                              </td>
-                              <td className="px-4 py-3 font-mono font-medium text-slate-900">
-                                {item.targetColumn}
-                              </td>
-                              <td className="px-3 py-3 font-mono text-[11px] text-slate-500">
-                                {item.targetType}
-                              </td>
-                              <td className="px-3 py-3">
-                                <span
-                                  className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                    isTransformed
-                                      ? 'bg-teal-50 text-teal-700 border border-teal-200'
-                                      : isQuarantined
-                                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                      : isAdded
-                                      ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {item.diffType}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-[11px] text-slate-600">
-                                {item.treatmentOperation && (
-                                  <div className="font-mono text-teal-800 font-semibold">{item.treatmentOperation}</div>
-                                )}
-                                <div className="text-slate-500">{item.legalBasis || '—'}</div>
-                              </td>
-                              <td className="px-3 py-3 text-right">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedColumn(isSelected ? '' : item.sourceColumn);
-                                    setActiveView('graph');
-                                  }}
-                                  className="text-[11px] h-7 px-2 text-teal-700 hover:bg-teal-50 cursor-pointer"
-                                >
-                                  Truy vết
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-200 bg-white px-5 py-3 text-[11px] text-slate-600">
+                <strong className="text-slate-800">Chú giải</strong>
+                <span className="flex items-center gap-2"><span className="w-8 border-t-2 border-slate-400" /> Dependency giữa task</span>
+                <span className="flex items-center gap-2"><span className="w-8 border-t-[3px] border-teal-600" /> OBSERVED: đọc/ghi thực tế</span>
+                <span className="flex items-center gap-2"><span className="w-8 border-t-2 border-dashed border-sky-600" /> DECLARED: khai báo trong DAG</span>
+                <span className="flex items-center gap-2"><span className="h-4 w-7 rounded-[10px] border-2 border-teal-300 bg-teal-50" /> Dataset</span>
+                <span className="flex items-center gap-2"><span className="h-4 w-7 rounded border border-l-4 border-emerald-400 bg-emerald-50" /> Task</span>
+                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" /> SUCCESS</span>
+                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-rose-500" /> FAILED</span>
+                <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-slate-400" /> SKIPPED</span>
               </div>
             </div>
-          )}
 
       {/* Node Inspection Drawer */}
       <LineageNodeDrawer

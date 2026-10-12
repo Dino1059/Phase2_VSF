@@ -11,11 +11,13 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FindingDetailModal } from '@/components/datatrust/findings/finding-detail';
 import { AuditFindingsTable } from './audit-findings-table';
+import { AuditWarningsTable } from './audit-warnings-table';
 import {
   apiBridge,
   type RunResultsData,
   type PipelineRunDetail as RunDetailType,
-  type FindingItem
+  type FindingItem,
+  type WarningRecord
 } from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
 
@@ -53,6 +55,7 @@ export function SlideDownDashboard() {
   const [runDetail, setRunDetail] = useState<RunDetailType | null>(null);
   const [results, setResults] = useState<RunResultsData | null>(null);
   const [findings, setFindings] = useState<FindingItem[]>([]);
+  const [warnings, setWarnings] = useState<WarningRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,11 +84,12 @@ export function SlideDownDashboard() {
         }
       }
 
-      // Fetch in parallel: Detail, Results, Findings from PostgreSQL
-      const [detailData, resultsData, findingsData] = await Promise.all([
+      // Fetch in parallel: Detail, Results, Findings, Warnings from PostgreSQL
+      const [detailData, resultsData, findingsData, warningsData] = await Promise.all([
         apiBridge.fetchPipelineRunDetail(targetId).catch(() => null),
         apiBridge.fetchPipelineRunResults(targetId).catch(() => null),
         apiBridge.fetchFindings({ runId: targetId }).catch(() => ({ total: 0, findings: [] })),
+        apiBridge.fetchWarningRecords({ runId: targetId, limit: 200 }).catch(() => ({ total: 0, records: [] })),
       ]);
 
       if (!detailData && !resultsData) {
@@ -95,6 +99,7 @@ export function SlideDownDashboard() {
       setRunDetail(detailData);
       setResults(resultsData);
       setFindings(findingsData?.findings || []);
+      setWarnings(warningsData?.records || []);
     } catch (err: any) {
       console.error('SlideDownDashboard load error:', err);
       setError(err.message || 'Lỗi khi nạp dữ liệu lượt chạy kiểm toán.');
@@ -107,15 +112,13 @@ export function SlideDownDashboard() {
     loadData();
   }, [loadData]);
 
-  const scrollToInvestigation = () => {
-    const el = document.getElementById('finding-remediation-section');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   const handleAskAiAboutFinding = (f: FindingItem) => {
     const prompt = `Yêu cầu AI giải thích nguyên nhân gốc rễ và căn cứ pháp lý của Finding ${f.finding_id} (${f.rule_id} trên cột ${f.column_name} thuộc dataset ${f.dataset_id}). Lý do: "${f.reason}".`;
+    sendUserChatMessage(prompt);
+  };
+
+  const handleAskAiAboutWarning = (w: WarningRecord) => {
+    const prompt = `Yêu cầu AI giải thích cảnh báo ${w.warning_type} (${w.warning_id}) trên dataset ${w.dataset_id}: Lý do là "${w.warning_reason}". Cảnh báo này có vi phạm pháp lý không và cần lưu ý gì cho mô hình?`;
     sendUserChatMessage(prompt);
   };
 
@@ -173,19 +176,6 @@ export function SlideDownDashboard() {
   const startedAt = results?.started_at || runDetail?.started_at;
   const durationMs = results?.duration_ms ?? runDetail?.duration_ms;
 
-
-  // Top Violated Rules
-  const topRules = results?.top_violated_rules && results.top_violated_rules.length > 0
-    ? results.top_violated_rules
-    : findings.slice(0, 5).map((f) => ({
-        rule_id: f.rule_id,
-        column_name: f.column_name,
-        severity: f.severity,
-        policy_name: f.policy_name || 'Chất lượng dữ liệu',
-        reason: f.reason || 'Quy tắc vi phạm kiểm soát chất lượng',
-        failed_record_count: f.failed_record_count || 1,
-        percentage: 0,
-      }));
 
   return (
     <div className="space-y-4 animate-in fade-in-50 duration-300">
@@ -290,69 +280,12 @@ export function SlideDownDashboard() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 4. CARD: RULE VI PHẠM NHIỀU NHẤT (TABLE WITH HEADERS & ROWS)              */}
+      {/* 4. AUDIT WARNINGS & DATA DRIFT TABLE                                      */}
       {/* ========================================================================= */}
-      <Card className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">Rule vi phạm nhiều nhất</h3>
-          <button
-            onClick={scrollToInvestigation}
-            className="text-xs font-semibold text-slate-500 hover:text-slate-900 transition cursor-pointer flex items-center gap-1"
-          >
-            <span>Bấm để điều tra</span>
-            <span>→</span>
-          </button>
-        </div>
-
-        {/* Table Headers */}
-        <div className="grid grid-cols-12 text-xs text-slate-400 pb-1 border-b border-slate-100 font-medium">
-          <div className="col-span-8">Rule / Policy</div>
-          <div className="col-span-2 text-center">Mức độ</div>
-          <div className="col-span-2 text-right">Bản ghi lỗi</div>
-        </div>
-
-        {/* Table Rows */}
-        <div className="divide-y divide-slate-100">
-          {topRules.map((r: any, idx: number) => {
-            const sevUpper = (r.severity || 'HIGH').toUpperCase();
-            const sevBadgeClass =
-              sevUpper === 'CRITICAL'
-                ? 'bg-[#fee2e2] text-[#991b1b] border-[#fecaca]'
-                : sevUpper === 'HIGH'
-                ? 'bg-[#fef3c7] text-[#92400e] border-[#fde68a]'
-                : 'bg-blue-50 text-blue-700 border-blue-200';
-
-            return (
-              <div
-                key={idx}
-                onClick={scrollToInvestigation}
-                className="grid grid-cols-12 items-center py-3 hover:bg-slate-50/70 rounded-lg px-1 transition-colors cursor-pointer"
-              >
-                <div className="col-span-8 space-y-0.5 pr-2">
-                  <div className="text-xs font-semibold text-slate-900 truncate">
-                    {r.reason ? r.reason.split(';')[0].replace('Pre-check failed: ', '') : r.rule_id}
-                  </div>
-                  <div className="text-[11px] text-slate-400 truncate">
-                    {r.rule_id} · {r.policy_name || 'Policy nội bộ'}
-                  </div>
-                </div>
-
-                <div className="col-span-2 flex justify-center">
-                  <span
-                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium border ${sevBadgeClass}`}
-                  >
-                    {sevUpper === 'CRITICAL' ? 'Critical' : sevUpper === 'HIGH' ? 'High' : 'Medium'}
-                  </span>
-                </div>
-
-                <div className="col-span-2 text-right font-mono text-xs text-slate-700 font-medium">
-                  {r.failed_record_count ? r.failed_record_count.toLocaleString('vi-VN') : 0}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+      <AuditWarningsTable
+        warnings={warnings}
+        onAskAi={(w) => handleAskAiAboutWarning(w)}
+      />
 
       {/* ========================================================================= */}
       {/* 6. FINDING INVESTIGATION & REMEDIATION SECTION                            */}

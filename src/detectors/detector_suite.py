@@ -48,7 +48,6 @@ class L1toL4DetectorSuite:
             {"x": "duration_mins", "y": "kwh_consumed"},
             {"x": "duration_mins", "y": "trip_distance_km"},
             {"x": "soc_delta", "y": "kwh_consumed"},
-            {"x": "fare_amount", "y": "total_fare"},
         ],
         "l4_metrics": ["battery_temp_c", "battery_soc", "trip_distance_km"],
         "timestamp": {"future_tolerance_seconds": 300, "max_sequence_gap_seconds": None, "sequence_entity_field": None},
@@ -254,16 +253,18 @@ class L1toL4DetectorSuite:
         # =========================================================================
         # 3. LANE A - L3: Bivariate Physical Residual Breaks
         # =========================================================================
+        is_record_level = any(k in df.columns for k in ["trip_id", "session_id", "feedback_id"])
+        l3_target_col = resolved_pk if is_record_level else entity_col
         for relation in cfg.get("l3_relations", []):
           feature_x, feature_y = relation.get("x"), relation.get("y")
           if feature_x in numeric_df.columns and feature_y in numeric_df.columns:
             l3_sigs = self.l3.detect_bivariate_residual_anomalies(
-                df=numeric_df, project_id=self.project_id, entity_id_col=entity_col,
+                df=numeric_df, project_id=self.project_id, entity_id_col=l3_target_col,
                 timestamp_col=time_col, feature_x=feature_x, feature_y=feature_y,
                 source_table=dataset_id
             )
             self._tag_signals(l3_sigs, relation.get("rule_id", f"L3.RELATION.{feature_y}_vs_{feature_x}"), cfg, relation)
-            self._accumulate_signals(l3_sigs, record_signals, df, resolved_pk, entity_col)
+            self._accumulate_signals(l3_sigs, record_signals, df, resolved_pk, l3_target_col)
 
         # =========================================================================
         # 4. LANE A - L4: Changepoint Shift & Granular Window Attribution

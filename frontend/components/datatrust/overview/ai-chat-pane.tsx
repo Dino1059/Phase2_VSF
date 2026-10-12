@@ -32,14 +32,30 @@ function formatSessionTime(iso: string) {
   }
 }
 
-function renderMarkdownContent(text: string) {
+function renderMarkdownContent(text: string, isAi: boolean = false) {
   const lines = text.split('\n');
   return (
-    <div className="space-y-1.5 text-xs font-normal leading-relaxed">
+    <div className={`space-y-1.5 font-normal leading-relaxed ${isAi ? 'text-[13.5px] sm:text-sm text-slate-800' : 'text-xs text-slate-900'}`}>
       {lines.map((line, idx) => {
         const trimmed = line.trim();
         if (!trimmed) {
-          return <div key={idx} className="h-1" />;
+          return <div key={idx} className="h-1.5" />;
+        }
+
+        // Heading support
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h4 key={idx} className={`font-bold text-slate-950 mt-2 mb-0.5 ${isAi ? 'text-[14.5px] sm:text-[15px]' : 'text-xs'}`}>
+              {trimmed.replace(/^###\s+/, '')}
+            </h4>
+          );
+        }
+        if (trimmed.startsWith('## ')) {
+          return (
+            <h3 key={idx} className={`font-bold text-slate-950 mt-2.5 mb-1 ${isAi ? 'text-[15.5px] sm:text-[16px]' : 'text-sm'}`}>
+              {trimmed.replace(/^##\s+/, '')}
+            </h3>
+          );
         }
 
         const isBullet = /^[•\-\*]\s+/.test(trimmed);
@@ -51,7 +67,7 @@ function renderMarkdownContent(text: string) {
           ? trimmed.replace(/^[0-9]+\.\s+/, '')
           : line;
 
-        const parts = content.split(/(\*\*.*?\*\*|`.*?`)/g);
+        const parts = content.split(/(\**.*?\**|`.*?`)/g);
 
         const renderedLine = parts.map((p, pIdx) => {
           if (p.startsWith('**') && p.endsWith('**')) {
@@ -65,7 +81,9 @@ function renderMarkdownContent(text: string) {
             return (
               <code
                 key={pIdx}
-                className="rounded px-1 py-0.5 text-[11px] font-mono border bg-slate-100 text-teal-800 border-slate-200"
+                className={`rounded px-1.5 py-0.5 font-mono border bg-slate-100 text-teal-800 border-slate-200 ${
+                  isAi ? 'text-[12px] sm:text-[12.5px]' : 'text-[11px]'
+                }`}
               >
                 {p.slice(1, -1)}
               </code>
@@ -77,7 +95,7 @@ function renderMarkdownContent(text: string) {
         if (isBullet) {
           return (
             <div key={idx} className="flex items-start gap-1.5 pl-1">
-              <span className="text-teal-600 font-bold leading-tight select-none">•</span>
+              <span className="text-teal-600 font-bold leading-tight select-none mt-0.5">•</span>
               <div className="flex-1">{renderedLine}</div>
             </div>
           );
@@ -88,7 +106,9 @@ function renderMarkdownContent(text: string) {
           const num = numMatch ? numMatch[1] : '1';
           return (
             <div key={idx} className="flex items-start gap-1.5 pl-1">
-              <span className="font-semibold text-slate-600 select-none text-[11px] leading-tight min-w-[14px]">
+              <span className={`font-semibold text-slate-600 select-none leading-tight min-w-[16px] ${
+                isAi ? 'text-[12.5px] sm:text-xs' : 'text-[11px]'
+              }`}>
                 {num}.
               </span>
               <div className="flex-1">{renderedLine}</div>
@@ -97,7 +117,7 @@ function renderMarkdownContent(text: string) {
         }
 
         return (
-          <p key={idx} className="text-slate-800">
+          <p key={idx} className={isAi ? 'text-slate-800 leading-relaxed' : 'text-slate-800'}>
             {renderedLine}
           </p>
         );
@@ -440,7 +460,76 @@ export function AiChatPane() {
                       : 'bg-[#ecfdf5] border border-[#bbf7d0]/50 text-slate-900 font-medium'
                   }`}
                 >
-                  {renderMarkdownContent(msg.text)}
+                  {renderMarkdownContent(msg.text, isAi)}
+
+                  {/* Clean Audit Evidence Card - No raw JSON traces */}
+                  {isAi && (msg.groundingLevel || msg.sourceLabel || (msg.evidenceIds && msg.evidenceIds.length > 0) || msg.ruleId) && (
+                    <div className="mt-2.5 rounded-xl border border-slate-200/80 bg-white/95 p-2.5 text-[11px] space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
+                        <span className="font-bold text-slate-700 flex items-center gap-1 text-[10.5px] uppercase tracking-wider">
+                          <ShieldAlert size={12} className="text-teal-600" />
+                          Hồ sơ đối soát (Audit Evidence)
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {msg.groundingLevel && (
+                            <span className={`px-2 py-0.5 rounded-full font-bold text-[9.5px] border ${
+                              msg.groundingLevel === 'SUPPORTED'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : msg.groundingLevel === 'PARTIAL'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-slate-50 text-slate-600 border-slate-200'
+                            }`}>
+                              {msg.groundingLevel === 'SUPPORTED' && '✓ SUPPORTED'}
+                              {msg.groundingLevel === 'PARTIAL' && '⚠ PARTIAL'}
+                              {msg.groundingLevel === 'INSUFFICIENT_EVIDENCE' && 'Ø ABSTAIN'}
+                            </span>
+                          )}
+                          {msg.sourceLabel && (
+                            <span className="font-mono text-[9.5px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                              {msg.sourceLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-1 text-slate-600 pt-0.5">
+                        {msg.ruleId && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 font-medium">Quy tắc:</span>
+                            <code className="font-mono text-[10px] text-teal-700 bg-teal-50 px-1 rounded">{msg.ruleId}</code>
+                            {msg.lawRef && (
+                              <span className="text-slate-400 text-[10px]">({msg.lawRef})</span>
+                            )}
+                          </div>
+                        )}
+
+                        {msg.toolsCalled && msg.toolsCalled.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-400 font-medium">Công cụ:</span>
+                            {msg.toolsCalled.map((t, idx) => (
+                              <span key={idx} className="font-mono text-[9.5px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {msg.evidenceIds && msg.evidenceIds.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-400 font-medium">Mã đối soát:</span>
+                            {msg.evidenceIds.slice(0, 3).map((eid, idx) => (
+                              <code key={idx} className="font-mono text-[9.5px] bg-blue-50 text-blue-700 px-1 rounded border border-blue-100">
+                                {eid}
+                              </code>
+                            ))}
+                            {msg.evidenceIds.length > 3 && (
+                              <span className="text-slate-400 text-[10px]">+{msg.evidenceIds.length - 3} bản ghi</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Quick actions chips inside bubble */}
                   {msg.quickActions && msg.quickActions.length > 0 && (

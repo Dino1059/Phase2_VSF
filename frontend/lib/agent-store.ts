@@ -179,6 +179,13 @@ export interface ChatMessageItem {
   timestamp: string;
   quickActions?: { label: string; actionType: string; payload?: any }[];
   highlightRuleId?: string;
+  auditRationale?: string;
+  toolsCalled?: string[];
+  evidenceIds?: string[];
+  lawRef?: string;
+  ruleId?: string;
+  sourceLabel?: string;
+  groundingLevel?: 'SUPPORTED' | 'PARTIAL' | 'INSUFFICIENT_EVIDENCE' | string;
 }
 
 export interface ChatSession {
@@ -2409,17 +2416,24 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
 
       const result: unknown = await response.json();
       if (!result || typeof result !== 'object') throw new Error('Invalid AI response');
-      const payload = result as { response?: unknown; session_id?: unknown };
+      const payload = result as { response?: unknown; session_id?: unknown; data?: Record<string, unknown> };
       if (typeof payload.response !== 'string' || !payload.response.trim()) {
         throw new Error('AI returned an empty response');
       }
       const assistantText = payload.response.trim();
+      const resData = payload.data || {};
 
       const assistantMsg: ChatMessageItem = {
         id: `AI-${Date.now()}`,
         sender: 'ai',
         text: assistantText,
         timestamp: 'Vừa xong',
+        groundingLevel: typeof resData.grounding_level === 'string' ? resData.grounding_level : undefined,
+        sourceLabel: typeof resData.source_label === 'string' ? resData.source_label : undefined,
+        toolsCalled: Array.isArray(resData.tools_called) ? (resData.tools_called as string[]) : undefined,
+        evidenceIds: Array.isArray(resData.evidence_ids) ? (resData.evidence_ids as string[]) : undefined,
+        lawRef: typeof resData.law_ref === 'string' ? resData.law_ref : undefined,
+        ruleId: typeof resData.rule_id === 'string' ? resData.rule_id : undefined,
       };
 
       const finalMessages = [...nextMessages, assistantMsg];
