@@ -1,8 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
 import {
   CheckCircle2,
-  History,
   Scale,
   Shield,
   ShieldAlert,
@@ -10,7 +8,6 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { apiBridge } from '@/lib/api-bridge';
 
 export type UnifiedRuleItem = {
   ruleId: string;
@@ -44,50 +41,8 @@ interface RuleDetailDrawerProps {
   onClose: () => void;
 }
 
-interface RunUsageItem {
-  run_id: string;
-  dataset_id: string;
-  status: string;
-  scanned_count?: number;
-  silver_count?: number;
-  quarantine_count?: number;
-  started_at?: string;
-}
-
 export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
-  const [showUsage, setShowUsage] = useState(false);
-  const [loadingUsage, setLoadingUsage] = useState(false);
-  const [runHistory, setRunHistory] = useState<RunUsageItem[]>([]);
-
-  useEffect(() => {
-    setShowUsage(false);
-    setRunHistory([]);
-  }, [rule?.ruleId]);
-
   if (!rule) return null;
-
-  const handleFetchUsage = async () => {
-    if (showUsage) {
-      setShowUsage(false);
-      return;
-    }
-    setLoadingUsage(true);
-    setShowUsage(true);
-    try {
-      const runs = await apiBridge.fetchLivePipelineRuns();
-      // Filter runs that correspond to this rule's dataset
-      const cleanDs = rule.datasetId.replace('.csv', '');
-      const filtered = (runs || []).filter((r: any) => {
-        const runDs = (r.dataset_id || '').replace('.csv', '');
-        return runDs === cleanDs || !r.dataset_id;
-      });
-      setRunHistory(filtered);
-    } catch (err) {
-      console.warn('Failed to fetch run usage:', err);
-    } finally {
-      setLoadingUsage(false);
-    }
-  };
 
   const getSeverityBadge = (severity: string) => {
     const s = severity.toUpperCase();
@@ -284,78 +239,6 @@ export function RuleDetailDrawer({ rule, onClose }: RuleDetailDrawerProps) {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Optional Action: [ View usage ] - Spec 18 */}
-            <div className="border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-slate-900 block">Lịch sử pipeline theo dataset</span>
-                  <span className="text-[11px] text-slate-500">
-                    Các run cùng dataset; không thay thế execution evidence theo rule.
-                  </span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleFetchUsage}
-                  disabled={loadingUsage}
-                  className="h-8 gap-1.5 text-xs font-bold border-slate-300 hover:border-slate-900 hover:bg-slate-100 text-slate-800 cursor-pointer shadow-2xs"
-                >
-                  <History size={13} className={loadingUsage ? 'animate-spin' : 'text-[#04D3D4]'} />
-                  <span>{showUsage ? 'Ẩn usage' : 'View usage'}</span>
-                </Button>
-              </div>
-
-              {/* Usage Runs List (Live from /api/runs) */}
-              {showUsage && (
-                <div className="mt-3.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5 animate-in fade-in-50 duration-200">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
-                    Các lần chạy đã sử dụng ({runHistory.length} runs):
-                  </span>
-
-                  {runHistory.length === 0 ? (
-                    <div className="py-4 text-center text-xs text-slate-400">
-                      Chưa có lần chạy nào được ghi nhận cho bộ dữ liệu này.
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                      {runHistory.map((run) => (
-                        <div
-                          key={run.run_id}
-                          className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-white p-2.5 text-xs shadow-2xs"
-                        >
-                          <div>
-                            <span className="font-mono font-bold text-slate-900 block truncate max-w-[200px]">
-                              {run.run_id}
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {run.started_at ? new Date(run.started_at).toLocaleString('vi-VN') : 'Gần đây'}
-                            </span>
-                          </div>
-
-                          <div className="text-right">
-                            <span
-                              className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-extrabold ${
-                                run.status === 'COMPLETED' || run.status === 'success'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
-                              }`}
-                            >
-                              {run.status}
-                            </span>
-                            {run.scanned_count !== undefined && (
-                              <span className="block text-[10px] text-slate-500 font-mono mt-0.5">
-                                {run.scanned_count.toLocaleString()} rows
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
