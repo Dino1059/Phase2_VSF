@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
-import { ACTIVITIES, CONFLICT_PAIRS, LETTERS, ROLES, ROLE_KEYS, type Letter } from "@/lib/sod/catalog";
+import { ACTIVITIES, CONFLICT_PAIRS, DEFAULT_MATRIX, LETTERS, MATRIX_NOTES, MATRIX_RULES, ROLES, ROLE_KEYS, rowNo, type Letter } from "@/lib/sod/catalog";
 import { phaseSteps } from "@/lib/sod/chain";
 import { activeConfig } from "@/lib/config/queries";
 import { Badge } from "@/app/ui/badges";
@@ -12,8 +12,25 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
   const cfg = await activeConfig(); // ma trận của phiên bản cấu hình đang hiệu lực
   const hd = Number((await searchParams).hd);
   const sel = ACTIVITIES.find((a) => a.id === hd);
-  const ps = sel && phaseSteps(sel.id, {}, cfg.config.matrix);
+  const active = cfg.config.matrix;
+  const ps = sel && phaseSteps(sel.id, {}, active);
+  const psNew = sel && active[sel.id] !== DEFAULT_MATRIX[sel.id] ? phaseSteps(sel.id, {}, DEFAULT_MATRIX) : undefined;
   const short = (r: keyof typeof ROLES) => ROLES[r].short;
+  // Số ô của phiên bản đang hiệu lực còn khác ma trận chuẩn (điều chỉnh chưa được duyệt áp dụng)
+  const pending = ACTIVITIES.reduce((n, a) => n + [...active[a.id]].filter((l, j) => l !== DEFAULT_MATRIX[a.id][j]).length, 0);
+  const chain = (seq: NonNullable<typeof ps>["seq"]) =>
+    seq.length ? (
+      seq.map(([r, l], i) => (
+        <span key={i} className="row">
+          {i > 0 && <span className="muted">→</span>}
+          <span className="chip">
+            <Badge l={l} /> {short(r)}
+          </span>
+        </span>
+      ))
+    ) : (
+      <span className="muted">Chỉ người khởi tạo thực hiện</span>
+    );
 
   return (
     <>
@@ -28,12 +45,19 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
           </span>
         ))}
       </div>
+      {pending > 0 && (
+        <div className="alert warn">
+          Phiên bản {cfg.seq} đang hiệu lực chưa áp dụng điều chỉnh mới ({pending} ô, hiển thị dạng <i>cũ → mới</i>). Để áp dụng: Admin vào{" "}
+          <Link href="/quan-tri">Quản trị</Link>, bấm “Nạp ma trận chuẩn”, gửi đề xuất; CISO duyệt thì có hiệu lực cho phiếu tạo sau.
+        </div>
+      )}
       <div className="card" style={{ padding: 8 }}>
         <div className="table-wrap">
           <table className="mx">
             <thead>
               <tr>
-                <th>Hoạt động kiểm soát</th>
+                <th className="no">#</th>
+                <th className="act">Hoạt động kiểm soát</th>
                 {ROLE_KEYS.map((r) => (
                   <th key={r} title={ROLES[r].name}>{short(r)}</th>
                 ))}
@@ -42,16 +66,31 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
             <tbody>
               {ACTIVITIES.map((a) => (
                 <tr key={a.id} className={a.id === sel?.id ? "sel" : undefined}>
-                  <td>
+                  <td className="no">
+                    {rowNo(a.id)}
+                    {MATRIX_NOTES[a.id] && <sup className="note-mark">*</sup>}
+                  </td>
+                  <td className="act">
                     <Link href={`/ma-tran?hd=${a.id}#chuoi`} scroll={false} style={{ color: "inherit", textDecoration: "none" }}>
                       {a.name}
                     </Link>
                   </td>
-                  {[...cfg.config.matrix[a.id]].map((l, i) => (
-                    <td key={i}>
-                      <Badge l={l as Letter} />
-                    </td>
-                  ))}
+                  {ROLE_KEYS.map((r, j) => {
+                    const cur = active[a.id][j] as Letter;
+                    const next = DEFAULT_MATRIX[a.id][j] as Letter;
+                    const noted = MATRIX_NOTES[a.id]?.roles.includes(r);
+                    return (
+                      <td key={r} className={noted || cur !== next ? "edited" : undefined} title={noted ? MATRIX_NOTES[a.id].text : undefined}>
+                        {cur !== next ? (
+                          <span className="was-now">
+                            <span className="was"><Badge l={cur} /></span>→<Badge l={next} />
+                          </span>
+                        ) : (
+                          <Badge l={cur} />
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -59,26 +98,39 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
         </div>
       </div>
 
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2>Ghi chú điều chỉnh ma trận</h2>
+        <p className="small muted" style={{ marginTop: -6 }}>Quy tắc đọc ma trận:</p>
+        <ul className="small">
+          {MATRIX_RULES.map((t) => <li key={t}>{t}</li>)}
+        </ul>
+        <p className="small muted">Các dòng đã sửa hoặc có ghi chú (ô viền vàng trên bảng, dòng có dấu *; di chuột vào ô để xem):</p>
+        <ul className="small" style={{ marginBottom: 0 }}>
+          {Object.entries(MATRIX_NOTES).map(([id, n]) => (
+            <li key={id}>
+              <Link href={`/ma-tran?hd=${id}#chuoi`} scroll={false}><b>Dòng {rowNo(Number(id))}</b></Link> · {ACTIVITIES[Number(id)].name}: {n.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+
       {sel && ps && (
         <div id="chuoi" className="card" style={{ margin: "16px 0" }}>
-          <h2>{sel.name}</h2>
+          <h2>
+            Dòng {rowNo(sel.id)} · {sel.name}
+          </h2>
           <p className="small muted" style={{ marginTop: -6 }}>
             {sel.kind === "approval" ? "Hoạt động phê duyệt: rà soát → phê duyệt → thực thi" : "Hoạt động thực hiện: thực hiện → rà soát → nghiệm thu"}
           </p>
-          <div className="row">
-            {ps.seq.length ? (
-              ps.seq.map(([r, l], i) => (
-                <span key={i} className="row">
-                  {i > 0 && <span className="muted">→</span>}
-                  <span className="chip">
-                    <Badge l={l} /> {short(r)}
-                  </span>
-                </span>
-              ))
-            ) : (
-              <span className="muted">Chỉ người khởi tạo thực hiện</span>
-            )}
-          </div>
+          {psNew && <p className="small" style={{ margin: "0 0 4px" }}><b>Đang hiệu lực (phiên bản {cfg.seq})</b></p>}
+          <div className="row">{chain(ps.seq)}</div>
+          {psNew && (
+            <>
+              <p className="small" style={{ margin: "10px 0 4px" }}><b>Sau điều chỉnh</b></p>
+              <div className="row">{chain(psNew.seq)}</div>
+            </>
+          )}
+          {MATRIX_NOTES[sel.id] && <p className="small alert warn" style={{ margin: "10px 0 0" }}>Ghi chú: {MATRIX_NOTES[sel.id].text}</p>}
           <p className="small muted" style={{ marginBottom: 0 }}>
             Tham vấn: {ps.C.map(short).join(", ") || "—"} · Thông báo: {ps.I.map(short).join(", ") || "—"}
           </p>
@@ -115,6 +167,7 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
             <li><b>Hàng tháng + sau mỗi thay đổi role</b> · IAM + Auditor — kiểm tra xung đột SoD</li>
             <li><b>Hàng tháng</b> · SOC/Security — log cấp &amp; thu hồi quyền</li>
             <li><b>Hàng quý</b> · DPO + CISO — đánh giá ngoại lệ</li>
+            <li><b>Hàng quý</b> · bên độc lập với Auditor — lấy mẫu các request Auditor đã cho qua, đối chiếu log để tránh che giấu lỗi</li>
           </ul>
         </details>
       </div>

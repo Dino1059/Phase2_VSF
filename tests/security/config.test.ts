@@ -154,3 +154,13 @@ test("T04: từ chối giữ nguyên cấu hình; nội dung đã đề xuất k
   // Không tự thay thế phiên bản đang hiệu lực mà không có phiên bản khác được duyệt
   await assert.rejects(prisma.configVersion.update({ where: { id: cur.id }, data: { status: "SUPERSEDED" } }), /không chuyển được/);
 });
+
+test("Quy tắc 10/2026: đề xuất tạo thêm dòng hai P hoặc Auditor giữ A → bị chặn; nạp ma trận chuẩn thì được", async () => {
+  const base = (await activeConfig()).config;
+  const AUD = ROLE_KEYS.indexOf("AUD");
+  const set = (row: string, j: number, l: string) => row.slice(0, j) + l + row.slice(j + 1);
+  await denied(propose(admin, change(base, (c) => void (c.matrix[4] = set(c.matrix[4], SO, "P")))), /Dòng 5.*một P/); // dòng 5 đã có IAM P
+  await denied(propose(admin, change(base, (c) => void (c.matrix[1] = set(c.matrix[1], AUD, "A")))), /Dòng 2.*Auditor/);
+  const p = await propose(admin, change(base, (c) => void (c.matrix = [...DEFAULT_CONFIG.matrix])));
+  await withdrawConfig(admin, p.id, meta);
+});

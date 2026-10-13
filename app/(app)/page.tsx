@@ -8,9 +8,9 @@ const FLOW = [
   ["Raise", "Requestor tạo ticket, mô tả mục đích, phạm vi, dữ liệu."],
   ["Phân loại", "Tự map sang hoạt động kiểm soát trong ma trận."],
   ["Kiểm SoD", "Chặn các cặp xung đột; vi phạm → xin ngoại lệ."],
-  ["Duyệt tuần tự", "Rà soát (R) → Phê duyệt (A), cấp thấp → cao."],
+  ["Duyệt tuần tự", "Rà soát (R) → Phê duyệt (A), cấp thấp → cao; Auditor kiểm tra cấm / vượt quyền trước khi thực thi."],
   ["Thực thi", "Người P độc lập thực hiện sau khi đã duyệt."],
-  ["Hậu kiểm & lưu", "Auditor xác nhận, lưu log cùng ticket."],
+  ["Lưu bằng chứng", "Lưu log cùng ticket; bên độc lập lấy mẫu định kỳ các request Auditor đã cho qua."],
 ];
 
 export default async function Overview() {
@@ -97,9 +97,9 @@ export default async function Overview() {
               </div>
             ))}
             <div className="rung">
-              <div className="k">Sau cùng</div>
+              <div className="k">Trước thực thi</div>
               <b>Auditor</b>
-              <span className="small muted">hậu kiểm</span>
+              <span className="small muted">kiểm tra cấm / vượt quyền</span>
             </div>
           </div>
           <p className="small muted">

@@ -33,6 +33,7 @@ export const VERB: Record<StepAction, string> = { P: "Thực hiện", R: "Rà so
 
 // Ma trận SoD — mỗi chuỗi 10 ký tự theo thứ tự ROLE_KEYS
 // kind: approval = duyệt trước rồi mới thực thi (R → A → P); work = làm trước rồi rà soát (P → R → A)
+// Auditor R luôn chen ngay trước P (kiểm tra trước khi thực hiện).
 type Activity = { id: number; name: string; kind: "approval" | "work"; m: string };
 export const ACTIVITIES: Activity[] = [
   { id: 0, name: "Khởi tạo yêu cầu cấp quyền", kind: "work", m: "PXIIIXIIXI" },
@@ -47,18 +48,43 @@ export const ACTIVITIES: Activity[] = [
   { id: 9, name: "Kiểm thử và xác nhận kết quả", kind: "work", m: "XXCRRXPAXI" },
   { id: 10, name: "Phê duyệt phát hành Production", kind: "approval", m: "XXCRAXXAXI" },
   { id: 11, name: "Triển khai Production", kind: "work", m: "XXXIRXXXPI" },
-  { id: 12, name: "Thay đổi giá, khuyến mại hoặc chính sách vận hành", kind: "approval", m: "PACARXXRPI" },
-  { id: 13, name: "Truy vấn dữ liệu PII trực tiếp", kind: "approval", m: "PXAARPXXXI" },
-  { id: 14, name: "Xuất dữ liệu PII", kind: "approval", m: "PAARRPXXXI" },
+  { id: 12, name: "Thay đổi giá, khuyến mại hoặc chính sách vận hành", kind: "approval", m: "PACARXXRII" },
+  { id: 13, name: "Truy vấn dữ liệu PII nghiệp vụ (khách hàng) trực tiếp", kind: "approval", m: "PXAARXXXXI" },
+  { id: 14, name: "Xuất dữ liệu PII nghiệp vụ (khách hàng)", kind: "approval", m: "PAARRXXXXI" },
   { id: 15, name: "Phê duyệt ngoại lệ kiểm soát", kind: "approval", m: "XCAAAXXXXI" },
-  { id: 16, name: "Điều tra sự cố bảo mật", kind: "work", m: "CICRAPCCPI" },
-  { id: 17, name: "Đóng sự cố và xác nhận khắc phục", kind: "approval", m: "IICRAXXRRA" },
-  { id: 18, name: "Rà soát quyền định kỳ", kind: "work", m: "IACRRPXXXA" },
+  { id: 16, name: "Điều tra sự cố bảo mật", kind: "work", m: "CICRACCCPI" },
+  { id: 17, name: "Đóng sự cố và xác nhận khắc phục", kind: "approval", m: "IICRAXXRRR" },
+  { id: 18, name: "Rà soát quyền định kỳ", kind: "work", m: "IACPRIXXXR" },
 ];
 export const EXCEPTION_ACTIVITY = 15;
 
-/** Ma trận mặc định (phiên bản cấu hình 1). Phiên bản đang hiệu lực nằm trong bảng config_versions. */
+/** Ma trận chuẩn theo rule.md (đã điều chỉnh 10/2026, xem MATRIX_NOTES). Phiên bản đang hiệu lực nằm trong bảng config_versions:
+ *  muốn áp dụng ma trận chuẩn thì Admin đề xuất ở trang Quản trị và CISO duyệt. */
 export const DEFAULT_MATRIX: readonly string[] = ACTIVITIES.map((a) => a.m);
+
+/** Số thứ tự dòng hiển thị (bắt đầu từ 1) */
+export const rowNo = (actId: number) => actId + 1;
+
+// Quy tắc đọc ma trận (đã chốt khi rà soát ma trận, 10/2026)
+export const MATRIX_RULES: string[] = [
+  "Nhiều A trên một dòng = AND: tất cả người giữ A đều phải phê duyệt, lần lượt từ cấp thấp đến cấp cao.",
+  "Mỗi dòng có tối đa một P (một người thực hiện).",
+  "Auditor R = kiểm tra request có bị cấm hoặc vượt quyền không, ngay trước bước thực hiện (P). Auditor không giữ A.",
+  "Hai loại dữ liệu: IAM được đọc dữ liệu định danh nhân viên (mã NV, họ tên, email công vụ, phòng ban, chức danh, trạng thái làm việc) để cấp / đổi / thu hồi account (dòng 5, 6, 7). IAM không đọc dữ liệu nghiệp vụ / PII khách hàng (dòng 14, 15). Không xem lương, CCCD, sức khỏe, đánh giá nhân sự.",
+];
+
+// Ghi chú các ô đã sửa, theo id hoạt động. roles = cột liên quan (được tô nổi trên ma trận).
+export const MATRIX_NOTES: Record<number, { roles: RoleKey[]; text: string }> = {
+  4: { roles: ["IAM"], text: "IAM được đọc dữ liệu định danh nhân viên (mã NV, phòng ban, chức danh, trạng thái làm việc) để mở account. Không đọc dữ liệu nghiệp vụ / khách hàng." },
+  5: { roles: ["IAM", "AUD"], text: "IAM đọc trạng thái nghỉ việc của nhân viên để thu hồi account, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu thu hồi có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
+  6: { roles: ["IAM", "AUD"], text: "IAM đọc phòng ban / chức danh mới của nhân viên để đổi quyền, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu điều chuyển có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
+  12: { roles: ["OPS"], text: "Bỏ P thứ hai: chỉ Requestor thực hiện sau khi được duyệt; Prod. Op. P → I." },
+  13: { roles: ["IAM"], text: "IAM P → X với dữ liệu khách hàng. IAM vẫn đọc dữ liệu định danh nhân viên để mở account ở dòng 5 (PAM/JIT), được nối sau bước duyệt; rồi Requestor mới truy vấn." },
+  14: { roles: ["IAM"], text: "IAM P → X với dữ liệu khách hàng. IAM vẫn đọc dữ liệu định danh nhân viên để mở account ở dòng 5 (PAM/JIT), được nối sau bước duyệt; rồi Requestor mới xuất dữ liệu." },
+  16: { roles: ["IAM"], text: "Bỏ P thứ hai: Prod. Op. điều tra; IAM P → C (cung cấp log truy cập, thông tin account)." },
+  17: { roles: ["AUD"], text: "Auditor A → R: Auditor không phê duyệt đóng sự cố, chỉ kiểm tra; CISO duyệt cuối." },
+  18: { roles: ["SO", "IAM", "AUD"], text: "Sys Owner R → P (thực hiện rà soát); IAM P → I (nhận kết quả để thu hồi, không tự rà soát quyền mình cấp); Auditor A → R." },
+};
 
 /** Mã hoạt động: số = dòng ma trận, 'init' = khởi tạo ticket, 'bg' = hậu kiểm break-glass */
 export type ActKey = number | "init" | "bg";
@@ -71,8 +97,8 @@ export const letter = (actId: number, role: RoleKey, matrix: readonly string[] =
 const TICKET_TYPES = [
   { id: "offboard", name: "Thu hồi quyền (nghỉ việc)", acts: [5] },
   { id: "incident", name: "Sự cố bảo mật", acts: [16, 17] },
-  { id: "pii_export", name: "Xuất dữ liệu PII", acts: [14] },
-  { id: "pii_query", name: "Truy vấn dữ liệu PII trực tiếp", acts: [13] },
+  { id: "pii_export", name: "Xuất dữ liệu PII nghiệp vụ (khách hàng)", acts: [14, 4] },
+  { id: "pii_query", name: "Truy vấn dữ liệu PII nghiệp vụ (khách hàng) trực tiếp", acts: [13, 4] },
   { id: "exception", name: "Ngoại lệ kiểm soát", acts: [15] },
   { id: "pricing", name: "Thay đổi giá / khuyến mại / chính sách", acts: [12] },
   { id: "change", name: "Thay đổi mã nguồn → Production", acts: [8, 9, 10, 11] },

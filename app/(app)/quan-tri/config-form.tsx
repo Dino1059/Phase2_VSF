@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { proposeConfigAction } from "@/app/actions/config";
-import { ACTIVITIES, LETTERS, ROLES, ROLE_KEYS, type Letter, type StepAction } from "@/lib/sod/catalog";
+import { ACTIVITIES, DEFAULT_MATRIX, LETTERS, ROLES, ROLE_KEYS, rowNo, type Letter, type StepAction } from "@/lib/sod/catalog";
 import { PRIORITY_KEYS, SLA_LABEL, diffConfig, type ConfigData } from "@/lib/config/schema";
 import { PRIORITY_LABEL } from "@/lib/sod/catalog";
 
@@ -71,20 +71,35 @@ export default function ConfigForm({ active }: { active: ConfigData }) {
       <details>
         <summary>Ma trận SoD ({changes.filter((x) => x.startsWith("Ma trận")).length} ô đổi)</summary>
         <p className="small muted">
-          Chọn lại ký hiệu từng ô. Requestor không được là người rà soát hoặc phê duyệt. Phiếu đã tạo giữ ma trận lúc tạo.
+          Chọn lại ký hiệu từng ô. Requestor không được là người rà soát hoặc phê duyệt; mỗi dòng tối đa một P; Auditor không giữ A. Phiếu đã tạo giữ ma trận lúc tạo.
         </p>
+        {c.matrix.some((row, i) => row !== DEFAULT_MATRIX[i]) && (
+          <button
+            type="button"
+            className="btn sm"
+            style={{ marginBottom: 8 }}
+            onClick={() => {
+              setC((p) => ({ ...p, matrix: [...DEFAULT_MATRIX] }));
+              setReason((r) => r || "Áp dụng ma trận chuẩn theo rule.md (điều chỉnh 10/2026: mỗi dòng một P, Auditor không giữ A, IAM không truy cập dữ liệu PII).");
+            }}
+          >
+            Nạp ma trận chuẩn (rule.md)
+          </button>
+        )}
         <div className="table-wrap">
           <table className="mx">
             <thead>
               <tr>
-                <th>Hoạt động</th>
+                <th className="no">#</th>
+                <th className="act">Hoạt động</th>
                 {ROLE_KEYS.map((r) => <th key={r} title={ROLES[r].name}>{ROLES[r].short}</th>)}
               </tr>
             </thead>
             <tbody>
               {ACTIVITIES.map((a, i) => (
                 <tr key={a.id}>
-                  <td>{a.name}</td>
+                  <td className="no">{rowNo(a.id)}</td>
+                  <td className="act">{a.name}</td>
                   {ROLE_KEYS.map((r, j) => {
                     const l = c.matrix[i][j];
                     const changed = l !== active.matrix[i][j];

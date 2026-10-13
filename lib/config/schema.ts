@@ -34,6 +34,16 @@ export const ConfigSchema = z
     });
   });
 
+/** Quy tắc đã chốt 10/2026 (rule.md mục 2): mỗi dòng tối đa một P, Auditor không giữ A.
+ *  Chỉ kiểm khi đề xuất (không cho tạo vi phạm mới); không đưa vào ConfigSchema để các phiên bản cũ trong DB vẫn đọc được. */
+export function matrixRuleProblems(matrix: readonly string[]): string[] {
+  const aud = ROLE_KEYS.indexOf("AUD");
+  return matrix.flatMap((row, i) => [
+    ...([...row].filter((l) => l === "P").length > 1 ? [`Dòng ${i + 1} “${ACTIVITIES[i].name}”: mỗi dòng chỉ được có một P`] : []),
+    ...(row[aud] === "A" ? [`Dòng ${i + 1} “${ACTIVITIES[i].name}”: Auditor không được phê duyệt`] : []),
+  ]);
+}
+
 export type ConfigData = z.infer<typeof ConfigSchema>;
 
 export const DEFAULT_CONFIG: ConfigData = {

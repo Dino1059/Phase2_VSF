@@ -7,7 +7,7 @@ import { canDecideConfig, canProposeConfig } from "@/lib/authz/policy";
 import { notify } from "@/lib/notify/service";
 import { TicketError } from "@/lib/tickets/service";
 import { activeConfig } from "./queries";
-import { ConfigSchema, diffConfig } from "./schema";
+import { ConfigSchema, diffConfig, matrixRuleProblems } from "./schema";
 
 /** Chuyển lỗi DB "SoD: …" thành TicketError, ghi nhật ký bị chặn. Lỗi khác ném tiếp. */
 async function denied(e: unknown, user: CurrentUser, details: Prisma.InputJsonObject, meta: RequestMeta): Promise<never> {
@@ -30,6 +30,10 @@ export async function proposeConfig(user: CurrentUser, input: unknown, reason: s
     if (!why) throw new TicketError("Nhập lý do đề xuất.");
     return await prisma.$transaction(async (tx) => {
       const base = await activeConfig(tx);
+      // Không được tạo vi phạm mới; vi phạm có sẵn ở phiên bản đang chạy thì chờ sửa (nút "Nạp ma trận chuẩn")
+      const old = new Set(matrixRuleProblems(base.config.matrix));
+      const added = matrixRuleProblems(parsed.data.matrix).filter((p) => !old.has(p));
+      if (added.length) throw new TicketError(`Cấu hình không hợp lệ: ${added.slice(0, 3).join("; ")}.`);
       const changes = diffConfig(base.config, parsed.data);
       if (!changes.length) throw new TicketError("Đề xuất không có thay đổi nào so với phiên bản đang hiệu lực.");
       const row = await tx.configVersion.create({

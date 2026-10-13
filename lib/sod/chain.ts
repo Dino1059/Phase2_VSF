@@ -1,7 +1,8 @@
 // Sinh chuỗi xử lý từ phân loại (chuyển từ phaseSteps() / buildTicket() của bản mẫu).
 //   approval: R → A → P (duyệt xong mới được thực thi)
 //   work:     P → R → A (làm xong thì rà soát, nghiệm thu)
-//   Trong R và A: cấp thấp → cao, người cao nhất chốt cuối. Auditor luôn cuối mỗi hoạt động.
+//   Trong R và A: cấp thấp → cao, người cao nhất chốt cuối.
+//   Auditor R chen ngay trước P: kiểm tra request có bị cấm / vượt quyền không trước khi thực hiện.
 import { ACTIVITIES, DEFAULT_MATRIX, ROLE_KEYS, SOD_CONFIG, actName, letter, type ActKey, type RoleKey, type StepAction } from "./catalog";
 import { classify, type Classification, type Mods } from "./classify";
 import { autoAssign, type Person } from "./conflicts";
@@ -29,10 +30,10 @@ export function phaseSteps(actId: number, mods: Mods[number] = {}, matrix: reado
   const tag = (l: StepAction) => (r: RoleKey): [RoleKey, StepAction] => [r, l];
   const seq =
     ACTIVITIES[actId].kind === "approval"
-      ? [...R.map(tag("R")), ...A.map(tag("A")), ...P.map(tag("P"))]
-      : [...P.map(tag("P")), ...R.map(tag("R")), ...A.map(tag("A"))];
+      ? [...R.map(tag("R")), ...A.map(tag("A")), ...aud, ...P.map(tag("P"))]
+      : [...aud, ...P.map(tag("P")), ...R.map(tag("R")), ...A.map(tag("A"))];
   return {
-    seq: [...seq, ...aud],
+    seq,
     C: ROLE_KEYS.filter((r) => L(r) === "C"),
     I: ROLE_KEYS.filter((r) => L(r) === "I"),
   };

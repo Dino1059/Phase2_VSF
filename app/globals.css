@@ -164,6 +164,12 @@ table.mx { border-collapse: separate; border-spacing: 0; width: 100%; min-width:
 .mx tbody tr { cursor: pointer; }
 .mx tbody tr:hover td { background: #fafbff; }
 .mx tr.sel td { background: var(--primary-soft); }
+.mx th.no, .mx td.no { min-width: 0; width: 40px; text-align: center; padding-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mx th.act, .mx td.act { text-align: left; min-width: 230px; }
+.mx td.edited { box-shadow: inset 0 0 0 2px var(--warn); }
+.mx .was-now { white-space: nowrap; color: var(--muted); }
+.mx .was { opacity: .45; margin-right: 2px; }
+.note-mark { color: var(--warn); font-weight: 700; margin-left: 1px; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
 details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--surface); margin-bottom: 10px; }
 details summary { cursor: pointer; font-weight: 600; }
