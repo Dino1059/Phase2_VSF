@@ -24,6 +24,7 @@ from backend.database.models import (
     PiiRoleType,
     TreatmentActionType,
     DatasetModel,
+    DatasetMetadataStatsModel,
     ColumnModel,
     CompliancePolicyModel,
     PolicyClauseModel,
@@ -240,10 +241,109 @@ class ExecuteRemediationTransactionRequest(BaseModel):
 # CATALOG ENDPOINTS (POSTGRESQL SINGLE SOURCE OF TRUTH)
 # =============================================================================
 
+def get_catalog_metadata_stats_from_db(target_dataset_id: Optional[str] = None) -> Dict[str, DatasetMetadataStatsModel]:
+    """
+    Computes PII metadata statistics directly from PostgreSQL catalog.columns (Single Source of Truth).
+    Returns total columns, personal data count, direct identifiers, linkable identifiers, contextual data, etc.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    stats_map: Dict[str, DatasetMetadataStatsModel] = {}
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT
+                    dataset_id,
+                    count(*) as total_columns,
+                    count(*) FILTER (WHERE is_personal_data) as personal_data_count,
+                    count(*) FILTER (WHERE pii_role = 'DIRECT_IDENTIFIER') as direct_id_count,
+                    count(*) FILTER (WHERE pii_role = 'LINKABLE_IDENTIFIER') as linkable_id_count,
+                    count(*) FILTER (WHERE pii_role = 'CONTEXTUAL_PERSONAL_DATA') as contextual_count,
+                    count(*) FILTER (WHERE pii_role = 'TECHNICAL_METADATA') as technical_count,
+                    count(*) FILTER (WHERE pii_role = 'NON_PERSONAL_REFERENCE') as non_personal_count
+                FROM catalog.columns
+            """
+            params = []
+            if target_dataset_id:
+                clean_ds = target_dataset_id.replace(".csv", "").replace("bronze.", "")
+                query += " WHERE dataset_id = %s OR dataset_id = %s"
+                params.extend([clean_ds, f"{clean_ds}.csv"])
+            query += " GROUP BY dataset_id;"
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            for r in rows:
+                ds = r["dataset_id"]
+                p_count = int(r["personal_data_count"] or 0)
+                d_count = int(r["direct_id_count"] or 0)
+                l_count = int(r["linkable_id_count"] or 0)
+                c_count = int(r["contextual_count"] or 0)
+                t_count = int(r["technical_count"] or 0)
+                n_count = int(r["non_personal_count"] or 0)
+                tot = int(r["total_columns"] or 0)
+                model = DatasetMetadataStatsModel(
+                    dataset_id=ds,
+                    total_columns=tot,
+                    personal_data_count=p_count,
+                    direct_id_count=d_count,
+                    linkable_id_count=l_count,
+                    contextual_count=c_count,
+                    technical_count=t_count,
+                    non_personal_count=n_count,
+                    has_pii=p_count > 0,
+                    pii_roles_breakdown={
+                        "DIRECT_IDENTIFIER": d_count,
+                        "LINKABLE_IDENTIFIER": l_count,
+                        "CONTEXTUAL_PERSONAL_DATA": c_count,
+                        "TECHNICAL_METADATA": t_count,
+                        "NON_PERSONAL_REFERENCE": n_count,
+                    }
+                )
+                stats_map[ds] = model
+                stats_map[f"{ds}.csv"] = model
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Failed to query catalog metadata stats from DB: {e}")
+
+    # Fallback if DB empty or unavailable
+    if not stats_map:
+        for ds_key, cols in COLUMNS.items():
+            clean_k = ds_key.replace(".csv", "")
+            d_count = sum(1 for c in cols if c.pii_role == PiiRoleType.DIRECT_IDENTIFIER)
+            l_count = sum(1 for c in cols if c.pii_role == PiiRoleType.LINKABLE_IDENTIFIER)
+            c_count = sum(1 for c in cols if c.pii_role == PiiRoleType.CONTEXTUAL_PERSONAL_DATA)
+            t_count = sum(1 for c in cols if c.pii_role == PiiRoleType.TECHNICAL_METADATA)
+            n_count = sum(1 for c in cols if c.pii_role == PiiRoleType.NON_PERSONAL_REFERENCE)
+            p_count = sum(1 for c in cols if c.is_personal_data)
+            tot = len(cols)
+            model = DatasetMetadataStatsModel(
+                dataset_id=clean_k,
+                total_columns=tot,
+                personal_data_count=p_count,
+                direct_id_count=d_count,
+                linkable_id_count=l_count,
+                contextual_count=c_count,
+                technical_count=t_count,
+                non_personal_count=n_count,
+                has_pii=p_count > 0,
+                pii_roles_breakdown={
+                    "DIRECT_IDENTIFIER": d_count,
+                    "LINKABLE_IDENTIFIER": l_count,
+                    "CONTEXTUAL_PERSONAL_DATA": c_count,
+                    "TECHNICAL_METADATA": t_count,
+                    "NON_PERSONAL_REFERENCE": n_count,
+                }
+            )
+            stats_map[clean_k] = model
+            stats_map[f"{clean_k}.csv"] = model
+    return stats_map
+
+
 @app.get("/api/catalog/datasets", response_model=List[DatasetModel])
 def get_datasets():
     from database.profiler_engine import get_db_connection
     from psycopg2.extras import RealDictCursor
+    stats_map = get_catalog_metadata_stats_from_db()
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -256,6 +356,7 @@ def get_datasets():
             res = []
             for r in rows:
                 ds_id = r["dataset_id"]
+                ds_stat = stats_map.get(ds_id) or stats_map.get(f"{ds_id}.csv")
                 res.append(DatasetModel(
                     dataset_id=ds_id,
                     name=r["source_file"] or f"{ds_id}.csv",
@@ -268,14 +369,39 @@ def get_datasets():
                     retention_days=1825,
                     created_at=r["created_at"] or datetime.now(timezone.utc),
                     row_count=r["row_count"] or 0,
-                    column_count=r["column_count"] or 0
+                    column_count=ds_stat.total_columns if ds_stat else (r["column_count"] or 0),
+                    metadata_stats=ds_stat
                 ))
             conn.close()
             if res:
                 return res
     except Exception as e:
         print(f"Warning: Failed to query catalog.datasets: {e}")
-    return list(DATASETS.values())
+    res_fallback = []
+    for ds in DATASETS.values():
+        ds_copy = ds.model_copy()
+        clean_k = ds_copy.dataset_id.replace(".csv", "")
+        ds_copy.metadata_stats = stats_map.get(clean_k) or stats_map.get(f"{clean_k}.csv")
+        res_fallback.append(ds_copy)
+    return res_fallback
+
+
+@app.get("/api/catalog/metadata-stats", response_model=Dict[str, DatasetMetadataStatsModel])
+def get_all_metadata_stats():
+    """Returns pre-aggregated PII metadata stats per dataset directly from PostgreSQL catalog.columns."""
+    return get_catalog_metadata_stats_from_db()
+
+
+@app.get("/api/catalog/datasets/{dataset_id}/metadata-stats", response_model=DatasetMetadataStatsModel)
+def get_dataset_metadata_stats(dataset_id: str):
+    """Returns pre-aggregated PII metadata stats for a specific dataset directly from PostgreSQL catalog.columns."""
+    clean_id = dataset_id.replace(".csv", "").replace("bronze.", "")
+    stats_map = get_catalog_metadata_stats_from_db(clean_id)
+    stat = stats_map.get(clean_id) or stats_map.get(f"{clean_id}.csv") or stats_map.get(dataset_id)
+    if stat:
+        return stat
+    return DatasetMetadataStatsModel(dataset_id=clean_id)
+
 
 @app.get("/api/catalog/columns", response_model=List[ColumnModel])
 def get_columns(dataset_id: Optional[str] = None):

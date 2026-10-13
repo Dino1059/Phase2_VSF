@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiBridge } from '@/lib/api-bridge';
+import { useAgentStore } from '@/lib/agent-store';
 
 interface DatasetPreviewModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export function DatasetPreviewModal({
     total_records: number;
   } | null>(null);
   const [search, setSearch] = useState('');
+  const catalogColumns = useAgentStore((s) => s.catalogColumns);
 
   useEffect(() => {
     if (!isOpen || !datasetId) return;
@@ -61,19 +63,41 @@ export function DatasetPreviewModal({
     return Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(term));
   });
 
+  const cleanDsId = (datasetId || '').replace('.csv', '').replace('bronze.', '');
+  const colsList = catalogColumns[cleanDsId] || catalogColumns[`${cleanDsId}.csv`] || [];
+
   const getPiiBadge = (colName: string) => {
+    const catalogCol = colsList.find((c) => c.column_name === colName);
+    if (catalogCol) {
+      switch (catalogCol.pii_role) {
+        case 'DIRECT_IDENTIFIER':
+          return <span className="rounded bg-rose-50 border border-rose-200 px-1 py-0.5 text-[9px] font-bold text-rose-700">Direct ID</span>;
+        case 'LINKABLE_IDENTIFIER':
+          return <span className="rounded bg-purple-50 border border-purple-200 px-1 py-0.5 text-[9px] font-bold text-purple-700">Linkable ID</span>;
+        case 'CONTEXTUAL_PERSONAL_DATA':
+          return <span className="rounded bg-blue-50 border border-blue-200 px-1 py-0.5 text-[9px] font-bold text-blue-700">Contextual PII</span>;
+        case 'TECHNICAL_METADATA':
+          return <span className="rounded bg-slate-100 border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-600">Tech Metadata</span>;
+        case 'AMBIGUOUS_UNSTRUCTURED_DATA':
+          return <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-bold text-amber-700">Unstructured PII</span>;
+        case 'NON_PERSONAL_REFERENCE':
+        default:
+          return <span className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-500">Non-personal</span>;
+      }
+    }
+
     const col = colName.toLowerCase();
     if (col.includes('phone') || col.includes('email') || col.includes('name') || col.includes('national_id') || col.includes('citizen')) {
       return <span className="rounded bg-rose-50 border border-rose-200 px-1 py-0.5 text-[9px] font-bold text-rose-700">Direct ID</span>;
     }
     if (col.includes('vin') || col.includes('driver_id') || col.includes('customer_id') || col.includes('charger_id')) {
-      return <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-bold text-amber-700">Linkable ID</span>;
+      return <span className="rounded bg-purple-50 border border-purple-200 px-1 py-0.5 text-[9px] font-bold text-purple-700">Linkable ID</span>;
     }
     if (col.includes('lat') || col.includes('lon') || col.includes('address') || col.includes('location')) {
-      return <span className="rounded bg-indigo-50 border border-indigo-200 px-1 py-0.5 text-[9px] font-bold text-indigo-700">Contextual PII</span>;
+      return <span className="rounded bg-blue-50 border border-blue-200 px-1 py-0.5 text-[9px] font-bold text-blue-700">Contextual PII</span>;
     }
     if (col.includes('temp') || col.includes('voltage') || col.includes('soc') || col.includes('current') || col.includes('power')) {
-      return <span className="rounded bg-blue-50 border border-blue-200 px-1 py-0.5 text-[9px] font-bold text-blue-700">Tech Telemetry</span>;
+      return <span className="rounded bg-slate-100 border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-600">Tech Metadata</span>;
     }
     return <span className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-500">Non-personal</span>;
   };

@@ -492,9 +492,25 @@ python database/init_db.py
 python database/reset_and_ingest_bronze.py
 ```
 
+`database/init_db.py` là lệnh bootstrap CSDL duy nhất được hỗ trợ. Script tự áp
+dụng schema và migration theo đúng quan hệ phụ thuộc, bao gồm
+`migration_data_driven_lane_rules.sql`, bản cập nhật L3 hiện hành
+`migration_update_l3_relations_v2.sql`, cấu hình phân vùng tài phán và
+`migration_lane_b_policy_packs.sql`.
+
+Các rule thực thi hiện hành **không** được lấy từ `seed_data.sql`:
+
+* Rule Lane A được tạo và quản lý phiên bản bởi `migration_data_driven_lane_rules.sql` và `migration_update_l3_relations_v2.sql`.
+* Rule tuân thủ và xử lý Lane B được tạo và quản lý phiên bản bởi `schema_audit_and_policy_rules.sql` và `migration_lane_b_policy_packs.sql`.
+* `seed_data.sql` chỉ nạp danh mục operation nền, không phải nguồn rule vận hành.
+
+Không chạy riêng từng tệp SQL và không dùng `seed_data.sql` thay cho
+`init_db.py`, vì làm vậy có thể bỏ sót migration hoặc tạo trạng thái phiên bản
+rule không nhất quán.
+
 Hai lệnh có nhiệm vụ khác nhau:
 
-1. `database/init_db.py` áp dụng toàn bộ schema/migration theo đúng thứ tự và nạp seed cho catalog, operation registry, policy và dynamic rules.
+1. `database/init_db.py` áp dụng toàn bộ schema/migration theo đúng thứ tự, tạo rule hiện hành và nạp danh mục operation nền.
 2. `database/reset_and_ingest_bronze.py` xóa dữ liệu Bronze hiện có, đọc các tệp CSV trong `data/vingroup_pii_faulty_testset_3zone`, nạp lại các bảng `bronze.*` và cập nhật `catalog.datasets`/`catalog.columns`.
 
 > [!WARNING]

@@ -131,6 +131,19 @@ class RemediationStatus(str, Enum):
 # DATA CATALOG MODELS
 # =============================================================================
 
+class DatasetMetadataStatsModel(BaseModel):
+    dataset_id: str
+    total_columns: int = 0
+    personal_data_count: int = 0
+    direct_id_count: int = 0
+    linkable_id_count: int = 0
+    contextual_count: int = 0
+    technical_count: int = 0
+    non_personal_count: int = 0
+    has_pii: bool = False
+    pii_roles_breakdown: Dict[str, int] = Field(default_factory=dict)
+
+
 class DatasetModel(BaseModel):
     dataset_id: str
     name: str
@@ -144,6 +157,8 @@ class DatasetModel(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     row_count: int = 0
     column_count: int = 0
+    metadata_stats: Optional[DatasetMetadataStatsModel] = None
+
 
 
 class ColumnModel(BaseModel):

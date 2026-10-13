@@ -10,6 +10,9 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # Add fallback path for airflow environment
 if os.path.exists("/home/airflow/.local/lib/python3.7/site-packages"):

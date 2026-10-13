@@ -181,10 +181,6 @@ export function OverviewPage() {
                           </span>
                           .
                         </h3>
-                        <p className="text-xs text-slate-600 mt-1">
-                          Hệ thống đã nhận diện cấu trúc các trường, phân loại dữ liệu cá nhân theo Luật
-                          91/2025/QH15 & GDPR, và sẵn sàng thực thi kiểm tra tuân thủ.
-                        </p>
                       </div>
                       <Button
                         variant="outline"
@@ -230,45 +226,60 @@ export function OverviewPage() {
                       </div>
                     </div>
 
-                    {/* 3 PII Metadata Metrics Grid from PostgreSQL catalog.columns (Luật 91/2025/QH15 & GDPR) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                      {/* Metric 1: Personal-data fields */}
-                      <div className="rounded-xl border border-amber-200/60 bg-amber-50/40 p-4">
-                        <span className="text-[11px] font-semibold text-amber-700 block">
-                          Trường dữ liệu cá nhân
-                        </span>
-                        <div className="mt-1 text-2xl font-bold font-mono text-amber-950">
-                          {metadataStats.personalDataCount}
+                    {/* 4 PII Metadata Metrics Grid from PostgreSQL catalog.columns (Luật 91/2025/QH15 & GDPR) */}
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        {/* Metric 1: Total Personal-data fields */}
+                        <div className="rounded-xl border border-amber-200/60 bg-amber-50/40 p-4">
+                          <span className="text-[11px] font-semibold text-amber-700 block">
+                            Tổng trường dữ liệu cá nhân
+                          </span>
+                          <div className="mt-1 text-2xl font-bold font-mono text-amber-950">
+                            {metadataStats.personalDataCount}
+                          </div>
+                          <span className="mt-0.5 text-[11px] font-bold text-amber-800">
+                            personal-data fields
+                          </span>
                         </div>
-                        <span className="mt-0.5 text-[11px] font-bold text-amber-800">
-                          personal-data fields
-                        </span>
-                      </div>
 
-                      {/* Metric 2: Direct identifiers */}
-                      <div className="rounded-xl border border-rose-200/60 bg-rose-50/40 p-4">
-                        <span className="text-[11px] font-semibold text-rose-700 block">
-                          Định danh trực tiếp
-                        </span>
-                        <div className="mt-1 text-2xl font-bold font-mono text-rose-950">
-                          {metadataStats.directIdCount}
+                        {/* Metric 2: Direct identifiers */}
+                        <div className="rounded-xl border border-rose-200/60 bg-rose-50/40 p-4">
+                          <span className="text-[11px] font-semibold text-rose-700 block">
+                            Định danh trực tiếp
+                          </span>
+                          <div className="mt-1 text-2xl font-bold font-mono text-rose-950">
+                            {metadataStats.directIdCount}
+                          </div>
+                          <span className="mt-0.5 text-[11px] font-bold text-rose-800">
+                            direct identifiers
+                          </span>
                         </div>
-                        <span className="mt-0.5 text-[11px] font-bold text-rose-800">
-                          direct identifiers
-                        </span>
-                      </div>
 
-                      {/* Metric 3: Contextual personal-data fields */}
-                      <div className="rounded-xl border border-blue-200/60 bg-blue-50/40 p-4">
-                        <span className="text-[11px] font-semibold text-blue-700 block">
-                          Dữ liệu cá nhân theo ngữ cảnh
-                        </span>
-                        <div className="mt-1 text-2xl font-bold font-mono text-blue-950">
-                          {metadataStats.contextualCount}
+                        {/* Metric 3: Linkable identifiers */}
+                        <div className="rounded-xl border border-purple-200/60 bg-purple-50/40 p-4">
+                          <span className="text-[11px] font-semibold text-purple-700 block">
+                            Định danh liên kết
+                          </span>
+                          <div className="mt-1 text-2xl font-bold font-mono text-purple-950">
+                            {metadataStats.linkableIdCount}
+                          </div>
+                          <span className="mt-0.5 text-[11px] font-bold text-purple-800">
+                            linkable identifiers
+                          </span>
                         </div>
-                        <span className="mt-0.5 text-[11px] font-bold text-blue-800">
-                          contextual personal-data fields
-                        </span>
+
+                        {/* Metric 4: Contextual personal-data fields */}
+                        <div className="rounded-xl border border-blue-200/60 bg-blue-50/40 p-4">
+                          <span className="text-[11px] font-semibold text-blue-700 block">
+                            Dữ liệu cá nhân theo ngữ cảnh
+                          </span>
+                          <div className="mt-1 text-2xl font-bold font-mono text-blue-950">
+                            {metadataStats.contextualCount}
+                          </div>
+                          <span className="mt-0.5 text-[11px] font-bold text-blue-800">
+                            contextual personal-data fields
+                          </span>
+                        </div>
                       </div>
                     </div>
 

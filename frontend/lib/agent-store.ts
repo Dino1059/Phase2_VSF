@@ -1,7 +1,14 @@
 import { create } from 'zustand';
-import { apiBridge, type ColumnModel, type ComplianceCheckRule, type DataTreatmentRule } from './api-bridge';
+import {
+  apiBridge,
+  type ColumnModel,
+  type ComplianceCheckRule,
+  type DataTreatmentRule,
+  type DatasetMetadataStats,
+  type PiiRoleType,
+} from './api-bridge';
 
-export type { ColumnModel, ComplianceCheckRule, DataTreatmentRule };
+export type { ColumnModel, ComplianceCheckRule, DataTreatmentRule, DatasetMetadataStats, PiiRoleType };
 
 export interface ProposedRule {
   id: string;
@@ -39,6 +46,7 @@ export interface DatasetItem {
   description?: string;
   createdAt?: string;
   hasPii?: boolean;
+  metadataStats?: DatasetMetadataStats;
 }
 
 export interface AgentStep {
@@ -692,11 +700,14 @@ export interface AgentStoreState {
 
   // Catalog Columns & PII Metadata from PostgreSQL
   catalogColumns: Record<string, ColumnModel[]>;
+  datasetMetadataStats: Record<string, DatasetMetadataStats>;
   fetchDatasetColumns: (datasetId?: string) => Promise<ColumnModel[]>;
+  fetchDatasetMetadataStats: (datasetId: string) => Promise<DatasetMetadataStats | null>;
   getDatasetMetadataStats: (datasetId: string) => {
     totalColumns: number;
     personalDataCount: number;
     directIdCount: number;
+    linkableIdCount: number;
     contextualCount: number;
     hasPii: boolean;
   };
@@ -1254,6 +1265,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
 
   selectedDatasetId: '',
   catalogColumns: {},
+  datasetMetadataStats: {},
   agentStatus: 'completed',
   stepIndex: 4,
   datasets: initialDatasets,
@@ -1439,6 +1451,18 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         }
       }
 
+      // Group pre-aggregated dataset metadata stats (Single Source of Truth)
+      const nextMetadataStats: Record<string, DatasetMetadataStats> = {};
+      if (backendDatasets && backendDatasets.length > 0) {
+        for (const ds of backendDatasets) {
+          if (ds.metadata_stats) {
+            const dsId = ds.dataset_id;
+            nextMetadataStats[dsId] = ds.metadata_stats;
+            nextMetadataStats[`${dsId}.csv`] = ds.metadata_stats;
+          }
+        }
+      }
+
       set((state) => {
         const nextActive = backendActiveRules.length > 0 ? backendActiveRules : state.activeRules;
         let nextDatasets = { ...state.datasets };
@@ -1451,9 +1475,10 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
             const rawSignal = prof?.signals_summary ? Object.values(prof.signals_summary).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0) : existing?.anomalies;
             const signalCount: number | null = typeof rawSignal === 'number' ? rawSignal : (existing?.anomalies ?? null);
 
+            const serverStat = nextMetadataStats[dsId] || ds.metadata_stats;
             const cols = nextCatalogColumns[dsId] || nextCatalogColumns[`${dsId}.csv`] || [];
-            const hasPii = cols.some((c) => c.is_personal_data);
-            const colCount = ds.column_count || (cols.length > 0 ? cols.length : existing?.columnCount || 0);
+            const hasPii = serverStat ? serverStat.has_pii : cols.some((c) => c.is_personal_data);
+            const colCount = serverStat?.total_columns || ds.column_count || (cols.length > 0 ? cols.length : existing?.columnCount || 0);
 
             const cleanItem: DatasetItem = {
               id: dsId,
@@ -1472,6 +1497,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
               description: ds.description,
               createdAt: ds.created_at,
               hasPii,
+              metadataStats: serverStat,
             };
             nextDatasets[dsId] = cleanItem;
             if (ds.name && ds.name !== dsId) {
@@ -1493,6 +1519,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
           activeRules: nextActive,
           datasets: nextDatasets,
           catalogColumns: nextCatalogColumns,
+          datasetMetadataStats: { ...state.datasetMetadataStats, ...nextMetadataStats },
           complianceCheckRules: backendComplianceRules.length > 0 ? backendComplianceRules : state.complianceCheckRules,
           dataTreatmentRules: backendTreatmentRules.length > 0 ? backendTreatmentRules : state.dataTreatmentRules,
           complianceCases: realCases.length > 0 ? realCases : state.complianceCases,
@@ -1531,16 +1558,47 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     }
   },
 
+  fetchDatasetMetadataStats: async (datasetId: string) => {
+    try {
+      const stats = await apiBridge.fetchDatasetMetadataStats(datasetId);
+      const cleanId = datasetId.replace('.csv', '').replace('bronze.', '');
+      set((state) => ({
+        datasetMetadataStats: {
+          ...state.datasetMetadataStats,
+          [cleanId]: stats,
+          [`${cleanId}.csv`]: stats,
+        },
+      }));
+      return stats;
+    } catch (err) {
+      console.warn('Failed to fetch dataset metadata stats:', err);
+      return null;
+    }
+  },
+
   getDatasetMetadataStats: (datasetId: string) => {
     if (!datasetId) {
-      return { totalColumns: 0, personalDataCount: 0, directIdCount: 0, contextualCount: 0, hasPii: false };
+      return { totalColumns: 0, personalDataCount: 0, directIdCount: 0, linkableIdCount: 0, contextualCount: 0, hasPii: false };
     }
     const cleanId = datasetId.replace('.csv', '').replace('bronze.', '');
+    // 1. Single Source of Truth: Return pre-calculated statistics from PostgreSQL backend if available
+    const serverStats = get().datasetMetadataStats?.[cleanId] || get().datasetMetadataStats?.[`${cleanId}.csv`];
+    if (serverStats) {
+      return {
+        totalColumns: serverStats.total_columns,
+        personalDataCount: serverStats.personal_data_count,
+        directIdCount: serverStats.direct_id_count,
+        linkableIdCount: serverStats.linkable_id_count,
+        contextualCount: serverStats.contextual_count,
+        hasPii: serverStats.has_pii,
+      };
+    }
+
+    // 2. Derive directly from catalogColumns using unified canonical PiiRoleType
     const cols = get().catalogColumns[cleanId] || get().catalogColumns[`${cleanId}.csv`] || [];
     const directIdCount = cols.filter((c) => c.pii_role === 'DIRECT_IDENTIFIER').length;
-    const contextualCount = cols.filter((c) =>
-      ['LINKABLE_IDENTIFIER', 'CONTEXTUAL_SENSITIVE', 'DEMOGRAPHIC'].includes(c.pii_role)
-    ).length;
+    const linkableIdCount = cols.filter((c) => c.pii_role === 'LINKABLE_IDENTIFIER').length;
+    const contextualCount = cols.filter((c) => c.pii_role === 'CONTEXTUAL_PERSONAL_DATA').length;
     const personalDataCount = cols.filter((c) => c.is_personal_data).length;
     const dsObj = get().datasets[cleanId] || get().datasets[`${cleanId}.csv`] || get().datasets[datasetId];
     const totalColumns = cols.length || dsObj?.columnCount || 0;
@@ -1549,6 +1607,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       totalColumns,
       personalDataCount,
       directIdCount,
+      linkableIdCount,
       contextualCount,
       hasPii: personalDataCount > 0,
     };

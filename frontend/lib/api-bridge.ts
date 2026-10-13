@@ -437,6 +437,27 @@ export interface DashboardOverview {
   legal_framework: string[];
 }
 
+export type PiiRoleType =
+  | 'DIRECT_IDENTIFIER'
+  | 'LINKABLE_IDENTIFIER'
+  | 'CONTEXTUAL_PERSONAL_DATA'
+  | 'NON_PERSONAL_REFERENCE'
+  | 'TECHNICAL_METADATA'
+  | 'AMBIGUOUS_UNSTRUCTURED_DATA';
+
+export interface DatasetMetadataStats {
+  dataset_id?: string;
+  total_columns: number;
+  personal_data_count: number;
+  direct_id_count: number;
+  linkable_id_count: number;
+  contextual_count: number;
+  technical_count?: number;
+  non_personal_count?: number;
+  has_pii: boolean;
+  pii_roles_breakdown?: Record<string, number>;
+}
+
 export interface DatasetCatalogItem {
   dataset_id: string;
   name: string;
@@ -450,6 +471,7 @@ export interface DatasetCatalogItem {
   created_at: string;
   row_count?: number;
   column_count?: number;
+  metadata_stats?: DatasetMetadataStats;
 }
 
 export interface ColumnModel {
@@ -460,7 +482,7 @@ export interface ColumnModel {
   is_primary_key: boolean;
   is_nullable: boolean;
   is_personal_data: boolean;
-  pii_role: string;
+  pii_role: PiiRoleType | string;
   default_treatment: string;
   semantic_tag?: string | null;
   description?: string | null;
@@ -903,6 +925,27 @@ export const apiBridge = {
       : `${API_ROOT}/catalog/columns`;
     const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp catalog columns`);
+    return res.json();
+  },
+
+  /**
+   * Lấy thống kê metadata PII cho dataset trực tiếp từ PostgreSQL (Single Source of Truth)
+   */
+  async fetchDatasetMetadataStats(datasetId: string): Promise<DatasetMetadataStats> {
+    const cleanId = datasetId.replace('.csv', '').replace('bronze.', '');
+    const url = `${API_ROOT}/catalog/datasets/${encodeURIComponent(cleanId)}/metadata-stats`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp dataset metadata stats`);
+    return res.json();
+  },
+
+  /**
+   * Lấy toàn bộ thống kê metadata PII cho tất cả datasets trực tiếp từ PostgreSQL
+   */
+  async fetchAllMetadataStats(): Promise<Record<string, DatasetMetadataStats>> {
+    const url = `${API_ROOT}/catalog/metadata-stats`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp all metadata stats`);
     return res.json();
   },
 
