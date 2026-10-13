@@ -23,9 +23,9 @@ import { Button } from '@/components/ui/button';
 import {
   apiBridge,
   type LineageNode,
-  type LineageRunItem,
   type UnifiedLineageResponse,
 } from '@/lib/api-bridge';
+import { useAgentStore } from '@/lib/agent-store';
 import { StartRunModal } from '@/components/datatrust/pipeline/start-run-modal';
 import { LineageNodeDrawer } from './lineage-node-drawer';
 import { buildLineageLayout } from './lineage-layout';
@@ -41,7 +41,10 @@ export function LineagePage() {
   const revision = revisionParam && Number.isInteger(Number(revisionParam)) ? Number(revisionParam) : undefined;
   const initialRunId = paramId || paramRunId || queryRunId || '';
 
-  const [runsList, setRunsList] = useState<LineageRunItem[]>([]);
+  const { datasets, selectedDatasetId, selectDataset } = useAgentStore();
+  const currentDataset = selectedDatasetId || 'ride_hailing_xanh_sm_trips';
+  const cleanDatasetId = currentDataset.replace('.csv', '');
+
   const [effectiveRunId, setEffectiveRunId] = useState<string>(initialRunId);
   const [lineageData, setLineageData] = useState<UnifiedLineageResponse | null>(null);
   const [selectedNode, setSelectedNode] = useState<LineageNode | null>(null);
@@ -54,35 +57,46 @@ export function LineagePage() {
   const [showStartModal, setShowStartModal] = useState(false);
   const graphContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch list of recent runs
-  useEffect(() => {
-    apiBridge.fetchLineageRuns().then((list) => {
-      if (list && list.length > 0) {
-        setRunsList(list);
-        if (!initialRunId) {
-          setEffectiveRunId(list[0].runId);
-        }
-      }
-    }).catch((err: Error) => {
-      setError(err.message || 'Không thể nạp danh sách lineage.');
-    });
-  }, [initialRunId]);
+  const datasetTitle = useMemo(() => {
+    const ds = datasets[currentDataset] || datasets[cleanDatasetId] || datasets[`${cleanDatasetId}.csv`];
+    return ds?.title || cleanDatasetId;
+  }, [datasets, currentDataset, cleanDatasetId]);
 
-  // Sync effectiveRunId when params change
+  // Sync with selected dataset: Fetch ONLY the single current run for this dataset
   useEffect(() => {
     if (initialRunId) {
       setEffectiveRunId(initialRunId);
+      return;
     }
-  }, [initialRunId]);
+    apiBridge.fetchLineageRuns(cleanDatasetId).then((runs) => {
+      if (runs && runs.length > 0) {
+        setEffectiveRunId(runs[0].runId);
+      } else {
+        setEffectiveRunId('');
+        setLineageData(null);
+      }
+    }).catch((err: Error) => {
+      setError(err.message || 'Không thể nạp thông tin lineage cho bộ dữ liệu này.');
+    });
+  }, [initialRunId, cleanDatasetId]);
 
   // Load Run Lineage
   const loadLineage = async () => {
-    if (!effectiveRunId) return;
+    if (!effectiveRunId) {
+      setLineageData(null);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
       const data = await apiBridge.fetchRunLineage(effectiveRunId, selectedColumn || undefined, revision);
       setLineageData(data);
+      if (data?.datasetId) {
+        const dataDs = data.datasetId.replace('.csv', '');
+        if (dataDs && dataDs !== cleanDatasetId) {
+          selectDataset(dataDs);
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'Không thể tải phả hệ dữ liệu của lần chạy.');
     } finally {
@@ -307,28 +321,28 @@ export function LineagePage() {
                   {statusBadge(lineageData?.dataStatus)}
                 </div>
 
-                {/* Run Switcher Dropdown */}
-                <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                  <span className="text-xs font-semibold text-slate-500">Mã Lần chạy:</span>
-                  <select
-                    value={effectiveRunId}
-                    onChange={(e) => navigate(`/runs/${e.target.value}`)}
-                    className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-mono font-bold text-slate-900 shadow-2xs focus:border-teal-600 focus:outline-hidden cursor-pointer"
-                  >
-                    {runsList.length > 0 ? (
-                      runsList.map((r) => (
-                        <option key={r.runId} value={r.runId}>
-                          {r.runId}{r.datasetId ? ` (${r.datasetId})` : ''}{(r.createdAt || r.asOf) ? ` · ${new Date((r.createdAt || r.asOf)!).toLocaleTimeString('vi-VN')}` : ''}
-                        </option>
-                      ))
-                    ) : effectiveRunId ? (
-                      <option value={effectiveRunId}>{effectiveRunId}</option>
-                    ) : (
-                      <option value="">Chưa có run</option>
-                    )}
-                  </select>
-                  {lineageData?.datasetId && <span className="text-xs text-slate-400 font-mono">Dataset: <strong className="text-slate-800">{lineageData.datasetId}</strong></span>}
-                  {lineageData?.revision !== undefined && <span className="text-xs text-slate-500 font-mono">Revision {lineageData.revision}{lineageData.dagVersion ? ` · DAG ${lineageData.dagVersion}` : ''}{lineageData.asOf ? ` · ${new Date(lineageData.asOf).toLocaleString('vi-VN')}` : ''}</span>}
+                {/* Dataset & Current Run Badge (Purely based on user's selected dataset) */}
+                <div className="flex items-center gap-2.5 flex-wrap pt-0.5">
+                  <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 shadow-2xs">
+                    <Database className="size-3.5 text-teal-600 shrink-0" />
+                    <span className="text-xs font-bold text-slate-700">Bộ dữ liệu:</span>
+                    <span className="text-xs font-bold text-slate-900 font-mono">{datasetTitle}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-slate-500">Lần chạy:</span>
+                    <span className="font-mono text-xs font-bold text-slate-950 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
+                      {effectiveRunId || 'Chưa có run'}
+                    </span>
+                  </div>
+
+                  {lineageData?.revision !== undefined && (
+                    <span className="text-xs text-slate-500 font-mono">
+                      Revision {lineageData.revision}
+                      {lineageData.dagVersion ? ` · DAG ${lineageData.dagVersion}` : ''}
+                      {lineageData.asOf ? ` · ${new Date(lineageData.asOf).toLocaleString('vi-VN')}` : ''}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -449,7 +463,21 @@ export function LineagePage() {
               {/* Canvas */}
               <div ref={graphContainerRef} className="h-[560px] overflow-auto bg-slate-50/50 p-6 relative">
                 {!effectiveRunId ? (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-500">Chưa có lần chạy để hiển thị lineage.</div>
+                  <div className="flex h-full flex-col items-center justify-center text-center text-sm text-slate-500 gap-3">
+                    <Workflow className="size-8 text-slate-400" />
+                    <div>
+                      <p className="font-semibold text-slate-700">Chưa có lần chạy nào cho bộ dữ liệu {datasetTitle}</p>
+                      <p className="text-xs text-slate-400 mt-1">Khởi chạy pipeline để phát sinh sơ đồ phả hệ dữ liệu cho lần chạy này.</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setShowStartModal(true)}
+                      className="gap-1.5 text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white shadow-2xs cursor-pointer"
+                    >
+                      <Play className="size-3.5" />
+                      <span>Chạy mới ngay</span>
+                    </Button>
+                  </div>
                 ) : isLoading ? (
                   <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500">
                     <RotateCw className="size-4 animate-spin text-teal-600" />
@@ -613,9 +641,11 @@ export function LineagePage() {
       <StartRunModal
         isOpen={showStartModal}
         onClose={() => setShowStartModal(false)}
+        defaultDatasetId={cleanDatasetId}
         onRunStarted={(newRunId) => {
           setShowStartModal(false);
           if (newRunId) {
+            setEffectiveRunId(newRunId);
             navigate(`/runs/${newRunId}`);
           }
         }}

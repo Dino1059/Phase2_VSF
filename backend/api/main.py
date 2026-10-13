@@ -3300,10 +3300,10 @@ def get_column_lineage(dataset_id: str, run_id: Optional[str] = None):
 
 
 @app.get("/api/lineage/runs")
-def get_lineage_runs():
-    """Returns list of runs with lineage metadata."""
+def get_lineage_runs(dataset_id: Optional[str] = None):
+    """Returns list of runs with lineage metadata, scoped to current run per dataset."""
     from backend.lineage.lineage_service import LineageService
-    return LineageService.get_lineage_runs()
+    return LineageService.get_lineage_runs(dataset_id=dataset_id)
 
 
 # =============================================================================

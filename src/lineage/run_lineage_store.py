@@ -272,7 +272,62 @@ class RunLineageStore:
         from dags.parallel_evaluation_engine import get_db_connection
         return get_db_connection()
 
+    def purge_old_lineage(self, dataset_id: Optional[str] = None, keep_run_id: Optional[str] = None) -> None:
+        """Purge lineage of old runs so only the current run is preserved."""
+        conn = None
+        try:
+            conn = self._connection_factory()
+            cur = conn.cursor()
+            clean_ds = dataset_id.replace(".csv", "") if dataset_id else None
+            if clean_ds and keep_run_id:
+                cur.execute("""
+                    SELECT DISTINCT run_id FROM audit.run_lineage_snapshots
+                    WHERE (
+                        snapshot_json->>'datasetId' = %s 
+                        OR snapshot_json->>'datasetId' = %s 
+                        OR snapshot_json->>'datasetId' = %s 
+                        OR snapshot_json->>'datasetId' = %s
+                    ) AND run_id != %s
+                """, (dataset_id, f"{dataset_id}.csv", clean_ds, f"{clean_ds}.csv", keep_run_id))
+                old_run_ids = [r[0] for r in cur.fetchall()]
+            elif keep_run_id:
+                cur.execute("""
+                    SELECT DISTINCT run_id FROM audit.run_lineage_snapshots
+                    WHERE run_id != %s
+                """, (keep_run_id,))
+                old_run_ids = [r[0] for r in cur.fetchall()]
+            else:
+                old_run_ids = []
+
+            for old_id in old_run_ids:
+                cur.execute("DELETE FROM audit.run_lineage_repair_audit WHERE run_id = %s", (old_id,))
+                cur.execute("DELETE FROM audit.run_lineage_events WHERE run_id = %s", (old_id,))
+                cur.execute("DELETE FROM audit.run_column_lineage WHERE run_id = %s", (old_id,))
+                cur.execute("UPDATE audit.run_lineage_snapshots SET repaired_from_revision = NULL WHERE run_id = %s", (old_id,))
+                cur.execute("DELETE FROM audit.run_lineage_snapshots WHERE run_id = %s", (old_id,))
+
+            conn.commit()
+            cur.close()
+        except Exception:
+            if conn is not None:
+                try: conn.rollback()
+                except Exception: pass
+        finally:
+            if conn is not None:
+                try: conn.close()
+                except Exception: pass
+
     def create(self, snapshot: Dict[str, Any]) -> StoreResult:
+        run_id = snapshot.get("runId")
+        dataset_id = snapshot.get("datasetId")
+        if not dataset_id:
+            declared = snapshot.get("declaredIO") or []
+            inputs = [item.get("dataset") for item in declared
+                      if str(item.get("direction", "")).upper() == "INPUT" and item.get("dataset")]
+            dataset_id = inputs[0] if inputs else None
+        if run_id:
+            self.purge_old_lineage(dataset_id=dataset_id, keep_run_id=run_id)
+
         sql = """INSERT INTO audit.run_lineage_snapshots
             (run_id, revision, schema_version, lifecycle_status, dag_id, dag_version, dag_hash, snapshot_json)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
@@ -363,13 +418,25 @@ class RunLineageStore:
             "eventTime": event_time or utc_now(), "sourceSequence": source_sequence,
             "payload": {"state": state}})
 
-    def list_runs(self) -> List[Dict[str, Any]]:
-        """Return the latest factual snapshot for every run."""
+    def list_runs(self, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return only the latest factual snapshot per dataset (or for requested dataset)."""
         conn = None
         try:
             conn = self._connection_factory(); cur = conn.cursor()
-            cur.execute("""SELECT DISTINCT ON (run_id) snapshot_json
-                FROM audit.run_lineage_snapshots ORDER BY run_id, revision DESC""")
+            if dataset_id:
+                clean_ds = dataset_id.replace(".csv", "")
+                cur.execute("""SELECT snapshot_json
+                    FROM audit.run_lineage_snapshots
+                    WHERE (snapshot_json->>'datasetId' = %s 
+                        OR snapshot_json->>'datasetId' = %s
+                        OR snapshot_json->>'datasetId' = %s
+                        OR snapshot_json->>'datasetId' = %s)
+                    ORDER BY updated_at DESC LIMIT 1""",
+                    (dataset_id, f"{dataset_id}.csv", clean_ds, f"{clean_ds}.csv"))
+                rows = cur.fetchall(); cur.close()
+                return [row[0] for row in rows if row and row[0]]
+            cur.execute("""SELECT DISTINCT ON (COALESCE(snapshot_json->>'datasetId', 'unknown')) snapshot_json
+                FROM audit.run_lineage_snapshots ORDER BY COALESCE(snapshot_json->>'datasetId', 'unknown'), updated_at DESC""")
             rows = cur.fetchall(); cur.close()
             return [row[0] for row in rows if row and row[0]]
         except Exception:

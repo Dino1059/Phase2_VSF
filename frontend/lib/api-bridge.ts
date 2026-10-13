@@ -1447,10 +1447,11 @@ export const apiBridge = {
   },
 
   /**
-   * Lấy danh sách lần chạy có dữ liệu Lineage
+   * Lấy danh sách lần chạy có dữ liệu Lineage (chỉ lần chạy hiện tại)
    */
-  async fetchLineageRuns(): Promise<LineageRunItem[]> {
-    const res = await fetch(`${API_ROOT}/lineage/runs`, { signal: AbortSignal.timeout(3000) });
+  async fetchLineageRuns(datasetId?: string): Promise<LineageRunItem[]> {
+    const qs = datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : '';
+    const res = await fetch(`${API_ROOT}/lineage/runs${qs}`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}: Không thể nạp danh sách Lineage`);
     return res.json();
   },

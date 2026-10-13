@@ -163,6 +163,32 @@ class LineageService:
     @staticmethod
     def _build_run_lineage(run_id: Optional[str], column: Optional[str], dataset_id: Optional[str],
                            revision: Optional[int] = None) -> Dict[str, Any]:
+        if not run_id and dataset_id:
+            clean_ds = dataset_id.replace('.csv', '')
+            try:
+                import psycopg2
+                with psycopg2.connect(DB_URL) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT run_id FROM audit.run_lineage_snapshots
+                            WHERE (snapshot_json->>'datasetId' = %s OR snapshot_json->>'datasetId' = %s
+                                   OR snapshot_json->>'datasetId' = %s OR snapshot_json->>'datasetId' = %s)
+                            ORDER BY updated_at DESC LIMIT 1
+                        """, (dataset_id, f"{dataset_id}.csv", clean_ds, f"{clean_ds}.csv"))
+                        row = cur.fetchone()
+                        if row:
+                            run_id = row[0]
+                        else:
+                            cur.execute("""
+                                SELECT run_id FROM orchestration.pipeline_runs
+                                WHERE (dataset_id = %s OR dataset_id = %s)
+                                ORDER BY started_at DESC LIMIT 1
+                            """, (clean_ds, f"{clean_ds}.csv"))
+                            row = cur.fetchone()
+                            if row:
+                                run_id = row[0]
+            except Exception:
+                pass
         if not run_id:
             return _empty_run(None)
         try:
@@ -379,12 +405,15 @@ class LineageService:
         return LineageService.get_lineage(run_id=run_id, dataset_id=dataset_id).get("transformations", [])
 
     @staticmethod
-    def get_lineage_runs() -> List[Dict[str, Any]]:
+    def get_lineage_runs(dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             from src.lineage.run_lineage_store import assess_data_status
             store = LineageService._store()
             method = getattr(store, "list_snapshots", None) or getattr(store, "list_runs", None)
-            value = method() if method else []
+            try:
+                value = method(dataset_id=dataset_id) if method else []
+            except TypeError:
+                value = method() if method else []
             if hasattr(value, "ok"):
                 value = list(value.snapshot or []) if value.ok else []
             runs = []
@@ -392,10 +421,16 @@ class LineageService:
                 declared = snapshot.get("declaredIO") or []
                 inputs = [item.get("dataset") for item in declared
                           if str(item.get("direction", "")).upper() == "INPUT" and item.get("dataset")]
+                snap_dataset = snapshot.get("datasetId") or (inputs[0] if inputs else None)
+                if dataset_id:
+                    clean_target = dataset_id.replace(".csv", "")
+                    clean_snap = (snap_dataset or "").replace(".csv", "")
+                    if clean_target != clean_snap:
+                        continue
                 runs.append({
                     "runId": snapshot.get("runId"),
                     "dagId": snapshot.get("dagId"),
-                    "datasetId": snapshot.get("datasetId") or (inputs[0] if inputs else None),
+                    "datasetId": snap_dataset,
                     "createdAt": snapshot.get("createdAt") or snapshot.get("asOf"),
                     "lifecycleStatus": snapshot.get("lifecycleStatus"),
                     "dataStatus": assess_data_status(snapshot).get("dataStatus"),
@@ -403,6 +438,15 @@ class LineageService:
                     "asOf": snapshot.get("asOf"),
                     "hasOpenLineage": bool(snapshot.get("logicalTasks")),
                 })
-            return [item for item in runs if item.get("runId")]
+            valid_runs = [item for item in runs if item.get("runId")]
+            valid_runs.sort(key=lambda r: str(r.get("createdAt") or r.get("asOf") or ""), reverse=True)
+            if dataset_id:
+                return valid_runs[:1]
+            latest_per_ds = {}
+            for r in valid_runs:
+                ds = (r.get("datasetId") or "unknown").replace(".csv", "")
+                if ds not in latest_per_ds:
+                    latest_per_ds[ds] = r
+            return list(latest_per_ds.values())
         except Exception:
             return []
