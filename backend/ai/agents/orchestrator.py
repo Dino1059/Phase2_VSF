@@ -514,14 +514,18 @@ class DataTrustAgentOrchestrator:
                     )
                 metric_text = "; ".join(metric_bits)
 
+                metric_suffix = f"; {metric_text}" if metric_text else ""
+                events_section = (
+                    f"\n\nMột số điểm quan sát có bằng chứng:\n{events_text}" if events_text else ""
+                )
                 cp_section = (
                     f"\n\nCác cảnh báo `CHANGEPOINT_SHIFT` thuộc Lane A: quy tắc `{rule_id}` phát hiện "
                     f"phân phối của `{t_metric}` thay đổi giữa các cửa sổ quan sát "
                     f"(ngưỡng kỹ thuật `penalty = {pen}`; {direction_text}"
-                    f"{f'; {metric_text}' if metric_text else ''}). "
+                    f"{metric_suffix}). "
                     "Đây là tín hiệu thống kê, tự nó chưa chứng minh vi phạm pháp lý (Lane B), "
                     "cũng chưa đủ để kết luận dữ liệu là bình thường hay hoàn toàn hợp lệ."
-                    f"{f'\n\nMột số điểm quan sát có bằng chứng:\n{events_text}' if events_text else ''}"
+                    f"{events_section}"
                     "\n\nNên đối chiếu các điểm có biên độ lớn với ngưỡng của rule và bối cảnh vận hành trước khi kết luận hoặc xử lý dữ liệu."
                 )
 

@@ -1,0 +1,4 @@
+zone,rule_id,purpose_id,data_category,max_age_days,gia_tri_thu_nghiem_ngay,nguon_luat,trang_thai
+EU,GDPR-005,telemetry_gps_phan_tich,location,,365,"GDPR-005 chỉ nói 'thời hạn cần thiết'; ghi chú trong file: cần định nghĩa retention period",chua_chot
+US,US-CCPA-07,telemetry_gps_phan_tich,location,,365,"US-CCPA-07: 'ngưỡng lưu trữ quy định trong chính sách', không nêu số",chua_chot
+VN,,telemetry_gps_phan_tich,location,,,"Ma trận VN không có quy tắc thời hạn lưu telemetry (PDP-024 chỉ nói lưu hồ sơ vi phạm 5 năm, không phải telemetry)",khong_co_quy_tac

@@ -1,6 +1,6 @@
 {
   "source": {
-    "trips": "vingroup_pilot_dataset_3zone copy",
+    "trips": "vingroup_clean_3zone_pilot",
     "raw": "raw_public/Ride Hailing"
   },
   "window": {
@@ -435,6 +435,5 @@
     "drivers": 60,
     "s1_rows": 345,
     "s2_rows": 30
-  },
-  "fault_injection": "L1-L4 faults present (source=vingroup_pilot_dataset_3zone copy)"
+  }
 }

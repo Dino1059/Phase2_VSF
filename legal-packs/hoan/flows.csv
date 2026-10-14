@@ -1,0 +1,8 @@
+flow_id,chieu,zone,from_id,to_id,from_country,to_country,vuot_bien_gioi,quy_tac_ban,truong_hop_dong,loi_tiem,doi_chung
+IN-EU,nạp,EU,market_eu,datatrust_core,EU,VN,1,GDPR-044; GDPR-028,scc; tia; processor_agreement,thiếu từng trường (B21-B23),đủ cả ba
+IN-US,nạp,US,market_us,datatrust_core,US,VN,1,US-CCPA-08 (luật US không có điều kiện về nước nhận),processor_agreement,thiếu (B24),đủ
+IN-VN,nạp,VN,market_vn,datatrust_core,VN,VN,0,không có,không,không có lỗi,luồng nội địa không được báo lỗi (B25)
+OUT-EU-LLM,gửi đi,EU,datatrust_core,llm_us,VN,US,1,GDPR-044; GDPR-028,scc; tia; processor_agreement,thiếu (B20),llm_us_ok
+OUT-VN-LLM,gửi đi,VN,datatrust_core,llm_us,VN,US,1,PDP-020,a05_filed,thiếu (B01),llm_us_ok
+OUT-US-LLM,gửi đi,US,datatrust_core,llm_us,VN,US,1,US-CCPA-05; US-CCPA-08 (không xét nước nhận),processor_agreement; toạ độ đã che,thiếu (B04/B05),llm_us_ok
+OUT-EU-DASH,gửi đi,EU,datatrust_core,dashboard_vn,VN,VN,0,không bắn lần hai,không,không có lỗi,dùng trong trung tâm VN không được báo xuyên biên giới lần hai (B26)

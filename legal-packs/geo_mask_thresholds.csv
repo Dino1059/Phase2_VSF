@@ -1,0 +1,4 @@
+zone,rule_id,metric,nguong,so_le_toi_da,nguon_luat,trang_thai
+US,US-CCPA-05,ban_kinh_vung_tong_quat_toi_thieu_m,564,2,"1.850 feet = 563,9 m (US_rule.csv, cột Tiêu chí Đạt)",co_trong_luat
+VN,PDP-002/PDP-024,ban_kinh_vung_tong_quat_toi_thieu_m,564,2,Luật không nêu số; lấy theo US,gia_dinh_chua_duyet
+EU,GDPR-005/GDPR-044,ban_kinh_vung_tong_quat_toi_thieu_m,564,2,Luật không nêu số; lấy theo US,gia_dinh_chua_duyet

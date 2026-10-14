@@ -251,7 +251,7 @@ def truncate_and_ingest_all(
             df.columns = [str(c).strip() for c in df.columns]
             str_cols = df.select_dtypes(include=['object']).columns
             df[str_cols] = df[str_cols].apply(lambda s: s.str.strip() if hasattr(s, 'str') else s)
-            df = df.where(pd.notnull(df), None)
+            df = df.astype(object).where(pd.notnull(df), None)
 
             cols = list(df.columns)
             insert_cols = ["_batch_id"] + cols

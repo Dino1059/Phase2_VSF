@@ -112,6 +112,8 @@ services:
       # Required to handle warm shutdown of the celery workers properly
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
+      # Lane A/B load the whole dataset (~3 GB peak for 57.6k rows); run one task at a time
+      AIRFLOW__CELERY__WORKER_CONCURRENCY: "1"
     restart: always
     depends_on:
       <<: *airflow-common-depends-on

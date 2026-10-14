@@ -258,7 +258,7 @@ def truncate_and_ingest_all(conn, data_dir: Path, batch_id: str = None) -> dict:
             # 2. Read CSV & prepare records
             df = pd.read_csv(csv_path)
             # Replace NaN with None for clean SQL NULLs
-            df = df.where(pd.notnull(df), None)
+            df = df.astype(object).where(pd.notnull(df), None)
 
             cols = list(df.columns)
             # Insert technical audit columns

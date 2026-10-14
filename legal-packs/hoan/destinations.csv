@@ -1,0 +1,13 @@
+dest_id,country,la_ben_thu_ba,hop_dong_xu_ly,hop_dong_chuyen_giao,scc,danh_gia_rui_ro_chuyen_giao,ho_so_A05,tinh_huong,ghi_chu
+datatrust_core,VN,0,na,na,na,na,na,nen,"Trung tâm xử lý của tập đoàn ở VN. Dữ liệu zone EU và US đổ về đây, điều kiện từng zone xem zone_hosting.csv"
+dashboard_vn,VN,0,na,na,na,na,na,doi_chung,"Nội bộ VN. Dữ liệu zone EU đã chuyển ra ngoài EU một lần lúc nạp vào datatrust_core; dùng tại đây không phải chuyển lần hai, nhưng người truy cập phải nằm trong phạm vi hợp đồng chuyển giao"
+dashboard_eu,EU,0,na,na,na,na,na,doi_chung,Nội bộ EU
+dashboard_us,US,0,na,na,na,na,na,doi_chung,Nội bộ US
+llm_us,US,1,1,na,0,0,0,loi,Máy chủ AI ở Mỹ. Thiếu SCC + đánh giá rủi ro (GDPR-044) và hồ sơ A05 (PDP-020)
+llm_us_ok,US,1,1,na,1,1,1,doi_chung,Như llm_us nhưng đủ hồ sơ
+doi_tac_bao_hiem,VN,1,0,0,na,na,na,loi,Chưa ký hợp đồng chuyển giao (PDP-009) / hợp đồng xử lý (GDPR-028)
+doi_tac_bao_hiem_ok,VN,1,1,1,na,na,na,doi_chung,Đã ký đủ hợp đồng
+san_du_lieu,VN,1,1,1,na,na,na,loi_neu_chua_an_danh,Sàn giao dịch thương mại: bắt buộc ẩn danh trước (PDP-012)
+vendor_x,US,1,0,na,na,na,na,loi,Chưa ký hợp đồng xử lý dữ liệu (US-CCPA-08)
+vendor_x_ok,US,1,1,na,na,na,na,doi_chung,Đã ký hợp đồng xử lý
+quang_cao,US,1,1,na,na,na,na,loi_neu_tu_choi,Bên quảng cáo: không được gửi dữ liệu người đã từ chối chia sẻ (US-CCPA-04)
