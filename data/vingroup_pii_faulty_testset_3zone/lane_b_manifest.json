@@ -1,0 +1,615 @@
+{
+  "generated_at": "2026-10-14T03:41:05.727133+00:00",
+  "random_seed": 42,
+  "schema_version": "lane_b_v2",
+  "as_of": "2026-01-11",
+  "context_filter": [
+    "subject_zone",
+    "purpose_id",
+    "role",
+    "as_of"
+  ],
+  "pham_vi": "Không gồm chuyển dữ liệu xuyên biên giới (PDP-009/012/020, GDPR-028/044, US-CCPA-08): hoãn.",
+  "cot_them": {
+    "dim_customers.csv": [
+      "consent_at",
+      "consent_withdrawn_at",
+      "delete_requested_at",
+      "delete_completed_at",
+      "opt_out_sharing"
+    ],
+    "dim_drivers.csv": [
+      "legal_basis"
+    ],
+    "synthetic_ev_telemetry_ved_ref.csv": [
+      "fatigue_score"
+    ]
+  },
+  "file_them": {
+    "synthetic_ev_telemetry_archive_2024-12.csv": "phân vùng lưu trữ cũ cho B08, B09, B10"
+  },
+  "ghi_chu_lane_a": "Lane B chỉ thêm cột và một file lưu trữ cũ; original_index của fault_manifest.json không đổi.",
+  "contract": {
+    "luu_y": "Số hạn lưu là thước đo thử nghiệm (retention_by_purpose.csv), không phải số trong luật. VN không có quy tắc hạn lưu.",
+    "purposes": {
+      "ops_dispatch": {
+        "core_vehicle_operation": true
+      },
+      "fleet_analytics": {
+        "core_vehicle_operation": false,
+        "forbidden_columns_trips": [
+          "customer_contact"
+        ]
+      },
+      "llm_assist": {
+        "core_vehicle_operation": false
+      },
+      "marketing": {
+        "core_vehicle_operation": false
+      }
+    },
+    "geo": {
+      "max_decimals_masked": 2,
+      "nguong_m": 564,
+      "nguon": "US-CCPA-05; VN, EU lấy theo US (giả định)"
+    },
+    "retention_max_age_days": {
+      "EU": 365,
+      "US": 365,
+      "VN": null
+    },
+    "legal_hold_vins": [
+      "VF8VNF_0042"
+    ],
+    "sensitive_roles_allowed": [
+      "data_steward"
+    ],
+    "health_keywords": [
+      "fatigue",
+      "met_moi",
+      "health",
+      "heart"
+    ],
+    "sla_days": {
+      "VN": {
+        "delete": 20,
+        "stop_processing": 15
+      }
+    }
+  },
+  "scenarios": {
+    "B05": "US-CCPA-05: toạ độ chính xác (≥3 số lẻ) dùng ngoài chức năng lõi của xe",
+    "B06": "PDP-002/024: vai trò không được phép đọc cột vị trí (dữ liệu nhạy cảm ở VN)",
+    "B07": "GDPR-009: cột fatigue_score suy ra sức khoẻ tài xế chưa gắn nhãn dữ liệu đặc biệt",
+    "B08": "US-CCPA-07: telemetry thô quá hạn lưu",
+    "B09": "US-CCPA-07 + ngoại lệ giữ pháp lý US-CCPA-02: quá hạn nhưng đang giữ, không được xoá",
+    "B10": "GDPR-005: telemetry thô quá hạn lưu (EU)",
+    "B11": "PDP-005: yêu cầu xoá quá 20 ngày mà dữ liệu vẫn còn",
+    "B12": "PDP-003: rút đồng ý quá 15 ngày mà vẫn xử lý",
+    "B13": "PDP-006: khách có dữ liệu nhưng không có bản ghi đồng ý",
+    "B14": "US-CCPA-04: khách đã từ chối chia sẻ nằm trong dữ liệu dùng cho quảng cáo",
+    "B15": "GDPR-006: dữ liệu tài xế EU dùng căn cứ 'consent' hoặc để trống",
+    "B16": "GDPR-005: thu thập thừa, cột customer_contact không cần cho mục đích fleet_analytics",
+    "B19": "Đối chứng F1: Lane A phải bắt pin âm, Lane B phải đạt"
+  },
+  "runs": [
+    {
+      "run_id": "R-B05-ERR",
+      "scenario_id": "B05",
+      "zone": "US",
+      "law_ref": "US-CCPA-05",
+      "control_id": "CTL-US-SPI-01",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "treatment": "keep",
+      "expected_lane_b": "fail",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B05-OK-MASKED",
+      "scenario_id": "B05",
+      "zone": "US",
+      "law_ref": "US-CCPA-05",
+      "control_id": "CTL-US-SPI-01",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "treatment": "generalize_2dp",
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B05-OK-CORE",
+      "scenario_id": "B05",
+      "zone": "US",
+      "law_ref": "US-CCPA-05",
+      "control_id": "CTL-US-SPI-01",
+      "purpose_id": "ops_dispatch",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "treatment": "keep",
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B06-ERR",
+      "scenario_id": "B06",
+      "zone": "VN",
+      "law_ref": "PDP-002",
+      "control_id": "CTL-VN-PDP-002",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "treatment": "keep_restricted",
+      "columns": [
+        "latitude",
+        "longitude"
+      ],
+      "expected_lane_b": "fail",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B06-OK",
+      "scenario_id": "B06",
+      "zone": "VN",
+      "law_ref": "PDP-002",
+      "control_id": "CTL-VN-PDP-002",
+      "purpose_id": "fleet_analytics",
+      "role": "data_steward",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "treatment": "keep_restricted",
+      "columns": [
+        "latitude",
+        "longitude"
+      ],
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B07-ERR",
+      "scenario_id": "B07",
+      "zone": "EU",
+      "law_ref": "GDPR-009",
+      "control_id": "CTL-GDPR-009",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "column_tags": {
+        "fatigue_score": null
+      },
+      "expected_lane_b": "fail",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B07-OK",
+      "scenario_id": "B07",
+      "zone": "EU",
+      "law_ref": "GDPR-009",
+      "control_id": "CTL-GDPR-009",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "column_tags": {
+        "fatigue_score": {
+          "data_category": "health_inferred",
+          "pii_role": "sensitive",
+          "treatment": "keep_restricted"
+        }
+      },
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B08-ERR",
+      "scenario_id": "B08",
+      "zone": "US",
+      "law_ref": "US-CCPA-07",
+      "control_id": "CTL-US-RETEN-01",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_archive_2024-12.csv",
+      "vins": [
+        "VF8VNF_0041"
+      ],
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "VF8VNF_0041"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B08-OK",
+      "scenario_id": "B08",
+      "zone": "US",
+      "law_ref": "US-CCPA-07",
+      "control_id": "CTL-US-RETEN-01",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B09-HOLD",
+      "scenario_id": "B09",
+      "zone": "US",
+      "law_ref": "US-CCPA-07",
+      "control_id": "CTL-US-RETEN-01",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_archive_2024-12.csv",
+      "vins": [
+        "VF8VNF_0042"
+      ],
+      "hold_exception_ref": "US-CCPA-02",
+      "expected_lane_b": "hold_block",
+      "expected_entities": [
+        "VF8VNF_0042"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B10-ERR",
+      "scenario_id": "B10",
+      "zone": "EU",
+      "law_ref": "GDPR-005",
+      "control_id": "CTL-GDPR-005",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_archive_2024-12.csv",
+      "vins": [
+        "VF8VNF_0001"
+      ],
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "VF8VNF_0001"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B10-OK",
+      "scenario_id": "B10",
+      "zone": "EU",
+      "law_ref": "GDPR-005",
+      "control_id": "CTL-GDPR-005",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B11",
+      "scenario_id": "B11",
+      "zone": "VN",
+      "law_ref": "PDP-005",
+      "control_id": "CTL-VN-PDP-005",
+      "purpose_id": "ops_dispatch",
+      "role": "analyst",
+      "table": "dim_customers.csv",
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "CUS_00739",
+        "CUS_01015",
+        "CUS_01018",
+        "CUS_02158",
+        "CUS_04822",
+        "CUS_07465",
+        "CUS_08881",
+        "CUS_09673",
+        "CUS_10042",
+        "CUS_10501"
+      ],
+      "expected_pass_entities": [
+        "CUS_00967",
+        "CUS_04534",
+        "CUS_04780",
+        "CUS_05905",
+        "CUS_06994"
+      ]
+    },
+    {
+      "run_id": "R-B12",
+      "scenario_id": "B12",
+      "zone": "VN",
+      "law_ref": "PDP-003",
+      "control_id": "CTL-VN-PDP-003",
+      "purpose_id": "ops_dispatch",
+      "role": "analyst",
+      "table": "dim_customers.csv",
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "CUS_01405",
+        "CUS_02413",
+        "CUS_04588",
+        "CUS_05413",
+        "CUS_05548",
+        "CUS_06928",
+        "CUS_07708",
+        "CUS_08239",
+        "CUS_09013",
+        "CUS_09346"
+      ],
+      "expected_pass_entities": [
+        "CUS_01975",
+        "CUS_05671",
+        "CUS_07879",
+        "CUS_08995",
+        "CUS_09160"
+      ]
+    },
+    {
+      "run_id": "R-B13",
+      "scenario_id": "B13",
+      "zone": "VN",
+      "law_ref": "PDP-006",
+      "control_id": "CTL-VN-PDP-006",
+      "purpose_id": "ops_dispatch",
+      "role": "analyst",
+      "table": "dim_customers.csv",
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "CUS_00934",
+        "CUS_02971",
+        "CUS_03925",
+        "CUS_04264",
+        "CUS_04714",
+        "CUS_06031",
+        "CUS_07021",
+        "CUS_08137",
+        "CUS_08401",
+        "CUS_08410"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B14-ERR",
+      "scenario_id": "B14",
+      "zone": "US",
+      "law_ref": "US-CCPA-04",
+      "control_id": "CTL-US-OPTOUT-01",
+      "purpose_id": "marketing",
+      "role": "analyst",
+      "table": "ride_hailing_xanh_sm_trips.csv",
+      "exclude_opt_out": false,
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "CUS_01166",
+        "CUS_01751",
+        "CUS_03482",
+        "CUS_04541",
+        "CUS_07088",
+        "CUS_07427",
+        "CUS_07841",
+        "CUS_08711",
+        "CUS_09134",
+        "CUS_10256"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B14-OK",
+      "scenario_id": "B14",
+      "zone": "US",
+      "law_ref": "US-CCPA-04",
+      "control_id": "CTL-US-OPTOUT-01",
+      "purpose_id": "marketing",
+      "role": "analyst",
+      "table": "ride_hailing_xanh_sm_trips.csv",
+      "exclude_opt_out": true,
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B15",
+      "scenario_id": "B15",
+      "zone": "EU",
+      "law_ref": "GDPR-006",
+      "control_id": "CTL-GDPR-006",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "dim_drivers.csv",
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "DRV_XANH_0003",
+        "DRV_XANH_0013"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B16-ERR",
+      "scenario_id": "B16",
+      "zone": "EU",
+      "law_ref": "GDPR-005",
+      "control_id": "CTL-GDPR-005",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "ride_hailing_xanh_sm_trips.csv",
+      "uses_customer_contact": true,
+      "expected_lane_b": "fail",
+      "expected_entities": [
+        "XANH_TRIP_0049",
+        "XANH_TRIP_0068",
+        "XANH_TRIP_0187",
+        "XANH_TRIP_0203",
+        "XANH_TRIP_0207",
+        "XANH_TRIP_0210",
+        "XANH_TRIP_0261",
+        "XANH_TRIP_0287",
+        "XANH_TRIP_0369",
+        "XANH_TRIP_0378",
+        "XANH_TRIP_0404",
+        "XANH_TRIP_0410",
+        "XANH_TRIP_0565",
+        "XANH_TRIP_0594",
+        "XANH_TRIP_0618",
+        "XANH_TRIP_0622",
+        "XANH_TRIP_0741",
+        "XANH_TRIP_0765",
+        "XANH_TRIP_0772",
+        "XANH_TRIP_0800",
+        "XANH_TRIP_0801",
+        "XANH_TRIP_0810",
+        "XANH_TRIP_0821",
+        "XANH_TRIP_0880",
+        "XANH_TRIP_0894",
+        "XANH_TRIP_0896",
+        "XANH_TRIP_0907",
+        "XANH_TRIP_0932",
+        "XANH_TRIP_0934",
+        "XANH_TRIP_0942",
+        "XANH_TRIP_1044",
+        "XANH_TRIP_1054",
+        "XANH_TRIP_1081",
+        "XANH_TRIP_1085",
+        "XANH_TRIP_1104",
+        "XANH_TRIP_1137",
+        "XANH_TRIP_1209",
+        "XANH_TRIP_1235",
+        "XANH_TRIP_1240",
+        "XANH_TRIP_1254",
+        "XANH_TRIP_1257",
+        "XANH_TRIP_1380",
+        "XANH_TRIP_1383",
+        "XANH_TRIP_1403",
+        "XANH_TRIP_1412",
+        "XANH_TRIP_1422",
+        "XANH_TRIP_1434",
+        "XANH_TRIP_1470",
+        "XANH_TRIP_1476",
+        "XANH_TRIP_1553",
+        "XANH_TRIP_1585",
+        "XANH_TRIP_1605",
+        "XANH_TRIP_1609",
+        "XANH_TRIP_1621",
+        "XANH_TRIP_1639",
+        "XANH_TRIP_1641",
+        "XANH_TRIP_1741",
+        "XANH_TRIP_1772",
+        "XANH_TRIP_1777",
+        "XANH_TRIP_1779",
+        "XANH_TRIP_1799",
+        "XANH_TRIP_1834",
+        "XANH_TRIP_1910",
+        "XANH_TRIP_1915",
+        "XANH_TRIP_1951",
+        "XANH_TRIP_1960",
+        "XANH_TRIP_2052",
+        "XANH_TRIP_2078",
+        "XANH_TRIP_2117",
+        "XANH_TRIP_2229",
+        "XANH_TRIP_2237",
+        "XANH_TRIP_2300",
+        "XANH_TRIP_2316",
+        "XANH_TRIP_2326",
+        "XANH_TRIP_2342",
+        "XANH_TRIP_2425",
+        "XANH_TRIP_2436",
+        "XANH_TRIP_2473",
+        "XANH_TRIP_2636",
+        "XANH_TRIP_2652",
+        "XANH_TRIP_2667",
+        "XANH_TRIP_2754",
+        "XANH_TRIP_2757",
+        "XANH_TRIP_2772",
+        "XANH_TRIP_2776",
+        "XANH_TRIP_2781",
+        "XANH_TRIP_2815",
+        "XANH_TRIP_2816",
+        "XANH_TRIP_2847",
+        "XANH_TRIP_2861",
+        "XANH_TRIP_2934",
+        "XANH_TRIP_2954",
+        "XANH_TRIP_2991",
+        "XANH_TRIP_2996",
+        "XANH_TRIP_3018",
+        "XANH_TRIP_3079",
+        "XANH_TRIP_3108",
+        "XANH_TRIP_3109",
+        "XANH_TRIP_3131",
+        "XANH_TRIP_3169",
+        "XANH_TRIP_3246",
+        "XANH_TRIP_3248",
+        "XANH_TRIP_3256",
+        "XANH_TRIP_3275",
+        "XANH_TRIP_3279",
+        "XANH_TRIP_3294",
+        "XANH_TRIP_3335",
+        "XANH_TRIP_3337",
+        "XANH_TRIP_3360"
+      ],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B16-OK",
+      "scenario_id": "B16",
+      "zone": "EU",
+      "law_ref": "GDPR-005",
+      "control_id": "CTL-GDPR-005",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "ride_hailing_xanh_sm_trips.csv",
+      "uses_customer_contact": false,
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    },
+    {
+      "run_id": "R-B19",
+      "scenario_id": "B19",
+      "zone": "VN",
+      "law_ref": "(đối chứng F1)",
+      "control_id": "-",
+      "purpose_id": "fleet_analytics",
+      "role": "analyst",
+      "table": "synthetic_ev_telemetry_ved_ref.csv",
+      "expected_lane_a": {
+        "result": "fail",
+        "f1_negative_soc_rows": 33
+      },
+      "expected_lane_b": "pass",
+      "expected_entities": [],
+      "expected_pass_entities": []
+    }
+  ],
+  "counts": {
+    "runs": 21,
+    "fail": 11,
+    "pass": 9,
+    "hold_block": 1
+  },
+  "checks": {
+    "R-B05-ERR": true,
+    "R-B05-OK-MASKED": true,
+    "R-B05-OK-CORE": true,
+    "R-B06-ERR": true,
+    "R-B06-OK": true,
+    "R-B07-ERR": true,
+    "R-B07-OK": true,
+    "R-B08-ERR": true,
+    "R-B08-OK": true,
+    "R-B09-HOLD": true,
+    "R-B10-ERR": true,
+    "R-B10-OK": true,
+    "R-B11": true,
+    "R-B12": true,
+    "R-B13": true,
+    "R-B14-ERR": true,
+    "R-B14-OK": true,
+    "R-B15": true,
+    "R-B16-ERR": true,
+    "R-B16-OK": true,
+    "R-B19": true
+  }
+}
