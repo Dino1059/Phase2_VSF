@@ -4,9 +4,9 @@ Description: DataTrust OS single-node staging deployment in AWS Singapore.
 Parameters:
   InstanceType:
     Type: String
-    Default: t3.medium
-    AllowedValues: [t3.small, t3.medium, t3.large]
-    Description: t3.medium (4 GiB) is the minimum recommended size.
+    Default: c7i-flex.large
+    AllowedValues: [t3.small, t3.medium, t3.large, c7i-flex.large, m7i-flex.large]
+    Description: c7i-flex.large (4 GiB) is the minimum recommended Free Tier eligible size.
   RepositoryUrl:
     Type: String
     Default: https://github.com/Dino1059/Phase2_VSF.git

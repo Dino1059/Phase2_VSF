@@ -6,7 +6,8 @@ not a highly available production topology.
 
 ## Cost controls
 
-- Default instance: `t3.medium` (4 GiB RAM).
+- Default instance: `c7i-flex.large` (4 GiB RAM, Free Tier eligible on
+  qualifying accounts).
 - One 30 GiB encrypted gp3 volume.
 - No NAT Gateway, load balancer, RDS, or Elastic IP.
 - A 2 GiB swap file protects the initial Docker build from transient OOMs.
@@ -22,7 +23,7 @@ aws cloudformation deploy `
   --stack-name datatrust-os `
   --template-file infrastructure/aws/cloudformation.yml `
   --capabilities CAPABILITY_NAMED_IAM `
-  --parameter-overrides InstanceType=t3.medium
+  --parameter-overrides InstanceType=c7i-flex.large
 ```
 
 Optionally pass `OpenAIApiKeyBase64` as a NoEcho parameter. The stack waits up
