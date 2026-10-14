@@ -15,8 +15,8 @@ Parameters:
     Default: mvp
   GitHubRepository:
     Type: String
-    Default: Dino1059/Phase2_VSF
-    Description: GitHub owner/repository allowed to assume the deployment role.
+    Default: Dino1059@211339237/Phase2_VSF@1370921690
+    Description: GitHub OIDC stable owner/repository identity allowed to assume the deployment role.
   GitHubDeployBranch:
     Type: String
     Default: mvp
