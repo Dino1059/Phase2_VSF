@@ -169,40 +169,32 @@ def load_profiling_stats(dataset_id: Optional[str] = None, column_name: Optional
 
 
 def load_compliance_rules(dataset_id: Optional[str] = None, rule_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Loads compliance rules and standards."""
+    """Loads compliance rules and standards using verified schema columns."""
     try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            if rule_id:
+        from backend.ai.services.rule_lookup_service import RuleLookupService
+        if rule_id:
+            res = RuleLookupService.lookup_by_identifier(rule_id, dataset_id=dataset_id)
+            if res.rule:
+                return [res.rule]
+            return res.rules
+        elif dataset_id:
+            res = RuleLookupService.get_configured_rules_for_dataset(dataset_id)
+            return [r for r in res.rules if r.get("family") == "COMPLIANCE" or "rule_name" in r]
+        else:
+            conn = get_db_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT rule_id, rule_name, rule_type, condition_expression, severity, standard_ref, dataset_id
+                    SELECT rule_id, rule_name, rule_code, expression, severity, law_ref, dataset_id, column_name, on_fail_action, status
                     FROM policy.compliance_rules
-                    WHERE rule_id = %s LIMIT 1;
-                    """,
-                    (rule_id,)
-                )
-            elif dataset_id:
-                cur.execute(
-                    """
-                    SELECT rule_id, rule_name, rule_type, condition_expression, severity, standard_ref, dataset_id
-                    FROM policy.compliance_rules
-                    WHERE dataset_id = %s OR dataset_id LIKE %s
-                    ORDER BY created_at DESC LIMIT 5;
-                    """,
-                    (dataset_id, f"%{dataset_id}%")
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT rule_id, rule_name, rule_type, condition_expression, severity, standard_ref, dataset_id
-                    FROM policy.compliance_rules
+                    WHERE status = 'ACTIVE'
+                    ORDER BY dataset_id, rule_id
                     LIMIT 10;
                     """
                 )
-            rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
-        return rows
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
     except Exception as e:
         logger.warning(f"load_compliance_rules failed: {e}")
         return []
@@ -740,10 +732,10 @@ class RunContextLoader:
                     if dataset_id and started_at:
                         cur.execute(
                             """
-                            SELECT rule_id, rule_name, rule_type, condition_expression, severity, standard_ref
+                            SELECT rule_id, rule_name, rule_code, expression, severity, law_ref
                             FROM policy.compliance_rules
-                            WHERE dataset_id = %s AND created_at <= %s
-                            ORDER BY created_at DESC LIMIT 5;
+                            WHERE dataset_id = %s AND effective_from <= %s
+                            ORDER BY version DESC LIMIT 5;
                             """,
                             (dataset_id, started_at)
                         )
@@ -774,10 +766,10 @@ class RunContextLoader:
                     if dataset_id and started_at:
                         cur.execute(
                             """
-                            SELECT rule_id, rule_name, rule_type, condition_expression, severity, standard_ref
+                            SELECT rule_id, rule_name, rule_code, expression, severity, law_ref
                             FROM policy.compliance_rules
-                            WHERE dataset_id = %s AND created_at <= %s
-                            ORDER BY created_at DESC LIMIT 5;
+                            WHERE dataset_id = %s AND effective_from <= %s
+                            ORDER BY version DESC LIMIT 5;
                             """,
                             (dataset_id, started_at)
                         )

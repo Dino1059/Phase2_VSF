@@ -372,19 +372,21 @@ export const initialChatMessages: ChatMessageItem[] = [
   {
     id: 'MSG-01',
     sender: 'ai',
-    text: `Chào bạn! Tôi là **DataTrust AI Orchestrator**. Tôi sẽ đồng hành cùng bạn kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân (PII) và thẩm tra bằng chứng tuân thủ chuẩn IPO.
+    text: `Hế lô bạn nha! ✨ Mình là **DataTrust AI** – người bạn đồng hành siêu đáng yêu của bạn đây! 🚗💡
 
-Để bắt đầu, hãy chọn 1 bộ dữ liệu thực tế để tôi quét profiling và chạy luồng kiểm soát:`,
+Tụi mình sẽ cùng nhau làm việc thật ăn ý để kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân (PII) an toàn tuyệt đối và chuẩn bị hồ sơ tuân thủ chuẩn IPO nhé! Đừng lo lắng gì cả, có mình ở đây hỗ trợ bạn từng bước rồi nè! 💖🛡️
+
+Để bắt đầu, bạn chọn một bộ dữ liệu bên dưới để tụi mình cùng phân tích profiling và chạy pipeline kiểm tra nha:`,
     timestamp: 'Vừa xong',
     quickActions: [
-      { label: '📄 ride_hailing_xanh_sm_trips (6,902)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
-      { label: '📄 synthetic_ev_telemetry_ved_ref (57,600)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref' },
-      { label: '📄 dim_customers (5,106)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers' },
-      { label: '📄 acn_charging_mapped (912)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped' },
-      { label: '📄 fleet_index (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
-      { label: '📄 dim_drivers (60)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers' },
-      { label: '📄 feedback_pii (30)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii' },
-      { label: '📄 synthetic_feedback_scenario_driven (16)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_feedback_scenario_driven' },
+      { label: '🚗 ride_hailing_xanh_sm_trips (6,902)', actionType: 'SELECT_AND_RUN', payload: 'ride_hailing_xanh_sm_trips' },
+      { label: '⚡ synthetic_ev_telemetry_ved_ref (57,600)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_ev_telemetry_ved_ref' },
+      { label: '👥 dim_customers (5,106)', actionType: 'SELECT_AND_RUN', payload: 'dim_customers' },
+      { label: '🔌 acn_charging_mapped (912)', actionType: 'SELECT_AND_RUN', payload: 'acn_charging_mapped' },
+      { label: '🚕 fleet_index (60)', actionType: 'SELECT_AND_RUN', payload: 'fleet_index' },
+      { label: '🪪 dim_drivers (60)', actionType: 'SELECT_AND_RUN', payload: 'dim_drivers' },
+      { label: '💬 feedback_pii (30)', actionType: 'SELECT_AND_RUN', payload: 'feedback_pii' },
+      { label: '📝 synthetic_feedback_scenario_driven (16)', actionType: 'SELECT_AND_RUN', payload: 'synthetic_feedback_scenario_driven' },
     ],
   },
 ];
@@ -2313,7 +2315,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     const welcomeMsg: ChatMessageItem = {
       id: `MSG-AI-WELCOME-${Date.now()}`,
       sender: 'ai',
-      text: `Xin chào! Tôi là DataTrust AI Assistant cho lần chạy **${targetRun}**.\nBạn có thể hỏi về tổng quan, phân tích nguyên nhân lỗi (RCA) hoặc bằng chứng cách ly của run này.`,
+      text: `Hế lô bạn nha! ✨ Mình là DataTrust AI – người bạn đồng hành siêu nhiệt tình cho lần chạy **${targetRun}** nè! 🚗💡\n\nBạn cứ thoải mái hỏi mình về bức tranh tổng quan 📊, cùng mình gỡ rối nguyên nhân vi phạm (RCA) 🔍 hay soi chi tiết bằng chứng cách ly nhé! Tụi mình cùng làm nào! 💖🛡️`,
       timestamp: 'Vừa xong',
     };
     const newSession: ChatSession = {

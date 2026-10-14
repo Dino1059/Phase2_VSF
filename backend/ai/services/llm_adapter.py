@@ -292,7 +292,7 @@ class UnifiedLLMAdapter:
             response = json.dumps({
                 "operation_id": "mask_phone" if "phone" in col.lower() else ("mask_name" if "name" in col.lower() else "round_decimal"),
                 "params": {"prefix_len": 3, "suffix_len": 2} if "phone" in col.lower() else {"decimals": 2},
-                "rationale": "Đây là phương án xử lý dự kiến cho loại cột đã nhận diện; cần dry-run và phê duyệt trước khi áp dụng.",
+                "rationale": "Phương án xử lý siêu tối ưu giúp bảo vệ dữ liệu cột này nè ✨! Cần dry-run và phê duyệt trước khi áp dụng nha 💡🚗.",
                 "law_ref": law_ref or "Quy định Bảo vệ Dữ liệu Cá nhân",
                 "severity": "HIGH",
                 "confidence": 0.96
@@ -316,11 +316,11 @@ class UnifiedLLMAdapter:
                 obs = f"Quy tắc '{rule_id}' ghi nhận bất thường trên cột '{col}' ({finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')})."
                 hyps = []
                 answer_text = (
-                    f"Finding {finding.get('finding_id', 'F-001')} vi phạm quy tắc `{rule_id}` tại cột `{col}`: "
-                    f"{finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}. "
+                    f"Finding {finding.get('finding_id', 'F-001')} ghi nhận vi phạm quy tắc `{rule_id}` tại cột `{col}`: "
+                    f"{finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')} nè 🥺. "
                     "Tuy nhiên, chưa tìm thấy bản ghi cách ly khớp trực tiếp trong lần chạy này, "
                     "nên chưa thể kết luận nguyên nhân cụ thể. Đây là kết quả theo nguyên tắc "
-                    "Evidence-or-Abstain."
+                    "Evidence-or-Abstain để bảo đảm tính chuẩn xác tuyệt đối đó bạn ơi ✨💡."
                 )
                 lane_specific = {"failure_lane": failure_lane, "lane_a": None, "lane_b": None}
                 v_type = "PII_POLICY_VIOLATION" if failure_lane == "LANE_B" else ("PHYSICAL_BOUND_BREACH" if failure_lane == "LANE_A" else "DATA_RELIABILITY_ANOMALY")
@@ -424,11 +424,11 @@ class UnifiedLLMAdapter:
                     hyps = lane_b_analysis["hypotheses"]
 
                 answer_text = (
-                    f"Finding {finding.get('finding_id', 'F-001')} vi phạm quy tắc `{rule_id}` tại cột `{col}`: "
-                    f"{finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}. "
+                    f"Mình tìm ra rồi nè! ✨ Finding {finding.get('finding_id', 'F-001')} vi phạm quy tắc `{rule_id}` tại cột `{col}`: "
+                    f"{finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}. 🚗 "
                     f"Kết quả này được đối chiếu với {len(evidence_list)} bản ghi cách ly liên kết trực tiếp"
                     + (f" và căn cứ `{law_ref}`" if law_ref else "")
-                    + ". Các bằng chứng hiện có xác nhận vi phạm, nhưng chưa đủ để khẳng định một nguyên nhân phát sinh duy nhất."
+                    + ". Các bằng chứng hiện có xác nhận vi phạm, nhưng chưa đủ để khẳng định một nguyên nhân phát sinh duy nhất. Đừng lo nha, tụi mình cùng xem xét các giải pháp nè! 📝💡"
                 )
 
             conclusion_text = f"Finding {finding.get('finding_id', 'F-001')} tại cột `{col}` vi phạm quy tắc `{rule_id}`: {finding.get('reason', 'Dữ liệu không đạt tiêu chuẩn')}."
@@ -477,13 +477,14 @@ class UnifiedLLMAdapter:
         # Conversational assistant responses
         if any(k in p_lower for k in ("chào", "hello", "hi", "bạn là ai", "giúp gì", "introduce")):
             return (
-                "Xin chào bạn! Tôi có thể kiểm tra chất lượng dữ liệu, phân tích finding, đề xuất cách khắc phục "
-                "hoặc tra cứu catalog của lần chạy này. Bạn muốn xem nội dung nào?"
+                "Xin chào bạn nha! ✨ Mình là trợ lý AI DataTrust OS siêu đáng yêu của bạn đây nè! 🚗💡 "
+                "Tụi mình có thể cùng nhau kiểm tra chất lượng dữ liệu, phân tích finding, đề xuất giải pháp khắc phục "
+                "hoặc tra cứu catalog của lần chạy này nè. Bạn muốn tụi mình cùng xem nội dung nào trước nè? 📝💖"
             ), 50
 
         if any(k in p_lower for k in ("đổi chủ đề", "chuyển chủ đề", "bắt đầu lại", "reset")):
             return (
-                "Đã làm mới ngữ cảnh. Bạn muốn kiểm tra nội dung nào tiếp theo?"
+                "Ting ting! ✨ Mình đã làm mới ngữ cảnh rồi nè! Bạn muốn tụi mình cùng kiểm tra nội dung nào tiếp theo đây? 🚗💡"
             ), 30
 
-        return "Bạn muốn kiểm tra trạng thái lần chạy, warning hay một finding cụ thể?", 40
+        return "Hì hì, bạn muốn tụi mình cùng kiểm tra trạng thái lần chạy, cảnh báo dữ liệu hay một finding cụ thể nào nè? ✨📝", 40

@@ -452,14 +452,7 @@ export function LineagePage() {
                   <Maximize2 className="size-3.5" />
                 </Button>
               </div>
-
-              <div className="flex min-h-16 flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-200 bg-slate-950 px-5 py-3 pr-48 text-[11px] text-slate-300">
-                <span><strong className="text-white">Run</strong> <span className="font-mono">{lineageData?.runId || effectiveRunId || '—'}</span></span>
-                <span><strong className="text-white">DAG version</strong> <span className="font-mono">{lineageData?.dagVersion || '—'}</span></span>
-                <span><strong className="text-white">Snapshot</strong> {lineageData?.lifecycleStatus || lineageData?.snapshotStatus || '—'}{lineageData?.revision !== undefined ? ` · r${lineageData.revision}` : ''}</span>
-                <span><strong className="text-white">Metadata</strong> {lineageData?.dataStatus || '—'}</span>
-              </div>
-
+              
               {/* Canvas */}
               <div ref={graphContainerRef} className="h-[560px] overflow-auto bg-slate-50/50 p-6 relative">
                 {!effectiveRunId ? (

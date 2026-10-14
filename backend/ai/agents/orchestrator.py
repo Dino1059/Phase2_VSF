@@ -137,8 +137,8 @@ class DataTrustAgentOrchestrator:
         if user_intent == UserIntent.TOPIC_SWITCH:
             session_manager.clear_session_focus(session_id)
             reset_reply = (
-                "Tôi đã làm mới ngữ cảnh tập trung của cuộc trò chuyện. "
-                "Bạn muốn tìm hiểu hoặc kiểm tra nội dung nào tiếp theo về lần chạy này?"
+                "Ting ting! ✨ Mình đã làm mới ngữ cảnh tập trung của cuộc trò chuyện rồi nè! "
+                "Tụi mình cùng bắt đầu chủ đề mới nhé, bạn muốn cùng mình tìm hiểu hoặc kiểm tra nội dung nào tiếp theo về lần chạy này nè? 🚗💡"
             )
             session_manager.append_chat_turn(
                 session_id=session_id,
@@ -193,19 +193,23 @@ class DataTrustAgentOrchestrator:
             )
             if is_unconfigured_mock:
                 greeting_reply = (
-                    f"Xin chào! Tôi là trợ lý kiểm toán dữ liệu DataTrust OS. *(Hệ thống hiện hoạt động ở chế độ giới hạn do chưa kết nối LLM API Key)*.\n\n"
-                    f"Trong lần chạy `{run_id}`, tôi có thể hỗ trợ bạn xem tổng quan số liệu, kiểm tra danh sách vi phạm hoặc tra cứu catalog quy tắc."
+                    f"Xin chào bạn nha! ✨ Mình là trợ lý AI DataTrust OS siêu đáng yêu của bạn đây nè! 🚗💡 "
+                    f"*(Hệ thống hiện hoạt động ở chế độ mô phỏng do chưa kết nối LLM API Key)*.\n\n"
+                    f"Trong lần chạy `{run_id}`, tụi mình có thể cùng nhau xem qua số liệu 📊, kiểm tra danh sách vi phạm 🛡️ hay tra cứu catalog quy tắc nè! "
+                    f"Bạn muốn tụi mình bắt đầu từ đâu nào? 📝💖"
                 )
             else:
                 sys_inst = (
-                    "You are DataTrust Assistant, a polite, conversational AI data auditor. "
-                    f"Current run: {run_id}. "
-                    "Respond naturally and warmly in Vietnamese like ChatGPT. "
-                    "For greetings or small talk, keep it concise (1-2 sentences) and offer helpful assistance. "
-                    "Never use '**Kết luận:**' for greetings. Never output raw JSON or internal variable names."
+                    "Bạn là trợ lý AI DataTrust OS cực kỳ đáng yêu, thân thiện, năng động và tràn đầy năng lượng tích cực! ✨ "
+                    "Hãy trò chuyện tự nhiên như hai người bạn đồng nghiệp thân thiết đang cùng pair-working, "
+                    "luôn biết lắng nghe, đồng cảm và thấu hiểu những vất vả khi xử lý dữ liệu. 💖 "
+                    "Sử dụng emoji hợp lý, tinh tế (✨, 📝, 🚗, 💡, 🛡️, 🔍, 📊) để làm mềm câu văn, tuyệt đối không trả lời khô khan hay máy móc! "
+                    f"Lần chạy hiện tại: {run_id}. "
+                    "Bắt đầu lời chào bằng 'Xin chào bạn nha! ✨' hoặc lời chào ấm áp, thân thiện, giữ câu trả lời súc tích (1-2 câu). "
+                    "Tuyệt đối không dùng tiền tố cứng nhắc như '**Kết luận:**'. Không để lộ raw JSON hay tên biến nội bộ."
                 )
                 res_llm = self.llm_adapter.complete(
-                    prompt=f"Người dùng nói: '{message}'. Hãy trả lời một cách tự nhiên và lịch sự.",
+                    prompt=f"Người dùng nói: '{message}'. Hãy trả lời một cách cực kỳ đáng yêu, thân thiện và ấm áp như bạn bè.",
                     system_instruction=sys_inst,
                     context={"run_id": run_id, "active_entities": session_state.get("entities", {})},
                     temperature=0.3,
@@ -214,9 +218,9 @@ class DataTrustAgentOrchestrator:
                 greeting_reply = sanitize_chat_markdown(res_llm.get("text", "")).strip()
                 if not greeting_reply:
                     greeting_reply = (
-                        f"Xin chào! Tôi là trợ lý AI của DataTrust OS. Trong lần chạy `{run_id}`, "
-                        f"tôi có thể giúp bạn kiểm tra chất lượng dữ liệu, tìm nguyên nhân vi phạm (RCA), "
-                        f"đề xuất quy tắc khắc phục hoặc tra cứu catalog. Bạn cần hỗ trợ gì?"
+                        f"Xin chào bạn nha! ✨ Mình là trợ lý AI DataTrust OS siêu đáng yêu của bạn đây nè! 🚗💡 "
+                        f"Trong lần chạy `{run_id}`, tụi mình có thể giúp bạn kiểm tra chất lượng dữ liệu, tìm nguyên nhân vi phạm (RCA), "
+                        f"đề xuất quy tắc khắc phục hoặc tra cứu catalog. Bạn cần mình hỗ trợ gì nè? 📝💖"
                     )
 
             session_manager.append_chat_turn(
@@ -251,26 +255,26 @@ class DataTrustAgentOrchestrator:
             total_findings = sum(f.get("cnt", 0) for f in f_summary)
 
             fallback_overview = (
-                f"Lần chạy `{run_id}` hiện ở trạng thái **{status}**, đã quét tổng cộng **{scanned:,} bản ghi** "
-                f"(gồm **{silver:,} bản ghi đạt chuẩn (Silver)**, **{quarantine:,} bản ghi cách ly**, "
-                f"và **{warning:,} bản ghi cảnh báo**).\n\n"
-                f"- **Vấn đề kiểm toán (Findings):** Ghi nhận tổng cộng **{total_findings}** vấn đề.\n"
-                f"- **Bản ghi chưa đánh giá (Not Evaluated):** {not_eval:,}.\n"
-                f"- **Thời gian thực thi:** {duration_ms:,}ms.\n"
-                f"- **Đánh giá chất lượng:** Dữ liệu vi phạm đã được cách ly an toàn theo chính sách kiểm soát."
+                f"Lần chạy `{run_id}` hiện ở trạng thái **{status}** nè! ✨ Tụi mình đã quét tổng cộng **{scanned:,} bản ghi** "
+                f"(trong đó có **{silver:,} bản ghi Silver** đạt chuẩn xịn sò 🚗, **{quarantine:,} bản ghi cách ly** "
+                f"và **{warning:,} bản ghi cảnh báo** nha).\n\n"
+                f"- 🔍 **Vấn đề kiểm toán (Findings):** Ghi nhận tổng cộng **{total_findings}** vấn đề.\n"
+                f"- ⏳ **Bản ghi chưa đánh giá (Not Evaluated):** {not_eval:,}.\n"
+                f"- ⚡ **Thời gian thực thi:** {duration_ms:,}ms.\n"
+                f"- 🛡️ **Đánh giá chất lượng:** Dữ liệu vi phạm đã được cách ly an toàn theo chính sách kiểm soát rồi, cậu yên tâm nhé! 💡"
             )
 
             clean_overview = sanitize_chat_markdown(fallback_overview)
             if not self.llm_adapter.force_mock and self.llm_adapter.provider != "mock":
                 try:
                     sys_inst = (
-                        "You are DataTrust AI Auditor, an expert data governance and compliance auditor. "
-                        "All metrics provided in the prompt are ground-truth facts verified by PostgreSQL. "
-                        "Do NOT calculate or invent numbers. Provide a concise, professional executive interpretation "
-                        "in natural Vietnamese (like ChatGPT). Explain the overall health of the run based on the numbers."
+                        "Bạn là DataTrust AI Companion - người bạn kiểm toán dữ liệu cực kỳ đáng yêu, thân thiện và năng động! ✨ "
+                        "Tất cả số liệu cung cấp đều là ground-truth facts verified by PostgreSQL. "
+                        "Do NOT calculate or invent numbers. Hãy diễn giải tự nhiên, ấm áp như hai người bạn kỹ sư dữ liệu cùng làm việc, "
+                        "biết khích lệ và dùng emoji hợp lý (✨, 🚗, 📊, 💡, 🛡️) để làm mềm câu văn, không trả lời khô khan như máy móc."
                     )
                     prompt = (
-                        f"Hãy diễn giải tóm tắt kết quả kiểm toán lần chạy {run_id}:\n"
+                        f"Hãy diễn giải tóm tắt kết quả kiểm toán lần chạy {run_id} cho bạn đồng hành:\n"
                         f"- Tổng bản ghi quét: {scanned:,}\n"
                         f"- Đạt chuẩn Silver: {silver:,}\n"
                         f"- Cách ly (Quarantine): {quarantine:,}\n"
@@ -278,7 +282,7 @@ class DataTrustAgentOrchestrator:
                         f"- Chưa đánh giá (Not Evaluated): {not_eval:,}\n"
                         f"- Số vấn đề kiểm toán (Findings): {total_findings}\n"
                         f"- Trạng thái: {status}\n\n"
-                        f"Yêu cầu: Viết tự nhiên, súc tích (3-4 câu), nêu rõ tỷ lệ và trọng tâm cần chú ý."
+                        f"Yêu cầu: Viết tự nhiên, súc tích (3-4 câu), ấm áp, thân thiện, nêu rõ tỷ lệ và trọng tâm cần chú ý."
                     )
                     llm_res = self.llm_adapter.complete(
                         prompt=prompt,
@@ -333,14 +337,14 @@ class DataTrustAgentOrchestrator:
 
             if failed_step:
                 progress_ans = (
-                    f"Pipeline lần chạy `{run_id}` gặp sự cố tại bước **{failed_step.get('step_name')}**.\n\n"
-                    f"- **Chi tiết lỗi:** {err_msg or 'Lỗi không xác định trong quá trình thực thi.'}\n"
-                    f"- **Tác động:** Pipeline tạm dừng để bảo vệ tính toàn vẹn dữ liệu, không ghi nhận thêm dữ liệu vào Silver."
+                    f"Ối, pipeline lần chạy `{run_id}` đang gặp chút trục trặc tại bước **{failed_step.get('step_name')}** rồi nè! 🥺\n\n"
+                    f"- 💥 **Chi tiết lỗi:** {err_msg or 'Lỗi không xác định trong quá trình thực thi.'}\n"
+                    f"- 🛡️ **Tác động:** Hệ thống đã chủ động tạm dừng để bảo vệ tính toàn vẹn dữ liệu, không để dữ liệu lỗi lọt vào Silver đâu nha. Đừng lo, tụi mình cùng kiểm tra và khắc phục nhé! ✨"
                 )
             else:
                 progress_ans = (
-                    f"Pipeline lần chạy `{run_id}` hiện có trạng thái **{status}** với **{len(steps)} bước** đã ghi nhận.\n\n"
-                    f"- **Tiến trình:** Các bước kiểm soát chất lượng L1-L4 đang được giám sát chặt chẽ."
+                    f"Pipeline lần chạy `{run_id}` hiện đang ở trạng thái **{status}** với **{len(steps)} bước** đã ghi nhận nè! 🚀\n\n"
+                    f"- 🔍 **Tiến trình:** Các bước kiểm soát chất lượng từ L1 đến L4 đều đang được giám sát chặt chẽ và vận hành mượt mà nha! ✨"
                 )
 
             clean_prog = sanitize_chat_markdown(progress_ans)
@@ -374,11 +378,11 @@ class DataTrustAgentOrchestrator:
             cols = load_catalog_columns(target_ds)
             prof = load_profiling_stats(target_ds, session_state.get("active_column"))
 
-            col_lines = "\n".join([f"- `{c['column_name']}` ({c['data_type']}){' [PII]' if c.get('pii_flag') else ''}" for c in cols[:10]])
+            col_lines = "\n".join([f"- 📌 `{c['column_name']}` ({c['data_type']}){' 🔒 [PII]' if c.get('pii_flag') else ''}" for c in cols[:10]])
             catalog_reply = (
-                f"Thông tin catalog cho dữ liệu của lần chạy `{run_id}`:\n\n"
-                f"**Danh sách các cột:**\n{col_lines or '- Không có thông tin cột cụ thể.'}\n\n"
-                f"Bạn có thể hỏi thêm về tỷ lệ null, phân phối giá trị hoặc quy tắc kiểm tra cho từng cột cụ thể."
+                f"Dạ đây nè! ✨ Mình gửi bạn thông tin catalog dữ liệu cho lần chạy `{run_id}` nha:\n\n"
+                f"**Danh sách các cột tiêu biểu:**\n{col_lines or '- Chưa có thông tin cột cụ thể.'}\n\n"
+                f"Cậu cứ tự nhiên hỏi thêm mình về tỷ lệ null, phân phối giá trị hoặc quy tắc kiểm tra cho từng cột cụ thể nha! 💡"
             )
             session_manager.append_chat_turn(
                 session_id=session_id,
@@ -396,28 +400,294 @@ class DataTrustAgentOrchestrator:
             }
 
         # -------------------------------------------------------------
-        # 6. POLICY OR LEGAL INQUIRY
+        # 6. RULE INQUIRY OR POLICY INQUIRY
         # -------------------------------------------------------------
-        if user_intent == UserIntent.POLICY_OR_LEGAL_INQUIRY and not target_finding_id:
-            rules = load_compliance_rules()
-            rule_bullets = "\n".join([f"- **{r['rule_name']}** ({r['rule_id']}): Căn cứ `{r.get('standard_ref') or 'Nghị định 13 / Luật 91'}`" for r in rules[:5]])
-            policy_reply = (
-                f"Hệ thống DataTrust OS áp dụng các tiêu chuẩn quản trị và pháp lý sau:\n\n"
-                f"{rule_bullets or '- Các quy tắc tuân thủ cơ bản đang được kích hoạt.'}\n\n"
-                f"Các kiểm tra được phân định nghiêm ngặt giữa Lane A (Kỹ thuật/Vật lý xe) và Lane B (Chính sách/Bảo vệ dữ liệu cá nhân)."
+        if user_intent in (UserIntent.RULE_INQUIRY, UserIntent.POLICY_OR_LEGAL_INQUIRY) and not target_finding_id:
+            from backend.ai.services.rule_lookup_service import (
+                RuleLookupService, RuleLookupStatus, RuleFamily
             )
+
+            # Determine dataset and run start time for historical versioning
+            target_ds = context.get("dataset_id") or session_state.get("active_dataset_id")
+            run_start_time = None
+            try:
+                conn = get_db_connection()
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT dataset_id, started_at FROM orchestration.pipeline_runs WHERE run_id = %s LIMIT 1;",
+                        (run_id,)
+                    )
+                    pr_info = cur.fetchone()
+                    if pr_info:
+                        if not target_ds:
+                            target_ds = pr_info.get("dataset_id")
+                        run_start_time = pr_info.get("started_at")
+                conn.close()
+            except Exception as e:
+                logger.warning(f"Could not load run metadata for rule lookup: {e}")
+
+            target_ds = target_ds or "ride_hailing_xanh_sm_trips"
+
+            # Case A: User explicitly asks about rules executed in THIS run
+            is_run_executed_query = any(k in msg_lower for k in (
+                "lần chạy này", "run này", "đã chạy", "đã áp dụng", "thực thi", "được áp dụng"
+            ))
+
+            if is_run_executed_query and user_intent == UserIntent.RULE_INQUIRY:
+                lookup_res = RuleLookupService.get_executed_rules_for_run(run_id)
+
+                if lookup_res.status == RuleLookupStatus.DB_ERROR:
+                    reply = (
+                        f"Ui, hiện tại mình chưa thể truy xuất telemetry thực thi của lần chạy `{run_id}` "
+                        f"do gián đoạn kết nối cơ sở dữ liệu rồi! 😢 Cậu đợi chút xíu rồi thử lại cùng mình nha ✨."
+                    )
+                elif lookup_res.execution_unknown and not lookup_res.evaluated_rules:
+                    reply = (
+                        f"Trong lần chạy `{run_id}`, hệ thống ghi nhận thiếu telemetry thực thi chi tiết "
+                        f"(do lần chạy được tạo trước khi kích hoạt execution audit ledger) nên chưa đủ bằng chứng "
+                        f"để khẳng định danh sách toàn bộ quy tắc đã chạy nha. Cậu hoàn toàn yên tâm là các vi phạm hay cảnh báo "
+                        f"(nếu có) đều vẫn được lưu trữ tại Findings và Warnings nhé! 💡"
+                    )
+                else:
+                    eval_pass = [r for r in lookup_res.evaluated_rules if r.get("pass_count", 0) > 0 and r.get("fail_count", 0) == 0]
+                    eval_fail = [r for r in lookup_res.evaluated_rules if r.get("fail_count", 0) > 0]
+                    eval_skip = [r for r in lookup_res.evaluated_rules if r.get("skip_count", 0) > 0 and r.get("pass_count", 0) == 0 and r.get("fail_count", 0) == 0]
+
+                    pass_bullets = "\n".join([
+                        f"  - 🟢 `{r['rule_id']}` (v{r.get('rule_version', 1)}): {r.get('rule_name', r['rule_id'])} (Đạt {r.get('pass_count', 0):,} bản ghi)"
+                        for r in eval_pass[:5]
+                    ])
+                    fail_bullets = "\n".join([
+                        f"  - 🔴 `{r['rule_id']}` (v{r.get('rule_version', 1)}): {r.get('rule_name', r['rule_id'])} ({r.get('fail_count', 0):,} vi phạm)"
+                        for r in eval_fail[:5]
+                    ])
+
+                    pass_section = f"**Quy tắc đạt chuẩn (Passed):**\n{pass_bullets}\n\n" if pass_bullets else ""
+                    fail_section = f"**Quy tắc phát sinh lỗi/cảnh báo (Triggered):**\n{fail_bullets}\n\n" if fail_bullets else ""
+
+                    reply = (
+                        f"Dựa trên bằng chứng thực thi thực tế (`audit.record_policy_executions`) của lần chạy `{run_id}` nè! 📋✨\n\n"
+                        f"- 🎯 **Tổng quy tắc đã đánh giá**: **{len(lookup_res.evaluated_rules)} quy tắc** "
+                        f"(trong đó có **{len(eval_pass)} quy tắc đạt chuẩn hoàn toàn**, **{len(eval_fail)} quy tắc phát hiện vi phạm**"
+                        f"{f', {len(eval_skip)} quy tắc bỏ qua' if eval_skip else ''}).\n\n"
+                        f"{pass_section}"
+                        f"{fail_section}"
+                        f"Tất cả biểu thức và căn cứ pháp lý đều được trích xuất từ snapshot thực thi chính thức lúc pipeline chạy đó nha! 🚗💡"
+                    )
+
+                clean_reply = sanitize_chat_markdown(reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_reply,
+                    updates={"active_dataset_id": target_ds}
+                )
+                return {
+                    "response": clean_reply,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {
+                        "intent": "RULE_INQUIRY",
+                        "status": lookup_res.status.value,
+                        "evaluated_rules_count": len(lookup_res.evaluated_rules),
+                        "triggered_rules_count": len(lookup_res.triggered_rules),
+                        "execution_unknown": lookup_res.execution_unknown
+                    },
+                    "traces": []
+                }
+
+            # Case B: User inquires about a specific rule identifier
+            lookup_single = RuleLookupService.lookup_by_identifier(message, dataset_id=target_ds, as_of=run_start_time)
+
+            if lookup_single.status == RuleLookupStatus.FOUND_ONE and lookup_single.rule:
+                r = lookup_single.rule
+                fam = lookup_single.family or RuleFamily.COMPLIANCE
+                if fam == RuleFamily.COMPLIANCE:
+                    fam_label = "🛡️ Quy tắc Tuân thủ & Kiểm tra Chất lượng (Compliance - Lane B)"
+                elif fam == RuleFamily.TREATMENT:
+                    fam_label = "📝 Quy tắc Xử lý & Chuẩn hóa Dữ liệu (Data Treatment)"
+                else:
+                    fam_label = "🚗 Quy tắc Kỹ thuật & Cảm biến Xe (Reliability - Lane A)"
+
+                r_name = r.get("rule_name") or r.get("treatment_name") or r.get("rule_id")
+                r_expr = r.get("expression") or r.get("expression_display") or r.get("detector_id") or "Không có biểu thức"
+                r_col = r.get("column_name") or (", ".join(r.get("target_fields", [])) if isinstance(r.get("target_fields"), list) else None) or "Toàn bảng"
+                r_sev = r.get("severity") or "HIGH"
+                r_act = r.get("on_fail_action") or ("QUARANTINE" if fam == RuleFamily.COMPLIANCE else "WARNING")
+                r_law = r.get("law_ref")
+                law_text = f"• 📜 **Căn cứ pháp lý**: `{r_law}`\n" if r_law else "• 📜 **Căn cứ pháp lý**: Quy chuẩn kỹ thuật nội bộ (không gắn tham chiếu luật cụ thể)\n"
+
+                detail_reply = (
+                    f"Thông tin chi tiết về quy tắc `{r.get('rule_id')}` nè! ✨\n\n"
+                    f"• 📌 **Tên quy tắc**: {r_name}\n"
+                    f"• 🏷️ **Phân loại**: {fam_label} (Phiên bản v{r.get('version', 1)})\n"
+                    f"• 🎯 **Cột & Bảng áp dụng**: `{r_col}` trên `{r.get('dataset_id')}`\n"
+                    f"• 🔍 **Logic kiểm tra / Biểu thức**: `{r_expr}`\n"
+                    f"• ⚖️ **Mức độ & Xử lý khi lỗi**: Mức `{r_sev}` → Hành động: `{r_act}`\n"
+                    f"{law_text}"
+                    f"• ⚙️ **Trạng thái**: `{r.get('status', 'ACTIVE')}` (Chế độ: `{r.get('runtime_mode', 'ENFORCED')}`)\n\n"
+                    f"Cậu cần mình giải thích thêm cơ chế hay cách hoạt động của quy tắc này thì cứ nhắn mình nhé! 💡"
+                )
+                clean_detail = sanitize_chat_markdown(detail_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_detail,
+                    updates={"active_dataset_id": r.get("dataset_id") or target_ds}
+                )
+                return {
+                    "response": clean_detail,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {
+                        "intent": "RULE_INQUIRY",
+                        "status": "FOUND_ONE",
+                        "rule": r
+                    },
+                    "traces": []
+                }
+
+            elif lookup_single.status == RuleLookupStatus.FOUND_MANY:
+                matches_bullets = "\n".join([
+                    f"- 🔹 `{m.get('rule_id')}` (Bảng `{m.get('dataset_id')}`, Cột `{m.get('column_name')}`): {m.get('rule_name') or m.get('treatment_name')}"
+                    for m in lookup_single.rules[:6]
+                ])
+                many_reply = (
+                    f"Mình tìm thấy **{len(lookup_single.rules)} quy tắc** liên quan đến `{lookup_single.query}` trong hệ thống nè! ✨\n\n"
+                    f"{matches_bullets}\n\n"
+                    f"Cậu muốn xem chi tiết quy tắc của cột hoặc bảng nào trước, cứ bảo mình nhé! 💡"
+                )
+                clean_many = sanitize_chat_markdown(many_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_many,
+                    updates={"active_dataset_id": target_ds}
+                )
+                return {
+                    "response": clean_many,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {
+                        "intent": "RULE_INQUIRY",
+                        "status": "FOUND_MANY",
+                        "matches_count": len(lookup_single.rules),
+                        "rules": lookup_single.rules
+                    },
+                    "traces": []
+                }
+
+            elif lookup_single.status == RuleLookupStatus.DB_ERROR:
+                db_err_reply = (
+                    f"Ui, hiện tại mình chưa thể truy xuất dữ liệu quy tắc do gián đoạn kết nối cơ sở dữ liệu rồi! 😢 "
+                    f"Cậu đợi chút xíu rồi thử lại cùng mình nha ✨."
+                )
+                clean_db_err = sanitize_chat_markdown(db_err_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_db_err,
+                    updates={}
+                )
+                return {
+                    "response": clean_db_err,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {"intent": "RULE_INQUIRY", "status": "DB_ERROR"},
+                    "traces": []
+                }
+
+            # Case C: User asks about configured rules for the dataset or general legal policies
+            ds_config_res = RuleLookupService.get_configured_rules_for_dataset(target_ds, as_of=run_start_time)
+
+            if user_intent == UserIntent.RULE_INQUIRY:
+                # If specific query was searched but NOT_FOUND:
+                if lookup_single.status == RuleLookupStatus.NOT_FOUND and len(lookup_single.query) > 2 and lookup_single.query not in ("rule", "quy tắc", "danh sách", "treatment rule"):
+                    not_found_reply = (
+                        f"Hiện tại mình không tìm thấy quy tắc nào khớp với từ khóa `{lookup_single.query}` trong hệ sinh thái của DataTrust OS đâu nha 🥺. "
+                        f"Cậu thử kiểm tra lại mã quy tắc hoặc tham khảo danh sách quy tắc đang có của bảng `{target_ds}` dưới đây xem sao nhé! ✨"
+                    )
+                    clean_nf = sanitize_chat_markdown(not_found_reply)
+                    session_manager.append_chat_turn(
+                        session_id=session_id,
+                        run_id=run_id,
+                        user_text=message,
+                        ai_text=clean_nf,
+                        updates={"active_dataset_id": target_ds}
+                    )
+                    return {
+                        "response": clean_nf,
+                        "session_id": session_id,
+                        "run_id": run_id,
+                        "data": {"intent": "RULE_INQUIRY", "status": "NOT_FOUND", "query": lookup_single.query},
+                        "traces": []
+                    }
+
+                # Otherwise display dataset configured rules summary
+                comp_rules = [r for r in ds_config_res.rules if r.get("family") == "COMPLIANCE"]
+                treat_rules = [r for r in ds_config_res.rules if r.get("family") == "TREATMENT"]
+                rel_rules = [r for r in ds_config_res.rules if r.get("family") == "RELIABILITY"]
+
+                comp_bullets = "\n".join([f"- 🛡️ `{r['rule_id']}` (Cột `{r.get('column_name')}`): {r.get('rule_name')}" + (f" (Căn cứ `{r['law_ref']}`)" if r.get('law_ref') else "") for r in comp_rules[:4]])
+                treat_bullets = "\n".join([f"- 📝 `{t['rule_id']}` (Cột `{t.get('column_name')}`): `{t.get('operation_id')}` - {t.get('treatment_name')}" for t in treat_rules[:3]])
+                rel_bullets = "\n".join([f"- 🚗 `{rl['rule_id']}` ({rl.get('layer')}): {rl.get('description') or rl.get('detector_id')}" for rl in rel_rules[:3]])
+
+                ds_summary_reply = (
+                    f"Dạ đây nè! ✨ Cấu hình quy tắc đang kích hoạt cho bảng `{target_ds}` gồm **{len(ds_config_res.rules)} quy tắc** được chia làm 3 nhóm chuẩn chỉnh:\n\n"
+                    f"1. **Quy tắc Tuân thủ & Chất lượng (Lane B - {len(comp_rules)} quy tắc)**:\n{comp_bullets or '- Chưa có quy tắc tuân thủ nào.'}\n\n"
+                    f"2. **Quy tắc Xử lý & Chuẩn hóa (Treatment - {len(treat_rules)} quy tắc)**:\n{treat_bullets or '- Chưa cấu hình quy tắc xử lý nào.'}\n\n"
+                    f"3. **Quy tắc Kỹ thuật & Cảm biến Xe (Lane A - {len(rel_rules)} quy tắc)**:\n{rel_bullets or '- Chưa có quy tắc kỹ thuật nào.'}\n\n"
+                    f"Cậu muốn tìm hiểu kỹ quy tắc nào thì cứ bảo mình nha! 💡"
+                )
+                clean_ds_summary = sanitize_chat_markdown(ds_summary_reply)
+                session_manager.append_chat_turn(
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_text=message,
+                    ai_text=clean_ds_summary,
+                    updates={"active_dataset_id": target_ds}
+                )
+                return {
+                    "response": clean_ds_summary,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "data": {
+                        "intent": "RULE_INQUIRY",
+                        "status": ds_config_res.status.value,
+                        "dataset_id": target_ds,
+                        "rules_count": len(ds_config_res.rules)
+                    },
+                    "traces": []
+                }
+
+            # General POLICY_OR_LEGAL_INQUIRY (Regulatory frameworks)
+            comp_sample = [r for r in ds_config_res.rules if r.get("family") == "COMPLIANCE" and r.get("law_ref")][:5]
+            rule_bullets = "\n".join([
+                f"- **{r.get('rule_name')}** (`{r.get('rule_id')}`): Căn cứ `{r.get('law_ref')}`"
+                for r in comp_sample
+            ])
+            policy_reply = (
+                f"Về các tiêu chuẩn quản trị và pháp lý, DataTrust OS đang áp dụng bộ quy tắc cực kỳ chuẩn chỉnh này nè: 🛡️✨\n\n"
+                f"{rule_bullets or '- Các quy tắc tuân thủ cơ bản đang được kích hoạt.'}\n\n"
+                f"Tụi mình luôn phân định rõ ràng giữa Lane A (Kỹ thuật / Viễn thông xe 🚗) và Lane B (Chính sách & Bảo vệ dữ liệu cá nhân 🔒) để bảo đảm an toàn dữ liệu tối đa đó! Cậu cần tìm hiểu kỹ quy tắc nào cứ bảo mình nhé! 💡"
+            )
+            clean_policy = sanitize_chat_markdown(policy_reply)
             session_manager.append_chat_turn(
                 session_id=session_id,
                 run_id=run_id,
                 user_text=message,
-                ai_text=policy_reply,
+                ai_text=clean_policy,
                 updates={}
             )
             return {
-                "response": policy_reply,
+                "response": clean_policy,
                 "session_id": session_id,
                 "run_id": run_id,
-                "data": {"rules": rules},
+                "data": {"rules": ds_config_res.rules},
                 "traces": []
             }
 
@@ -430,8 +700,8 @@ class DataTrustAgentOrchestrator:
             # A. Resilience / Fallback on DB connection failure
             if we.get("db_error"):
                 db_err_reply = (
-                    f"Hệ thống hiện chưa thể truy xuất dữ liệu chi tiết từ bảng cảnh báo (`warning.records`) của lần chạy `{run_id}` "
-                    f"do gián đoạn kết nối cơ sở dữ liệu. Bạn vui lòng thử lại sau giây lát hoặc kiểm tra dịch vụ lưu trữ."
+                    f"Ui tiếc quá, hiện tại mình chưa thể truy xuất dữ liệu chi tiết từ bảng cảnh báo (`warning.records`) của lần chạy `{run_id}` "
+                    f"do gián đoạn kết nối cơ sở dữ liệu mất rồi! 😢 Cậu đợi chút xíu rồi thử lại cùng mình, hoặc kiểm tra kết nối DB giúp mình nha ✨."
                 )
                 clean_db_err = sanitize_chat_markdown(db_err_reply)
                 session_manager.append_chat_turn(
@@ -458,8 +728,8 @@ class DataTrustAgentOrchestrator:
             # B. Zero warnings case
             if pipeline_cnt == 0 and actual_cnt == 0:
                 zero_reply = (
-                    f"Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ bản ghi cảnh báo nào (`warning_count = 0`). "
-                    f"Toàn bộ dữ liệu được định tuyến trực tiếp vào chuẩn Silver hoặc khu vực Cách ly (Quarantine) nếu có vi phạm cứng."
+                    f"Tin vui nè! 🎉 Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ bản ghi cảnh báo nào (`warning_count = 0`) luôn nha! ✨ "
+                    f"Toàn bộ dữ liệu sạch đã được đưa thẳng vào chuẩn Silver, hoặc khu vực Cách ly (Quarantine) nếu có vi phạm cứng. Cậu cứ hoàn toàn yên tâm nhé! 💡"
                 )
                 clean_zero = sanitize_chat_markdown(zero_reply)
                 session_manager.append_chat_turn(
@@ -543,8 +813,8 @@ class DataTrustAgentOrchestrator:
             discrepancy_text = f"\n\n> ⚠️ **Lưu ý đối soát**: {discrepancy_note}" if discrepancy_note else ""
 
             default_warning_reply = (
-                f"Lần chạy `{run_id}` ghi nhận **{actual_cnt:,}** bản ghi Warning. Đây là các tín hiệu cảnh báo thống kê kỹ thuật (Lane A), "
-                f"**không phải là vi phạm pháp lý** hay chính sách tuân thủ (Lane B). "
+                f"Lần chạy `{run_id}` ghi nhận **{actual_cnt:,}** bản ghi Warning nè! ✨ Đây là các tín hiệu cảnh báo thống kê kỹ thuật (Lane A), "
+                f"**không phải là vi phạm pháp lý** hay chính sách tuân thủ (Lane B) đâu nha, cậu yên tâm nhé! 🚗💡 "
                 f"Theo chính sách định tuyến hiện tại, riêng tín hiệu Warning không tự động đưa bản ghi vào Quarantine; "
                 f"việc bản ghi có đi tiếp vào Silver còn phụ thuộc các rule khác. Các mô hình ở tầng Gold cần lưu ý độ trôi phân phối này.\n\n"
                 f"**Thống kê tổng quan**:\n"
@@ -561,14 +831,12 @@ class DataTrustAgentOrchestrator:
             if not self.llm_adapter.force_mock and self.llm_adapter.provider != "mock":
                 try:
                     sys_inst = (
-                        "You are DataTrust AI Auditor, an expert data governance and reliability engineer. "
-                        "All metrics provided are verified ground truths from PostgreSQL. "
-                        "Answer the user's exact question first in natural Vietnamese. Adapt the form to intent: "
-                        "use 1-3 concise sentences for a short factual question; focus on cause and evidence for a why-question; "
-                        "use headings or bullets only when the user asks for detail or the evidence is complex. "
-                        "Do not force an analogy or a fixed section structure. "
-                        "Do NOT invent numbers or minimize issues with empty phrases like 'normal phenomenon'. "
-                        "Differentiate clearly: Lane A statistical anomalies are NOT legal/compliance violations."
+                        "Bạn là DataTrust AI Companion - người bạn kỹ sư dữ liệu cực kỳ đáng yêu, thân thiện và ấm áp! ✨ "
+                        "Tất cả số liệu cung cấp đều là số liệu thực tế đã xác minh từ PostgreSQL. "
+                        "Trả lời đúng trọng tâm câu hỏi của người bạn kỹ sư trước bằng tiếng Việt tự nhiên, ấm áp, đồng cảm, "
+                        "sử dụng emoji hợp lý (✨, 💡, 🚗, 📊) để làm mềm câu văn, không trả lời khô khan như máy móc. "
+                        "Ngắn gọn súc tích 1-3 câu nếu câu hỏi đơn giản; tập trung nguyên nhân & evidence nếu hỏi tại sao. "
+                        "Phân biệt rõ: Cảnh báo thống kê Lane A KHÔNG PHẢI vi phạm pháp lý Lane B."
                     )
                     prompt = (
                         f"Người dùng hỏi về cảnh báo: '{message}'.\n"
@@ -641,13 +909,13 @@ class DataTrustAgentOrchestrator:
             # Ambiguity check: user asks general error question, but there are multiple findings and no active focus
             if not target_finding_id and len(run_findings) > 1 and not has_followup_reference:
                 finding_bullets = "\n".join([
-                    f"- **{f['finding_id']}** (cột `{f['column_name']}`): {f['reason']}"
+                    f"- 🔍 **{f['finding_id']}** (cột `{f['column_name']}`): {f['reason']}"
                     for f in run_findings[:3]
                 ])
                 clarification = (
-                    f"Trong lần chạy `{run_id}`, hệ thống ghi nhận **{len(run_findings)} vấn đề kiểm toán**:\n\n"
+                    f"Trong lần chạy `{run_id}`, hệ thống ghi nhận **{len(run_findings)} vấn đề kiểm toán** nè: ✨\n\n"
                     f"{finding_bullets}\n\n"
-                    f"Bạn muốn tôi phân tích nguyên nhân (RCA) hoặc đề xuất giải pháp cho vấn đề nào trước?"
+                    f"Bạn muốn tôi phân tích nguyên nhân (RCA) hoặc đề xuất giải pháp cho vấn đề nào trước? Cứ bảo mình nhé, mình hỗ trợ ngay! 💡"
                 )
                 session_manager.append_chat_turn(
                     session_id=session_id,
@@ -715,8 +983,8 @@ class DataTrustAgentOrchestrator:
 
             if not finding_row:
                 no_finding_ans = (
-                    f"Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ vi phạm kiểm toán nào. "
-                    f"Toàn bộ dữ liệu của lần chạy này đều đáp ứng tiêu chuẩn kiểm soát chất lượng."
+                    f"Tuyệt vời quá nè! 🎉 Trong lần chạy `{run_id}`, hệ thống không ghi nhận bất kỳ vi phạm kiểm toán nào cả! ✨ "
+                    f"Toàn bộ dữ liệu của lần chạy này đều đáp ứng xuất sắc các tiêu chuẩn kiểm soát chất lượng luôn! Cậu hoàn toàn yên tâm nha! 🚗💖"
                 )
                 session_manager.append_chat_turn(
                     session_id=session_id,
@@ -809,13 +1077,14 @@ Trả về JSON có cấu trúc gồm:
 - 'structured_analysis': Dữ liệu phân tích có cấu trúc."""
 
             system_inst = (
-                "You are the Data Governance & Root Cause Analysis specialist for DataTrust OS. "
-                "Analyze objectively using actual evidence. Explain in intuitive, easy-to-understand Vietnamese like ChatGPT. "
+                "You are DataTrust AI Companion - a super cute, warm, friendly, dynamic AI assistant and pair-programming friend! ✨ "
+                "Analyze objectively using actual evidence verified from PostgreSQL, but explain everything in warm, empathetic, intuitive Vietnamese. "
+                "Chat like two close engineering friends, use tasteful emojis (✨, 📝, 🚗, 💡, 🛡️, 🔍) to soften statements, and absolutely avoid dry, rigid, robotic bureaucratic phrasing. "
                 "Answer the exact question first and adapt response length and structure to the user's intent. "
                 "Short questions should receive concise answers; why-questions should prioritize causes and supporting evidence; "
                 "headings, bullets, analogies, impact, and next actions are optional and should appear only when useful. "
                 "Never add facts through an analogy or claim that data is normal, safe, or valid without supporting evidence. "
-                "Avoid repetitive bureaucratic prefixes while preserving the required structured JSON response contract."
+                "Avoid repetitive bureaucratic prefixes while strictly preserving the required structured JSON response contract with 'answer' and 'structured_analysis'."
             )
 
             history_turns = session_state.get("recent_messages", []) if session_state else []
@@ -954,17 +1223,17 @@ Trả về JSON có cấu trúc gồm:
             await self._broadcast_step(rule_trace)
 
             resp = (
-                f"📜 **Đề xuất Quy tắc Khắc phục (Data Treatment Rule) từ AI Agent**:\n\n"
-                f"• **Quy tắc đề xuất**: `{op_id}({', '.join(f'{k}={v}' for k, v in params.items())})` trên cột `{target_col}`\n"
-                f"• **Mục tiêu**: Chuẩn hóa dữ liệu trước khi chuyển tiếp vào tầng Silver\n"
-                f"• **Nguồn dữ liệu kiểm thử**: {data_src_label}" + (f" ({synth_notice})" if synth_notice else "") + "\n"
-                f"• **Kết quả Mô phỏng Thử nghiệm (Dry-Run)**:\n"
+                f"✨ **Đề xuất Quy tắc Khắc phục (Data Treatment Rule) từ AI Bạn Đồng Hành** nè! 📝\n\n"
+                f"• 💡 **Quy tắc đề xuất**: `{op_id}({', '.join(f'{k}={v}' for k, v in params.items())})` trên cột `{target_col}`\n"
+                f"• 🎯 **Mục tiêu**: Chuẩn hóa dữ liệu mượt mà trước khi chuyển tiếp vào tầng Silver\n"
+                f"• 🔍 **Nguồn dữ liệu kiểm thử**: {data_src_label}" + (f" ({synth_notice})" if synth_notice else "") + "\n"
+                f"• 📊 **Kết quả Mô phỏng Thử nghiệm (Dry-Run)**:\n"
                 f"  - Tập mẫu quét: **{total_sim:,} bản ghi**\n"
-                f"  - Dữ liệu sạch (Silver Pass): **{pass_rows:,} ({pass_rate}%)**\n"
+                f"  - Dữ liệu sạch (Silver Pass): **{pass_rows:,} ({pass_rate}%)** 🚗✨\n"
                 f"  - Cách ly (Quarantine): **{quar_rows:,} ({round(100 - pass_rate, 2)}%)**\n"
-                f"  - Độ trễ vi điểm (Microbenchmark): **p50 = {p50_str} / p95 = {p95_str}**\n"
+                f"  - Độ trễ vi điểm (Microbenchmark): **p50 = {p50_str} / p95 = {p95_str}** ⚡\n"
                 f"  - Lưu ý phạm vi đo: *{scope_label}*\n\n"
-                f"👉 *Quy tắc đang ở trạng thái **PENDING** theo cơ chế Human-In-The-Loop. Vui lòng chuyển sang vai trò Admin để phê duyệt.*"
+                f"👉 *Quy tắc đang ở trạng thái **PENDING** chờ phê duyệt (Human-In-The-Loop). Cậu chỉ cần chuyển sang vai trò Admin để duyệt là áp dụng được ngay nha! 💖*"
             )
             clean_resp = sanitize_chat_markdown(resp)
             session_manager.append_chat_turn(
@@ -997,7 +1266,10 @@ Trả về JSON có cấu trúc gồm:
             session_id=session_id,
             step_callback=self._broadcast_step
         )
-        final_ans = res.get("final_answer") or "Hệ thống DataTrust AI Agent đã ghi nhận yêu cầu và đối soát dữ liệu với catalog chính sách hiện hành."
+        final_ans = res.get("final_answer") or (
+            "Mình đã ghi nhận yêu cầu của cậu và đối soát xong dữ liệu với catalog chính sách hiện hành rồi nè! ✨ "
+            "Nếu cần mình phân tích sâu hơn khía cạnh nào, cậu cứ thoải mái nhắn mình nha! 💡"
+        )
         clean_final = sanitize_chat_markdown(final_ans)
         session_manager.append_chat_turn(
             session_id=session_id,

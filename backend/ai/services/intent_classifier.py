@@ -26,6 +26,7 @@ class UserIntent(str, Enum):
     PIPELINE_ERROR_OR_PROGRESS = "PIPELINE_ERROR_OR_PROGRESS"
     DATA_OR_CATALOG_INQUIRY = "DATA_OR_CATALOG_INQUIRY"
     POLICY_OR_LEGAL_INQUIRY = "POLICY_OR_LEGAL_INQUIRY"
+    RULE_INQUIRY = "RULE_INQUIRY"
     TOPIC_SWITCH = "TOPIC_SWITCH"
     WARNING_INQUIRY = "WARNING_INQUIRY"
 
@@ -70,21 +71,35 @@ class IntentClassifier:
         r"\brca\b",
         r"\broot\s+cause\b",
         r"\bfinding\b",
-        r"\bvi\s+ph\u1ea1m\b",
         r"\b\u0111i\u1ec1u\s+tra\b",
         r"gi\u1ea3i\s+th\u00edch\s+(l\u1ed7i|vi\s+ph\u1ea1m|finding)",
+        r"ph\u00e2n\s+t\u00edch\s+(nguy\u00ean\s+nh\u00e2n|vi\s+ph\u1ea1m|l\u1ed7i)",
     ]
 
-    # Patterns indicating user is asking for remediation / action
-    REMEDIATION_PATTERNS = [
+    # Patterns indicating user is requesting remediation / proposal / action to fix
+    REMEDIATION_ACTION_PATTERNS = [
         r"kh\u1eafc\s+ph\u1ee5c",
         r"gi\u1ea3i\s+ph\u00e1p",
         r"s\u1eeda\s+(nh\u01b0\s+th\u1ebf\s+n\u00e0o|l\u1ed7i|d\u1eef\s+li\u1ec7u)",
         r"c\u00e1ch\s+(x\u1eed\s+l\u00fd|gi\u1ea3i\s+quy\u1ebft|kh\u1eafc\s+ph\u1ee5c)",
         r"\bremediation\b",
-        r"\u0111\u1ec1\s+xu\u1ea5t\s+(rule|quy\s+t\u1eafc|x\u1eed\s+l\u00fd|h\u00e0nh\s+\u0111\u1ed9ng)",
-        r"treatment\s+rule",
+        r"(\u0111\u1ec1\s+xu\u1ea5t|t\u1ea1o|th\u00eam|sinh|s\u1eeda|c\u1ea7n\s+s\u1eeda|mu\u1ed1n\s+\u00e1p\s+d\u1ee5ng|h\u00e3y\s+\u00e1p\s+d\u1ee5ng)\s+(rule|quy\s+t\u1eafc|treatment|x\u1eed\s+l\u00fd|h\u00e0nh\s+\u0111\u1ed9ng)",
         r"l\u00e0m\s+sao\s+\u0111\u1ec3\s+h\u1ebft\s+l\u1ed7i",
+    ]
+
+    # Patterns indicating user is inquiring about rule specifications / existing rules
+    RULE_INQUIRY_PATTERNS = [
+        r"(quy\s+t\u1eafc|rules?)\s+[a-zA-Z0-9_-]+\s+(l\u00e0\s+g\u00ec|ki\u1ec3m\s+tra\s+g\u00ec|ho\u1ea1t\s+\u0111\u1ed9ng\s+nh\u01b0\s+th\u1ebf\s+n\u00e0o|nh\u01b0\s+th\u1ebf\s+n\u00e0o)",
+        r"(th\u00f4ng\s+tin|chi\s+ti\u1ebft|gi\u1ea3i\s+th\u00edch|n\u00f3i|cho\s+bi\u1ebft)(\s+cho\s+t\u00f4i)?\s+(v\u1ec1\s+)?(rules?|quy\s+t\u1eafc)",
+        r"(gi\u1ea3i\s+th\u00edch|chi\s+ti\u1ebft|\u0111\u1ecbnh\s+ngh\u0129a|n\u1ed9i\s+dung)\s+(c\u1ee7a\s+)?(rules?|quy\s+t\u1eafc)",
+        r"(danh\s+s\u00e1ch|c\u00f3\s+nh\u1eefng|tra\s+c\u1ee9u)\s+([a-zA-Z0-9\s_\u00c0-\u1ef9]*)(rules?|quy\s+t\u1eafc)",
+        r"\b(compliance|treatment|reliability)\s+rules?\b",
+        r"treatment\s+rules?\s+(n\u00e0o|g\u00ec|hi\u1ec7n\s+c\u00f3|trong\s+h\u1ec7\s+th\u1ed1ng)",
+        r"(l\u1ea7n\s+ch\u1ea1y|run)\s+(n\u00e0y\s+)?(\u0111\u00e3\s+)?(\u00e1p\s+d\u1ee5ng|ch\u1ea1y|th\u1ef1c\s+thi)\s+(nh\u1eefng\s+)?(rules?|quy\s+t\u1eafc)",
+        r"(nh\u1eefng\s+)?(rules?|quy\s+t\u1eafc)\s+(n\u00e0o\s+)?(\u0111\u00e3\s+)?(ch\u1ea1y|th\u1ef1c\s+thi|\u00e1p\s+d\u1ee5ng|\u0111\u01b0\u1ee3c\s+\u00e1p\s+d\u1ee5ng)",
+        r"(quy\s+t\u1eafc|rules?)\s+(ki\u1ec3m\s+tra|tu\u00e2n\s+th\u1ee7|x\u1eed\s+l\u00fd|treatment|reliability|compliance)",
+        r"^\s*(rules?|quy\s+t\u1eafc)\s+[a-zA-Z0-9_-]+[\s\?\!\.]*$",
+        r"\b(comp|chk|rel|drift|changepoint|treatment|val|trt|pol|l1|l2)-[a-zA-Z0-9_-]+\b",
     ]
 
     # Patterns indicating pipeline execution error or step logs
@@ -123,7 +138,7 @@ class IntentClassifier:
         r"ngh\u1ecb\s+\u0111\u1ecbnh\s+13",
         r"lu\u1eadt\s+(91|an\s+ninh\s+m\u1ea1ng|b\u1ea3o\s+v\u1ec7\s+d\u1eef\s+li\u1ec7u)",
         r"\b(gdpr|sox|sox-404|hipaa)\b",
-        r"(ch\u00ednh\s+s\u00e1ch|quy\s+t\u1eafc)\s+(tu\u00e2n\s+th\u1ee7|b\u1ea3o\s+m\u1eadt|compliance)",
+        r"(ch\u00ednh\s+s\u00e1ch|quy\s+\u0111\u1ecbnh)\s+(tu\u00e2n\s+th\u1ee7|b\u1ea3o\s+m\u1eadt|compliance)",
         r"ti\u00eau\s+chu\u1ea9n\s+(ph\u00e1p\s+l\u00fd|ki\u1ec3m\s+to\u00e1n)",
     ]
 
@@ -158,7 +173,7 @@ class IntentClassifier:
         if any(re.search(p, text) for p in cls.WARNING_PATTERNS):
             return UserIntent.WARNING_INQUIRY
 
-        # 4. Check for Negation of Remediation (User strictly does NOT want remediation)
+        # 5. Check for Negation of Remediation (User strictly does NOT want remediation)
         has_remediation_negation = any(
             re.search(p, text) for p in cls.NEGATION_REMEDIATION_PATTERNS
         )
@@ -167,8 +182,8 @@ class IntentClassifier:
             re.search(p, text) for p in cls.ROOT_CAUSE_PATTERNS
         )
 
-        has_remediation_intent = any(
-            re.search(p, text) for p in cls.REMEDIATION_PATTERNS
+        has_remediation_action = any(
+            re.search(p, text) for p in cls.REMEDIATION_ACTION_PATTERNS
         )
 
         # If remediation is negated, force ROOT_CAUSE_ONLY even if remediation words appear
@@ -176,24 +191,28 @@ class IntentClassifier:
             return UserIntent.ROOT_CAUSE_ONLY
 
         # Both RCA and Remediation requested
-        if has_root_cause_intent and has_remediation_intent:
+        if has_root_cause_intent and has_remediation_action:
             return UserIntent.BOTH_RCA_AND_REMEDIATION
 
-        # Only Remediation
-        if has_remediation_intent and not has_root_cause_intent:
+        # Only Remediation Action (Proposal generation request)
+        if has_remediation_action and not has_root_cause_intent:
             return UserIntent.REMEDIATION_ONLY
 
         # Only Root Cause
         if has_root_cause_intent:
             return UserIntent.ROOT_CAUSE_ONLY
 
+        # Rule Inquiry: Information about rules (separate from proposing new rules)
+        if any(re.search(p, text) for p in cls.RULE_INQUIRY_PATTERNS):
+            return UserIntent.RULE_INQUIRY
+
+        # Policy / Legal inquiry (general regulatory framework)
+        if any(re.search(p, text) for p in cls.POLICY_OR_LEGAL_PATTERNS):
+            return UserIntent.POLICY_OR_LEGAL_INQUIRY
+
         # Data / Catalog inquiry
         if any(re.search(p, text) for p in cls.DATA_OR_CATALOG_PATTERNS):
             return UserIntent.DATA_OR_CATALOG_INQUIRY
-
-        # Policy / Legal inquiry
-        if any(re.search(p, text) for p in cls.POLICY_OR_LEGAL_PATTERNS):
-            return UserIntent.POLICY_OR_LEGAL_INQUIRY
 
         # Explicit Run Overview
         if any(re.search(p, text) for p in cls.RUN_OVERVIEW_PATTERNS):

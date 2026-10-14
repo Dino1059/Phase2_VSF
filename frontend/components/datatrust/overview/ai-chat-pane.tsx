@@ -194,15 +194,15 @@ export function AiChatPane() {
   // Input placeholder according to run availability
   const inputPlaceholder = useMemo(() => {
     if (!activeRunId) {
-      return 'Chưa chọn Run. Vui lòng chạy hoặc chọn một lần chạy để trò chuyện...';
+      return 'Chọn một lần chạy rồi tụi mình cùng trò chuyện nha ✨...';
     }
     if (homepageViewMode === 'results_dashboard') {
-      return 'Hỏi về kết quả lần chạy (VD: giải thích nguyên nhân finding)...';
+      return 'Hỏi mình về kết quả, nguyên nhân finding nè ✨ (VD: giải thích finding)...';
     }
     if (homepageViewMode === 'running_pipeline') {
-      return 'Hỏi về tiến độ và trạng thái lần chạy...';
+      return 'Hỏi mình về tiến độ và trạng thái đang chạy nè 🚀...';
     }
-    return 'Hỏi AI trong lần chạy này...';
+    return 'Nhắn tin trò chuyện cùng mình nhé ✨ (VD: phân tích PII, finding)...';
   }, [homepageViewMode, activeRunId]);
 
   useEffect(() => {
