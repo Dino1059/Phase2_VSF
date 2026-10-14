@@ -1440,7 +1440,12 @@ def list_pipeline_runs(
             conn.close()
 
             for r in rows:
-                dur_mins = round((r["execution_duration_ms"] or 60000) / 60000, 1)
+                dur_ms = r.get("execution_duration_ms")
+                if dur_ms is None and r.get("started_at") and r.get("ended_at"):
+                    dur_ms = max(0, int((r["ended_at"] - r["started_at"]).total_seconds() * 1000))
+                elif dur_ms is None and r.get("started_at") and (r.get("status") or "").upper() == "RUNNING":
+                    dur_ms = max(0, int((datetime.now(timezone.utc) - r["started_at"]).total_seconds() * 1000))
+                dur_mins = round(dur_ms / 60000, 1) if dur_ms is not None else 0.0
                 runs.append({
                     "id": r["run_id"],
                     "dagId": r["dag_id"],
@@ -1576,8 +1581,10 @@ def get_pipeline_run_detail(run_id: str):
                 not_eval = max(0, scanned - silver - quarantine - warning)
 
             dur_detail_ms = run_row.get("execution_duration_ms")
-            if not dur_detail_ms and run_row.get("started_at") and run_row.get("ended_at"):
-                dur_detail_ms = int((run_row["ended_at"] - run_row["started_at"]).total_seconds() * 1000)
+            if dur_detail_ms is None and run_row.get("started_at") and run_row.get("ended_at"):
+                dur_detail_ms = max(0, int((run_row["ended_at"] - run_row["started_at"]).total_seconds() * 1000))
+            elif dur_detail_ms is None and run_row.get("started_at") and (run_row.get("status") or "").upper() == "RUNNING":
+                dur_detail_ms = max(0, int((datetime.now(timezone.utc) - run_row["started_at"]).total_seconds() * 1000))
 
             return {
                 "run_id": real_run_id,
@@ -2609,13 +2616,28 @@ def get_pipeline_live_status(run_id: str):
                         af_state = (af_data.get("state") or "").upper()
                         if af_state == "SUCCESS":
                             overall_status = "SUCCESS"
+                            cur.execute("""
+                                UPDATE orchestration.pipeline_runs
+                                SET status = 'SUCCESS', ended_at = COALESCE(ended_at, NOW()),
+                                    current_step = 'COMPLETED', current_step_progress = 100,
+                                    execution_duration_ms = COALESCE(
+                                        execution_duration_ms,
+                                        EXTRACT(EPOCH FROM (COALESCE(ended_at, NOW()) - started_at)) * 1000
+                                    )
+                                WHERE run_id = %s AND status = 'RUNNING';
+                            """, (real_run_id,))
+                            conn.commit()
                         elif af_state == "FAILED":
                             overall_status = "FAILED"
                             failure_message = "Airflow DAG run failed; inspect task logs for the root cause."
                             cur.execute("""
                                 UPDATE orchestration.pipeline_runs
                                 SET status = 'FAILED', ended_at = COALESCE(ended_at, NOW()),
-                                    error_message = COALESCE(error_message, %s)
+                                    error_message = COALESCE(error_message, %s),
+                                    execution_duration_ms = COALESCE(
+                                        execution_duration_ms,
+                                        EXTRACT(EPOCH FROM (COALESCE(ended_at, NOW()) - started_at)) * 1000
+                                    )
                                 WHERE run_id = %s AND status = 'RUNNING';
                             """, (failure_message, real_run_id))
                             cur.execute("""

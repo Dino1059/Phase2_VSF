@@ -23,6 +23,15 @@ class ConsolidatedRunResult:
     findings: List[Dict[str, Any]] = field(default_factory=list)
 
 
+def _v_get(v: Any, key: str, default: Any = None) -> Any:
+    """Safely get key or attribute from LaneBVerdict or dict."""
+    if v is None:
+        return default
+    if isinstance(v, dict):
+        return v.get(key, default)
+    return getattr(v, key, default)
+
+
 class VerdictMergerAndRouter:
     """
     Lane C Engine: Merges Lane A & Lane B Verdicts via A/B Combination Matrix
@@ -121,8 +130,14 @@ class VerdictMergerAndRouter:
         result = ConsolidatedRunResult(run_id=run_id, dataset_id=dataset_id)
         result.scanned_count = len(records)
 
-        # Index Lane B by record_id
-        lane_b_map: Dict[str, LaneBVerdict] = {v.record_id: v for v in lane_b_verdicts}
+        # Index Lane B by record_id (supporting dict-of-dicts, list-of-dicts, or list-of-dataclasses)
+        if isinstance(lane_b_verdicts, dict):
+            lane_b_map = lane_b_verdicts
+        elif lane_b_verdicts and isinstance(lane_b_verdicts[0], dict):
+            lane_b_map = {str(d.get("record_id")): d for d in lane_b_verdicts}
+        else:
+            lane_b_map = {str(getattr(v, "record_id")): v for v in (lane_b_verdicts or [])}
+
 
         for raw_item in records:
             # Resolve PK
@@ -137,23 +152,24 @@ class VerdictMergerAndRouter:
             res_a = lane_a_results.get(pk_val, {})
             status_a = res_a.get("status", "PASS")
             verdict_b = lane_b_map.get(pk_val)
-            status_b = verdict_b.status if verdict_b else "PASS"
+            status_b = _v_get(verdict_b, "status", "PASS")
             resolver = JurisdictionHierarchyConfig()
+            v_chain = _v_get(verdict_b, "jurisdiction_chain")
             jurisdiction_chain = (
-                list(verdict_b.jurisdiction_chain)
-                if verdict_b and verdict_b.jurisdiction_chain
+                list(v_chain)
+                if v_chain
                 else resolver.resolve_chain(
                     raw_item.get("subject_zone") or raw_item.get("zone"),
                     raw_item.get("country") or raw_item.get("subject_jurisdiction"),
                 )
             )
+            v_zone = _v_get(verdict_b, "normalized_zone")
             normalized_zone = (
-                verdict_b.normalized_zone
+                v_zone
                 if (
-                    verdict_b
-                    and verdict_b.normalized_zone
+                    v_zone
                     and not (
-                        verdict_b.normalized_zone == "GLOBAL"
+                        v_zone == "GLOBAL"
                         and len(jurisdiction_chain) > 1
                     )
                 )
@@ -161,10 +177,10 @@ class VerdictMergerAndRouter:
             )
             policy_violations = []
             if verdict_b:
-                for violation in verdict_b.violations:
+                for violation in (_v_get(verdict_b, "violations") or []):
                     policy_violations.append(
                         violation.to_dict()
-                        if isinstance(violation, PolicyViolation)
+                        if hasattr(violation, "to_dict")
                         else dict(violation)
                     )
 
@@ -181,11 +197,12 @@ class VerdictMergerAndRouter:
                 "policy_name": "Data Reliability Control",
                 "law_ref": None,
             }
+            applied_ids = list(_v_get(verdict_b, "applied_policy_ids") or [])
             jurisdiction_metadata = {
                 "subject_zone": normalized_zone,
                 "country": jurisdiction_chain[-1] if len(jurisdiction_chain) > 2 else None,
                 "jurisdiction_chain": jurisdiction_chain,
-                "applied_policy_ids": list(verdict_b.applied_policy_ids) if verdict_b else [],
+                "applied_policy_ids": applied_ids,
                 "policy_id": primary_violation.get("policy_id"),
                 "policy_name": primary_violation.get("policy_name"),
                 "law_ref": primary_violation.get("law_ref"),
@@ -203,10 +220,12 @@ class VerdictMergerAndRouter:
                 # Quarantine + Compliance Finding
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
-                fail_reasons = (res_a.get("evidence", []) + (verdict_b.failure_reasons if verdict_b else []))
-                
+                fail_reasons = (res_a.get("evidence", []) + list(_v_get(verdict_b, "failure_reasons") or []))
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
+                fnd_id = f"FND-{hashlib.md5(f'{run_id}:{dataset_id}:{pk_val}'.encode('utf-8')).hexdigest()[:8]}"
+
                 quar_rec = {
-                    "quarantine_id": str(uuid.uuid4()),
+                    "quarantine_id": quar_id,
                     "run_id": run_id,
                     "dataset_id": dataset_id,
                     "source_table": f"bronze.{dataset_id}",
@@ -231,7 +250,7 @@ class VerdictMergerAndRouter:
                 }
                 result.quarantine_records.append(quar_rec)
                 result.findings.append({
-                    "finding_id": f"FND-{uuid.uuid4().hex[:8]}",
+                    "finding_id": fnd_id,
                     "record_pk": pk_val,
                     "dataset_id": dataset_id,
                     "type": "COMPLIANCE_AND_RELIABILITY_BREACH",
@@ -246,9 +265,10 @@ class VerdictMergerAndRouter:
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
                 fail_reasons = res_a.get("evidence", [])
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
 
                 quar_rec = {
-                    "quarantine_id": str(uuid.uuid4()),
+                    "quarantine_id": quar_id,
                     "run_id": run_id,
                     "dataset_id": dataset_id,
                     "source_table": f"bronze.{dataset_id}",
@@ -280,10 +300,12 @@ class VerdictMergerAndRouter:
                 # Policy Block (Quarantine)
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
-                fail_reasons = verdict_b.failure_reasons if verdict_b else ["Failed compliance check"]
+                b_fails = _v_get(verdict_b, "failure_reasons")
+                fail_reasons = list(b_fails) if b_fails else ["Failed compliance check"]
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
 
                 quar_rec = {
-                    "quarantine_id": str(uuid.uuid4()),
+                    "quarantine_id": quar_id,
                     "run_id": run_id,
                     "dataset_id": dataset_id,
                     "source_table": f"bronze.{dataset_id}",
@@ -304,12 +326,10 @@ class VerdictMergerAndRouter:
             elif status_a == "WARNING" or status_b == "WARNING":
                 # Warning Lane (Controlled PII Storage)
                 result.warning_count += 1
-                # Preserve the exact Lane B treatment output for advisory records.
-                # Redaction remains a final storage guard, never a substitute for
-                # the policy-selected treatment.
+                v_treated = _v_get(verdict_b, "treated_record")
                 warning_source = (
-                    verdict_b.treated_record
-                    if verdict_b and verdict_b.treated_record is not None
+                    v_treated
+                    if v_treated is not None
                     else raw_item
                 )
                 redacted = self.redact_pii_for_warning(warning_source)
@@ -320,10 +340,12 @@ class VerdictMergerAndRouter:
                 sig_layer = (first_sig.get("layer") if isinstance(first_sig, dict) else getattr(first_sig, "layer", "POLICY")) if first_sig else "POLICY"
                 sig_type = (first_sig.get("signal_type") if isinstance(first_sig, dict) else getattr(first_sig, "signal_type", "ADVISORY_WARNING")) if first_sig else "ADVISORY_WARNING"
                 score = (first_sig.get("score") if isinstance(first_sig, dict) else getattr(first_sig, "score", 1.0)) if first_sig else 1.0
-                evidence_reasons = res_a.get("evidence", []) + (verdict_b.compliance_evidence if verdict_b else [])
+                v_evidence = _v_get(verdict_b, "compliance_evidence") or []
+                evidence_reasons = res_a.get("evidence", []) + list(v_evidence)
+                warn_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"warning:{run_id}:{dataset_id}:{pk_val}"))
 
                 warn_rec = {
-                    "warning_id": str(uuid.uuid4()),
+                    "warning_id": warn_id,
                     "run_id": run_id,
                     "dataset_id": dataset_id,
                     "source_row_pk": pk_val,
@@ -338,7 +360,7 @@ class VerdictMergerAndRouter:
                     "detected_at": datetime.now(timezone.utc).isoformat(),
                     "subject_zone": normalized_zone,
                     "jurisdiction_chain": jurisdiction_chain,
-                    "applied_policy_ids": list(verdict_b.applied_policy_ids) if verdict_b else [],
+                    "applied_policy_ids": applied_ids,
                 }
                 result.warning_records.append(warn_rec)
 
@@ -346,7 +368,8 @@ class VerdictMergerAndRouter:
                 # Production Candidate (PASS -> Silver)
                 result.silver_count += 1
                 # Directly adopt treated_record from Lane B
-                treated = dict(verdict_b.treated_record if (verdict_b and verdict_b.treated_record) else raw_item)
+                v_treated = _v_get(verdict_b, "treated_record")
+                treated = dict(v_treated if v_treated is not None else raw_item)
                 treated["_run_id"] = run_id
                 treated["lineage_hash"] = self.compute_lineage_hash(run_id, pk_val, treated)
                 result.silver_records.append(treated)

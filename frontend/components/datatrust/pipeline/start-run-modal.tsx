@@ -97,7 +97,7 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
                 Khởi chạy Pipeline Kiểm toán
               </h2>
               <p className="text-xs text-slate-400">
-                Thực thi 3 làn L1-L4 & Policy song song, phát sinh chữ ký số SOX 404
+                Thực thi L1-L4 & Policy song song, phát sinh chữ ký số SOX 404
               </p>
             </div>
           </div>
