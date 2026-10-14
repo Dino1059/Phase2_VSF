@@ -11,6 +11,7 @@ Task 4: Immutable Audit Evidence & Digital Signature
 """
 
 from datetime import datetime, timedelta, timezone
+import gzip
 import hashlib
 import json
 import os
@@ -87,6 +88,38 @@ DATASET_FILE_MAP = {
     "fleet_index": "fleet_index.csv",
     "fleet_index.csv": "fleet_index.csv",
 }
+
+
+def _persist_large_task_payload(context: Dict[str, Any], key: str, payload: Any) -> str:
+    """Store large lane payloads outside Airflow XCom and return their path.
+
+    Serializing thousands of transformed records into Airflow's metadata DB can
+    exhaust small PostgreSQL instances. Task processes share this runtime volume.
+    """
+    run_id = get_canonical_run_id(context)
+    runtime_dir = Path(os.getenv("DATATRUST_AIRFLOW_RUNTIME_DIR", "/opt/airflow/runtime")) / run_id
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    target = runtime_dir / f"{key}.json.gz"
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    with gzip.open(temporary, "wt", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, default=str)
+    os.replace(temporary, target)
+    context["ti"].xcom_push(key=f"{key}_path", value=str(target))
+    return str(target)
+
+
+def _load_large_task_payload(ti: Any, task_id: str, key: str, default: Any) -> Any:
+    path = ti.xcom_pull(task_ids=task_id, key=f"{key}_path")
+    if isinstance(path, (str, bytes, os.PathLike)) and path:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            return json.load(handle)
+    # Some lightweight test doubles ignore the requested key and return the
+    # legacy payload directly. Preserve that behaviour during the transition.
+    if path is not None:
+        return path
+    # Backward compatibility for runs created before file-backed payloads.
+    legacy = ti.xcom_pull(task_ids=task_id, key=key)
+    return default if legacy is None else legacy
 
 
 def get_declared_lineage_manifest() -> Dict[str, Any]:
@@ -543,8 +576,8 @@ def task_3a_run_lane_a(**context):
     warns = sum(1 for r in lane_a_results.values() if r["status"] == "WARNING")
     print(f"Lane A evaluated {len(records)} records for {table_name}: {fails} FAIL, {warns} WARNING, {len(records)-fails-warns} PASS.")
 
-    context['ti'].xcom_push(key='lane_a_results', value=lane_a_results)
-    return {"dataset": table_name, "total": len(records), "fails": fails, "warnings": warns}
+    payload_path = _persist_large_task_payload(context, 'lane_a_results', lane_a_results)
+    return {"dataset": table_name, "total": len(records), "fails": fails, "warnings": warns, "payload_path": payload_path}
 
 
 def task_3b_run_lane_b(**context):
@@ -564,8 +597,8 @@ def task_3b_run_lane_b(**context):
     warns = sum(1 for r in lane_b_results if r["status"] == "WARNING")
     print(f"Lane B evaluated {len(records)} records for {table_name}: {fails} FAIL, {warns} WARNING, {len(records)-fails-warns} PASS.")
 
-    context['ti'].xcom_push(key='lane_b_results', value=lane_b_results)
-    return {"dataset": table_name, "total": len(records), "fails": fails, "warnings": warns}
+    payload_path = _persist_large_task_payload(context, 'lane_b_results', lane_b_results)
+    return {"dataset": table_name, "total": len(records), "fails": fails, "warnings": warns, "payload_path": payload_path}
 
 
 def task_3c_run_lane_c(**context):
@@ -580,8 +613,12 @@ def task_3c_run_lane_c(**context):
 
     table_name, records = _load_bronze_dataset_records(context)
     ti = context['ti']
-    lane_a_data = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_a_l1_l4_detectors', key='lane_a_results') or {}
-    lane_b_data = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_b_hierarchical_policy', key='lane_b_results') or []
+    lane_a_data = _load_large_task_payload(
+        ti, 'task_3_parallel_evaluation.lane_a_l1_l4_detectors', 'lane_a_results', {}
+    )
+    lane_b_data = _load_large_task_payload(
+        ti, 'task_3_parallel_evaluation.lane_b_hierarchical_policy', 'lane_b_results', []
+    )
 
     run_id = get_canonical_run_id(context)
     metrics = execute_lane_c_merge_and_persist(
@@ -658,10 +695,9 @@ def task_4_emit_audit_evidence(**context):
 
     ti = context['ti']
     metrics = ti.xcom_pull(task_ids='task_3_parallel_evaluation.lane_c_merge_verdicts_and_route', key='pipeline_metrics') or {}
-    lane_b_results = ti.xcom_pull(
-        task_ids='task_3_parallel_evaluation.lane_b_hierarchical_policy',
-        key='lane_b_results',
-    ) or []
+    lane_b_results = _load_large_task_payload(
+        ti, 'task_3_parallel_evaluation.lane_b_hierarchical_policy', 'lane_b_results', []
+    )
     if not isinstance(lane_b_results, list):
         lane_b_results = []
     run_id = get_canonical_run_id(context)

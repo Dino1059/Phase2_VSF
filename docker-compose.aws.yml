@@ -1,0 +1,151 @@
+name: datatrust-os
+
+x-airflow-environment: &airflow-environment
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+  AIRFLOW__CORE__PARALLELISM: "1"
+  AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "1"
+  AIRFLOW__SCHEDULER__PARSING_PROCESSES: "1"
+  AIRFLOW__WEBSERVER__WORKERS: "1"
+  AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://datatrust:${POSTGRES_PASSWORD:?required}@postgres:5432/datatrust
+  DATABASE_URL: postgresql://datatrust:${POSTGRES_PASSWORD:?required}@postgres:5432/datatrust
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: datatrust
+  POSTGRES_USER: datatrust
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+  DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?required}
+  PYTHONPATH: /opt/airflow
+  DATATRUST_AIRFLOW_RUNTIME_DIR: /opt/airflow/logs/runtime
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: datatrust
+      POSTGRES_USER: datatrust
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datatrust -d datatrust"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 384m
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    environment:
+      <<: *airflow-environment
+      AIRFLOW_USER: ${AIRFLOW_USER:-datatrust}
+      AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:?required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - >-
+        airflow db migrate &&
+        (airflow users create
+        --username "$${AIRFLOW_USER}"
+        --password "$${AIRFLOW_PASSWORD}"
+        --firstname DataTrust
+        --lastname Admin
+        --role Admin
+        --email admin@datatrust.local || true)
+    restart: "no"
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    restart: unless-stopped
+    environment:
+      <<: *airflow-environment
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: airflow webserver --port 8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    volumes:
+      - airflow-logs:/opt/airflow/logs
+    mem_limit: 896m
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    restart: unless-stopped
+    environment:
+      <<: *airflow-environment
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: airflow scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --local"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+    volumes:
+      - airflow-logs:/opt/airflow/logs
+    mem_limit: 2048m
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://datatrust:${POSTGRES_PASSWORD:?required}@postgres:5432/datatrust
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: datatrust
+      POSTGRES_USER: datatrust
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      AIRFLOW_USER: ${AIRFLOW_USER:-datatrust}
+      AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:?required}
+      DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?required}
+      DATATRUST_CHAT_SESSION_DB_PATH: /var/data/chat_sessions.db
+      DATATRUST_AI_ANALYSIS_STORE_PATH: /var/data/finding_ai_analyses.json
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - >-
+        python -m database.bootstrap_render &&
+        exec uvicorn backend.api.render_app:app
+        --host 0.0.0.0 --port 10000
+        --proxy-headers --forwarded-allow-ips='*'
+    ports:
+      - "80:10000"
+    volumes:
+      - app-runtime:/var/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:10000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    mem_limit: 768m
+
+volumes:
+  postgres-data:
+  airflow-logs:
+  app-runtime:

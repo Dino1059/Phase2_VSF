@@ -6,6 +6,7 @@
 -- 1. Mở rộng orchestration.pipeline_runs
 ALTER TABLE orchestration.pipeline_runs 
     ADD COLUMN IF NOT EXISTS airflow_dag_run_id VARCHAR(128),
+    ADD COLUMN IF NOT EXISTS warning_count INT DEFAULT 0,
     ADD COLUMN IF NOT EXISTS not_evaluated_count INT DEFAULT 0,
     ADD COLUMN IF NOT EXISTS options_json JSONB DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS current_step VARCHAR(64) DEFAULT 'INGEST',

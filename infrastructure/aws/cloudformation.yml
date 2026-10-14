@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DataTrust OS single-node staging deployment in AWS Singapore.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.small, t3.medium, t3.large]
+    Description: t3.medium (4 GiB) is the minimum recommended size.
+  RepositoryUrl:
+    Type: String
+    Default: https://github.com/Dino1059/Phase2_VSF.git
+  GitBranch:
+    Type: String
+    Default: mvp
+  OpenAIApiKeyBase64:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Optional base64-encoded OpenAI API key.
+  AllowedHttpCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed to reach the application on port 80.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: datatrust-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: datatrust-public
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTP access for DataTrust OS
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedHttpCidr
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: DefaultRoute
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 30
+            DeleteOnTermination: true
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: datatrust-os
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/datatrust-bootstrap.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+          dnf install -y docker git openssl aws-cfn-bootstrap
+          systemctl enable --now docker
+
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          if ! swapon --show | grep -q /swapfile; then
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+          fi
+
+          rm -rf /opt/datatrust
+          git clone --depth 1 --branch '${GitBranch}' '${RepositoryUrl}' /opt/datatrust
+          cd /opt/datatrust
+
+          POSTGRES_PASSWORD=$(openssl rand -hex 24)
+          AIRFLOW_PASSWORD=$(openssl rand -hex 24)
+          PSEUDONYMIZATION_KEY=$(openssl rand -hex 32)
+          OPENAI_API_KEY=$(printf '%s' '${OpenAIApiKeyBase64}' | base64 -d)
+          cat > .env.aws <<ENVFILE
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          AIRFLOW_USER=datatrust
+          AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD
+          DATATRUST_PSEUDONYMIZATION_KEY=$PSEUDONYMIZATION_KEY
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          ENVFILE
+          chmod 600 .env.aws
+
+          docker compose --env-file .env.aws -f docker-compose.aws.yml build
+          docker compose --env-file .env.aws -f docker-compose.aws.yml up -d
+
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost/health >/dev/null; then
+              /opt/aws/bin/cfn-signal --success true --stack '${AWS::StackName}' --resource AppInstance --region '${AWS::Region}'
+              exit 0
+            fi
+            sleep 10
+          done
+
+          docker compose --env-file .env.aws -f docker-compose.aws.yml ps
+          docker compose --env-file .env.aws -f docker-compose.aws.yml logs --tail=200
+          /opt/aws/bin/cfn-signal --success false --stack '${AWS::StackName}' --resource AppInstance --region '${AWS::Region}'
+          exit 1
+
+Outputs:
+  ApplicationUrl:
+    Description: Public URL for DataTrust OS
+    Value: !Sub http://${AppInstance.PublicDnsName}
+  PublicIp:
+    Value: !GetAtt AppInstance.PublicIp
+  InstanceId:
+    Value: !Ref AppInstance
+  SessionManagerCommand:
+    Value: !Sub aws ssm start-session --target ${AppInstance} --region ${AWS::Region}
