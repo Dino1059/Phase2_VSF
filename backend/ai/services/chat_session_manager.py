@@ -16,7 +16,7 @@ from fastapi import HTTPException
 logger = logging.getLogger("DataTrust.ChatSessionManager")
 
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "runtime")
-DB_PATH = os.path.join(DB_DIR, "chat_sessions.db")
+DB_PATH = os.getenv("DATATRUST_CHAT_SESSION_DB_PATH", os.path.join(DB_DIR, "chat_sessions.db"))
 
 
 class ChatSessionManager:

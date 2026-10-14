@@ -1171,9 +1171,9 @@ def run_pipeline(req: PipelineRunRequest):
 # AIRFLOW ORCHESTRATION INTEGRATION
 # =============================================================================
 
-AIRFLOW_API_URL = "http://localhost:8080/api/v1"
-AIRFLOW_USER = "airflow"
-AIRFLOW_PASS = "airflow"
+AIRFLOW_API_URL = os.getenv("AIRFLOW_API_URL", "http://localhost:8080/api/v1").rstrip("/")
+AIRFLOW_USER = os.getenv("AIRFLOW_USER", "airflow")
+AIRFLOW_PASS = os.getenv("AIRFLOW_PASSWORD", "airflow")
 
 @app.get("/api/airflow/status")
 def get_airflow_status():
@@ -1181,7 +1181,8 @@ def get_airflow_status():
     Kiểm tra tình trạng sẵn sàng của Apache Airflow Webserver (port 8080).
     """
     try:
-        req = Request("http://localhost:8080/health")
+        airflow_health_url = AIRFLOW_API_URL.removesuffix("/api/v1") + "/health"
+        req = Request(airflow_health_url)
         with urlopen(req, timeout=2.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return {

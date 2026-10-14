@@ -1,0 +1,86 @@
+databases:
+  - name: datatrust-postgres
+    region: singapore
+    plan: basic-256mb
+    databaseName: datatrust
+    user: datatrust
+
+services:
+  - type: web
+    name: datatrust-os
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    preDeployCommand: python database/bootstrap_render.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: datatrust-postgres
+          property: connectionString
+      - key: AIRFLOW_API_URL
+        value: http://datatrust-airflow:8080/api/v1
+      - key: AIRFLOW_USER
+        value: datatrust
+      - key: AIRFLOW_PASSWORD
+        generateValue: true
+      - key: DATATRUST_PSEUDONYMIZATION_KEY
+        generateValue: true
+      - key: DATATRUST_CHAT_SESSION_DB_PATH
+        value: /var/data/chat_sessions.db
+      - key: DATATRUST_AI_ANALYSIS_STORE_PATH
+        value: /var/data/finding_ai_analyses.json
+      - key: OPENAI_API_KEY
+        sync: false
+    disk:
+      name: datatrust-runtime
+      mountPath: /var/data
+      sizeGB: 1
+
+  - type: pserv
+    name: datatrust-airflow
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./Dockerfile.airflow
+    dockerCommand: airflow webserver --port 8080
+    preDeployCommand: airflow db migrate && (airflow users create --username "$AIRFLOW_USER" --password "$AIRFLOW_PASSWORD" --firstname DataTrust --lastname Admin --role Admin --email admin@datatrust.local || true)
+    envVars: &airflow-env
+      - key: AIRFLOW__CORE__EXECUTOR
+        value: LocalExecutor
+      - key: AIRFLOW__CORE__LOAD_EXAMPLES
+        value: "false"
+      - key: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
+        value: "false"
+      - key: AIRFLOW__API__AUTH_BACKENDS
+        value: airflow.api.auth.backend.basic_auth
+      - key: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+        fromDatabase:
+          name: datatrust-postgres
+          property: connectionString
+      - key: DATABASE_URL
+        fromDatabase:
+          name: datatrust-postgres
+          property: connectionString
+      - key: AIRFLOW_USER
+        value: datatrust
+      - key: AIRFLOW_PASSWORD
+        fromService:
+          type: web
+          name: datatrust-os
+          envVarKey: AIRFLOW_PASSWORD
+      - key: DATATRUST_PSEUDONYMIZATION_KEY
+        fromService:
+          type: web
+          name: datatrust-os
+          envVarKey: DATATRUST_PSEUDONYMIZATION_KEY
+
+  - type: worker
+    name: datatrust-airflow-scheduler
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./Dockerfile.airflow
+    dockerCommand: airflow scheduler
+    envVars: *airflow-env
