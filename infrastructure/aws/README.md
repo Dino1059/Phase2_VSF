@@ -9,9 +9,12 @@ not a highly available production topology.
 - Default instance: `c7i-flex.large` (4 GiB RAM, Free Tier eligible on
   qualifying accounts).
 - One 30 GiB encrypted gp3 volume.
-- No NAT Gateway, load balancer, RDS, or Elastic IP.
+- One Elastic IP keeps the application URL stable across EC2 stop/start cycles.
+- No NAT Gateway, load balancer, or RDS.
 - A 2 GiB swap file protects the initial Docker build from transient OOMs.
 - Set an AWS Budget before deployment.
+- AWS charges for public IPv4 addresses; credits may cover that charge when
+  the credit terms include EC2 networking.
 
 ## Deploy
 

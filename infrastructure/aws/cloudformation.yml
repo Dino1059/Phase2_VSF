@@ -188,12 +188,26 @@ Resources:
           /opt/aws/bin/cfn-signal --success false --stack '${AWS::StackName}' --resource AppInstance --region '${AWS::Region}'
           exit 1
 
+  AppElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: datatrust-os
+
+  AppElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt AppElasticIp.AllocationId
+      InstanceId: !Ref AppInstance
+
 Outputs:
   ApplicationUrl:
-    Description: Public URL for DataTrust OS
-    Value: !Sub http://${AppInstance.PublicDnsName}
+    Description: Stable public URL for DataTrust OS
+    Value: !Sub http://${AppElasticIp}
   PublicIp:
-    Value: !GetAtt AppInstance.PublicIp
+    Value: !Ref AppElasticIp
   InstanceId:
     Value: !Ref AppInstance
   SessionManagerCommand:
