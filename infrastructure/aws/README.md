@@ -44,6 +44,19 @@ sudo docker compose --env-file .env.aws -f docker-compose.aws.yml ps
 sudo docker compose --env-file .env.aws -f docker-compose.aws.yml logs --tail=200
 ```
 
+## CI/CD
+
+Pushes to `mvp` run backend tests and frontend tests/build before deploying the
+exact commit through AWS Systems Manager. Authentication uses GitHub OIDC; no
+long-lived AWS access key is stored in GitHub.
+
+The stack creates the tightly scoped `datatrust-github-deploy` role trusted only
+by this repository's `mvp` branch. The workflow is defined in
+`.github/workflows/deploy-aws.yml`.
+
+The EC2 deployment script rebuilds the Compose services, waits for `/health`,
+and checks out/rebuilds the previous commit automatically if deployment fails.
+
 ## Remove all billable resources
 
 Back up any required PostgreSQL data, then delete the CloudFormation stack.

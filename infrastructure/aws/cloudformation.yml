@@ -13,6 +13,14 @@ Parameters:
   GitBranch:
     Type: String
     Default: mvp
+  GitHubRepository:
+    Type: String
+    Default: Dino1059/Phase2_VSF
+    Description: GitHub owner/repository allowed to assume the deployment role.
+  GitHubDeployBranch:
+    Type: String
+    Default: mvp
+    Description: Branch allowed to deploy through GitHub Actions OIDC.
   OpenAIApiKeyBase64:
     Type: String
     NoEcho: true
@@ -202,6 +210,47 @@ Resources:
       AllocationId: !GetAtt AppElasticIp.AllocationId
       InstanceId: !Ref AppInstance
 
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: datatrust-github-deploy
+      Description: Least-privilege GitHub Actions role for DataTrust EC2 deployments.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/heads/${GitHubDeployBranch}
+      Policies:
+        - PolicyName: datatrust-ssm-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${AppInstance}
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommands
+                  - cloudformation:DescribeStacks
+                Resource: "*"
+
 Outputs:
   ApplicationUrl:
     Description: Stable public URL for DataTrust OS
@@ -212,3 +261,6 @@ Outputs:
     Value: !Ref AppInstance
   SessionManagerCommand:
     Value: !Sub aws ssm start-session --target ${AppInstance} --region ${AWS::Region}
+  GitHubDeployRoleArn:
+    Description: Role assumed by the mvp GitHub Actions deployment workflow.
+    Value: !GetAtt GitHubDeployRole.Arn
