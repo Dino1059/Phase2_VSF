@@ -117,7 +117,6 @@ def run_migrations(force: bool = False):
 
             # Execute migration in isolated transaction
             try:
-                conn.autocommit = False
                 with conn.cursor() as cur:
                     cur.execute(sql_content)
                     cur.execute("""
