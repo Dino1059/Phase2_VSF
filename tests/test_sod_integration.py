@@ -1,5 +1,5 @@
 """
-Tích hợp duyệt qua SoD Flow (PLAN_NOI_SOD_DATATRUST.md, bước 1, 3, 4, 5). SoD Flow được thay bằng bản giả (monkeypatch),
+Tích hợp duyệt qua SoD Flow (KE_HOACH_SOD_DATATRUST.md mục 6): đề xuất ≠ duyệt ≠ thực thi. SoD Flow được thay bằng bản giả (monkeypatch),
 nên chạy được không cần SoD. Kịch bản đầu-cuối với SoD thật: scripts/e2e_sod_datatrust.py.
 """
 import json
@@ -23,7 +23,9 @@ from backend.integrations import sod_client
 from database.profiler_engine import get_db_connection
 
 SECRET = "s" * 40
-STEWARD = "an.nguyen"
+STEWARD = "an.nguyen"          # người gửi duyệt (Requestor)
+APPROVERS = ["giang.hoang", "dung.pham"]
+EXECUTOR = "phong.ta"          # Prod. Op. được SoD giao thực thi
 
 
 @pytest.fixture
@@ -87,11 +89,11 @@ def fake_sod(monkeypatch):
     return calls
 
 
-def _approved(data, fake_sod, who=STEWARD):
+def _approved(data, fake_sod, who=STEWARD, executor=EXECUTOR, approvers=APPROVERS):
     p = _proposal(data)
     remediation_service.submit_to_sod(p.proposal_id, who)
     assert p.sod_ticket_code
-    assert remediation_service.apply_sod_status(p, "DONE", p.sod_form_hash)
+    assert remediation_service.apply_sod_status(p, "APPROVED", p.sod_form_hash, executor, approvers)
     return p
 
 
@@ -132,13 +134,16 @@ def test_sod_down_keeps_proposal_pending_submit_never_approved(quarantine, fake_
 
 # ---------------------------------------------------------------- Bước 4: nhận kết quả
 
-def test_done_event_approves_and_is_idempotent(quarantine, fake_sod):
+def test_approved_event_records_executor_and_is_idempotent(quarantine, fake_sod):
     p = _proposal(quarantine)
     remediation_service.submit_to_sod(p.proposal_id, STEWARD)
-    assert remediation_service.apply_sod_status(p, "DONE", p.sod_form_hash) is True
+    assert remediation_service.apply_sod_status(p, "APPROVED", p.sod_form_hash, "Phong.Ta ", ["GIANG.HOANG", "dung.pham"]) is True
     assert p.status == ProposalStatus.APPROVED and p.approved_by == f"SoD:{p.sod_ticket_code}"
-    assert remediation_service.apply_sod_status(p, "DONE", p.sod_form_hash) is False  # áp lại: không làm gì
+    assert p.sod_executor == EXECUTOR and p.sod_approvers == sorted(APPROVERS)
+    assert remediation_service.apply_sod_status(p, "APPROVED", p.sod_form_hash, "nguoi.khac") is False  # áp lại: không làm gì
+    assert remediation_service.apply_sod_status(p, "DONE", p.sod_form_hash) is False  # DONE sau khi thực thi: không đổi
     assert remediation_service.apply_sod_status(p, "REJECTED", p.sod_form_hash) is False  # không hạ cấp đề xuất đã duyệt
+    assert p.sod_executor == EXECUTOR
 
 
 @pytest.mark.parametrize("sod_status", ["REJECTED", "CANCELLED", "EXPIRED"])
@@ -183,26 +188,62 @@ def test_execute_blocked_until_ticket_done(quarantine, fake_sod):
         remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
 
 
-def test_only_requester_executes_and_data_changes_once(quarantine, fake_sod):
+def test_only_assigned_executor_executes_and_data_changes_once(quarantine, fake_sod):
     p = _approved(quarantine, fake_sod)
-    for other in ("giang.hoang", "nguoi.khac", "AI_AGENT"):  # kể cả người đã duyệt
+    for other in (STEWARD, "giang.hoang", "nguoi.khac", "AI_AGENT"):  # người đề xuất, người duyệt, người lạ, AI
         with pytest.raises(PermissionError):
-            remediation_service.execute_remediation_transaction(p.proposal_id, other, "ADMIN")
-    out = remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD.upper(), "ADMIN")  # không phân biệt hoa thường
+            remediation_service.execute_remediation_transaction(p.proposal_id, other, "EXECUTOR")
+    out = remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR.upper(), "EXECUTOR")  # không phân biệt hoa thường
     assert out["status"] == "REMEDIATED" and p.status == ProposalStatus.REMEDIATED
-    # Báo SoD đã thực thi, kèm hash đã duyệt
+    # Báo SoD đã thực thi, kèm hash đã duyệt và đúng người thực thi
     (code, payload), = fake_sod["executed"]
-    assert code == p.sod_ticket_code and payload["proposal_hash"] == p.sod_form_hash and payload["executed_by"] == STEWARD
+    assert code == p.sod_ticket_code and payload["proposal_hash"] == p.sod_form_hash and payload["executed_by"] == EXECUTOR
     assert p.sod_execution_reported is True
     with pytest.raises(ValueError):  # lần hai không chạy lại
-        remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
+        remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR, "EXECUTOR")
+
+
+@pytest.mark.parametrize("executor", [STEWARD, "giang.hoang"])
+def test_executor_who_proposed_or_approved_is_blocked_even_if_assigned(quarantine, fake_sod, executor):
+    """Phòng khi SoD giao nhầm: người thực thi trùng người gửi duyệt hoặc người duyệt thì DataTrust vẫn chặn."""
+    p = _approved(quarantine, fake_sod, executor=executor)
+    with pytest.raises(PermissionError, match="khác người đề xuất"):
+        remediation_service.execute_remediation_transaction(p.proposal_id, executor, "EXECUTOR")
+    assert p.status == ProposalStatus.APPROVED and not fake_sod["executed"]
+
+
+def test_ticket_without_execution_step_cannot_execute(quarantine, fake_sod):
+    """Phiếu duyệt theo quy trình cũ (DONE, không có Executor): phải gửi duyệt lại."""
+    p = _proposal(quarantine)
+    remediation_service.submit_to_sod(p.proposal_id, STEWARD)
+    remediation_service.apply_sod_status(p, "DONE", p.sod_form_hash)
+    assert p.status == ProposalStatus.APPROVED and p.sod_executor is None
+    with pytest.raises(PermissionError, match="Gửi duyệt lại"):
+        remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "EXECUTOR")
+
+
+def test_reconcile_picks_up_awaiting_execution(quarantine, fake_sod, monkeypatch):
+    p = _proposal(quarantine)
+    remediation_service.submit_to_sod(p.proposal_id, STEWARD)
+    summary = {
+        "ticket_code": p.sod_ticket_code, "status": "OPEN", "awaiting_execution": True, "external_ref": p.proposal_id,
+        "proposal_hash": p.sod_form_hash, "executor_username": EXECUTOR,
+        "steps": [
+            {"idx": 0, "action": "P", "decisions": [{"outcome": "SUBMIT", "actor": STEWARD}]},
+            {"idx": 1, "action": "A", "decisions": [{"outcome": "APPROVE", "actor": "giang.hoang"}]},
+            {"idx": 2, "action": "P", "decisions": []},
+        ],
+    }
+    monkeypatch.setattr(sod_client, "get_ticket", lambda code: summary)
+    assert remediation_service.reconcile_with_sod()["changed"] >= 1
+    assert p.status == ProposalStatus.APPROVED and p.sod_executor == EXECUTOR and p.sod_approvers == ["giang.hoang"]
 
 
 def test_tampered_content_after_approval_becomes_stale_and_does_not_run(quarantine, fake_sod):
     p = _approved(quarantine, fake_sod)
     p.params = {"prefix_len": 0, "suffix_len": 0, "mask_char": "#"}  # đổi nội dung sau khi được duyệt
     with pytest.raises(StaleProposal):
-        remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
+        remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR, "EXECUTOR")
     assert p.status == ProposalStatus.STALE
     conn = get_db_connection()
     with conn.cursor() as cur:
@@ -213,7 +254,7 @@ def test_tampered_content_after_approval_becomes_stale_and_does_not_run(quaranti
 
 def test_signed_execution_record_includes_ticket_link(quarantine, fake_sod):
     p = _approved(quarantine, fake_sod)
-    remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
+    remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR, "EXECUTOR")
     conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute("SELECT new_state->'audit_payload' FROM audit.system_audit_trail WHERE entity_id = %s", (p.proposal_id,))
@@ -225,7 +266,7 @@ def test_signed_execution_record_includes_ticket_link(quarantine, fake_sod):
 def test_failed_report_is_retried_by_reconcile(quarantine, fake_sod, monkeypatch):
     p = _approved(quarantine, fake_sod)
     monkeypatch.setattr(sod_client, "report_executed", lambda *a, **k: (_ for _ in ()).throw(sod_client.SodUnavailable("tắt")))
-    remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
+    remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR, "EXECUTOR")
     assert p.status == ProposalStatus.REMEDIATED and p.sod_execution_reported is False  # đã thực thi, chưa báo được
     monkeypatch.setattr(sod_client, "report_executed", lambda code, payload: {"ok": True})
     assert remediation_service.reconcile_with_sod()["reported"] >= 1
@@ -266,7 +307,10 @@ def test_api_webhook_signature_replay_and_flow(quarantine, fake_sod, api):
     p = _proposal(quarantine)
     api.post(f"/api/remediation/{p.proposal_id}/submit", headers={"X-User": STEWARD})
     path = "/api/integrations/sod/events"
-    event = {"event_id": f"SOD-TEST-EVT-{uuid.uuid4().hex[:6]}", "ticket_code": p.sod_ticket_code, "status": "DONE", "proposal_hash": p.sod_form_hash}
+    event = {"event_id": f"SOD-TEST-EVT-{uuid.uuid4().hex[:6]}", "ticket_code": p.sod_ticket_code, "status": "APPROVED",
+             "proposal_hash": p.sod_form_hash, "executor_username": EXECUTOR,
+             "approvers": [{"role": "SO", "action": "A", "actor": "dung.pham", "outcome": "APPROVE"},
+                           {"role": "REQ", "action": "P", "actor": STEWARD, "outcome": "SUBMIT"}]}
     # sai chữ ký, quá hạn → 401, không đổi gì
     raw, h = _signed(path, event, secret="x" * 40)
     assert api.post(path, content=raw, headers=h).status_code == 401
@@ -277,6 +321,7 @@ def test_api_webhook_signature_replay_and_flow(quarantine, fake_sod, api):
     raw, h = _signed(path, event)
     r1 = api.post(path, content=raw, headers=h)
     assert r1.status_code == 200 and r1.json()["changed"] is True and p.status == ProposalStatus.APPROVED
+    assert p.sod_executor == EXECUTOR and p.sod_approvers == ["dung.pham"]
     raw, h = _signed(path, event)
     r2 = api.post(path, content=raw, headers=h)
     assert r2.status_code == 200 and r2.json()["already_processed"] is True
@@ -324,12 +369,12 @@ def test_executions_endpoint_links_each_run_to_its_sod_ticket(quarantine, fake_s
     monkeypatch.setenv("SOD_URL", "http://sod.example")
     p = _approved(quarantine, fake_sod)
     p.sod_ticket_id = "11111111-2222-3333-4444-555555555555"
-    remediation_service.execute_remediation_transaction(p.proposal_id, STEWARD, "ADMIN")
+    remediation_service.execute_remediation_transaction(p.proposal_id, EXECUTOR, "EXECUTOR")
     rows = api.get("/api/remediation/executions?limit=20").json()
     row = next(r for r in rows if r["proposal_id"] == p.proposal_id)
     assert row["sod_ticket_code"] == p.sod_ticket_code and row["sod_form_hash"] == p.sod_form_hash
     assert row["sod_ticket_url"] == "http://sod.example/yeu-cau/11111111-2222-3333-4444-555555555555"
-    assert row["executed_by"] == STEWARD and len(row["signature"]) == 64
+    assert row["executed_by"] == EXECUTOR and len(row["signature"]) == 64
     status = api.get("/api/integrations/sod/status").json()
     assert status == {"configured": True, "url": "http://sod.example"}
 
@@ -352,3 +397,12 @@ def test_event_is_matched_by_proposal_id_and_ticket_code_together(quarantine, fa
     event2 = {**event, "event_id": f"SOD-TEST-EVT-{uuid.uuid4().hex[:6]}", "external_ref": "PROP-REM-KHONGCO"}
     raw, h = _signed(path, event2)
     assert api.post(path, content=raw, headers=h).status_code == 404
+
+
+def test_api_execute_requires_executor_role_and_assigned_person(quarantine, fake_sod, api):
+    p = _approved(quarantine, fake_sod)
+    path = f"/api/remediation/{p.proposal_id}/execute"
+    assert api.post(path, headers={"X-User": EXECUTOR, "X-User-Role": "AUDITOR"}).status_code == 403
+    assert api.post(path, headers={"X-User": STEWARD, "X-User-Role": "EXECUTOR"}).status_code == 403
+    r = api.post(path, headers={"X-User": EXECUTOR, "X-User-Role": "EXECUTOR"})
+    assert r.status_code == 200 and r.json()["status"] == "REMEDIATED"

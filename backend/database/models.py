@@ -118,6 +118,7 @@ class QuarantineStatus(str, Enum):
 class UserRole(str, Enum):
     ADMIN = "ADMIN"      # Lead Data Platform / Approver
     AUDITOR = "AUDITOR"  # IPO Inspector / View-Only
+    EXECUTOR = "EXECUTOR"  # Prod. Op. bên SoD: chỉ thực thi đề xuất đã duyệt, không đề xuất, không duyệt
 
 
 class RemediationStatus(str, Enum):
@@ -805,5 +806,8 @@ class StructuredRemediationProposalModel(BaseModel):
     sod_ticket_id: Optional[str] = None  # id (uuid) của phiếu bên SoD, dùng dựng đường dẫn
     sod_form_hash: Optional[str] = None
     sod_requester: Optional[str] = None
+    # Ba người khác nhau: SoD giao bước thực thi cho một Prod. Op.; chỉ người này được chạy, và phải khác người duyệt
+    sod_executor: Optional[str] = None
+    sod_approvers: List[str] = Field(default_factory=list)
     sod_execution_reported: bool = False
 

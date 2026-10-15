@@ -1,5 +1,5 @@
 """
-Chạy thử đầu-cuối luồng duyệt DataTrust <-> SoD Flow (PLAN_NOI_SOD_DATATRUST.md, bước 5 và 8).
+Chạy thử đầu-cuối luồng duyệt DataTrust <-> SoD Flow (KE_HOACH_SOD_DATATRUST.md mục 6 và 11): đề xuất ≠ duyệt ≠ thực thi.
 Chạy trên môi trường CÔ LẬP: SoD (cổng 3001, DB sod_test) và DataTrust (cổng 8001), không đụng phiếu thật.
 
     python scripts/e2e_sod_datatrust.py happy|reject|submit-sod-down|resubmit <id>|submit <tên>|check <id> <trạng thái> [giây]|replay
@@ -38,6 +38,8 @@ def http(method, path, body=None, headers=None, base=DT):
         except Exception: return e.code, {"raw": raw.decode(errors="replace")}
 
 ADMIN = lambda user: {"X-User": user, "X-User-Role": "ADMIN"}
+EXEC = lambda user: {"X-User": user, "X-User-Role": "EXECUTOR"}
+APPROVED_EVT = lambda code: f"event_id like '{code}:APPROVED:%'"  # sự kiện "duyệt xong, chờ Executor"
 
 def sod_db_env():
     """DATABASE_URL / APP_DATABASE_URL của DB sod_test, suy ra từ .env của SoD."""
@@ -119,23 +121,34 @@ def happy():
         check("K5.1 approve nội bộ cho đề xuất có phiếu → 409", s == 409, s)
         s, _ = http("POST", f"/api/remediation/{pid}/reject", {"reason": "x"}, headers=ADMIN("giang.hoang"))
         check("K5.1b reject nội bộ → 409", s == 409, s)
-        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN(STEWARD))
-        check("K5.2 thực thi khi phiếu chưa DONE → 403", s == 403, s)
+        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(STEWARD))
+        check("K5.2 thực thi khi phiếu chưa duyệt → 403", s == 403, s)
         check("K5.2b dữ liệu chưa đổi", quarantine_status(q) == {"QUARANTINED": 2}, quarantine_status(q))
         sod_decide(code, "approve")
         st, secs = wait_status(pid, "APPROVED", 15)
         check("K4.1 duyệt xong bên SoD → APPROVED trong ≤ 10 giây", st == "APPROVED" and secs <= 10, f"{st} {secs}s")
-        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN("nguoi.khac"))
-        check("K5.3 thực thi bằng người khác Requestor → 403", s == 403, s)
-        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN("giang.hoang"))
-        check("K5.8 người duyệt (không phải Requestor) cũng không thực thi được → 403", s == 403, s)
-        s, r = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN(STEWARD))
-        check("K5.5 Requestor thực thi → REMEDIATED", s == 200 and r.get("status") == "REMEDIATED", f"{s} {r.get('status') or r}")
+        p = get(pid); executor = p.get("sod_executor"); approvers = p.get("sod_approvers") or []
+        print("   Executor:", executor, "· người duyệt:", approvers)
+        check("K2 SoD giao Executor khác người đề xuất và người duyệt", bool(executor) and executor != STEWARD and executor not in approvers, executor)
+        if not executor:
+            return
+        check("K3 phiếu SoD đang chờ bước thực hiện của Prod. Op.", sod_psql(f"select t.status||' '||s.role_code||':'||s.action from tickets t join ticket_steps s on s.ticket_id=t.id and s.status='CURRENT' where t.code='{code}'") == "OPEN OPS:P")
+        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(STEWARD))
+        check("K05 người đề xuất thực thi → 403", s == 403, s)
+        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(approvers[0] if approvers else "giang.hoang"))
+        check("K05 người duyệt thực thi → 403", s == 403, s)
+        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC("nguoi.khac"))
+        check("K05 người lạ thực thi → 403", s == 403, s)
+        check("K05b dữ liệu chưa đổi", quarantine_status(q) == {"QUARANTINED": 2}, quarantine_status(q))
+        s, r = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(executor))
+        check("K5.5 Executor được giao thực thi → REMEDIATED", s == 200 and r.get("status") == "REMEDIATED", f"{s} {r.get('status') or r}")
         check("K8.4 quarantine đổi đúng số dòng", quarantine_status(q) == {"REMEDIATED": 2}, quarantine_status(q))
         time.sleep(1)
         n = sod_psql(f"select count(*) from audit_log where action='ticket.executed.external' and target_id=(select id::text from tickets where code='{code}')")
         check("K5.6 SoD ghi nhận 'đã thực thi' trong nhật ký", n == "1", n)
-        s, r = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN(STEWARD))
+        done = sod_psql(f"select t.status||' '||u.username from tickets t join ticket_steps s on s.ticket_id=t.id and s.action='P' and s.idx>0 join step_decisions d on d.step_id=s.id join users u on u.id=d.actor_id where t.code='{code}'")
+        check("K5.6b phiếu SoD DONE, bước thực hiện ghi đúng Executor", done == f"DONE {executor}", done)
+        s, r = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(executor))
         check("K5.7 thực thi lần hai không chạy lại", s in (400, 403, 409) and quarantine_status(q) == {"REMEDIATED": 2}, s)
         c = get_db_connection()
         with c.cursor() as cur:
@@ -161,7 +174,7 @@ def reject():
         sod_decide(code, "reject")
         st, secs = wait_status(pid, "REJECTED", 15)
         check("K4.2 từ chối bên SoD → REJECTED", st == "REJECTED", f"{st} {secs}s")
-        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=ADMIN(STEWARD))
+        s, _ = http("POST", f"/api/remediation/{pid}/execute", headers=EXEC(STEWARD))
         check("K8.6 phiếu bị từ chối: không thực thi được, dữ liệu không đổi", s in (400, 403) and quarantine_status(q) == {"QUARANTINED": 2}, s)
         print("outbox:", sod_psql(f"select status, attempts from integration_outbox where event_id='{code}:REJECTED'"))
     finally:
@@ -195,19 +208,19 @@ def resubmit(tag="a"):
 
 def approve(tag="a"):
     code = json.load(open(STATE))[tag]["code"]; sod_decide(code, "approve")
-    print("outbox:", sod_psql(f"select status||' lần '||attempts||' '||coalesce(last_error,'') from integration_outbox where event_id='{code}:DONE'"))
+    print("outbox:", sod_psql(f"select status||' lần '||attempts||' '||coalesce(last_error,'') from integration_outbox where {APPROVED_EVT(code)}"))
 
 def wait(tag="a", want="APPROVED", secs="150"):
     pid = json.load(open(STATE))[tag]["pid"]; code = json.load(open(STATE))[tag]["code"]
     st, took = wait_status(pid, want, int(secs))
-    ob = sod_psql(f"select status||' lần '||attempts from integration_outbox where event_id='{code}:DONE'")
+    ob = sod_psql(f"select status||' lần '||attempts from integration_outbox where {APPROVED_EVT(code)}")
     check(f"K4.4 sau khi DataTrust bật lại: đề xuất thành {want}", st == want, f"{st} sau {took}s; outbox {ob}")
     return ob
 
 def lost(tag="a"):
     """Mất webhook: xoá sự kiện khỏi outbox rồi đối soát."""
     d = json.load(open(STATE))[tag]; pid, code = d["pid"], d["code"]
-    print("xoá outbox:", sod_psql(f"delete from integration_outbox where event_id='{code}:DONE' returning event_id") or "(không có, đã gửi)")
+    print("xoá outbox:", sod_psql(f"delete from integration_outbox where {APPROVED_EVT(code)} returning event_id") or "(không có, đã gửi)")
     check("trước đối soát đề xuất vẫn chờ", get(pid)["status"] == "PENDING_APPROVAL", get(pid)["status"])
     s, r = http("POST", "/api/integrations/sod/reconcile", headers=ADMIN("admin"))
     check("K4.7 đối soát với SoD cập nhật đúng trạng thái", s == 200 and get(pid)["status"] == "APPROVED", f"{s} {r} {get(pid)['status']}")
@@ -215,7 +228,7 @@ def lost(tag="a"):
 def replay(tag="a"):
     """K4.5 / K4.6: phát lại cùng sự kiện, sai chữ ký, quá hạn."""
     code = json.load(open(STATE))[tag]["code"]
-    payload = json.loads(sod_psql(f"select payload::text from integration_outbox where event_id='{code}:DONE'") or "{}")
+    payload = json.loads(sod_psql(f"select payload::text from integration_outbox where {APPROVED_EVT(code)}") or "{}")
     if not payload:
         print("không có sự kiện trong outbox để phát lại"); return
     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False); path = "/api/integrations/sod/events"
@@ -231,7 +244,7 @@ def replay(tag="a"):
     s, r = post(sig="0" * 64); check("K4.6 webhook sai chữ ký → 401", s == 401, f"{s} {r}")
     s, r = post(ts=str(int(time.time()) - 900)); check("webhook quá 5 phút → 401", s == 401, f"{s} {r}")
     ts = str(int(time.time())); sig_original = hmac.new(SECRET.encode(), f"{ts}\nPOST\n{path}\n{body}".encode(), hashlib.sha256).hexdigest()
-    s, r = post(ts=ts, sig=sig_original, b=body.replace("DONE", "REJECTED")); check("nội dung bị sửa sau khi ký → 401", s == 401, f"{s} {r}")
+    s, r = post(ts=ts, sig=sig_original, b=body.replace("APPROVED", "REJECTED")); check("nội dung bị sửa sau khi ký → 401", s == 401, f"{s} {r}")
 
 def restart_check(tag="a"):
     d = json.load(open(STATE))[tag]; pid = d["pid"]

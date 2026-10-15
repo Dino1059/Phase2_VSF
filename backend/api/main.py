@@ -2537,7 +2537,8 @@ def reject_remediation_proposal(
 @app.post("/api/integrations/sod/events")
 async def receive_sod_event(request: FastAPIRequest):
     """
-    SoD Flow báo kết quả phiếu duyệt (DONE / REJECTED / CANCELLED / EXPIRED). Xác thực bằng chữ ký HMAC.
+    SoD Flow báo kết quả phiếu duyệt: APPROVED (duyệt xong, kèm Executor được giao), DONE / REJECTED / CANCELLED / EXPIRED.
+    Xác thực bằng chữ ký HMAC.
     Cùng event_id gửi lại thì trả 200 "đã xử lý" và không đổi gì thêm.
     """
     body = (await request.body()).decode("utf-8")
@@ -2565,7 +2566,13 @@ async def receive_sod_event(request: FastAPIRequest):
     if not proposal:
         # Chưa biết phiếu này: trả 404 để SoD giữ sự kiện và gửi lại sau
         raise HTTPException(status_code=404, detail="unknown_ticket")
-    changed = remediation_service.apply_sod_status(proposal, status, event.get("proposal_hash"))
+    approvers = [
+        a.get("actor") for a in (event.get("approvers") or [])
+        if isinstance(a, dict) and a.get("action") != "P" and a.get("outcome") == "APPROVE"
+    ]
+    changed = remediation_service.apply_sod_status(
+        proposal, status, event.get("proposal_hash"), event.get("executor_username"), approvers
+    )
     remediation_service.record_sod_event(event_id, ticket_code, status)
     return {"ok": True, "already_processed": False, "changed": changed, "proposal_status": proposal.status.value}
 
@@ -2656,14 +2663,20 @@ def execute_remediation_transaction(
 ):
     """
     Thực thi Transaction Remediation có bảo vệ chống Race Condition & Tự động Rollback.
+    Đề xuất có phiếu SoD: chỉ Executor được SoD giao mới chạy được (kiểm trong service).
     """
-    actor = _require_admin_identity(x_user_role, x_user)
+    role = (x_user_role or "").upper()
+    if role not in (UserRole.EXECUTOR.value, UserRole.ADMIN.value):
+        raise HTTPException(status_code=403, detail="EXECUTOR role is required to execute remediation.")
+    actor = (x_user or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="X-User identity header is required.")
     idempotency_key = req.idempotency_key if req else None
     try:
         return remediation_service.execute_remediation_transaction(
             proposal_id=proposal_id,
             actor_id=actor,
-            actor_role="ADMIN",
+            actor_role=role,
             idempotency_key=idempotency_key
         )
     except KeyError:

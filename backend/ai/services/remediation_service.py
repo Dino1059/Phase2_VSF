@@ -88,6 +88,11 @@ _PII_OPERATION_PREFIXES = ("MASK", "HASH", "HMAC", "REDACT", "PSEUDONYM", "GENER
 _SOD_PENDING_STATES = ("PENDING_SUBMIT", "PENDING_APPROVAL", "PENDING_2ND_APPROVAL")
 
 
+def _norm_user(username: Optional[str]) -> str:
+    """Tên đăng nhập SoD so sánh không phân biệt hoa thường, bỏ khoảng trắng."""
+    return (username or "").strip().lower()
+
+
 def content_hash(proposal: StructuredRemediationProposalModel) -> str:
     """Mã băm nội dung đề xuất (không tính version/trạng thái). Gửi sang SoD làm proposalHash; kiểm lại trước khi thực thi."""
     return compute_hash({
@@ -559,7 +564,7 @@ class RemediationService:
     @_persists
     def submit_to_sod(self, proposal_id: str, actor_id: str) -> StructuredRemediationProposalModel:
         """
-        Gửi đề xuất đã dry-run đạt sang SoD Flow để duyệt. Người gọi là Requestor của phiếu (người thực thi sau này).
+        Gửi đề xuất đã dry-run đạt sang SoD Flow để duyệt. Người gọi là Requestor của phiếu; người thực thi do SoD giao (Prod. Op.).
         SoD không trả lời được thì đề xuất ở PENDING_SUBMIT (gửi lại được), không bao giờ tự duyệt.
         """
         proposal = self.proposals.get(proposal_id)
@@ -612,23 +617,32 @@ class RemediationService:
             self.apply_sod_status(proposal, resp["status"], c_hash)
         return proposal
 
-    def apply_sod_status(self, proposal: StructuredRemediationProposalModel, sod_status: str, sod_proposal_hash: Optional[str]) -> bool:
+    def apply_sod_status(
+        self,
+        proposal: StructuredRemediationProposalModel,
+        sod_status: str,
+        sod_proposal_hash: Optional[str],
+        executor: Optional[str] = None,
+        approvers: Optional[List[str]] = None,
+    ) -> bool:
         """
         Áp kết quả từ SoD vào đề xuất. Chỉ đổi khi đề xuất đang chờ duyệt (áp lại cùng kết quả là không làm gì).
-        DONE -> APPROVED nếu mã băm khớp bản đã gửi duyệt, ngược lại STALE. REJECTED/CANCELLED/EXPIRED -> REJECTED.
-        Trả về True nếu trạng thái đổi.
+        APPROVED (duyệt xong, chờ Executor) hoặc DONE -> APPROVED nếu mã băm khớp bản đã gửi duyệt, ngược lại STALE; ghi lại
+        người SoD giao thực thi và những người đã duyệt. REJECTED/CANCELLED/EXPIRED -> REJECTED. Trả về True nếu trạng thái đổi.
         """
         if proposal.status.value not in _SOD_PENDING_STATES:
             return False
         now = datetime.now(timezone.utc)
         actor = f"SoD:{proposal.sod_ticket_code}"
-        if sod_status == "DONE":
+        if sod_status in ("APPROVED", "DONE"):
             if not sod_proposal_hash or sod_proposal_hash != proposal.sod_form_hash or content_hash(proposal) != proposal.sod_form_hash:
                 proposal.status = ProposalStatus.STALE
             else:
                 proposal.status = ProposalStatus.APPROVED
                 proposal.approved_by = actor
                 proposal.approved_at = now
+                proposal.sod_executor = _norm_user(executor) or None
+                proposal.sod_approvers = sorted({_norm_user(a) for a in (approvers or []) if _norm_user(a)})
         elif sod_status in ("REJECTED", "CANCELLED", "EXPIRED"):
             proposal.status = ProposalStatus.REJECTED
             proposal.rejected_by = actor
@@ -681,7 +695,12 @@ class RemediationService:
                 if summary.get("external_ref") and summary["external_ref"] != proposal.proposal_id:
                     print(f"[RemediationService] Reconcile {proposal.proposal_id}: phiếu {proposal.sod_ticket_code} thuộc đề xuất khác, bỏ qua.")
                     continue
-                if self.apply_sod_status(proposal, summary.get("status", ""), summary.get("proposal_hash")):
+                status = "APPROVED" if summary.get("status") == "OPEN" and summary.get("awaiting_execution") else summary.get("status", "")
+                approvers = [
+                    d.get("actor") for st in summary.get("steps", []) if st.get("idx", 0) > 0 and st.get("action") != "P"
+                    for d in st.get("decisions", []) if d.get("outcome") == "APPROVE"
+                ]
+                if self.apply_sod_status(proposal, status, summary.get("proposal_hash"), summary.get("executor_username"), approvers):
                     result["changed"] += 1
             elif proposal.status == ProposalStatus.REMEDIATED and not proposal.sod_execution_reported:
                 if self.report_execution_to_sod(proposal):
@@ -702,27 +721,37 @@ class RemediationService:
         return None
 
     def _guard_sod_execution(self, proposal: StructuredRemediationProposalModel, actor_id: str) -> None:
-        """Điều kiện thực thi với đề xuất có phiếu SoD: phiếu đã duyệt, đúng Requestor, nội dung chưa đổi."""
+        """
+        Điều kiện thực thi với đề xuất có phiếu SoD: phiếu đã duyệt, đúng Executor SoD giao, nội dung chưa đổi.
+        Ba người khác nhau: người thực thi không phải người đề xuất, người gửi duyệt hay bất kỳ người duyệt nào.
+        """
         if proposal.status in (ProposalStatus.EXECUTING, ProposalStatus.REMEDIATED):
             raise ValueError(f"Đề xuất đã ở trạng thái {proposal.status.value}, không thực thi lại.")
         if proposal.status != ProposalStatus.APPROVED or not proposal.approved_by or not proposal.approved_by.startswith("SoD:"):
             raise PermissionError(
                 f"Phiếu SoD {proposal.sod_ticket_code} chưa hoàn tất duyệt. Trạng thái đề xuất: {proposal.status.value}."
             )
-        if (actor_id or "").strip().lower() != (proposal.sod_requester or ""):
-            raise PermissionError("Chỉ người đã gửi duyệt (Requestor của phiếu) mới được thực thi.")
+        if not proposal.sod_executor:
+            raise PermissionError(
+                f"Phiếu SoD {proposal.sod_ticket_code} không có bước thực thi (duyệt theo quy trình cũ). Gửi duyệt lại."
+            )
+        actor = _norm_user(actor_id)
+        if actor != proposal.sod_executor:
+            raise PermissionError(f"Chỉ Executor được SoD giao ({proposal.sod_executor}) mới được thực thi.")
+        if actor in {_norm_user(proposal.sod_requester), _norm_user(proposal.created_by)} or actor in proposal.sod_approvers:
+            raise PermissionError("Người thực thi phải khác người đề xuất và người duyệt.")
         if content_hash(proposal) != proposal.sod_form_hash:
             proposal.status = ProposalStatus.STALE
             proposal.updated_at = datetime.now(timezone.utc)
             raise StaleProposal("Nội dung đề xuất đã thay đổi sau khi được duyệt. Phải gửi duyệt lại.")
 
     def report_execution_to_sod(self, proposal: StructuredRemediationProposalModel) -> bool:
-        """Báo SoD đã thực thi (ghi nhật ký kiểm toán bên SoD). Lỗi mạng thì giữ cờ chưa báo để job thử lại."""
+        """Báo SoD đã thực thi: SoD ghi bước thực hiện nhân danh Executor, phiếu DONE. Lỗi mạng thì giữ cờ chưa báo để job thử lại."""
         if not proposal.sod_ticket_code or proposal.sod_execution_reported:
             return True
         try:
             sod_client.report_executed(proposal.sod_ticket_code, {
-                "executed_by": proposal.sod_requester,  # đã được _guard_sod_execution xác nhận trùng người thực thi
+                "executed_by": proposal.sod_executor,  # đã được _guard_sod_execution xác nhận trùng người thực thi
                 "proposal_hash": proposal.sod_form_hash,
                 "evidence_ref": proposal.audit_trail_id or proposal.proposal_id,
                 "affected_rows": proposal.expected_rows,
@@ -833,8 +862,8 @@ class RemediationService:
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
 
-        if actor_role.upper() != "ADMIN":
-            raise PermissionError(f"Chỉ có vai trò ADMIN mới được phép thực thi Remediation Transaction. Vai trò: '{actor_role}'")
+        if actor_role.upper() not in ("ADMIN", "EXECUTOR"):
+            raise PermissionError(f"Chỉ vai trò EXECUTOR hoặc ADMIN mới được thực thi Remediation Transaction. Vai trò: '{actor_role}'")
 
         if proposal.sod_ticket_code:
             self._guard_sod_execution(proposal, actor_id)
