@@ -2737,17 +2737,84 @@ def get_pipeline_live_status(run_id: str):
                 "lane_c_merge_verdicts_and_route": "success" if silver_done else ("running" if eval_done and not silver_done else "queued"),
                 "task_4_emit_audit_evidence": "success" if evidence_done else ("running" if silver_done and not evidence_done else "queued"),
             }
+
+            # A coarse pipeline step cannot identify which branch in the parallel
+            # evaluation TaskGroup failed. For terminal failures, use Airflow's
+            # task instances as the source of truth (including runs that were
+            # already marked FAILED before this request).
+            has_actual_failed_task = False
+            if overall_status == "FAILED" and dag_run_id:
+                try:
+                    auth_str = base64.b64encode(
+                        f"{AIRFLOW_USER}:{AIRFLOW_PASS}".encode("utf-8")
+                    ).decode("utf-8")
+                    task_instances_req = Request(
+                        f"{AIRFLOW_API_URL}/dags/datatrust_adaptive_pipeline/"
+                        f"dagRuns/{dag_run_id}/taskInstances",
+                        headers={"Authorization": f"Basic {auth_str}"},
+                    )
+                    with urlopen(task_instances_req, timeout=1.5) as resp:
+                        task_instances_data = json.loads(resp.read().decode("utf-8"))
+
+                    task_instances = (
+                        task_instances_data.get("task_instances")
+                        or task_instances_data.get("taskInstances")
+                        or []
+                    )
+                    compatible_task_ids = set(tasks_compatibility)
+                    for task_instance in task_instances:
+                        # Airflow prefixes TaskGroup children, e.g.
+                        # task_3_parallel_evaluation.lane_c_merge_verdicts_and_route.
+                        task_id = str(
+                            task_instance.get("task_id")
+                            or task_instance.get("taskId")
+                            or ""
+                        ).rsplit(".", 1)[-1]
+                        if task_id not in compatible_task_ids:
+                            continue
+
+                        airflow_task_state = str(
+                            task_instance.get("state") or ""
+                        ).upper()
+                        if airflow_task_state == "SUCCESS":
+                            tasks_compatibility[task_id] = "success"
+                        elif airflow_task_state == "FAILED":
+                            tasks_compatibility[task_id] = "failed"
+                            has_actual_failed_task = True
+                        elif airflow_task_state in {
+                            "RUNNING", "RESTARTING", "DEFERRED", "UP_FOR_RETRY",
+                            "UP_FOR_RESCHEDULE",
+                        }:
+                            tasks_compatibility[task_id] = "running"
+                        elif airflow_task_state:
+                            tasks_compatibility[task_id] = "queued"
+                except Exception:
+                    # Preserve the legacy current-step fallback when Airflow is
+                    # unavailable or returns an unexpected response.
+                    pass
+
             if overall_status == "FAILED":
-                step_to_task = {
-                    "INGEST": "task_1_truncate_and_ingest_bronze",
-                    "BRONZE": "task_2_data_profiling",
-                    "EVALUATION": "lane_b_hierarchical_policy",
-                    "SILVER": "lane_c_merge_verdicts_and_route",
-                    "EVIDENCE": "task_4_emit_audit_evidence",
-                }
-                failed_task = step_to_task.get(cur_step)
-                if failed_task:
-                    tasks_compatibility[failed_task] = "failed"
+                if not has_actual_failed_task:
+                    step_to_task = {
+                        "INGEST": "task_1_truncate_and_ingest_bronze",
+                        "BRONZE": "task_2_data_profiling",
+                        "EVALUATION": "lane_b_hierarchical_policy",
+                        "SILVER": "lane_c_merge_verdicts_and_route",
+                        "EVIDENCE": "task_4_emit_audit_evidence",
+                    }
+                    # A persisted failed step is stronger evidence than the
+                    # pipeline's current_step, which may lag a task callback.
+                    failed_step = next(
+                        (
+                            str(step.get("step_name") or "").upper()
+                            for step in reversed(steps)
+                            if str(step.get("status") or "").upper() == "FAILED"
+                        ),
+                        cur_step,
+                    )
+                    failed_task = step_to_task.get(failed_step)
+                    if failed_task:
+                        tasks_compatibility[failed_task] = "failed"
 
             return {
                 "run_id": real_run_id,

@@ -21,6 +21,7 @@ INCREMENTAL_MIGRATIONS = [
     "migration_20261014_new_columns_and_injected_faults.sql",
     "migration_20261015_phase2_record_identity.sql",
     "migration_20261015_phase2_policy_rules.sql",
+    "migration_20261015_seed_required_parent_policies.sql",
 ]
 
 

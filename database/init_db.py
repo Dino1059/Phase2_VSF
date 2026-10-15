@@ -40,6 +40,7 @@ def init_postgres():
         database_dir / "migration_20261014_new_columns_and_injected_faults.sql",
         database_dir / "migration_20261015_phase2_record_identity.sql",
         database_dir / "migration_20261015_phase2_policy_rules.sql",
+        database_dir / "migration_20261015_seed_required_parent_policies.sql",
     ]
     seed_path = Path(__file__).parent / "seed_data.sql"
 
