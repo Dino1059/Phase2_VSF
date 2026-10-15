@@ -5,6 +5,7 @@ Strictly enforces RBAC: ADMIN = Approver / Controller; AUDITOR = View-Only.
 """
 
 from fastapi import FastAPI, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
+from fastapi import Request as FastAPIRequest  # `Request` của urllib đã được import ở dưới
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from urllib.request import Request, urlopen
@@ -61,7 +62,8 @@ from backend.engine.quarantine_manager import QuarantineManager
 from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
 from backend.ai.agents.orchestrator import DataTrustAgentOrchestrator
 from backend.ai.services.finding_analysis_store import FindingAnalysisStore
-from backend.ai.services.remediation_service import remediation_service
+from backend.ai.services.remediation_service import remediation_service, SodManagedProposal, StaleProposal
+from backend.integrations import sod_client
 from backend.ai.services.guardrails import pre_llm_guard
 from backend.ingestion.load_3zone_pilot import (
     get_3zone_datasets,
@@ -2444,12 +2446,43 @@ def submit_remediation_proposal(
     proposal_id: str,
     x_user: Optional[str] = Header(None, alias="X-User"),
 ):
-    """Gửi proposal đã pass Dry-Run sang trạng thái PENDING_APPROVAL chờ duyệt."""
+    """
+    Gửi proposal đã pass Dry-Run để duyệt.
+    Khi đã cấu hình SoD Flow (SOD_URL + DATATRUST_SHARED_SECRET): tạo phiếu bên SoD, người bấm là Requestor và cũng là người
+    thực thi sau khi phiếu hoàn tất. SoD không trả lời thì đề xuất ở PENDING_SUBMIT. Chưa cấu hình thì dùng luồng duyệt nội bộ cũ.
+    """
     actor = x_user or "AI_AGENT"
     try:
+        if sod_client.is_configured():
+            return remediation_service.submit_to_sod(proposal_id, actor)
         return remediation_service.submit_for_approval(proposal_id, actor)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except PermissionError as pe:
+        raise HTTPException(status_code=401 if not x_user else 403, detail=str(pe))
+    except sod_client.SodRejected as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/remediation/{proposal_id}/resubmit", response_model=StructuredRemediationProposalModel)
+def resubmit_remediation_proposal(
+    proposal_id: str,
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """Gửi lại sang SoD Flow cho đề xuất đang PENDING_SUBMIT (lần gửi trước SoD không trả lời)."""
+    prop = remediation_service.proposals.get(proposal_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    if prop.status.value != "PENDING_SUBMIT":
+        raise HTTPException(status_code=409, detail=f"Chỉ gửi lại được đề xuất PENDING_SUBMIT. Trạng thái hiện tại: {prop.status.value}")
+    try:
+        return remediation_service.submit_to_sod(proposal_id, x_user or "")
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
+    except sod_client.SodRejected as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -2470,6 +2503,8 @@ def approve_remediation_proposal(
         return remediation_service.approve_proposal(proposal_id, actor_id=actor, actor_role="ADMIN")
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except SodManagedProposal as sm:
+        raise HTTPException(status_code=409, detail=str(sm))
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
@@ -2489,8 +2524,127 @@ def reject_remediation_proposal(
         return remediation_service.reject_proposal(proposal_id, actor_id=actor, reason=req.reason)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except SodManagedProposal as sm:
+        raise HTTPException(status_code=409, detail=str(sm))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# =============================================================================
+# TÍCH HỢP SoD FLOW: nhận kết quả duyệt, đối soát
+# =============================================================================
+
+@app.post("/api/integrations/sod/events")
+async def receive_sod_event(request: FastAPIRequest):
+    """
+    SoD Flow báo kết quả phiếu duyệt (DONE / REJECTED / CANCELLED / EXPIRED). Xác thực bằng chữ ký HMAC.
+    Cùng event_id gửi lại thì trả 200 "đã xử lý" và không đổi gì thêm.
+    """
+    body = (await request.body()).decode("utf-8")
+    reason = sod_client.verify(
+        os.getenv("DATATRUST_SHARED_SECRET", ""),
+        request.headers.get("x-timestamp", ""),
+        request.headers.get("x-signature", ""),
+        "POST",
+        request.url.path,
+        body,
+    )
+    if reason:
+        raise HTTPException(status_code=503 if reason == "integration_not_configured" else 401, detail=reason)
+    try:
+        event = json.loads(body)
+        event_id = str(event["event_id"])
+        ticket_code = str(event["ticket_code"])
+        status = str(event["status"]).upper()
+    except Exception:
+        raise HTTPException(status_code=422, detail="invalid_event")
+
+    if remediation_service.sod_event_seen(event_id):
+        return {"ok": True, "already_processed": True}
+    proposal = remediation_service.find_by_sod_ticket(ticket_code, event.get("external_ref"))
+    if not proposal:
+        # Chưa biết phiếu này: trả 404 để SoD giữ sự kiện và gửi lại sau
+        raise HTTPException(status_code=404, detail="unknown_ticket")
+    changed = remediation_service.apply_sod_status(proposal, status, event.get("proposal_hash"))
+    remediation_service.record_sod_event(event_id, ticket_code, status)
+    return {"ok": True, "already_processed": False, "changed": changed, "proposal_status": proposal.status.value}
+
+
+@app.get("/api/integrations/sod/status")
+def sod_integration_status():
+    """Giao diện hỏi: đã bật duyệt qua SoD Flow chưa, và địa chỉ SoD để dựng liên kết tới phiếu."""
+    return {"configured": sod_client.is_configured(), "url": os.getenv("SOD_URL", "").rstrip("/") or None}
+
+
+@app.get("/api/remediation/executions")
+def list_remediation_executions(limit: int = Query(50, ge=1, le=500)):
+    """
+    Các lần thực thi xử lý dữ liệu cách ly (bản ghi kiểm toán đã ký HMAC), kèm phiếu duyệt bên SoD Flow:
+    ai đề xuất, phiếu nào cho phép, mã băm nội dung đã duyệt. Dùng cho Auditor đối chiếu hai hệ thống.
+    """
+    from database.profiler_engine import get_db_connection
+    from psycopg2.extras import RealDictCursor
+    base = os.getenv("SOD_URL", "").rstrip("/")
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT timestamp, actor, actor_role, entity_id AS proposal_id, record_hash,
+                       new_state->'audit_payload' AS payload
+                FROM audit.system_audit_trail
+                WHERE action_type = 'STRUCTURED_QUARANTINE_REMEDIATION'
+                ORDER BY timestamp DESC LIMIT %s;
+            """, (limit,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        payload = r["payload"] or {}
+        prop = remediation_service.proposals.get(r["proposal_id"])
+        ticket_id = prop.sod_ticket_id if prop else None
+        out.append({
+            "proposal_id": r["proposal_id"],
+            "executed_at": r["timestamp"].isoformat(),
+            "executed_by": r["actor"],
+            "signature": r["record_hash"],
+            "operation_id": payload.get("operation_id"),
+            "affected_records": payload.get("affected_records"),
+            "sod_ticket_code": payload.get("sod_ticket_code"),
+            "sod_form_hash": payload.get("sod_form_hash"),
+            "sod_ticket_url": f"{base}/yeu-cau/{ticket_id}" if base and ticket_id else None,
+        })
+    return out
+
+
+@app.post("/api/integrations/sod/reconcile")
+def reconcile_sod(
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
+    x_user: Optional[str] = Header(None, alias="X-User"),
+):
+    """Chạy đối soát với SoD ngay (job nền cũng chạy định kỳ)."""
+    _require_admin_identity(x_user_role, x_user)
+    if not sod_client.is_configured():
+        raise HTTPException(status_code=503, detail="SoD Flow chưa được cấu hình.")
+    return remediation_service.reconcile_with_sod()
+
+
+def _sod_reconcile_loop():
+    import time as _time
+    interval = max(30, int(os.getenv("SOD_RECONCILE_SECONDS", "600")))
+    while True:
+        _time.sleep(interval)
+        try:
+            remediation_service.reconcile_with_sod()
+        except Exception as exc:  # job nền không được làm sập tiến trình
+            logging.getLogger(__name__).warning("SoD reconcile failed: %s", exc)
+
+
+@app.on_event("startup")
+def _start_sod_reconcile():
+    if sod_client.is_configured():
+        import threading
+        threading.Thread(target=_sod_reconcile_loop, name="sod-reconcile", daemon=True).start()
 
 
 @app.post("/api/remediation/{proposal_id}/execute")
@@ -2514,6 +2668,8 @@ def execute_remediation_transaction(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except StaleProposal as st:
+        raise HTTPException(status_code=409, detail=str(st))
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:

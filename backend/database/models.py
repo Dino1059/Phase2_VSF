@@ -715,6 +715,7 @@ class ProposalStatus(str, Enum):
     REMEDIATED = "REMEDIATED"
     ROLLED_BACK = "ROLLED_BACK"
     STALE = "STALE"
+    PENDING_SUBMIT = "PENDING_SUBMIT"  # chờ gửi sang SoD Flow (SoD chưa phản hồi)
 
 
 class RemediationRiskLevel(str, Enum):
@@ -799,4 +800,10 @@ class StructuredRemediationProposalModel(BaseModel):
     resolution_note: Optional[str] = None
     latest_dry_run: Optional[DryRunResultModel] = None
     audit_trail_id: Optional[str] = None
+    # Liên kết với phiếu duyệt bên SoD Flow
+    sod_ticket_code: Optional[str] = None
+    sod_ticket_id: Optional[str] = None  # id (uuid) của phiếu bên SoD, dùng dựng đường dẫn
+    sod_form_hash: Optional[str] = None
+    sod_requester: Optional[str] = None
+    sod_execution_reported: bool = False
 

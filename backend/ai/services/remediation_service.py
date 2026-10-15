@@ -16,6 +16,7 @@ import uuid
 import time
 import hashlib
 import hmac
+import functools
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -29,6 +30,7 @@ from backend.database.models import (
     UserRole
 )
 from backend.engine.operation_registry import OperationRegistry
+from backend.integrations import sod_client
 from database.profiler_engine import get_db_connection
 
 
@@ -73,6 +75,45 @@ def mask_preview_string(val: Any, prefix_len: int = 3, suffix_len: int = 2, mask
     return f"{s[:prefix_len]}{masked_mid}{s[-suffix_len:]}"
 
 
+class SodManagedProposal(Exception):
+    """Đề xuất đã gắn phiếu SoD Flow: chỉ SoD được duyệt / từ chối (HTTP 409)."""
+
+
+class StaleProposal(Exception):
+    """Nội dung đề xuất đã đổi so với bản đã gửi duyệt (HTTP 409)."""
+
+
+# Thao tác chạm dữ liệu cá nhân: đề xuất dùng các thao tác này luôn được coi là có DLCN (thêm DPO vào chuỗi duyệt)
+_PII_OPERATION_PREFIXES = ("MASK", "HASH", "HMAC", "REDACT", "PSEUDONYM", "GENERALIZE", "REMOVE")
+_SOD_PENDING_STATES = ("PENDING_SUBMIT", "PENDING_APPROVAL", "PENDING_2ND_APPROVAL")
+
+
+def content_hash(proposal: StructuredRemediationProposalModel) -> str:
+    """Mã băm nội dung đề xuất (không tính version/trạng thái). Gửi sang SoD làm proposalHash; kiểm lại trước khi thực thi."""
+    return compute_hash({
+        "finding_id": proposal.finding_id,
+        "target": proposal.target.model_dump(),
+        "operation_id": proposal.operation_id,
+        "params": proposal.params,
+        "expected_rows": proposal.expected_rows,
+        "source_snapshot_hash": proposal.source_snapshot_hash,
+    })
+
+
+def _persists(fn):
+    """Ghi đề xuất xuống PostgreSQL sau mỗi lần gọi (kể cả khi ném lỗi), vì trạng thái có thể đã đổi
+    (EXECUTING, STALE, ROLLED_BACK). Đề xuất phải sống sót qua khởi động lại để SoD Flow duyệt xong còn thực thi được."""
+    @functools.wraps(fn)
+    def wrapper(self, proposal_id, *args, **kwargs):
+        try:
+            return fn(self, proposal_id, *args, **kwargs)
+        finally:
+            proposal = self.proposals.get(proposal_id)
+            if proposal is not None:
+                self._persist(proposal)
+    return wrapper
+
+
 class RemediationService:
     """
     Manages structured remediation proposal lifecycle, in-memory dry-run,
@@ -82,6 +123,7 @@ class RemediationService:
     def __init__(self):
         self.proposals: Dict[str, StructuredRemediationProposalModel] = {}
         self._init_staging_schema()
+        self._load_all()
 
     def _init_staging_schema(self):
         """Initializes PostgreSQL staging schema and remediated_records table."""
@@ -107,11 +149,83 @@ class RemediationService:
                     CREATE INDEX IF NOT EXISTS idx_staging_proposal_id 
                     ON staging.remediated_records (proposal_id);
                 """)
+                cur.execute("CREATE SCHEMA IF NOT EXISTS governance;")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS governance.remediation_proposals (
+                        proposal_id VARCHAR(64) PRIMARY KEY,
+                        status VARCHAR(32) NOT NULL,
+                        proposal_hash VARCHAR(64) NOT NULL DEFAULT '',
+                        created_by VARCHAR(128) NOT NULL DEFAULT 'AI_AGENT',
+                        sod_ticket_code VARCHAR(32),
+                        payload JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_remediation_proposals_sod_ticket
+                    ON governance.remediation_proposals (sod_ticket_code);
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS governance.integration_events (
+                        event_id VARCHAR(128) PRIMARY KEY,
+                        ticket_code VARCHAR(32) NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
                 conn.commit()
             conn.close()
         except Exception as e:
             # Table creation warning log (fallback gracefully for environments with restricted DDL)
             print(f"[RemediationService] Staging schema init notice: {e}")
+
+    def _persist(self, proposal: StructuredRemediationProposalModel) -> None:
+        """Upsert một đề xuất vào governance.remediation_proposals."""
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO governance.remediation_proposals
+                        (proposal_id, status, proposal_hash, created_by, sod_ticket_code, payload, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
+                    ON CONFLICT (proposal_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        proposal_hash = EXCLUDED.proposal_hash,
+                        created_by = EXCLUDED.created_by,
+                        sod_ticket_code = EXCLUDED.sod_ticket_code,
+                        payload = EXCLUDED.payload,
+                        updated_at = EXCLUDED.updated_at;
+                """, (
+                    proposal.proposal_id,
+                    proposal.status.value,
+                    proposal.proposal_hash or "",
+                    proposal.created_by,
+                    proposal.sod_ticket_code,
+                    proposal.model_dump_json(),
+                    proposal.updated_at,
+                ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[RemediationService] Persist proposal {proposal.proposal_id} failed: {e}")
+
+    def _load_all(self) -> None:
+        """Nạp lại các đề xuất đã lưu khi khởi động."""
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT payload FROM governance.remediation_proposals ORDER BY updated_at;")
+                rows = cur.fetchall()
+            conn.close()
+        except Exception as e:
+            print(f"[RemediationService] Load proposals notice: {e}")
+            return
+        for (payload,) in rows:
+            try:
+                proposal = StructuredRemediationProposalModel.model_validate(payload)
+                self.proposals[proposal.proposal_id] = proposal
+            except Exception as e:
+                print(f"[RemediationService] Skip unreadable proposal: {e}")
 
     def fetch_quarantine_records(self, quarantine_ids: List[str]) -> List[Dict[str, Any]]:
         """Queries quarantine records by IDs from PostgreSQL with in-memory fallback."""
@@ -215,8 +329,10 @@ class RemediationService:
         )
 
         self.proposals[proposal.proposal_id] = proposal
+        self._persist(proposal)
         return proposal
 
+    @_persists
     def update_proposal_params(
         self,
         proposal_id: str,
@@ -278,6 +394,7 @@ class RemediationService:
 
         return proposal
 
+    @_persists
     def simulate_dry_run(self, proposal_id: str) -> DryRunResultModel:
         """
         Executes In-Memory transformation via OperationRegistry.
@@ -407,6 +524,7 @@ class RemediationService:
 
         return result
 
+    @_persists
     def submit_for_approval(self, proposal_id: str, actor_id: str) -> StructuredRemediationProposalModel:
         """Submits a proposal that passed dry-run for Checker review."""
         proposal = self.proposals.get(proposal_id)
@@ -419,6 +537,204 @@ class RemediationService:
         proposal.updated_at = datetime.now(timezone.utc)
         return proposal
 
+    # ------------------------------------------------------------------ Duyệt qua SoD Flow
+
+    def _is_pii(self, proposal: StructuredRemediationProposalModel) -> bool:
+        """Đề xuất có chạm dữ liệu cá nhân không. Không xác định được thì coi là có (thêm DPO là hướng an toàn)."""
+        if proposal.operation_id.upper().startswith(_PII_OPERATION_PREFIXES):
+            return True
+        try:
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(bool_or(is_personal_data), FALSE) FROM catalog.columns WHERE column_name = %s;",
+                    (proposal.target.column,),
+                )
+                flagged = bool(cur.fetchone()[0])
+            conn.close()
+            return flagged
+        except Exception:
+            return True
+
+    @_persists
+    def submit_to_sod(self, proposal_id: str, actor_id: str) -> StructuredRemediationProposalModel:
+        """
+        Gửi đề xuất đã dry-run đạt sang SoD Flow để duyệt. Người gọi là Requestor của phiếu (người thực thi sau này).
+        SoD không trả lời được thì đề xuất ở PENDING_SUBMIT (gửi lại được), không bao giờ tự duyệt.
+        """
+        proposal = self.proposals.get(proposal_id)
+        if not proposal:
+            raise KeyError(f"Proposal {proposal_id} không tồn tại.")
+        if proposal.status not in (ProposalStatus.DRY_RUN_PASSED, ProposalStatus.PENDING_SUBMIT):
+            raise ValueError(
+                f"Chỉ gửi duyệt được đề xuất đã Dry-Run đạt hoặc đang chờ gửi lại. Trạng thái hiện tại: {proposal.status}"
+            )
+        requester = (actor_id or "").strip().lower()
+        if not requester or requester == "ai_agent":
+            raise PermissionError("LLM không thể gửi duyệt. Cần người gửi duyệt (Requestor) đăng nhập.")
+        if proposal.status == ProposalStatus.PENDING_SUBMIT and proposal.sod_requester and proposal.sod_requester != requester:
+            raise PermissionError("Chỉ người đã bấm Gửi duyệt mới gửi lại được.")
+
+        c_hash = content_hash(proposal)
+        payload = {
+            "type": "dt_remediation",
+            "requesterUsername": requester,
+            "externalRef": proposal.proposal_id,
+            "proposalHash": c_hash,
+            "dataset": proposal.target.dataset_id,
+            "column": proposal.target.column,
+            "operation": proposal.operation_id,
+            "expectedRows": proposal.expected_rows,
+            "riskLevel": proposal.risk_level.value,
+            "pii": self._is_pii(proposal),
+            # Chỉ mô tả, không kèm giá trị dữ liệu: lý do do người/LLM viết nên SoD còn quét lại
+            "reason": (proposal.reason or "")[:1000],
+        }
+        now = datetime.now(timezone.utc)
+        try:
+            resp = sod_client.create_ticket(payload)
+        except sod_client.SodUnavailable:
+            proposal.status = ProposalStatus.PENDING_SUBMIT
+            proposal.sod_requester = requester
+            proposal.sod_form_hash = c_hash
+            proposal.updated_at = now
+            return proposal
+        # SodRejected được ném tiếp cho route xử lý; trạng thái đề xuất giữ nguyên
+
+        proposal.sod_ticket_code = resp["ticket_code"]
+        proposal.sod_ticket_id = resp.get("ticket_id")
+        proposal.sod_form_hash = c_hash
+        proposal.sod_requester = requester
+        proposal.status = ProposalStatus.PENDING_APPROVAL
+        proposal.updated_at = now
+        if resp.get("status") and resp["status"] != "OPEN":
+            # Phiếu cùng nội dung đã có và đã đóng (gửi lại sau khi được duyệt, hoặc lỡ webhook)
+            self.apply_sod_status(proposal, resp["status"], c_hash)
+        return proposal
+
+    def apply_sod_status(self, proposal: StructuredRemediationProposalModel, sod_status: str, sod_proposal_hash: Optional[str]) -> bool:
+        """
+        Áp kết quả từ SoD vào đề xuất. Chỉ đổi khi đề xuất đang chờ duyệt (áp lại cùng kết quả là không làm gì).
+        DONE -> APPROVED nếu mã băm khớp bản đã gửi duyệt, ngược lại STALE. REJECTED/CANCELLED/EXPIRED -> REJECTED.
+        Trả về True nếu trạng thái đổi.
+        """
+        if proposal.status.value not in _SOD_PENDING_STATES:
+            return False
+        now = datetime.now(timezone.utc)
+        actor = f"SoD:{proposal.sod_ticket_code}"
+        if sod_status == "DONE":
+            if not sod_proposal_hash or sod_proposal_hash != proposal.sod_form_hash or content_hash(proposal) != proposal.sod_form_hash:
+                proposal.status = ProposalStatus.STALE
+            else:
+                proposal.status = ProposalStatus.APPROVED
+                proposal.approved_by = actor
+                proposal.approved_at = now
+        elif sod_status in ("REJECTED", "CANCELLED", "EXPIRED"):
+            proposal.status = ProposalStatus.REJECTED
+            proposal.rejected_by = actor
+            proposal.rejected_at = now
+            proposal.reject_reason = f"Phiếu SoD {proposal.sod_ticket_code}: {sod_status}"
+        else:
+            return False
+        proposal.updated_at = now
+        self._persist(proposal)
+        return True
+
+    def sod_event_seen(self, event_id: str) -> bool:
+        """Sự kiện này đã được xử lý chưa (chống xử lý lặp khi SoD gửi lại)."""
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM governance.integration_events WHERE event_id = %s;", (event_id,))
+                return cur.fetchone() is not None
+        finally:
+            conn.close()
+
+    def record_sod_event(self, event_id: str, ticket_code: str, status: str) -> None:
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO governance.integration_events (event_id, ticket_code, status) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",
+                    (event_id, ticket_code, status),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def reconcile_with_sod(self) -> Dict[str, int]:
+        """
+        Đối soát phòng khi lỡ webhook: hỏi SoD trạng thái các phiếu còn chờ, và báo lại các lần thực thi chưa báo được.
+        SoD không trả lời thì bỏ qua lần này, không đổi trạng thái nào.
+        """
+        result = {"checked": 0, "changed": 0, "reported": 0}
+        for proposal in list(self.proposals.values()):
+            if not proposal.sod_ticket_code:
+                continue
+            if proposal.status.value in ("PENDING_APPROVAL", "PENDING_2ND_APPROVAL"):
+                result["checked"] += 1
+                try:
+                    summary = sod_client.get_ticket(proposal.sod_ticket_code)
+                except (sod_client.SodUnavailable, sod_client.SodRejected) as e:
+                    print(f"[RemediationService] Reconcile {proposal.proposal_id}: {e}")
+                    continue
+                if summary.get("external_ref") and summary["external_ref"] != proposal.proposal_id:
+                    print(f"[RemediationService] Reconcile {proposal.proposal_id}: phiếu {proposal.sod_ticket_code} thuộc đề xuất khác, bỏ qua.")
+                    continue
+                if self.apply_sod_status(proposal, summary.get("status", ""), summary.get("proposal_hash")):
+                    result["changed"] += 1
+            elif proposal.status == ProposalStatus.REMEDIATED and not proposal.sod_execution_reported:
+                if self.report_execution_to_sod(proposal):
+                    result["reported"] += 1
+        return result
+
+    def find_by_sod_ticket(self, ticket_code: str, external_ref: Optional[str] = None) -> Optional[StructuredRemediationProposalModel]:
+        """
+        Tìm đề xuất ứng với một phiếu SoD. Nếu có external_ref (mã đề xuất do chính DataTrust gửi đi) thì khớp theo đó VÀ
+        yêu cầu mã phiếu trùng, không chỉ dựa vào mã phiếu: mã phiếu chỉ duy nhất trong một CSDL SoD.
+        """
+        if external_ref:
+            p = self.proposals.get(external_ref)
+            return p if p and p.sod_ticket_code == ticket_code else None
+        for p in self.proposals.values():
+            if p.sod_ticket_code == ticket_code:
+                return p
+        return None
+
+    def _guard_sod_execution(self, proposal: StructuredRemediationProposalModel, actor_id: str) -> None:
+        """Điều kiện thực thi với đề xuất có phiếu SoD: phiếu đã duyệt, đúng Requestor, nội dung chưa đổi."""
+        if proposal.status in (ProposalStatus.EXECUTING, ProposalStatus.REMEDIATED):
+            raise ValueError(f"Đề xuất đã ở trạng thái {proposal.status.value}, không thực thi lại.")
+        if proposal.status != ProposalStatus.APPROVED or not proposal.approved_by or not proposal.approved_by.startswith("SoD:"):
+            raise PermissionError(
+                f"Phiếu SoD {proposal.sod_ticket_code} chưa hoàn tất duyệt. Trạng thái đề xuất: {proposal.status.value}."
+            )
+        if (actor_id or "").strip().lower() != (proposal.sod_requester or ""):
+            raise PermissionError("Chỉ người đã gửi duyệt (Requestor của phiếu) mới được thực thi.")
+        if content_hash(proposal) != proposal.sod_form_hash:
+            proposal.status = ProposalStatus.STALE
+            proposal.updated_at = datetime.now(timezone.utc)
+            raise StaleProposal("Nội dung đề xuất đã thay đổi sau khi được duyệt. Phải gửi duyệt lại.")
+
+    def report_execution_to_sod(self, proposal: StructuredRemediationProposalModel) -> bool:
+        """Báo SoD đã thực thi (ghi nhật ký kiểm toán bên SoD). Lỗi mạng thì giữ cờ chưa báo để job thử lại."""
+        if not proposal.sod_ticket_code or proposal.sod_execution_reported:
+            return True
+        try:
+            sod_client.report_executed(proposal.sod_ticket_code, {
+                "executed_by": proposal.sod_requester,  # đã được _guard_sod_execution xác nhận trùng người thực thi
+                "proposal_hash": proposal.sod_form_hash,
+                "evidence_ref": proposal.audit_trail_id or proposal.proposal_id,
+                "affected_rows": proposal.expected_rows,
+            })
+        except (sod_client.SodUnavailable, sod_client.SodRejected) as e:
+            print(f"[RemediationService] Report execution {proposal.proposal_id} pending: {e}")
+            return False
+        proposal.sod_execution_reported = True
+        self._persist(proposal)
+        return True
+
+    @_persists
     def approve_proposal(
         self,
         proposal_id: str,
@@ -432,6 +748,11 @@ class RemediationService:
         proposal = self.proposals.get(proposal_id)
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
+        if proposal.sod_ticket_code:
+            raise SodManagedProposal(f"Đề xuất đã gắn phiếu SoD {proposal.sod_ticket_code}: chỉ duyệt được trong SoD Flow.")
+        if sod_client.is_configured():
+            # Đã bật SoD Flow thì mọi đề xuất phải đi qua phiếu duyệt, kể cả đề xuất chưa gửi (nếu không, duyệt nội bộ sẽ bỏ qua SoD)
+            raise SodManagedProposal("Đã bật duyệt qua SoD Flow: duyệt nội bộ bị tắt. Bấm Gửi duyệt để tạo phiếu bên SoD Flow.")
 
         if actor_role.upper() not in ("ADMIN", "DATA_STEWARD"):
             raise PermissionError(f"Vai trò '{actor_role}' không có quyền phê duyệt đề xuất khắc phục.")
@@ -468,6 +789,7 @@ class RemediationService:
         proposal.updated_at = now_utc
         return proposal
 
+    @_persists
     def reject_proposal(
         self,
         proposal_id: str,
@@ -478,6 +800,8 @@ class RemediationService:
         proposal = self.proposals.get(proposal_id)
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
+        if proposal.sod_ticket_code:
+            raise SodManagedProposal(f"Đề xuất đã gắn phiếu SoD {proposal.sod_ticket_code}: chỉ từ chối được trong SoD Flow.")
 
         proposal.status = ProposalStatus.REJECTED
         proposal.rejected_by = actor_id
@@ -486,6 +810,7 @@ class RemediationService:
         proposal.updated_at = datetime.now(timezone.utc)
         return proposal
 
+    @_persists
     def execute_remediation_transaction(
         self,
         proposal_id: str,
@@ -510,6 +835,11 @@ class RemediationService:
 
         if actor_role.upper() != "ADMIN":
             raise PermissionError(f"Chỉ có vai trò ADMIN mới được phép thực thi Remediation Transaction. Vai trò: '{actor_role}'")
+
+        if proposal.sod_ticket_code:
+            self._guard_sod_execution(proposal, actor_id)
+        elif sod_client.is_configured():
+            raise PermissionError("Đã bật duyệt qua SoD Flow: chỉ thực thi được đề xuất có phiếu SoD đã hoàn tất.")
 
         if proposal.status != ProposalStatus.APPROVED:
             raise ValueError(f"Proposal chưa được phê duyệt! Trạng thái hiện tại: {proposal.status}")
@@ -619,6 +949,10 @@ class RemediationService:
                     "target_snapshot_hash": target_snapshot_hash,
                     "timestamp": now_utc.isoformat()
                 }
+                if proposal.sod_ticket_code:
+                    # Liên kết phiếu duyệt nằm trong dữ liệu được ký: không sửa được sau này
+                    audit_payload["sod_ticket_code"] = proposal.sod_ticket_code
+                    audit_payload["sod_form_hash"] = proposal.sod_form_hash
                 digital_signature = compute_hmac_signature(audit_payload)
 
                 cur.execute("""
@@ -654,6 +988,9 @@ class RemediationService:
             proposal.resolved_at = datetime.now(timezone.utc)
             proposal.resolution_note = resolution_text
             proposal.updated_at = datetime.now(timezone.utc)
+            if proposal.sod_ticket_code:
+                self._persist(proposal)
+                self.report_execution_to_sod(proposal)
 
             return {
                 "success": True,

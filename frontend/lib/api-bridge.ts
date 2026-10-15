@@ -294,9 +294,17 @@ export interface FindingDetailData extends FindingItem {
 function getUserIdentityHeaders(): Record<string, string> {
   const roleHeaders = getUserRoleHeader();
   const role = roleHeaders['X-User-Role'];
+  // Duyệt qua SoD Flow cần danh tính khớp username bên SoD. Đăng nhập thật chưa có (bước 7), nên tạm đặt thủ công:
+  //   localStorage.setItem('sod_username', 'an.nguyen')
+  let sodUsername = '';
+  try {
+    sodUsername = (localStorage.getItem('sod_username') || '').trim();
+  } catch {
+    sodUsername = '';
+  }
   return {
     'X-User-Role': role.toUpperCase(),
-    'X-User': role.toLowerCase() === 'auditor' ? 'DataTrust Auditor' : 'DataTrust Admin',
+    'X-User': sodUsername || (role.toLowerCase() === 'auditor' ? 'DataTrust Auditor' : 'DataTrust Admin'),
   };
 }
 
@@ -378,7 +386,7 @@ export interface StructuredRemediationProposal {
   proposal_id: string;
   finding_id: string;
   version: number;
-  status: 'DRAFT' | 'DRY_RUN_PASSED' | 'DRY_RUN_FAILED' | 'PENDING_APPROVAL' | 'PENDING_2ND_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXECUTING' | 'REMEDIATED' | 'ROLLED_BACK' | 'STALE';
+  status: 'DRAFT' | 'DRY_RUN_PASSED' | 'DRY_RUN_FAILED' | 'PENDING_APPROVAL' | 'PENDING_2ND_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXECUTING' | 'REMEDIATED' | 'ROLLED_BACK' | 'STALE' | 'PENDING_SUBMIT';
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -410,6 +418,15 @@ export interface StructuredRemediationProposal {
   resolved_at?: string;
   resolution_note?: string;
   latest_dry_run?: DryRunResult;
+  // Phiếu duyệt bên SoD Flow (có khi đã bật tích hợp)
+  sod_ticket_code?: string | null;
+  sod_ticket_id?: string | null;
+  sod_requester?: string | null;
+}
+
+export interface SodIntegrationStatus {
+  configured: boolean;
+  url: string | null;
 }
 
 export interface DashboardOverview {
@@ -1312,6 +1329,28 @@ export const apiBridge = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
       throw new Error(err.detail || `Lỗi gửi phê duyệt (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async fetchSodStatus(): Promise<SodIntegrationStatus> {
+    try {
+      const res = await fetch(`${API_ROOT}/integrations/sod/status`);
+      if (!res.ok) return { configured: false, url: null };
+      return res.json();
+    } catch {
+      return { configured: false, url: null };
+    }
+  },
+
+  async resubmitProposal(proposalId: string): Promise<StructuredRemediationProposal> {
+    const res = await fetch(`${API_ROOT}/remediation/${encodeURIComponent(proposalId)}/resubmit`, {
+      method: 'POST',
+      headers: getUserIdentityHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi gửi lại phiếu (HTTP ${res.status})`);
     }
     return res.json();
   },

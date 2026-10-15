@@ -2,6 +2,10 @@ import os
 import pytest
 from dotenv import load_dotenv
 
+# Test không được phụ thuộc cấu hình tích hợp SoD Flow trong .env cục bộ: tắt trước khi load .env
+# (load_dotenv không ghi đè biến đã có). Test tích hợp tự bật lại bằng monkeypatch.
+os.environ["SOD_URL"] = ""
+
 # Load .env if present
 load_dotenv()
 

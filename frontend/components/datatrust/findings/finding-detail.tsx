@@ -38,6 +38,7 @@ import {
   type FindingDetailData,
   type UnifiedLineageResponse,
   type StructuredRemediationProposal,
+  type SodIntegrationStatus,
 } from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
 
@@ -100,6 +101,11 @@ export function FindingDetailModal({
   const [rejectReasonInput, setRejectReasonInput] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
 
+  const [sodStatus, setSodStatus] = useState<SodIntegrationStatus>({ configured: false, url: null });
+  useEffect(() => {
+    apiBridge.fetchSodStatus().then(setSodStatus);
+  }, []);
+
   const loadProposal = useCallback(async () => {
     if (!findingId) return;
     setIsProposalLoading(true);
@@ -158,9 +164,26 @@ export function FindingDetailModal({
     try {
       const updated = await apiBridge.submitProposalForReview(structuredProposal.proposal_id);
       setStructuredProposal(updated);
-      setActionSuccessMsg('Đã chuyển đề xuất sang trạng thái Chờ Phê Duyệt (PENDING_APPROVAL).');
+      setActionSuccessMsg(
+        updated.sod_ticket_code
+          ? `Đã gửi phiếu ${updated.sod_ticket_code} sang SoD Flow. Chờ các cấp duyệt; duyệt xong bạn thực thi tại đây.`
+          : updated.status === 'PENDING_SUBMIT'
+          ? 'SoD Flow chưa phản hồi. Đề xuất giữ ở trạng thái chờ gửi, bấm "Gửi lại phiếu" khi SoD hoạt động.'
+          : 'Đã chuyển đề xuất sang trạng thái Chờ Phê Duyệt (PENDING_APPROVAL).'
+      );
     } catch (err: any) {
       setAIActionError(err.message || 'Lỗi gửi phê duyệt');
+    }
+  };
+
+  const handleResubmitProposal = async () => {
+    if (!structuredProposal) return;
+    try {
+      const updated = await apiBridge.resubmitProposal(structuredProposal.proposal_id);
+      setStructuredProposal(updated);
+      setActionSuccessMsg(`Đã gửi phiếu ${updated.sod_ticket_code ?? ''} sang SoD Flow.`);
+    } catch (err: any) {
+      setAIActionError(err.message || 'Lỗi gửi lại phiếu');
     }
   };
 
@@ -1201,8 +1224,42 @@ export function FindingDetailModal({
                                 </div>
                               )}
 
+                              {(structuredProposal.sod_ticket_code || structuredProposal.status === 'PENDING_SUBMIT') && (
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/60 p-3 text-[11px] text-purple-900 space-y-1">
+                                  <p className="font-semibold">Duyệt qua SoD Flow</p>
+                                  {structuredProposal.sod_ticket_code ? (
+                                    <p>
+                                      Phiếu{' '}
+                                      {sodStatus.url && structuredProposal.sod_ticket_id ? (
+                                        <a
+                                          className="font-mono font-semibold underline"
+                                          href={`${sodStatus.url}/yeu-cau/${structuredProposal.sod_ticket_id}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          {structuredProposal.sod_ticket_code}
+                                        </a>
+                                      ) : (
+                                        <span className="font-mono font-semibold">{structuredProposal.sod_ticket_code}</span>
+                                      )}
+                                      {structuredProposal.status === 'PENDING_APPROVAL' && ': đang chờ các cấp duyệt bên SoD Flow. Duyệt nội bộ đã tắt.'}
+                                      {structuredProposal.status === 'APPROVED' && `: đã được duyệt. Chỉ người đã gửi duyệt (${structuredProposal.sod_requester ?? '—'}) được thực thi.`}
+                                      {structuredProposal.status === 'REJECTED' && ': bị từ chối / hủy / hết hạn bên SoD Flow.'}
+                                      {structuredProposal.status === 'STALE' && ': nội dung đề xuất đã đổi so với bản được duyệt, cần gửi duyệt lại.'}
+                                    </p>
+                                  ) : (
+                                    <p>SoD Flow chưa phản hồi nên chưa có phiếu. Đề xuất chưa được duyệt.</p>
+                                  )}
+                                </div>
+                              )}
+
                               {!showRejectInput && (
                                 <div className="flex flex-wrap items-center gap-2">
+                                  {structuredProposal.status === 'PENDING_SUBMIT' && (
+                                    <Button size="sm" variant="outline" disabled={isAuditor} onClick={handleResubmitProposal} className="text-xs">
+                                      Gửi lại phiếu sang SoD Flow
+                                    </Button>
+                                  )}
                                   {structuredProposal.status === 'DRY_RUN_PASSED' && (
                                     <>
                                       <Button
@@ -1214,18 +1271,20 @@ export function FindingDetailModal({
                                       >
                                         Gửi Chờ Duyệt (Submit)
                                       </Button>
-                                      <Button
-                                        size="sm"
-                                        disabled={isAuditor}
-                                        onClick={handleApproveProposal}
-                                        className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
-                                      >
-                                        Phê Duyệt Đề Xuất (Admin)
-                                      </Button>
+                                      {!sodStatus.configured && (
+                                        <Button
+                                          size="sm"
+                                          disabled={isAuditor}
+                                          onClick={handleApproveProposal}
+                                          className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
+                                        >
+                                          Phê Duyệt Đề Xuất (Admin)
+                                        </Button>
+                                      )}
                                     </>
                                   )}
 
-                                  {structuredProposal.status === 'PENDING_APPROVAL' && (
+                                  {structuredProposal.status === 'PENDING_APPROVAL' && !structuredProposal.sod_ticket_code && (
                                     <>
                                       <Button
                                         size="sm"
