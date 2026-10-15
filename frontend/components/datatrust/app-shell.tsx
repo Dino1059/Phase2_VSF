@@ -13,9 +13,12 @@ import {
   Workflow,
   X,
   Zap,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAgentStore, USER_ACCOUNTS, type AgentStoreState } from '@/lib/agent-store';
+import { useAuthStore } from '@/src/stores/authStore';
 import { AiChatPane } from '@/components/datatrust/overview/ai-chat-pane';
 
 interface NavItem {
@@ -23,13 +26,6 @@ interface NavItem {
   href: string;
   icon: typeof LayoutGrid;
 }
-
-// Bỏ tab "Kết quả", chỉ giữ Trang chủ, Lần chạy, Quy tắc & Chính sách
-const navigation: NavItem[] = [
-  { label: 'Trang chủ', href: '/overview', icon: LayoutGrid },
-  { label: 'Lần chạy & Lineage', href: '/runs', icon: Workflow },
-  { label: 'Quy tắc & Chính sách', href: '/rules', icon: CheckSquare },
-];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useLocation().pathname;
@@ -96,10 +92,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
   const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
-  const currentUser = USER_ACCOUNTS[currentRole];
+
+  const authUser = useAuthStore((s) => s.user);
+  const authSystemAccess = useAuthStore((s) => s.systemAccess);
+  const logout = useAuthStore((s) => s.logout);
+  const quickSwitchPersona = useAuthStore((s) => s.quickSwitchPersona);
+
+  const currentUser = {
+    avatar: authUser?.avatar || USER_ACCOUNTS[currentRole]?.avatar || 'AD',
+    name: authUser?.fullName || USER_ACCOUNTS[currentRole]?.name || 'Quản trị viên',
+    badge: authUser?.badge || (authSystemAccess === 'both' ? 'Cả hai hệ thống' : 'Chỉ DataTrust OS'),
+  };
 
   const homepageViewMode = useAgentStore((s: AgentStoreState) => s.homepageViewMode);
   const activeRunId = useAgentStore((s: AgentStoreState) => s.pipelineLevels.activeRunId);
+
+  // Dynamic Navigation Items: Append Tab 4 (Phân quyền & SoD) if systemAccess is 'both'
+  const navigationItems: NavItem[] = [
+    { label: 'Trang chủ', href: '/overview', icon: LayoutGrid },
+    { label: 'Lần chạy & Lineage', href: '/runs', icon: Workflow },
+    { label: 'Quy tắc & Chính sách', href: '/rules', icon: CheckSquare },
+    ...(authSystemAccess === 'both'
+      ? [{ label: 'Phân quyền & SoD', href: '/sod', icon: ShieldCheck }]
+      : []),
+  ];
 
   // Keyboard shortcut Alt + [ to toggle chat
   useEffect(() => {
@@ -114,6 +130,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const getBreadcrumbTitle = () => {
+    if (pathname.startsWith('/sod')) return 'PHÂN QUYỀN & SOD';
     if (pathname.startsWith('/overview') || pathname === '/') {
       if (homepageViewMode === 'running_pipeline' || homepageViewMode === 'results_dashboard') {
         const shortId = activeRunId || 'RUN-20261007-021';
@@ -135,6 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const getSectionIcon = () => {
+    if (pathname.startsWith('/sod')) return ShieldCheck;
     if (pathname.startsWith('/runs') || pathname.includes('/lineage')) return Workflow;
     if (pathname.startsWith('/rules')) return CheckSquare;
     return LayoutGrid;
@@ -164,7 +182,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Navigation icons */}
           <nav aria-label="Điều hướng chính" className="flex flex-col items-center gap-2.5 w-full px-2">
-            {navigation.map((item) => {
+            {navigationItems.map((item) => {
               const active =
                 pathname === item.href ||
                 (item.href === '/overview' && pathname === '/') ||
@@ -348,7 +366,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <button
                 type="button"
-                onClick={() => setRole('auditor')}
+                onClick={() => {
+                  setRole('auditor');
+                  quickSwitchPersona('auditor');
+                }}
                 aria-pressed={currentRole === 'auditor'}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer motion-reduce:transition-none',
@@ -364,7 +385,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 type="button"
-                onClick={() => setRole('admin')}
+                onClick={() => {
+                  setRole('admin');
+                  quickSwitchPersona('admin');
+                }}
                 aria-pressed={currentRole === 'admin'}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer motion-reduce:transition-none',
@@ -381,7 +405,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* User Account Pill */}
-            <div className="hidden sm:flex items-center gap-2.5 rounded-xl border border-[#e2ece8] bg-white px-3 py-1.5 text-xs shadow-2xs">
+            <div className="hidden sm:flex items-center gap-2 rounded-xl border border-[#e2ece8] bg-white px-3 py-1.5 text-xs shadow-2xs">
               <div className="grid size-7 place-items-center rounded-lg bg-slate-950 font-mono text-[11px] font-bold text-[#04D3D4] border border-[#04D3D4]/30">
                 {currentUser.avatar}
               </div>
@@ -390,6 +414,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="text-[10px] text-slate-500 font-medium">{currentUser.badge}</span>
               </div>
             </div>
+
+            {/* Quick Switch Persona button */}
+            <RouterLink
+              to="/login"
+              title="Đổi vai trò Persona khác"
+              className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#e2ece8] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition text-xs font-semibold cursor-pointer shadow-2xs"
+            >
+              <User size={13} className="text-[#04D3D4]" />
+              <span>Đổi Persona</span>
+            </RouterLink>
+
+            {/* Logout button */}
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                window.location.href = '/login';
+              }}
+              title="Đăng xuất khỏi hệ thống"
+              className="grid size-8 place-items-center rounded-xl border border-[#e2ece8] bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer shadow-2xs"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </header>
 
