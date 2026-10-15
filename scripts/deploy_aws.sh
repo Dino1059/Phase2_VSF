@@ -18,7 +18,20 @@ wait_for_health() {
   local delay="${2:-5}"
   local attempt
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    if curl --fail --silent --show-error --max-time 5 http://localhost/health >/dev/null; then
+    if curl --fail --silent --show-error --max-time 5 http://localhost/ready >/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+wait_for_postgres() {
+  local attempts="${1:-60}"
+  local delay="${2:-2}"
+  local attempt
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if compose exec -T postgres pg_isready -U datatrust -d datatrust >/dev/null 2>&1; then
       return 0
     fi
     sleep "$delay"
@@ -47,6 +60,10 @@ git checkout --detach "$TARGET_SHA"
 
 compose config --quiet
 compose build
+compose up -d postgres
+wait_for_postgres 60 2
+compose run --rm --no-deps app python -m database.bootstrap_render
+compose run --rm --no-deps app python -m database.run_migrations
 compose up -d --remove-orphans
 wait_for_health 120 5
 

@@ -65,6 +65,7 @@ CREATE INDEX idx_catalog_columns_pii ON catalog.columns(pii_role);
 CREATE TABLE bronze.acn_charging_mapped (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     vehicle_vin VARCHAR(50),
     session_id VARCHAR(100),
@@ -88,6 +89,7 @@ CREATE TABLE bronze.acn_charging_mapped (
 CREATE TABLE bronze.dim_customers (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     customer_id VARCHAR(50),
     first_name VARCHAR(100),
@@ -107,6 +109,7 @@ CREATE TABLE bronze.dim_customers (
 CREATE TABLE bronze.dim_drivers (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     driver_id VARCHAR(50),
     vehicle_vin VARCHAR(50),
@@ -123,6 +126,7 @@ CREATE TABLE bronze.dim_drivers (
 CREATE TABLE bronze.feedback_pii (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     feedback_id VARCHAR(50),
     vehicle_vin VARCHAR(50),
@@ -140,6 +144,7 @@ CREATE TABLE bronze.feedback_pii (
 CREATE TABLE bronze.fleet_index (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     vehicle_vin VARCHAR(50),
     vehicle_type VARCHAR(50),
@@ -151,6 +156,7 @@ CREATE TABLE bronze.fleet_index (
 CREATE TABLE bronze.ride_hailing_xanh_sm_trips (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     trip_id VARCHAR(50),
     vehicle_vin VARCHAR(50),
@@ -176,6 +182,7 @@ CREATE TABLE bronze.ride_hailing_xanh_sm_trips (
 CREATE TABLE bronze.synthetic_ev_telemetry_ved_ref (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     record_id VARCHAR(50),
     vehicle_vin VARCHAR(50),
@@ -205,6 +212,7 @@ CREATE TABLE bronze.synthetic_ev_telemetry_ved_ref (
 CREATE TABLE bronze.synthetic_feedback_scenario_driven (
     _raw_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     _batch_id VARCHAR(100),
+    _source_row_number BIGINT,
     _ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     feedback_id VARCHAR(50),
     vehicle_vin VARCHAR(50),

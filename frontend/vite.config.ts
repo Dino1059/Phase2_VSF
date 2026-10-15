@@ -3,24 +3,27 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const frontendRoot = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   base: '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': import.meta.dirname,
+      '@': frontendRoot,
     },
   },
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['./test/setup.ts'],
+    setupFiles: [path.resolve(frontendRoot, 'test/setup.ts')],
   },
   server: {
     host: '0.0.0.0',
     port: 5173,
-    fs: { allow: [path.resolve(import.meta.dirname, '..')] },
+    fs: { allow: [path.resolve(frontendRoot, '..')] },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

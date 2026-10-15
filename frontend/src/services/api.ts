@@ -6,6 +6,16 @@ export function getRoleHeader(): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
+function getActorHeader(): string {
+  try {
+    const raw = localStorage.getItem('datatrust_user_profile');
+    const profile = raw ? JSON.parse(raw) : null;
+    return String(profile?.username || profile?.user_id || 'web-user');
+  } catch {
+    return 'web-user';
+  }
+}
+
 const TOKEN_KEYS = ['datatrust-token', 'datatrust_jwt_token'] as const;
 
 export function getGlobalUseLlm(): boolean {
@@ -60,6 +70,7 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
   const token = readAuthToken();
   const headers: Record<string, string> = {
     'X-User-Role': getRoleHeader(),
+    'X-User': getActorHeader(),
     ...customHeaders,
   };
   if (token) headers.Authorization = `Bearer ${token}`;

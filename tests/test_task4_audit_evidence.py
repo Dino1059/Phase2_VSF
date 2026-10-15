@@ -1,7 +1,7 @@
 """
 Unit and Integration Tests for Task 4: Immutable Audit Evidence & Digital Signature
 Verifies:
-1. IPO Digital Signature: 'SIG-AIRFLOW-3LANE-GSM-IPO-2026'
+1. HMAC-SHA256 digital signature
 2. Continuous SHA-256 Hash Chaining with previous_hash
 3. Deterministic hash reproducibility & tamper detection
 4. Payload structural integrity for IPO Compliance Audit
@@ -13,6 +13,7 @@ import json
 import uuid
 import pytest
 from dags.datatrust_adaptive_pipeline_dag import task_4_emit_audit_evidence
+from backend.audit.cryptographic_audit import verify_digital_signature
 
 
 class MockTI:
@@ -53,8 +54,18 @@ def test_task_4_signature_and_hash_chaining():
 
     payload = task_4_emit_audit_evidence(**context)
 
-    # 1. Digital Signature
-    assert payload["digital_signature"] == "SIG-AIRFLOW-3LANE-GSM-IPO-2026"
+    # 1. Digital Signature: cryptographic, not a static marker.
+    assert len(payload["digital_signature"]) == 64
+    signature_material = {
+        "run_id": payload["run_id"],
+        "dataset_id": payload["dataset_id"],
+        "evidence_hash": payload["evidence_hash"],
+        "previous_hash": payload["previous_hash"],
+        "merkle_root": payload["merkle_root"],
+        "metrics": payload["metrics"],
+        "rule_snapshot_hashes": payload["rule_snapshot_hashes"],
+    }
+    assert verify_digital_signature(signature_material, payload["digital_signature"])
 
     # 2. Evidence Hash
     ev_hash = payload["evidence_hash"]
@@ -67,7 +78,8 @@ def test_task_4_signature_and_hash_chaining():
     assert len(prev_hash) > 0
 
     # 4. Independent recomputation matches
-    expected_content = f"{prev_hash}:{run_id}:ride_hailing_xanh_sm_trips:{json.dumps(ti.metrics, sort_keys=True, default=str)}"
+    expected_payload = {**ti.metrics, "merkle_root": payload["merkle_root"]}
+    expected_content = f"{prev_hash}:{run_id}:ride_hailing_xanh_sm_trips:{json.dumps(expected_payload, sort_keys=True, default=str)}"
     expected_hash = hashlib.sha256(expected_content.encode("utf-8")).hexdigest()
     assert ev_hash == expected_hash
 

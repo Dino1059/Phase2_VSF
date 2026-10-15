@@ -17,6 +17,9 @@ x-airflow-environment: &airflow-environment
   POSTGRES_USER: datatrust
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
   DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?required}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-southeast-1}
+  AWS_SSM_AUDIT_SECRET_PATH: ${AWS_SSM_AUDIT_SECRET_PATH:-/datatrust/production/audit_hmac_secret}
   PYTHONPATH: /opt/airflow
   DATATRUST_AIRFLOW_RUNTIME_DIR: /opt/airflow/logs/runtime
 
@@ -117,7 +120,12 @@ services:
       AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
       AIRFLOW_USER: ${AIRFLOW_USER:-datatrust}
       AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:?required}
+      DATATRUST_API_USER: ${DATATRUST_API_USER:-datatrust}
+      DATATRUST_API_PASSWORD: ${AIRFLOW_PASSWORD:?required}
       DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?required}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-southeast-1}
+      AWS_SSM_AUDIT_SECRET_PATH: ${AWS_SSM_AUDIT_SECRET_PATH:-/datatrust/production/audit_hmac_secret}
       DATATRUST_CHAT_SESSION_DB_PATH: /var/data/chat_sessions.db
       DATATRUST_AI_ANALYSIS_STORE_PATH: /var/data/finding_ai_analyses.json
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -131,6 +139,7 @@ services:
       - -c
       - >-
         python -m database.bootstrap_render &&
+        python -m database.run_migrations &&
         exec uvicorn backend.api.render_app:app
         --host 0.0.0.0 --port 10000
         --proxy-headers --forwarded-allow-ips='*'
@@ -139,7 +148,7 @@ services:
     volumes:
       - app-runtime:/var/data
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:10000/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:10000/ready"]
       interval: 15s
       timeout: 5s
       retries: 20

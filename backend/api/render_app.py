@@ -1,6 +1,9 @@
 """Render production entry point serving the API and the built SPA."""
 
 from pathlib import Path
+import os
+
+import psycopg2
 
 from fastapi import Response
 from fastapi.responses import FileResponse
@@ -19,10 +22,27 @@ def health() -> dict[str, str]:
 
 @app.get("/ready", include_in_schema=False)
 def ready(response: Response) -> dict[str, str]:
-    """A lightweight readiness probe; DB-dependent routes report their own errors."""
+    """Verify the frontend, PostgreSQL, and every required production migration."""
     if not FRONTEND_DIST.joinpath("index.html").is_file():
         response.status_code = 503
         return {"status": "not_ready", "reason": "frontend build is missing"}
+    try:
+        from database.run_migrations import INCREMENTAL_MIGRATIONS
+
+        conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=3)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT migration_name FROM orchestration.schema_migrations")
+                applied = {row[0] for row in cur.fetchall()}
+        finally:
+            conn.close()
+        missing = [name for name in INCREMENTAL_MIGRATIONS if name not in applied]
+        if missing:
+            response.status_code = 503
+            return {"status": "not_ready", "reason": f"missing migrations: {', '.join(missing)}"}
+    except Exception as exc:
+        response.status_code = 503
+        return {"status": "not_ready", "reason": f"database readiness failed: {exc}"}
     return {"status": "ready"}
 
 

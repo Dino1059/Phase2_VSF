@@ -26,6 +26,10 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: Optional base64-encoded OpenAI API key.
+  AuditHmacSecretParameterName:
+    Type: String
+    Default: /datatrust/production/audit_hmac_secret
+    Description: Existing SSM SecureString parameter containing the audit HMAC secret.
   AllowedHttpCidr:
     Type: String
     Default: 0.0.0.0/0
@@ -110,6 +114,20 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: datatrust-audit-secret-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AuditHmacSecretParameterName}
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -126,6 +144,9 @@ Resources:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 2
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds: [!Ref AppSecurityGroup]
       BlockDeviceMappings:
@@ -175,16 +196,30 @@ Resources:
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           AIRFLOW_USER=datatrust
           AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD
+          DATATRUST_API_USER=datatrust
+          DATATRUST_API_PASSWORD=$AIRFLOW_PASSWORD
           DATATRUST_PSEUDONYMIZATION_KEY=$PSEUDONYMIZATION_KEY
           OPENAI_API_KEY=$OPENAI_API_KEY
+          ENVIRONMENT=production
+          AWS_DEFAULT_REGION=${AWS::Region}
+          AWS_SSM_AUDIT_SECRET_PATH=${AuditHmacSecretParameterName}
           ENVFILE
           chmod 600 .env.aws
 
           docker compose --env-file .env.aws -f docker-compose.aws.yml build
+          docker compose --env-file .env.aws -f docker-compose.aws.yml up -d postgres
+          for attempt in $(seq 1 60); do
+            if docker compose --env-file .env.aws -f docker-compose.aws.yml exec -T postgres pg_isready -U datatrust -d datatrust >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker compose --env-file .env.aws -f docker-compose.aws.yml run --rm --no-deps app python -m database.bootstrap_render
+          docker compose --env-file .env.aws -f docker-compose.aws.yml run --rm --no-deps app python -m database.run_migrations
           docker compose --env-file .env.aws -f docker-compose.aws.yml up -d
 
           for attempt in $(seq 1 60); do
-            if curl -fsS http://localhost/health >/dev/null; then
+            if curl -fsS http://localhost/ready >/dev/null; then
               /opt/aws/bin/cfn-signal --success true --stack '${AWS::StackName}' --resource AppInstance --region '${AWS::Region}'
               exit 0
             fi

@@ -31,7 +31,18 @@ class L1ConstraintDetector:
         if df.empty or metric_col not in df.columns:
             return signals
 
-        for idx, row in df.iterrows():
+        series = pd.to_numeric(df[metric_col], errors="coerce")
+        mask = pd.Series(False, index=df.index)
+        if min_val is not None:
+            mask = mask | (series < min_val)
+        if max_val is not None:
+            mask = mask | (series > max_val)
+
+        if not mask.any():
+            return signals
+
+        violation_df = df[mask]
+        for idx, row in violation_df.iterrows():
             val = float(row[metric_col]) if pd.notna(row[metric_col]) else None
 
             if val is None:
@@ -150,7 +161,16 @@ class L1ConstraintDetector:
         if df.empty or total_col not in df.columns or not all(c in df.columns for c in sum_cols):
             return signals
 
-        for idx, row in df.iterrows():
+        total_series = pd.to_numeric(df[total_col], errors="coerce")
+        sum_series = sum(pd.to_numeric(df[c], errors="coerce").fillna(0.0) for c in sum_cols)
+        diff_series = (total_series - sum_series).abs()
+        mask = total_series.notna() & (diff_series > tolerance)
+
+        if not mask.any():
+            return signals
+
+        violation_df = df[mask]
+        for idx, row in violation_df.iterrows():
             total_val = float(row[total_col]) if pd.notna(row[total_col]) else None
             sum_val = sum(float(row[c]) if pd.notna(row[c]) else 0.0 for c in sum_cols)
 

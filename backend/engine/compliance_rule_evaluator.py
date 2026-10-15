@@ -21,8 +21,14 @@ ALLOWED_OPERATORS = {
     "required", "range", "compare", "enum", "arithmetic",
     "relative_delta", "regex", "masked", "hashed", "geofence",
     "redacted", "precision", "generalized",
+    "all", "any", "not", "context_equals", "date_age_days", "is_null",
 }
 BLOCKING_ACTIONS = {"BLOCK", "QUARANTINE", "QUARANTINE_HITL"}
+
+MAX_NESTING_DEPTH = 4
+MAX_CHILD_CONDITIONS = 10
+MAX_REFERENCED_FIELDS = 20
+MAX_SERIALIZED_RULE_SIZE = 8192
 
 
 @dataclass(frozen=True)
@@ -104,6 +110,8 @@ class ComplianceRuleEvaluator:
         record: Dict[str, Any],
         raw_record: Dict[str, Any],
         phase: str,
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[datetime] = None,
     ) -> EvaluationResult:
         findings, executed, skipped = [], [], []
         normalized_phase = phase.upper()
@@ -112,27 +120,35 @@ class ComplianceRuleEvaluator:
             if rule["evaluation_phase"] != normalized_phase:
                 continue
             executed.append(key)
-            finding = self._evaluate_one(rule, record, raw_record)
+            finding = self._evaluate_one(rule, record, raw_record, context=context, as_of=as_of)
             if finding:
                 findings.append(finding)
         return EvaluationResult(findings, executed, skipped)
 
     def _evaluate_one(
-        self, rule: Dict[str, Any], record: Dict[str, Any], raw_record: Dict[str, Any]
+        self,
+        rule: Dict[str, Any],
+        record: Dict[str, Any],
+        raw_record: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[datetime] = None,
     ) -> Optional[RuleFinding]:
         condition = rule["condition_json"]
         operator = condition["operator"]
         fields = self._fields(condition)
-        missing = [name for name in fields if name not in record or record.get(name) in (None, "")]
-        if missing and operator != "required":
-            behavior = rule["missing_behavior"]
-            if behavior == "SKIP":
-                return None
-            severity = "WARNING" if behavior == "WARNING" else rule.get("severity", "CRITICAL")
-            return self._finding(rule, missing[0], f"required input is missing: {missing[0]}", severity, None)
+        if operator not in {"required", "is_null", "all", "any", "not", "context_equals"}:
+            missing = [name for name in fields if name not in record or record.get(name) in (None, "")]
+            if missing:
+                behavior = rule["missing_behavior"]
+                if behavior == "SKIP":
+                    return None
+                severity = "WARNING" if behavior == "WARNING" else rule.get("severity", "CRITICAL")
+                return self._finding(rule, missing[0], f"required input is missing: {missing[0]}", severity, None)
 
         try:
-            passed, column, observed, detail = self._dispatch(operator, condition, record, raw_record)
+            passed, column, observed, detail = self._dispatch(
+                operator, condition, record, raw_record, context=context, as_of=as_of, depth=0
+            )
         except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
             behavior = rule["invalid_type_behavior"]
             # Exception strings from parsers commonly embed the rejected value.
@@ -144,9 +160,152 @@ class ComplianceRuleEvaluator:
         return self._finding(rule, column, detail, rule.get("severity", "CRITICAL"), observed)
 
     def _dispatch(
-        self, operator: str, c: Dict[str, Any], record: Dict[str, Any], raw: Dict[str, Any]
+        self,
+        operator: str,
+        c: Dict[str, Any],
+        record: Dict[str, Any],
+        raw: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[datetime] = None,
+        depth: int = 0,
     ) -> Tuple[bool, str, Any, str]:
+        if depth > MAX_NESTING_DEPTH:
+            raise RuleConfigurationError(f"runtime condition nesting depth exceeds {MAX_NESTING_DEPTH}")
+
         field = str(c.get("field") or c.get("column") or "*")
+        if operator == "all":
+            children = c.get("conditions") or c.get("rules") or []
+            if not children:
+                return True, field, None, ""
+            for child in children:
+                child_op = str(child.get("operator", child.get("type", ""))).lower()
+                ok, col, obs, det = self._dispatch(
+                    child_op, child, record, raw, context=context, as_of=as_of, depth=depth + 1
+                )
+                if not ok:
+                    return False, col, obs, det
+            return True, field, None, ""
+        if operator == "any":
+            children = c.get("conditions") or c.get("rules") or []
+            if not children:
+                return True, field, None, ""
+            last_col, last_obs, last_det = field, None, "all alternative conditions failed"
+            for child in children:
+                child_op = str(child.get("operator", child.get("type", ""))).lower()
+                ok, col, obs, det = self._dispatch(
+                    child_op, child, record, raw, context=context, as_of=as_of, depth=depth + 1
+                )
+                if ok:
+                    return True, col, obs, ""
+                last_col, last_obs, last_det = col, obs, det
+            return False, last_col, last_obs, f"none of {len(children)} conditions met: {last_det}"
+        if operator == "not":
+            child = c.get("condition")
+            if child is None:
+                children = c.get("conditions") or c.get("rules") or []
+                if len(children) != 1:
+                    raise RuleConfigurationError("operator 'not' requires exactly one child condition")
+                child = children[0]
+            child_op = str(child.get("operator", child.get("type", ""))).lower()
+            ok, col, obs, det = self._dispatch(
+                child_op, child, record, raw, context=context, as_of=as_of, depth=depth + 1
+            )
+            if ok:
+                return False, col, obs, f"negated condition unexpectedly satisfied ({child_op})"
+            return True, col, obs, ""
+        if operator == "is_null":
+            val = record.get(field)
+            is_none_or_empty = val is None or val == ""
+            if not is_none_or_empty and isinstance(val, float) and math.isnan(val):
+                is_none_or_empty = True
+            if is_none_or_empty:
+                return True, field, None, ""
+            return False, field, val, f"{field} is expected to be null or empty, observed {val!r}"
+        if operator == "context_equals":
+            ctx = context or {}
+            key = str(c.get("key") or c.get("field") or field)
+            expected = c.get("value")
+            observed = ctx.get(key)
+            comparator = c.get("comparator", "==")
+            if comparator == "==":
+                matched = (observed == expected)
+            elif comparator == "!=":
+                matched = (observed != expected)
+            elif comparator in ("in", "IN"):
+                matched = observed in (expected or [])
+            elif comparator in ("not_in", "NOT_IN"):
+                matched = observed not in (expected or [])
+            else:
+                raise ValueError(f"unsupported context comparator: {comparator}")
+            if matched:
+                return True, key, observed, ""
+            return False, key, observed, f"context key '{key}' ({observed!r}) does not satisfy {comparator} {expected!r}"
+        if operator == "date_age_days":
+            val = record.get(field)
+            if val is None or val == "" or (isinstance(val, float) and math.isnan(val)):
+                return False, field, None, f"{field} date is missing or null"
+            if isinstance(val, datetime):
+                dt_rec = val
+            else:
+                try:
+                    dt_rec = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    dt_rec = datetime.strptime(str(val)[:10], "%Y-%m-%d")
+            if dt_rec.tzinfo is None:
+                dt_rec = dt_rec.replace(tzinfo=timezone.utc)
+            else:
+                dt_rec = dt_rec.astimezone(timezone.utc)
+
+            run_as_of = as_of
+            if run_as_of is None and context and "as_of" in context:
+                ctx_as_of = context["as_of"]
+                if isinstance(ctx_as_of, datetime):
+                    run_as_of = ctx_as_of
+                elif isinstance(ctx_as_of, str):
+                    try:
+                        run_as_of = datetime.fromisoformat(ctx_as_of.replace("Z", "+00:00"))
+                    except ValueError:
+                        run_as_of = datetime.strptime(ctx_as_of[:10], "%Y-%m-%d")
+            if run_as_of is None and "as_of" in c:
+                c_as_of = c["as_of"]
+                if isinstance(c_as_of, datetime):
+                    run_as_of = c_as_of
+                elif isinstance(c_as_of, str):
+                    try:
+                        run_as_of = datetime.fromisoformat(c_as_of.replace("Z", "+00:00"))
+                    except ValueError:
+                        run_as_of = datetime.strptime(c_as_of[:10], "%Y-%m-%d")
+            if run_as_of is None:
+                run_as_of = datetime.now(timezone.utc)
+            elif run_as_of.tzinfo is None:
+                run_as_of = run_as_of.replace(tzinfo=timezone.utc)
+            else:
+                run_as_of = run_as_of.astimezone(timezone.utc)
+
+            delta = run_as_of - dt_rec
+            age_days = delta.total_seconds() / 86400.0
+
+            max_days = c.get("max_days", c.get("days", c.get("threshold")))
+            min_days = c.get("min_days")
+            comparator = c.get("comparator")
+            if comparator:
+                thresh = float(max_days if max_days is not None else 0.0)
+                funcs = {"<=": age_days <= thresh, "<": age_days < thresh,
+                         ">=": age_days >= thresh, ">": age_days > thresh,
+                         "==": abs(age_days - thresh) < 1e-5, "!=": abs(age_days - thresh) >= 1e-5}
+                if comparator not in funcs:
+                    raise ValueError(f"unsupported comparator {comparator}")
+                ok = funcs[comparator]
+            else:
+                ok = True
+                if max_days is not None:
+                    ok = ok and (age_days <= float(max_days))
+                if min_days is not None:
+                    ok = ok and (age_days >= float(min_days))
+
+            if ok:
+                return True, field, round(age_days, 2), ""
+            return False, field, round(age_days, 2), f"{field} age ({age_days:.1f} days) exceeds permitted range"
         if operator == "required":
             required = c.get("fields") or [field]
             missing = [f for f in required if f not in record or record.get(f) in (None, "")]
@@ -269,6 +428,64 @@ class ComplianceRuleEvaluator:
         )
 
     @classmethod
+    def _validate_condition_ast(
+        cls,
+        condition: Dict[str, Any],
+        depth: int = 0,
+        visited_fields: Optional[set] = None,
+    ) -> set:
+        if depth > MAX_NESTING_DEPTH:
+            raise RuleConfigurationError(
+                f"condition nesting depth {depth} exceeds maximum permitted depth {MAX_NESTING_DEPTH}"
+            )
+        if visited_fields is None:
+            visited_fields = set()
+
+        if not isinstance(condition, dict):
+            raise RuleConfigurationError("condition must be a JSON object")
+
+        operator = str(condition.get("operator", condition.get("type", ""))).lower()
+        if not operator or operator not in ALLOWED_OPERATORS:
+            raise RuleConfigurationError(f"unsupported operator: {operator}")
+
+        for key in ("field", "column", "left_field", "right_field", "latitude_field", "longitude_field"):
+            if condition.get(key) and condition[key] != "*":
+                visited_fields.add(str(condition[key]))
+        for f in (condition.get("fields") or condition.get("components") or []):
+            if f and f != "*":
+                visited_fields.add(str(f))
+
+        if len(visited_fields) > MAX_REFERENCED_FIELDS:
+            raise RuleConfigurationError(
+                f"referenced fields count {len(visited_fields)} exceeds maximum permitted {MAX_REFERENCED_FIELDS}"
+            )
+
+        if operator in {"all", "any"}:
+            children = condition.get("conditions") or condition.get("rules")
+            if not isinstance(children, list):
+                raise RuleConfigurationError(f"operator '{operator}' conditions must be a list")
+            if not (1 <= len(children) <= MAX_CHILD_CONDITIONS):
+                raise RuleConfigurationError(
+                    f"operator '{operator}' has {len(children)} child conditions; must be between 1 and {MAX_CHILD_CONDITIONS}"
+                )
+            for child in children:
+                cls._validate_condition_ast(child, depth + 1, visited_fields)
+
+        elif operator == "not":
+            child = condition.get("condition")
+            if child is None:
+                children = condition.get("conditions") or condition.get("rules")
+                if isinstance(children, list) and len(children) == 1:
+                    child = children[0]
+                else:
+                    raise RuleConfigurationError("operator 'not' requires exactly one child condition")
+            if not isinstance(child, dict):
+                raise RuleConfigurationError("operator 'not' child condition must be an object")
+            cls._validate_condition_ast(child, depth + 1, visited_fields)
+
+        return visited_fields
+
+    @classmethod
     def _normalize_rule(cls, source: Dict[str, Any]) -> Dict[str, Any]:
         rule = dict(source)
         condition = rule.get("condition_json", rule.get("condition"))
@@ -276,8 +493,13 @@ class ComplianceRuleEvaluator:
             try: condition = json.loads(condition)
             except json.JSONDecodeError as exc: raise RuleConfigurationError("condition_json must be valid JSON") from exc
         if not isinstance(condition, dict): raise RuleConfigurationError("condition_json must be an object")
+        serialized = json.dumps(condition)
+        if len(serialized.encode("utf-8")) > MAX_SERIALIZED_RULE_SIZE:
+            raise RuleConfigurationError(
+                f"condition serialized size {len(serialized.encode('utf-8'))} bytes exceeds maximum permitted {MAX_SERIALIZED_RULE_SIZE} bytes"
+            )
+        cls._validate_condition_ast(condition, depth=0)
         operator = str(condition.get("operator", condition.get("type", ""))).lower()
-        if operator not in ALLOWED_OPERATORS: raise RuleConfigurationError(f"unsupported operator: {operator}")
         condition["operator"] = operator
         rule["condition_json"] = condition
         for required in ("rule_id", "version"):
@@ -322,12 +544,24 @@ class ComplianceRuleEvaluator:
         else: parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
-    @staticmethod
-    def _fields(c: Dict[str, Any]) -> List[str]:
+    @classmethod
+    def _fields(cls, c: Dict[str, Any]) -> List[str]:
         names = []
         for key in ("field", "column", "left_field", "right_field", "latitude_field", "longitude_field"):
             if c.get(key): names.append(str(c[key]))
         names.extend(str(x) for x in (c.get("fields") or c.get("components") or []))
+        op = str(c.get("operator", c.get("type", ""))).lower()
+        if op in {"all", "any"}:
+            for child in (c.get("conditions") or c.get("rules") or []):
+                names.extend(cls._fields(child))
+        elif op == "not":
+            child = c.get("condition")
+            if child is None:
+                children = c.get("conditions") or c.get("rules") or []
+                if children:
+                    child = children[0]
+            if child:
+                names.extend(cls._fields(child))
         return list(dict.fromkeys(n for n in names if n != "*"))
 
     @staticmethod

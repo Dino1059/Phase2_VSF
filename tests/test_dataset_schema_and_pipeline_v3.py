@@ -103,6 +103,7 @@ def test_strategy_a_charging_duplicates_and_scanned_count_invariant():
     for i in range(880):
         rows.append({
             "_raw_id": f"raw_charging_{i:04d}",
+            "_source_row_number": i + 1,
             "session_id": f"SESS_{i:04d}",
             "vehicle_vin": f"VIN_{i % 50:03d}",
             "station_id": "ST_01",
@@ -122,6 +123,7 @@ def test_strategy_a_charging_duplicates_and_scanned_count_invariant():
         canonical_idx = dup_idx
         rows.append({
             "_raw_id": f"raw_charging_dup_{dup_idx:04d}",
+            "_source_row_number": 880 + dup_idx + 1,
             "session_id": f"SESS_{canonical_idx:04d}",  # Duplicate session_id
             "vehicle_vin": f"VIN_{canonical_idx % 50:03d}",
             "station_id": "ST_01",
@@ -189,6 +191,53 @@ def test_strategy_a_charging_duplicates_and_scanned_count_invariant():
     # Verify source_row_pk retains the natural business session_id
     for qr in consolidated.quarantine_records:
         assert qr["source_row_pk"].startswith("SESS_")
+
+
+def test_deterministic_canonical_retention_regardless_of_query_order():
+    """
+    Feeds records with duplicate session_id in reverse or random order.
+    Proves that _source_row_number guarantees the row with the lower row number
+    is ALWAYS the canonical record that passes to silver, and later rows are quarantined.
+    """
+    suite = L1toL4DetectorSuite(reliability_config={"l2_metrics": [], "l3_relations": [], "l4_metrics": []})
+
+    # Record A is at row 5 in CSV, Record B is duplicate at row 950 in CSV
+    row_a = {
+        "_raw_id": "uuid_original_csv_row_5",
+        "_source_row_number": 5,
+        "session_id": "SESS_TEST_DUPLICATE",
+        "vehicle_vin": "VF8VNF_0001",
+        "station_id": "ST_01",
+        "duration_mins": 30.0,
+        "kwh_consumed": 15.0,
+        "cost_vnd": 50000.0,
+        "subject_zone": "VN",
+    }
+    row_b = {
+        "_raw_id": "uuid_duplicate_csv_row_950",
+        "_source_row_number": 950,
+        "session_id": "SESS_TEST_DUPLICATE",
+        "vehicle_vin": "VF8VNF_0001",
+        "station_id": "ST_01",
+        "duration_mins": 30.0,
+        "kwh_consumed": 15.0,
+        "cost_vnd": 50000.0,
+        "subject_zone": "VN",
+    }
+
+    # Order 1: Natural order [row_a, row_b]
+    df_natural = pd.DataFrame([row_a, row_b])
+    res_natural = suite.evaluate_records("acn_charging_mapped", df_natural, pk_col="session_id")
+    assert res_natural["uuid_original_csv_row_5"]["status"] == "PASS"
+    assert res_natural["uuid_duplicate_csv_row_950"]["status"] == "FAIL"
+
+    # Order 2: Inverted/query order [row_b, row_a] (e.g. database returned reverse order)
+    df_inverted = pd.DataFrame([row_b, row_a])
+    res_inverted = suite.evaluate_records("acn_charging_mapped", df_inverted, pk_col="session_id")
+    # Even though row_b was fed first in the dataframe, row_a is still canonical because _source_row_number=5 < 950!
+    assert res_inverted["uuid_original_csv_row_5"]["status"] == "PASS", "Row 5 must remain canonical even when query returned row 950 first"
+    assert res_inverted["uuid_duplicate_csv_row_950"]["status"] == "FAIL", "Row 950 must be quarantined as duplicate"
+
 
 
 # =============================================================================

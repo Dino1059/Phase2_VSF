@@ -372,15 +372,15 @@ def truncate_and_ingest_all(
             df = df.where(pd.notnull(df), None)
 
             cols = list(df.columns)
-            # Insert technical audit columns
-            insert_cols = ["_batch_id"] + cols
+            # Insert technical audit columns (_batch_id and deterministic _source_row_number)
+            insert_cols = ["_batch_id", "_source_row_number"] + cols
             col_names_str = ", ".join(insert_cols)
             placeholders = ", ".join(["%s"] * len(insert_cols))
             insert_sql = f"INSERT INTO {full_table} ({col_names_str}) VALUES ({placeholders});"
 
             rows_to_insert = []
-            for _, r in df.iterrows():
-                vals = [batch_id] + [r[c] for c in cols]
+            for row_num, (_, r) in enumerate(df.iterrows(), start=1):
+                vals = [batch_id, row_num] + [r[c] for c in cols]
                 rows_to_insert.append(vals)
 
             # Bulk insert in batches of 5000

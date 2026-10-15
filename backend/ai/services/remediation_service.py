@@ -29,10 +29,10 @@ from backend.database.models import (
     UserRole
 )
 from backend.engine.operation_registry import OperationRegistry
+from backend.audit.cryptographic_audit import get_audit_hmac_secret
 from database.profiler_engine import get_db_connection
 
 
-KMS_AUDIT_SECRET = os.getenv("DATATRUST_KMS_SECRET", "datatrust_audit_hmac_secret_2026_ipo")
 MAX_REMEDIATION_BATCH = 1000
 
 
@@ -56,8 +56,9 @@ def compute_merkle_snapshot_hash(hashes: List[str]) -> str:
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
-def compute_hmac_signature(payload: Dict[str, Any], secret_key: str = KMS_AUDIT_SECRET) -> str:
+def compute_hmac_signature(payload: Dict[str, Any], secret_key: Optional[str] = None) -> str:
     """Computes cryptographic HMAC-SHA256 digital signature over audit payload."""
+    secret_key = secret_key or get_audit_hmac_secret()
     canonical_data = canonical_json_dumps(payload)
     return hmac.new(secret_key.encode("utf-8"), canonical_data.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -175,15 +176,19 @@ class RemediationService:
         source_hashes = [r.get("lineage_hash", compute_hash(r.get("raw_record_json", {}))) for r in source_records]
         source_snapshot_hash = compute_merkle_snapshot_hash(source_hashes)
 
-        # Determine risk level
+        # Determine risk level & HITL requirements
+        is_legal_basis_b15 = (column == "legal_basis" or "B15" in finding_id or "GDPR-006" in reason)
+        is_f8_gps_drift = ("F8" in finding_id or "drift" in reason.lower() or column in ("latitude", "longitude", "pickup_latitude", "pickup_longitude"))
+
         auto_risk = RemediationRiskLevel.LOW
-        if len(quarantine_ids) > 50 or norm_op in ("REMOVE", "REDACT"):
+        if is_legal_basis_b15 or len(quarantine_ids) > 50 or norm_op in ("REMOVE", "REDACT"):
             auto_risk = RemediationRiskLevel.HIGH
         elif len(quarantine_ids) > 10 or norm_op in ("HASH", "HASH_SHA256", "HMAC_SHA256"):
             auto_risk = RemediationRiskLevel.MEDIUM
 
         final_risk = risk_level or auto_risk
-        requires_2nd = (final_risk == RemediationRiskLevel.HIGH)
+        requires_2nd = (final_risk == RemediationRiskLevel.HIGH or is_legal_basis_b15)
+        initial_status = ProposalStatus.PENDING_MAKER_CHECKER if (is_legal_basis_b15 or is_f8_gps_drift) else ProposalStatus.DRAFT
 
         proposal_data = {
             "finding_id": finding_id,
@@ -198,7 +203,7 @@ class RemediationService:
         proposal = StructuredRemediationProposalModel(
             finding_id=finding_id,
             version=1,
-            status=ProposalStatus.DRAFT,
+            status=initial_status,
             created_by=proposer,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
             risk_level=final_risk,
@@ -433,13 +438,23 @@ class RemediationService:
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
 
-        if actor_role.upper() not in ("ADMIN", "DATA_STEWARD"):
+        is_legal_basis_b15 = (proposal.target.column == "legal_basis" or "B15" in proposal.finding_id or "GDPR-006" in proposal.reason)
+        allowed_roles = ("ADMIN", "DATA_STEWARD", "LEGAL", "DPO")
+        if actor_role.upper() not in allowed_roles:
             raise PermissionError(f"Vai trò '{actor_role}' không có quyền phê duyệt đề xuất khắc phục.")
+
+        if is_legal_basis_b15 and actor_role.upper() not in ("LEGAL", "DPO", "ADMIN"):
+            raise PermissionError(f"Đề xuất khắc phục Legal Basis (GDPR Art 6 / B15) bắt buộc phải do DPO hoặc LEGAL phê duyệt.")
 
         if proposal.created_by == actor_id and proposal.created_by != "AI_AGENT":
             raise PermissionError("Vi phạm nguyên tắc Maker-Checker: Người tạo đề xuất không được tự phê duyệt.")
 
-        if proposal.status not in (ProposalStatus.DRY_RUN_PASSED, ProposalStatus.PENDING_APPROVAL, ProposalStatus.PENDING_2ND_APPROVAL):
+        if proposal.status not in (
+            ProposalStatus.DRY_RUN_PASSED,
+            ProposalStatus.PENDING_APPROVAL,
+            ProposalStatus.PENDING_2ND_APPROVAL,
+            ProposalStatus.PENDING_MAKER_CHECKER,
+        ):
             raise ValueError(f"Không thể phê duyệt proposal ở trạng thái {proposal.status}")
 
         now_utc = datetime.now(timezone.utc)
@@ -513,6 +528,17 @@ class RemediationService:
 
         if proposal.status != ProposalStatus.APPROVED:
             raise ValueError(f"Proposal chưa được phê duyệt! Trạng thái hiện tại: {proposal.status}")
+
+        is_legal_basis_b15 = (
+            proposal.target.column == "legal_basis"
+            or "B15" in proposal.finding_id
+            or "GDPR-006" in proposal.reason
+        )
+        if is_legal_basis_b15:
+            raise PermissionError(
+                "B15/GDPR legal-basis findings are evidence-only and cannot be auto-remediated. "
+                "Record the DPO/LEGAL decision and supporting document instead."
+            )
 
         if idempotency_key and proposal.idempotency_key != idempotency_key:
             raise ValueError("Idempotency key không khớp với phiên phê duyệt.")

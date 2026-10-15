@@ -427,6 +427,7 @@ def execute_lane_a_detectors(
     pk_col: Optional[str] = None,
     reliability_config: Optional[Dict[str, Any]] = None,
     rule_snapshot: Optional[List[Dict[str, Any]]] = None,
+    cross_dataset_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Executes Lane A detectors on records DataFrame.
@@ -444,7 +445,12 @@ def execute_lane_a_detectors(
 
     df = pd.DataFrame(records)
     suite = L1toL4DetectorSuite(project_id="gsm_3zone_pilot", reliability_config=reliability_config)
-    raw_results = suite.evaluate_records(dataset_id, df, pk_col=pk_col)
+    raw_results = suite.evaluate_records(
+        dataset_id,
+        df,
+        pk_col=pk_col,
+        cross_dataset_context=cross_dataset_context,
+    )
 
     # Serialize for XCom
     serializable: Dict[str, Any] = {}
@@ -600,6 +606,7 @@ def execute_lane_b_policy(
     records: List[Dict[str, Any]],
     pk_col: Optional[str] = None,
     run_started_at: Optional[datetime] = None,
+    policy_context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Executes Lane B: Resolve -> Policy -> Pre-check -> Treatment -> Process -> Post-check -> Verdict.
@@ -620,7 +627,13 @@ def execute_lane_b_policy(
         compliance_mode=os.getenv("DATATRUST_COMPLIANCE_MODE", "ENFORCED").upper(),
         rule_snapshot_hash=snapshot_hash,
     )
-    verdicts = processor.process_records(canonical_dataset_id, records, pk_col=pk_col)
+    verdicts = processor.process_records(
+        canonical_dataset_id,
+        records,
+        pk_col=pk_col,
+        context=policy_context or {},
+        as_of=run_started_at,
+    )
 
     serializable: List[Dict[str, Any]] = []
     for v in verdicts:
@@ -1274,7 +1287,7 @@ def execute_lane_c_merge_and_persist(
 
                 # Persist evidence for this chunk
                 chunk_pks = {
-                    str(r.get("trip_id") or r.get("record_id") or r.get("session_id") or r.get("customer_id") or r.get("driver_id") or r.get("feedback_id") or r.get("vehicle_vin") or r.get("id"))
+                    str(r.get("_raw_id") or r.get("trip_id") or r.get("record_id") or r.get("session_id") or r.get("customer_id") or r.get("driver_id") or r.get("feedback_id") or r.get("vehicle_vin") or r.get("id"))
                     for r in chunk_records
                 }
                 chunk_lane_b = [lane_b_map[pk] for pk in chunk_pks if pk in lane_b_map and isinstance(lane_b_map[pk], dict)]

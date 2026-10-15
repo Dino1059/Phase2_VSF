@@ -378,7 +378,6 @@ def _load_bronze_dataset_records(context) -> tuple:
             # Clean non-serializable fields
             if "_raw_id" in row_dict and row_dict["_raw_id"] is not None:
                 row_dict["_raw_id"] = str(row_dict["_raw_id"])
-            row_dict.pop("_batch_id", None)
             row_dict.pop("_ingested_at", None)
             for k, v in row_dict.items():
                 if isinstance(v, Decimal):
@@ -570,7 +569,51 @@ def task_3a_run_lane_a(**context):
         from parallel_evaluation_engine import execute_lane_a_detectors
 
     table_name, records = _load_bronze_dataset_records(context)
-    lane_a_results = execute_lane_a_detectors(table_name, records)
+    cross_dataset_context = None
+    if table_name == "acn_charging_mapped" and records:
+        batch_ids = {str(item.get("_batch_id")) for item in records if item.get("_batch_id")}
+        if len(batch_ids) != 1:
+            raise RuntimeError(
+                "Charging evaluation requires exactly one ingestion batch; "
+                f"observed {sorted(batch_ids)}"
+            )
+        charging_batch_id = next(iter(batch_ids))
+        conn = None
+        try:
+            from dags.parallel_evaluation_engine import get_db_connection
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT vehicle_vin, assigned_day_index, COUNT(*)
+                    FROM bronze.ride_hailing_xanh_sm_trips
+                    WHERE _batch_id = %s
+                    GROUP BY vehicle_vin, assigned_day_index
+                    """,
+                    (charging_batch_id,),
+                )
+                trip_rows = cur.fetchall()
+            if not trip_rows:
+                raise RuntimeError(
+                    "F13 cross-dataset evaluation requires trip records from the same ingestion batch"
+                )
+            cross_dataset_context = {
+                "trips_daily_counts": {
+                    (str(vin), int(day)): int(count)
+                    for vin, day, count in trip_rows
+                },
+                "charging_batch_id": charging_batch_id,
+                "trips_batch_id": charging_batch_id,
+            }
+        finally:
+            if conn is not None:
+                conn.close()
+
+    lane_a_results = execute_lane_a_detectors(
+        table_name,
+        records,
+        cross_dataset_context=cross_dataset_context,
+    )
     
     fails = sum(1 for r in lane_a_results.values() if r["status"] == "FAIL")
     warns = sum(1 for r in lane_a_results.values() if r["status"] == "WARNING")
@@ -591,7 +634,24 @@ def task_3b_run_lane_b(**context):
         from parallel_evaluation_engine import execute_lane_b_policy
 
     table_name, records = _load_bronze_dataset_records(context)
-    lane_b_results = execute_lane_b_policy(table_name, records)
+    dag_run = context.get("dag_run")
+    conf = dict(getattr(dag_run, "conf", None) or {})
+    actor_role = str(conf.get("requester_role") or conf.get("actor_role") or "").strip().lower()
+    role_mapping = {"admin": "data_steward", "auditor": "analyst"}
+    policy_context = {
+        "purpose_id": str(conf.get("purpose_id") or "ops_dispatch").strip(),
+        "role": role_mapping.get(actor_role, actor_role or "analyst"),
+        "exclude_opt_out": bool(conf.get("exclude_opt_out", False)),
+        "uses_customer_contact": bool(conf.get("uses_customer_contact", True)),
+        "fatigue_score_tagged": bool(conf.get("fatigue_score_tagged", True)),
+    }
+    logical_date = context.get("logical_date") or context.get("data_interval_end")
+    lane_b_results = execute_lane_b_policy(
+        table_name,
+        records,
+        run_started_at=logical_date,
+        policy_context=policy_context,
+    )
 
     fails = sum(1 for r in lane_b_results if r["status"] == "FAIL")
     warns = sum(1 for r in lane_b_results if r["status"] == "WARNING")
@@ -700,6 +760,11 @@ def task_4_emit_audit_evidence(**context):
     )
     if not isinstance(lane_b_results, list):
         lane_b_results = []
+    lane_a_results = _load_large_task_payload(
+        ti, 'task_3_parallel_evaluation.lane_a_l1_l4_detectors', 'lane_a_results', {}
+    )
+    if not isinstance(lane_a_results, dict):
+        lane_a_results = {}
     run_id = get_canonical_run_id(context)
     dag_id = context.get('dag').dag_id if context.get('dag') else "datatrust_adaptive_pipeline"
     dataset_id = str(metrics.get('dataset_id') or "ride_hailing_xanh_sm_trips")
@@ -765,12 +830,45 @@ def task_4_emit_audit_evidence(**context):
     else:
         # Preserve verification compatibility for legacy/no-snapshot runs.
         hash_payload = metrics
+    from backend.audit.cryptographic_audit import compute_merkle_root, generate_digital_signature
+
+    audit_records = []
+    for item in lane_b_results:
+        evaluation_id = str(item.get("record_id") or "")
+        if not evaluation_id:
+            continue
+        lane_a_status = str((lane_a_results.get(evaluation_id) or {}).get("status") or "PASS").upper()
+        lane_b_status = str(item.get("status") or "PASS").upper()
+        if "FAIL" in {lane_a_status, lane_b_status}:
+            route = "QUARANTINE"
+        elif "WARNING" in {lane_a_status, lane_b_status}:
+            route = "WARNING"
+        else:
+            route = "SILVER"
+        treated = item.get("treated_record") if isinstance(item.get("treated_record"), dict) else {}
+        lineage_hash = str(treated.get("lineage_hash") or item.get("rule_snapshot_hash") or "")
+        audit_records.append({
+            "evaluation_id": evaluation_id,
+            "lineage_hash": lineage_hash,
+            "route": route,
+        })
+    merkle_root = compute_merkle_root(audit_records)
+    hash_payload = {**hash_payload, "merkle_root": merkle_root}
     evidence_content = f"{previous_hash}:{run_id}:{dataset_id}:{json.dumps(hash_payload, sort_keys=True, default=str)}"
     evidence_hash = hashlib.sha256(evidence_content.encode("utf-8")).hexdigest()
 
     # Build standard & custom OpenLineage facets
     jurisdiction_chain = ["GLOBAL", "VN"] if "VN" in dataset_id or "trips" in dataset_id else ["GLOBAL", "EU", "DE"]
-    signer_marker = "SIG-AIRFLOW-3LANE-GSM-IPO-2026"
+    signature_material = {
+        "run_id": run_id,
+        "dataset_id": dataset_id,
+        "previous_hash": previous_hash,
+        "evidence_hash": evidence_hash,
+        "merkle_root": merkle_root,
+        "metrics": metrics,
+        "rule_snapshot_hashes": snapshot_hashes,
+    }
+    signer_marker = generate_digital_signature(signature_material)
     try:
         try:
             from src.lineage.datatrust_facets import build_audit_assurance_facet, get_actual_run_column_lineage
@@ -810,6 +908,7 @@ def task_4_emit_audit_evidence(**context):
         "digital_signature": signer_marker,
         "previous_hash": previous_hash,
         "evidence_hash": evidence_hash,
+        "merkle_root": merkle_root,
         "rule_snapshot_hashes": snapshot_hashes,
         "rule_snapshot": rule_snapshot,
         "rule_executions": rule_executions,

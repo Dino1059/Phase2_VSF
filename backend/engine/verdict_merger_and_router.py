@@ -139,7 +139,14 @@ class VerdictMergerAndRouter:
             lane_b_map = {str(getattr(v, "record_id")): v for v in (lane_b_verdicts or [])}
 
 
-        for raw_item in records:
+        ordered_records = records
+        if records and isinstance(records[0], dict) and "_source_row_number" in records[0]:
+            ordered_records = sorted(
+                records,
+                key=lambda r: (r.get("_source_row_number") is None, r.get("_source_row_number", 0))
+            )
+
+        for raw_item in ordered_records:
             # Resolve PK
             resolved_pk = pk_col
             if not resolved_pk:

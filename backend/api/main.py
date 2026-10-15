@@ -17,7 +17,9 @@ import base64
 import json
 import logging
 import uuid
+import hmac
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
 
 from backend.database.models import (
     UserRole,
@@ -85,10 +87,46 @@ app = FastAPI(
     description="Backend API powering Zero-Code Dynamic Rule Adaptation, Data Catalog, and IPO Audit Assurance."
 )
 
+
+@app.middleware("http")
+async def require_production_basic_auth(request, call_next):
+    """Protect the public single-node deployment without affecting local/tests."""
+    if os.getenv("ENVIRONMENT", "").lower() != "production" or request.url.path in {"/health", "/ready"}:
+        return await call_next(request)
+    expected_user = os.getenv("DATATRUST_API_USER")
+    expected_password = os.getenv("DATATRUST_API_PASSWORD")
+    if not expected_user or not expected_password:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Production API authentication is not configured"},
+        )
+    auth_header = request.headers.get("Authorization", "")
+    supplied_user = supplied_password = ""
+    if auth_header.startswith("Basic "):
+        try:
+            decoded = base64.b64decode(auth_header[6:], validate=True).decode("utf-8")
+            supplied_user, supplied_password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            pass
+    authenticated = hmac.compare_digest(supplied_user, expected_user) and hmac.compare_digest(
+        supplied_password, expected_password
+    )
+    if not authenticated:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"},
+            headers={"WWW-Authenticate": 'Basic realm="DataTrust OS"'},
+        )
+    return await call_next(request)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv("DATATRUST_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if origin.strip()
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -458,17 +496,22 @@ def get_preview(dataset_id: str, limit: int = Query(default=20, ge=1, le=100)):
     Xem trước dữ liệu thực tế từ schema bronze trong PostgreSQL (hoặc fallback CSV).
     """
     from database.profiler_engine import get_db_connection
+    from database.reset_and_ingest_bronze import DATASET_METADATA
+    from psycopg2 import sql
     from psycopg2.extras import RealDictCursor
     from decimal import Decimal
 
     clean_ds = dataset_id.replace(".csv", "").replace("bronze.", "")
+    if clean_ds not in DATASET_METADATA:
+        raise HTTPException(status_code=404, detail="Unknown dataset")
     actual_table = f"bronze.{clean_ds}"
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(f"SELECT * FROM {actual_table} LIMIT %s;", (limit,))
+            table_identifier = sql.Identifier("bronze", clean_ds)
+            cur.execute(sql.SQL("SELECT * FROM {} LIMIT %s;").format(table_identifier), (limit,))
             rows = cur.fetchall()
-            cur.execute(f"SELECT count(*) FROM {actual_table};")
+            cur.execute(sql.SQL("SELECT count(*) FROM {};").format(table_identifier))
             total_records = cur.fetchone()["count"]
 
             cleaned_rows = []
@@ -478,6 +521,19 @@ def get_preview(dataset_id: str, limit: int = Query(default=20, ge=1, le=100)):
                     item["_raw_id"] = str(item["_raw_id"])
                 item.pop("_batch_id", None)
                 item.pop("_ingested_at", None)
+                item.pop("_source_row_number", None)
+                tags = DATASET_METADATA[clean_ds].get("tags", {})
+                protected_roles = {
+                    "DIRECT_IDENTIFIER",
+                    "LINKABLE_IDENTIFIER",
+                    "CONTEXTUAL_PERSONAL_DATA",
+                    "AMBIGUOUS_UNSTRUCTURED_DATA",
+                    "SPECIAL_CATEGORY_HEALTH_DATA",
+                }
+                for column_name, tag_info in tags.items():
+                    pii_role = tag_info[1] if len(tag_info) > 1 else ""
+                    if pii_role in protected_roles and column_name in item:
+                        item[column_name] = "[REDACTED]"
                 for k, v in item.items():
                     if isinstance(v, Decimal):
                         item[k] = float(v)
@@ -1216,7 +1272,11 @@ def create_pipeline_run(
     """
     role_str = x_user_role if isinstance(x_user_role, str) else None
     user_str = x_user if isinstance(x_user, str) else None
-    actor_role = (role_str or "ADMIN").upper()
+    if not role_str or not user_str:
+        raise HTTPException(status_code=401, detail="X-User and X-User-Role are required")
+    actor_role = role_str.upper()
+    if actor_role not in {"ADMIN", "AUDITOR", "DATA_STEWARD"}:
+        raise HTTPException(status_code=403, detail="Unsupported user role")
     actor_name = user_str or ("Trần Minh Hoàng" if actor_role == "AUDITOR" else "Nguyễn Quốc Bảo")
 
     from database.profiler_engine import get_db_connection

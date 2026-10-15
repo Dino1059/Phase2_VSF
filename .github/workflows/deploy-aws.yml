@@ -197,4 +197,4 @@ jobs:
           APP_URL: ${{ steps.stack.outputs.app_url }}
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 \
-            --max-time 10 "$APP_URL/health"
+            --max-time 10 "$APP_URL/ready"

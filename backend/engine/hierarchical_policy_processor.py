@@ -111,15 +111,25 @@ class HierarchicalPolicyProcessor:
             self._cached_rule_by_key = {}
 
     def process_records(
-        self, dataset_id: str, records: List[Dict[str, Any]], pk_col: Optional[str] = None
+        self,
+        dataset_id: str,
+        records: List[Dict[str, Any]],
+        pk_col: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[Any] = None,
     ) -> List[LaneBVerdict]:
-        return [self.process_single_record(dataset_id, item, pk_col) for item in records]
+        return [self.process_single_record(dataset_id, item, pk_col, context=context, as_of=as_of) for item in records]
 
     def process_single_record(
-        self, dataset_id: str, raw_record: Dict[str, Any], pk_col: Optional[str] = None
+        self,
+        dataset_id: str,
+        raw_record: Dict[str, Any],
+        pk_col: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[Any] = None,
     ) -> LaneBVerdict:
         if self.rule_evaluator is not None:
-            return self._process_versioned_record(dataset_id, raw_record, pk_col)
+            return self._process_versioned_record(dataset_id, raw_record, pk_col, context=context, as_of=as_of)
         raw_item = dict(raw_record)
         resolved_pk = pk_col
         if not resolved_pk:
@@ -363,9 +373,28 @@ class HierarchicalPolicyProcessor:
         )
 
     def _process_versioned_record(
-        self, dataset_id: str, raw_record: Dict[str, Any], pk_col: Optional[str]
+        self,
+        dataset_id: str,
+        raw_record: Dict[str, Any],
+        pk_col: Optional[str],
+        context: Optional[Dict[str, Any]] = None,
+        as_of: Optional[Any] = None,
     ) -> LaneBVerdict:
         """Evaluate a DB rule snapshot without executing rule-authored code."""
+        instant = None
+        if as_of is not None:
+            if isinstance(as_of, datetime):
+                instant = as_of
+            else:
+                try:
+                    instant = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+                except ValueError:
+                    instant = datetime.strptime(str(as_of)[:10], "%Y-%m-%d")
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=timezone.utc)
+            else:
+                instant = instant.astimezone(timezone.utc)
+
         raw_item = dict(raw_record)
         resolved_pk = pk_col or next((c for c in (
             "trip_id", "record_id", "session_id", "customer_id", "driver_id",
@@ -382,7 +411,7 @@ class HierarchicalPolicyProcessor:
         applied_policy_ids: List[str] = []
         executed: List[str] = []
 
-        applicable, skipped = self.rule_evaluator.applicable_rules(dataset_id, chain)
+        applicable, skipped = self.rule_evaluator.applicable_rules(dataset_id, chain, as_of=instant)
         snapshot = self._cached_snapshot
         snapshot_hash = self._cached_snapshot_hash
         runtime_by_key = {
@@ -434,7 +463,7 @@ class HierarchicalPolicyProcessor:
                 None, self._value_hash("subject_zone", normalized_zone), "[REDACTED]",
             ), invariant=True)
 
-        pre = self.rule_evaluator.evaluate(applicable, raw_item, raw_item, "PRE_CHECK")
+        pre = self.rule_evaluator.evaluate(applicable, raw_item, raw_item, "PRE_CHECK", context=context, as_of=instant)
         executed.extend(pre.executed_rule_keys)
         for finding in pre.findings:
             append_finding(finding)
@@ -479,7 +508,7 @@ class HierarchicalPolicyProcessor:
                             "[REDACTED]",
                         ), invariant=True)
                         break
-            post = self.rule_evaluator.evaluate(applicable, treated_item, raw_item, "POST_CHECK")
+            post = self.rule_evaluator.evaluate(applicable, treated_item, raw_item, "POST_CHECK", context=context, as_of=instant)
             executed.extend(post.executed_rule_keys)
             for finding in post.findings:
                 append_finding(finding)
@@ -492,7 +521,7 @@ class HierarchicalPolicyProcessor:
             )
             # A blocking pre-check prevents mutation, but independent post rules
             # still run read-only so the audit contains every applicable finding.
-            post = self.rule_evaluator.evaluate(applicable, raw_item, raw_item, "POST_CHECK")
+            post = self.rule_evaluator.evaluate(applicable, raw_item, raw_item, "POST_CHECK", context=context, as_of=instant)
             executed.extend(post.executed_rule_keys)
             for finding in post.findings:
                 append_finding(finding)

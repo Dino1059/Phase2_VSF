@@ -105,3 +105,12 @@ def test_production_safety_guards_in_migration_and_init():
     assert "DROP SCHEMA" not in migration_sql.upper()
     assert "DROP TABLE" not in migration_sql.upper()
     assert "DROP DATABASE" not in migration_sql.upper()
+
+
+def test_source_row_number_parity():
+    """Verify that _source_row_number is present in bronze DDL and migration."""
+    bronze_sql = _read_file(DATABASE_DIR / "schema_bronze_and_catalog.sql")
+    mig_sql = _read_file(DATABASE_DIR / "migration_20261015_phase2_record_identity.sql")
+
+    assert "_source_row_number" in bronze_sql.lower(), "_source_row_number missing from schema_bronze_and_catalog.sql"
+    assert "_source_row_number" in mig_sql.lower(), "_source_row_number missing from migration_20261014_new_columns_and_injected_faults.sql"

@@ -19,6 +19,8 @@ load_dotenv(DATABASE_DIR.parent / ".env")
 # Ordered list of incremental, non-destructive migration files
 INCREMENTAL_MIGRATIONS = [
     "migration_20261014_new_columns_and_injected_faults.sql",
+    "migration_20261015_phase2_record_identity.sql",
+    "migration_20261015_phase2_policy_rules.sql",
 ]
 
 
@@ -58,8 +60,8 @@ def ensure_migration_table(conn):
 
 def get_applied_migrations(conn):
     with conn.cursor() as cur:
-        cur.execute("SELECT migration_name FROM orchestration.schema_migrations;")
-        return {row[0] for row in cur.fetchall()}
+        cur.execute("SELECT migration_name, checksum FROM orchestration.schema_migrations;")
+        return {row[0]: row[1] for row in cur.fetchall()}
 
 
 def run_migrations(force: bool = False):
@@ -75,6 +77,17 @@ def run_migrations(force: bool = False):
 
         pending = []
         for mig_filename in INCREMENTAL_MIGRATIONS:
+            mig_path = DATABASE_DIR / mig_filename
+            if not mig_path.exists():
+                raise FileNotFoundError(f"Migration file not found: {mig_path}")
+            expected_checksum = hashlib.sha256(mig_path.read_bytes()).hexdigest()
+            recorded_checksum = applied.get(mig_filename)
+            if recorded_checksum and recorded_checksum != expected_checksum and not force:
+                raise RuntimeError(
+                    f"Applied migration {mig_filename} was modified after execution: "
+                    f"database={recorded_checksum}, file={expected_checksum}. "
+                    "Create a new migration instead of editing an applied file."
+                )
             if mig_filename not in applied or force:
                 pending.append(mig_filename)
 
