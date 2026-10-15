@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
-import { ACTIVITIES, CONFLICT_PAIRS, DEFAULT_MATRIX, LETTERS, MATRIX_NOTES, MATRIX_RULES, ROLES, ROLE_KEYS, rowNo, type Letter } from "@/lib/sod/catalog";
+import { ACTIVITIES, CONFLICT_PAIRS, DEFAULT_MATRIX, LETTERS, MATRIX_NOTES, MATRIX_RULES, ROLES, ROLE_KEYS, TICKET_TYPES, rowNo, type Letter } from "@/lib/sod/catalog";
 import { phaseSteps } from "@/lib/sod/chain";
 import { activeConfig } from "@/lib/config/queries";
 import { Badge } from "@/app/ui/badges";
 
 export const metadata = { title: "Ma trận SoD · SoD Flow" };
+
+const typesOf = (actId: number) => TICKET_TYPES.filter((t) => (t.acts as readonly number[]).includes(actId));
 
 export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">) {
   await requireUser();
@@ -61,6 +63,7 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
                 {ROLE_KEYS.map((r) => (
                   <th key={r} title={ROLES[r].name}>{short(r)}</th>
                 ))}
+                <th className="act">Loại phiếu dùng dòng này</th>
               </tr>
             </thead>
             <tbody>
@@ -91,6 +94,14 @@ export default async function MatrixPage({ searchParams }: PageProps<"/ma-tran">
                       </td>
                     );
                   })}
+                  <td className="act small">
+                    {typesOf(a.id).map((t, i) => (
+                      <span key={t.id}>
+                        {i > 0 && " · "}
+                        {t.name}
+                      </span>
+                    ))}
+                  </td>
                 </tr>
               ))}
             </tbody>

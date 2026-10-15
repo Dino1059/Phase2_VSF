@@ -40,9 +40,13 @@ export function conflictsFor(t: Assigned, i: number, pid: string | null): string
   return out;
 }
 
-export function autoAssign(t: Chain, people: Person[]) {
+/** `pin`: vai trò → người được chỉ định sẵn (ví dụ Developer lập phiếu thay đổi). Các bước còn lại tự gán, tránh xung đột với người đã ghim. */
+export function autoAssign(t: Chain, people: Person[], pin: Partial<Record<RoleKey, string>> = {}) {
   t.steps.forEach((s, i) => {
-    if (i === 0) return;
+    if (i > 0 && pin[s.role]) s.assignee = pin[s.role]!;
+  });
+  t.steps.forEach((s, i) => {
+    if (i === 0 || pin[s.role]) return;
     const cands = people.filter((p) => p.roles.includes(s.role));
     s.assignee = cands.find((p) => conflictsFor(t, i, p.id).length === 0)?.id ?? cands[0]?.id ?? null;
   });

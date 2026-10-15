@@ -1,6 +1,7 @@
 // Dữ liệu tạm: vai trò theo rule.md mục 1 và danh bạ mẫu trong ../data.js (DEFAULT_PEOPLE).
 // Chạy lại nhiều lần được (upsert). Mật khẩu tạm lấy từ SEED_PASSWORD, bắt buộc đổi khi đăng nhập lần đầu.
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../app/generated/prisma/client";
 import { hashPassword } from "../lib/auth/password";
@@ -55,6 +56,20 @@ function usernameOf(name: string) {
   return `${parts.at(-1)}.${parts[0]}`;
 }
 
+/** Tài khoản hệ thống mở phiếu rà soát định kỳ: có vai trò REQ nhưng DISABLED (không đăng nhập được), mật khẩu ngẫu nhiên không ai biết */
+async function seedSystemUser() {
+  if (await prisma.user.findUnique({ where: { username: "system" } })) return console.log("  = system       đã có, bỏ qua");
+  const user = await prisma.user.create({
+    data: {
+      username: "system", email: `system@${DOMAIN}`, fullName: "Hệ thống", status: "DISABLED",
+      passwordHash: await hashPassword(randomBytes(32).toString("hex")),
+      roles: { create: [{ roleCode: "REQ", note: "Tài khoản hệ thống, mở phiếu rà soát định kỳ" }] },
+    },
+  });
+  await prisma.auditLog.create({ data: { action: "seed.user.created", targetType: "user", targetId: user.id, actorEmail: user.email, details: { username: "system", roles: ["REQ"], source: "prisma/seed.ts" } } });
+  console.log("  + system       (tài khoản hệ thống, không đăng nhập được)");
+}
+
 async function main() {
   const seedPassword = process.env.SEED_PASSWORD;
   if (!seedPassword) throw new Error("Thiếu SEED_PASSWORD trong .env");
@@ -99,6 +114,7 @@ async function main() {
     });
     console.log(`  + ${username.padEnd(12)} ${email.padEnd(24)} ${p.roles.join(", ")}`);
   }
+  await seedSystemUser();
 }
 
 main()

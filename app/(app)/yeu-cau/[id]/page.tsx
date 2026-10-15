@@ -6,6 +6,8 @@ import { cancelBlockers, decisionBlockers, hasRole } from "@/lib/authz/policy";
 import { PRIORITY_LABEL, ROLES, VERB, actName, type Priority, type RoleKey } from "@/lib/sod/catalog";
 import { DLCN, LOAI_PHIEU } from "@/lib/sod/form";
 import { RBAC_OPS, isRbacForm, roleLabel } from "@/lib/sod/rbac";
+import { DT_TYPE_LABEL, isDtForm, isDtType } from "@/lib/sod/datatrust";
+import { OPS_FIELDS, OPS_TYPE_LABEL, isOpsForm, isOpsType } from "@/lib/sod/ops";
 import { dateVN, fmtTime } from "@/lib/format";
 import { getTicket, ticketLog, type TicketDetail } from "@/lib/tickets/queries";
 import { Badge, StatusBadge } from "@/app/ui/badges";
@@ -27,6 +29,8 @@ const LOG_LABEL: Record<string, string> = {
   "ticket.revised": "Bổ sung phiên bản mới",
   "ticket.cancelled": "Huỷ phiếu",
   "ticket.expired": "Đóng phiếu hết hạn",
+  "ticket.submitted.via_integration": "Phiếu được gửi từ DataTrust OS",
+  "ticket.executed.external": "DataTrust báo đã thực thi sau khi được duyệt",
   "sla.critical": "Quá mốc SLA nghiêm trọng",
   "ticket.decision.denied": "Thao tác bị chặn",
 };
@@ -54,6 +58,8 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
   if (!t) notFound(); // không có hoặc không được xem: cùng một phản hồi
   const log = await ticketLog(user, t.id);
   const rbac = isRbacForm(t.form) ? t.form : null;
+  const dt = isDtForm(t.form) ? t.form : null;
+  const ops = isOpsForm(t.form) ? t.form : null;
   const f = t.form;
   const cur = t.steps.find((s) => s.status === "CURRENT" && s.idx > 0);
   const canDecide = cur && decisionBlockers(user, t, cur, t.acting).length === 0;
@@ -100,7 +106,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
 
       {canCancel && <CancelBox ticketId={t.id} version={t.version} />}
       {canExpire && <ExpireBox ticketId={t.id} version={t.version} days={t.staleDays} />}
-      {!rbac && (
+      {!rbac && !dt && !ops && (
         <div className="row" style={{ margin: "0 0 12px" }}>
           <PhieuButton
             label="Xem / in phiếu"
@@ -120,7 +126,41 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
           />
         </div>
       )}
-      {rbac ? (
+      {ops ? (
+        <div className="small" style={{ margin: "0 0 12px" }}>
+          <div><b>Loại:</b> {isOpsType(t.typeId) ? OPS_TYPE_LABEL[t.typeId] : t.typeId} · <b>Mức khẩn:</b> {ops.urgent ? "Gấp" : "Thường"}{ops.pii && " · có dữ liệu cá nhân"}</div>
+          <div><b>Tiêu đề:</b> {ops.title} · <b>Hệ thống:</b> {ops.system}</div>
+          {OPS_FIELDS[ops.type].map((fd) => {
+            const v = ops.fields[fd.key];
+            return v ? <div key={fd.key}><b>{fd.label}:</b> {fd.kind === "select" ? (fd.options?.[v] ?? v) : fd.kind === "date" ? dateVN(v) : v}</div> : null;
+          })}
+          <div><b>Lý do / mục đích:</b> {ops.reason}</div>
+          {ops.snapshot && (
+            <details style={{ marginTop: 8 }}>
+              <summary>Danh sách quyền cần rà soát ({ops.snapshot.grants.length} quyền truy cập, {ops.snapshot.roles.length} vai trò){ops.snapshot.truncated && " · đã cắt bớt"}</summary>
+              <table className="mini">
+                <tbody>
+                  {ops.snapshot.grants.map((g, i) => (
+                    <tr key={`g${i}`}><td>{g.user}</td><td>{g.system}</td><td>{g.resource}</td><td>{g.permission}</td><td>{g.until ? `đến ${dateVN(g.until)}` : "không thời hạn"}</td><td className="muted">{g.ticket}</td></tr>
+                  ))}
+                  {ops.snapshot.roles.map((r, i) => (
+                    <tr key={`r${i}`}><td>{r.user}</td><td>Vai trò SoD Flow</td><td>{roleLabel(r.role)}</td><td></td><td>{r.until ? `đến ${dateVN(r.until)}` : "không thời hạn"}</td><td></td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="muted">Chụp lúc {fmtTime(new Date(ops.snapshot.generatedAt))}. Mã băm phiếu bao gồm danh sách này.</div>
+            </details>
+          )}
+        </div>
+      ) : dt ? (
+        <div className="small" style={{ margin: "0 0 12px" }}>
+          <div><b>Loại:</b> {isDtType(t.typeId) ? DT_TYPE_LABEL[t.typeId] : t.typeId} · <b>Mã đề xuất DataTrust:</b> {dt.externalRef}</div>
+          <div><b>Dữ liệu:</b> {dt.dataset}{dt.column && `.${dt.column}`} · <b>Thao tác:</b> {dt.operation} · <b>Số dòng:</b> {dt.expectedRows} · <b>Rủi ro:</b> {dt.riskLevel}{dt.pii && " · có dữ liệu cá nhân"}</div>
+          <div><b>Lý do:</b> {dt.reason}</div>
+          <div className="muted" style={{ wordBreak: "break-all" }}>Mã băm nội dung đề xuất: {dt.proposalHash}</div>
+          <div className="muted">Người gửi duyệt ({t.requester.fullName}) thực thi ở DataTrust sau khi phiếu hoàn tất. Phiếu chỉ mô tả dữ liệu, không chứa giá trị dữ liệu.</div>
+        </div>
+      ) : rbac ? (
         <div className="small" style={{ margin: "0 0 12px" }}>
           <div><b>Thao tác:</b> {RBAC_OPS[rbac.op]} · <b>Vai trò:</b> {roleLabel(rbac.roleCode)}</div>
           <div><b>Người được {rbac.op === "grant" ? "cấp" : "thu hồi"}:</b> {rbac.targetName}{rbac.op === "grant" && ` · ${rbac.validTo ? `hạn đến ${dateVN(rbac.validTo)}` : "không thời hạn"}`}</div>
@@ -196,7 +236,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
                       version={t.version}
                       roleName={role(s).name}
                       isP={s.action === "P"}
-                      canReturn={!rbac}
+                      canReturn={!rbac && !dt && !ops}
                       onBehalfOf={s.assigneeId !== user.id ? s.assignee?.fullName : undefined}
                     />
                   )}

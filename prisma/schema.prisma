@@ -243,6 +243,7 @@ model Ticket {
   configVersion ConfigVersion    @relation(fields: [configVersionId], references: [id], onDelete: Restrict)
   slaEvents     SlaEvent[]
   revisions     TicketRevision[]
+  outbox        IntegrationOutbox[]
   notifications Notification[]
   rolesGranted  UserRole[]       @relation("roleGrantTicket")
   rolesRevoked  UserRole[]       @relation("roleRevokeTicket")
@@ -455,4 +456,29 @@ model SlaEvent {
   @@unique([stepId, rev, level])
   @@index([ticketId])
   @@map("sla_events")
+}
+
+// ---------------------------------------------------------------- Tích hợp DataTrust (PLAN_NOI_SOD_DATATRUST.md bước 4)
+
+/// Sự kiện gửi sang hệ thống khác, ghi cùng transaction với quyết định duyệt. Worker gửi và thử lại.
+model IntegrationOutbox {
+  id            String    @id @default(uuid()) @db.Uuid
+  ticketId      String    @map("ticket_id") @db.Uuid
+  /// "<mã phiếu>:<trạng thái>": mỗi phiếu chỉ đóng một lần nên không có sự kiện trùng
+  eventId       String    @unique @map("event_id") @db.VarChar(100)
+  target        String    @db.VarChar(30)
+  payload       Json
+  /// PENDING | SENT | FAILED
+  status        String    @default("PENDING") @db.VarChar(10)
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz
+  lastError     String?   @map("last_error") @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@index([ticketId])
+  @@map("integration_outbox")
 }

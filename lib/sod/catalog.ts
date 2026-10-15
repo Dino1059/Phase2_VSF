@@ -94,7 +94,7 @@ export const letter = (actId: number, role: RoleKey, matrix: readonly string[] =
   matrix[actId][ROLE_KEYS.indexOf(role)] as Letter;
 
 // Loại ticket → chuỗi hoạt động (KE_HOACH.md mục 3). Phiếu hiện tại dùng 'access' và 'offboard'.
-const TICKET_TYPES = [
+export const TICKET_TYPES = [
   { id: "offboard", name: "Thu hồi quyền (nghỉ việc)", acts: [5] },
   { id: "incident", name: "Sự cố bảo mật", acts: [16, 17] },
   { id: "pii_export", name: "Xuất dữ liệu PII nghiệp vụ (khách hàng)", acts: [14, 4] },
@@ -106,6 +106,11 @@ const TICKET_TYPES = [
   { id: "transfer", name: "Điều chuyển / thay đổi vai trò", acts: [6] },
   { id: "review", name: "Rà soát quyền định kỳ", acts: [18] },
   { id: "access", name: "Cấp quyền truy cập", acts: [0, 1, 4] },
+  // Phiếu do DataTrust gửi sang (BUILD: PLAN_NOI_SOD_DATATRUST.md). Dòng 13 không có bước P cho người khác:
+  // Requestor thực thi ở DataTrust sau khi phiếu DONE.
+  { id: "dt_remediation", name: "DataTrust: xử lý dữ liệu cách ly", acts: [12] },
+  { id: "dt_rule_change", name: "DataTrust: đổi rule xử lý dữ liệu", acts: [12] },
+  { id: "dt_override", name: "DataTrust: gỡ cách ly (ngoại lệ)", acts: [15, 12] },
 ] as const;
 export type TicketType = (typeof TICKET_TYPES)[number];
 export const ticketType = (id: TicketType["id"]) => TICKET_TYPES.find((t) => t.id === id)!;

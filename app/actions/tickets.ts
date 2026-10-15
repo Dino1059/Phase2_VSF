@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import * as z from "zod";
 import { requestMeta } from "@/lib/audit";
 import { requireUser } from "@/lib/auth/session";
-import { TicketError, cancelTicket, createRbacTicket, expireTicket, parseRbac, decideStep, parseForm, previewTicket, returnTicket, reviseTicket, submitTicket, type Preview } from "@/lib/tickets/service";
+import { TicketError, cancelTicket, createOpsTicket, createRbacTicket, expireTicket, parseOps, parseRbac, decideStep, parseForm, previewTicket, returnTicket, reviseTicket, submitTicket, type Preview } from "@/lib/tickets/service";
 import type { FormState } from "@/app/actions/auth";
 
 export async function previewAction(input: unknown): Promise<Preview | null> {
@@ -102,6 +102,20 @@ export async function submitRbacAction(input: unknown): Promise<{ errors: [strin
   let result;
   try {
     result = await createRbacTicket(user, parseRbac(input), await requestMeta());
+  } catch (e) {
+    if (e instanceof TicketError) return { errors: [["", e.message]] };
+    throw e;
+  }
+  if (!result.ok) return { errors: result.errors };
+  redirect(`/yeu-cau/${result.id}`);
+}
+
+/** Phiếu nghiệp vụ (điều chuyển, PII, sự cố, giá, ngoại lệ). */
+export async function submitOpsAction(input: unknown): Promise<{ errors: [string, string][] }> {
+  const user = await requireUser();
+  let result;
+  try {
+    result = await createOpsTicket(user, parseOps(input), await requestMeta());
   } catch (e) {
     if (e instanceof TicketError) return { errors: [["", e.message]] };
     throw e;

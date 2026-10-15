@@ -44,7 +44,7 @@ export const buildChain = (d: TicketForm, requestor: string, people: Person[], m
   buildChainFor(classify(d, matrix), requestor, people, matrix);
 
 /** Như buildChain nhưng từ một phân loại có sẵn (phiếu RBAC không đi qua classify của phiếu cấp quyền). */
-export function buildChainFor(cl: Classification, requestor: string, people: Person[], matrix: readonly string[] = DEFAULT_MATRIX): Chain {
+export function buildChainFor(cl: Classification, requestor: string, people: Person[], matrix: readonly string[] = DEFAULT_MATRIX, pin: Partial<Record<RoleKey, string>> = {}): Chain {
   const steps: ChainStep[] = [{ key: "init", role: "REQ", action: "P", acts: ["init"], phase: 0, assignee: requestor }];
   const phases: Phase[] = [{ act: "init", name: actName("init"), C: [], I: [] }];
   let prev: ChainStep[] = [];
@@ -74,7 +74,7 @@ export function buildChainFor(cl: Classification, requestor: string, people: Per
     steps.push({ key: "bg-AUD-R", role: "AUD", action: "R", acts: ["bg"], phase, assignee: null, breakGlass: true });
   }
   const chain: Chain = { requestor, steps, phases, classification: cl };
-  autoAssign(chain, people);
+  autoAssign(chain, people, pin);
   return chain;
 }
 

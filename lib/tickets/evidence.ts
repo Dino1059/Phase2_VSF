@@ -5,15 +5,25 @@ import type { CurrentUser } from "@/lib/auth/session";
 import { canViewAuditLog } from "@/lib/authz/policy";
 import { ROLES, VERB, type RoleKey } from "@/lib/sod/catalog";
 import { TicketError } from "@/lib/tickets/service";
+import { DT_TYPES, DT_TYPE_LABEL, isDtForm } from "@/lib/sod/datatrust";
+import { OPS_TYPES, OPS_TYPE_LABEL } from "@/lib/sod/ops";
 import type { Prisma, TicketStatus } from "@/app/generated/prisma/client";
 
 // Bằng chứng cho Auditor: các phiếu trong một kỳ, ai duyệt, lúc nào, duyệt đúng nội dung nào (mã băm).
 // Mỗi lần xem hoặc xuất đều ghi nhật ký (BUILD_PLAN 4.6, 5.1 S1).
 
 export const EVIDENCE_MAX_TICKETS = 500;
-const TYPES = ["access", "offboard", "rbac"] as const;
+const TYPES = ["access", "offboard", "rbac", ...DT_TYPES, ...OPS_TYPES] as const;
 const STATUSES: TicketStatus[] = ["OPEN", "RETURNED", "DONE", "REJECTED", "CANCELLED", "EXPIRED"];
-export const EVIDENCE_TYPE_LABEL: Record<(typeof TYPES)[number], string> = { access: "Cấp quyền", offboard: "Thu hồi quyền", rbac: "Cấp / thu hồi vai trò" };
+export const EVIDENCE_TYPE_LABEL: Record<(typeof TYPES)[number], string> = {
+  access: "Cấp quyền",
+  offboard: "Thu hồi quyền",
+  rbac: "Cấp / thu hồi vai trò",
+  dt_remediation: `DataTrust: ${DT_TYPE_LABEL.dt_remediation}`,
+  dt_rule_change: `DataTrust: ${DT_TYPE_LABEL.dt_rule_change}`,
+  dt_override: `DataTrust: ${DT_TYPE_LABEL.dt_override}`,
+  ...OPS_TYPE_LABEL,
+};
 
 export type EvidenceFilter = { from?: string; to?: string; status?: TicketStatus; type?: (typeof TYPES)[number] };
 
@@ -61,6 +71,8 @@ export type EvidenceTicket = {
   formHash: string;
   exceptionId: string | null;
   decisions: EvidenceDecision[];
+  /** Phiếu do DataTrust gửi sang: nội dung đã duyệt và việc thực thi (null với các loại phiếu khác) */
+  dt: { externalRef: string; proposalHash: string; summary: string; executedAt: Date | null; executedBy: string | null } | null;
 };
 export type Evidence = { tickets: EvidenceTicket[]; rows: number; truncated: boolean };
 
@@ -88,6 +100,12 @@ export async function loadEvidence(user: CurrentUser, f: EvidenceFilter): Promis
     },
   });
   const truncated = rows.length > EVIDENCE_MAX_TICKETS;
+  // DataTrust báo đã thực thi sau khi phiếu DONE: nằm trong nhật ký kiểm toán, ghép theo phiếu
+  const dtIds = rows.filter((t) => isDtForm(t.form)).map((t) => t.id);
+  const executed = new Map(
+    (dtIds.length ? await prisma.auditLog.findMany({ where: { action: AuditAction.ExternalExecuted, targetId: { in: dtIds } }, orderBy: { occurredAt: "asc" } }) : [])
+      .map((l) => [l.targetId, { at: l.occurredAt, by: String((l.details as { executedBy?: string } | null)?.executedBy ?? "") }] as const),
+  );
   const tickets = rows.slice(0, EVIDENCE_MAX_TICKETS).map((t): EvidenceTicket => ({
     id: t.id,
     code: t.code,
@@ -101,6 +119,15 @@ export async function loadEvidence(user: CurrentUser, f: EvidenceFilter): Promis
     configSeq: t.configVersion.seq,
     formHash: t.formHash,
     exceptionId: t.exceptionId,
+    dt: isDtForm(t.form)
+      ? {
+          externalRef: t.form.externalRef,
+          proposalHash: t.form.proposalHash,
+          summary: `${t.form.dataset}${t.form.column ? `.${t.form.column}` : ""} · ${t.form.operation} · ${t.form.expectedRows} dòng · rủi ro ${t.form.riskLevel}${t.form.pii ? " · có DLCN" : ""}`,
+          executedAt: executed.get(t.id)?.at ?? null,
+          executedBy: executed.get(t.id)?.by ?? null,
+        }
+      : null,
     decisions: t.steps
       .flatMap((s) =>
         s.decisions.map((d): EvidenceDecision => ({
@@ -151,6 +178,7 @@ const HEADER = [
   "Mã phiếu", "Loại phiếu", "Tiêu đề", "Người yêu cầu", "Trạng thái phiếu", "Ngày tạo", "Ngày đóng", "Phiên bản nội dung hiện tại",
   "Phiên bản cấu hình", "Mã ngoại lệ", "Bước", "Vai trò", "Hành động", "Người thực hiện", "Thay mặt", "Kết quả", "Ghi chú",
   "Thời điểm", "Phiên bản nội dung đã duyệt", "Mã băm nội dung đã duyệt",
+  "Nội dung xử lý dữ liệu (DataTrust)", "Mã đề xuất DataTrust", "Mã băm đề xuất DataTrust", "DataTrust thực thi lúc", "Người thực thi",
 ];
 
 /** Mỗi dòng CSV là một quyết định. UTF-8 có BOM để Excel đọc đúng tiếng Việt. */
@@ -163,6 +191,7 @@ export function evidenceCsv(ev: Evidence): string {
           t.code, EVIDENCE_TYPE_LABEL[t.type as keyof typeof EVIDENCE_TYPE_LABEL] ?? t.type, t.title, t.requester, statusLabel(t.status), ts(t.createdAt), ts(t.closedAt), t.rev,
           t.configSeq, t.exceptionId, d.step, d.role, d.action, d.actor, d.onBehalfOf, outcomeLabel(d.outcome), d.comment,
           ts(d.decidedAt), d.rev, d.formHash,
+          t.dt?.summary, t.dt?.externalRef, t.dt?.proposalHash, ts(t.dt?.executedAt ?? null), t.dt?.executedBy,
         ].map(csvCell).join(","),
       );
     }

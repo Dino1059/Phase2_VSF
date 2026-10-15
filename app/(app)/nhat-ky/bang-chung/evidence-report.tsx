@@ -27,6 +27,13 @@ export default function EvidenceReport({ ev, filter, by, at }: { ev: Evidence; f
             {t.closedAt && ` · Đóng ${when(t.closedAt)}`} · Cấu hình v{t.configSeq}
             {t.exceptionId && ` · Ngoại lệ ${t.exceptionId}`}
           </div>
+          {t.dt && (
+            <div style={{ fontSize: 12 }}>
+              DataTrust {t.dt.externalRef}: {t.dt.summary} · Mã băm đề xuất{" "}
+              <span style={{ fontFamily: "monospace", fontSize: 10 }}>{t.dt.proposalHash.slice(0, 16)}…</span>
+              {t.dt.executedAt ? ` · Đã thực thi ${when(t.dt.executedAt)}${t.dt.executedBy ? ` bởi ${t.dt.executedBy}` : ""}` : t.status === "DONE" ? " · Chưa có báo cáo thực thi từ DataTrust" : ""}
+            </div>
+          )}
           <table className="ph-t grid" style={{ marginTop: 4 }}>
             <tbody>
               <tr className="hd"><th>Bước</th><th>Vai trò</th><th>Người thực hiện</th><th>Kết quả</th><th>Thời điểm</th><th>Nội dung (mã băm)</th></tr>

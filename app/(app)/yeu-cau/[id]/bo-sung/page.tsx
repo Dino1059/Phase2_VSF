@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/session";
 import { fmtTime } from "@/lib/format";
 import { getTicket } from "@/lib/tickets/queries";
-import CreateForm from "../../moi/create-form";
+import CreateForm from "../../moi/cap-quyen/create-form";
 
 export const metadata = { title: "Bổ sung phiếu · SoD Flow" };
 

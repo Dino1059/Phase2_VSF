@@ -9,10 +9,13 @@ import { EXCEPTION_ACTIVITY, ROLES, ROLE_KEYS, VERB, type Priority, type RoleKey
 import { buildChain, buildChainFor, slaHours, type Chain, type Phase } from "@/lib/sod/chain";
 import { conflictsFor, violations, type Person } from "@/lib/sod/conflicts";
 import { notify } from "@/lib/notify/service";
+import { enqueueTicketClosed, flushAfterCommit } from "@/lib/integrations/outbox";
 import { activeDelegationsTo } from "@/lib/delegations/queries";
 import { activeConfig, configById, type ConfigVersionRef } from "@/lib/config/queries";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { RbacInputSchema, classifyRbac, isRbacForm, roleLabel, type RbacForm } from "@/lib/sod/rbac";
+import { DT_TYPE_LABEL, classifyDt, findPersonalData, isDtType, type DtForm, type DtInput } from "@/lib/sod/datatrust";
+import { OPS_TYPE_LABEL, OpsInputSchema, classifyOps, findOpsPersonalData, isOpsType, opsPriority, validateOps, type OpsForm, type OpsInput } from "@/lib/sod/ops";
 import { LOAI_PHIEU, TicketFormSchema, formPriority, rowFilled, validateForm, type TicketForm } from "@/lib/sod/form";
 
 /** Lỗi nghiệp vụ hiển thị được cho người dùng */
@@ -22,7 +25,7 @@ const HOUR = 3_600_000;
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** Người dùng đang hoạt động kèm vai trò còn hiệu lực — ứng viên để tự gán. Thứ tự: tài khoản tạo trước ưu tiên trước. */
-async function activePeople(tx: Tx = prisma): Promise<Person[]> {
+export async function activePeople(tx: Tx = prisma): Promise<Person[]> {
   const now = new Date();
   const users = await tx.user.findMany({
     where: { status: "ACTIVE" },
@@ -93,7 +96,7 @@ const snapshotOf = (form: TicketForm) => ({ ...form, rows: form.rows.filter(rowF
 
 type Created = { ok: true; id: string; code: string } | { ok: false; errors: [string, string][] };
 
-type Persist = {
+export type Persist = {
   /** Nội dung đã chuẩn hoá để lưu (và băm) */
   snapshot: Record<string, unknown>;
   title: string;
@@ -102,10 +105,12 @@ type Persist = {
   exception: boolean;
   conflicts: string[];
   waived: Set<number>;
+  /** Hệ số SLA thay cho hệ số theo mức ưu tiên (phiếu rà soát định kỳ cần nhiều ngày, không phải vài giờ) */
+  slaFactor?: number;
 };
 
 /** Ghi phiếu mới (phiên bản 1), bước 0 và bước 1, nhật ký. Dùng chung cho phiếu cấp quyền và phiếu RBAC. */
-async function persistTicket(tx: Tx, user: CurrentUser, chain: Chain, p: Persist, cfg: ConfigVersionRef, meta: RequestMeta): Promise<{ id: string; code: string }> {
+export async function persistTicket(tx: Tx, user: CurrentUser, chain: Chain, p: Persist, cfg: ConfigVersionRef, meta: RequestMeta): Promise<{ id: string; code: string }> {
   const cl = chain.classification;
   const [{ code }] = await tx.$queryRaw<{ code: string }[]>`SELECT next_ticket_code() AS code`;
   const formHash = sha256(JSON.stringify(p.snapshot));
@@ -142,7 +147,7 @@ async function persistTicket(tx: Tx, user: CurrentUser, chain: Chain, p: Persist
           sodWaived: p.waived.has(i),
           breakGlass: Boolean(s.breakGlass),
           status: i === 0 ? "CURRENT" : "WAITING",
-          slaHours: i === 0 ? null : slaHours(s, cfg.config.priority[p.priority], cfg.config.sla),
+          slaHours: i === 0 ? null : slaHours(s, p.slaFactor ?? cfg.config.priority[p.priority], cfg.config.sla),
           startedAt: i === 0 ? now : null,
         })),
       },
@@ -338,12 +343,14 @@ export async function decideStep(user: CurrentUser, d: Decision, meta: RequestMe
           ...(closing && { status: d.approve ? "DONE" : "REJECTED", closedAt: new Date() }),
         },
       });
+      if (closing) await enqueueTicketClosed(tx, ticket.id, d.approve ? "DONE" : "REJECTED");
 
       const base = { actorUserId: user.id, actorEmail: user.email, targetType: "ticket", targetId: ticket.id, meta };
       const action = { REJECT: AuditAction.StepRejected, COMPLETE: AuditAction.StepCompleted, APPROVE: AuditAction.StepApproved }[outcome];
       await writeAudit({ ...base, action, details: { code: ticket.code, step: step!.idx, role: step!.roleCode, comment, onBehalfOf: step!.assigneeId !== user.id ? step!.assigneeId : undefined } }, tx);
       if (closing && d.approve) await writeAudit({ ...base, action: AuditAction.TicketDone, details: { code: ticket.code } }, tx);
     });
+    flushAfterCommit();
   } catch (e) {
     await denied(e, user, d.ticketId, { stepId: d.stepId, approve: d.approve }, meta);
   }
@@ -366,6 +373,8 @@ export async function returnTicket(user: CurrentUser, d: ReturnInput, meta: Requ
       const blockers = decisionBlockers(user, ticket, step, ticket.acting);
       if (blockers.length) throw new TicketError(blockers.join(" "));
       if (ticket.typeId === "rbac") throw new TicketError("Phiếu cấp vai trò không trả lại để bổ sung được. Hãy từ chối, người yêu cầu sẽ tạo phiếu mới.");
+      if (isDtType(ticket.typeId)) throw new TicketError("Phiếu từ DataTrust không trả lại để bổ sung được. Hãy từ chối, DataTrust sẽ gửi đề xuất mới.");
+      if (isOpsType(ticket.typeId)) throw new TicketError("Phiếu nghiệp vụ chưa hỗ trợ trả lại để bổ sung. Hãy từ chối, người yêu cầu sẽ tạo phiếu mới.");
       if (!comment) throw new TicketError("Nhập lý do trả lại để người yêu cầu biết cần bổ sung gì.");
 
       await tx.stepDecision.create({
@@ -431,7 +440,7 @@ export async function reviseTicket(user: CurrentUser, d: ReviseInput, meta: Requ
     return await prisma.$transaction(async (tx): Promise<ReviseResult> => {
       const ticket = await lockTicket(tx, user, d.ticketId, d.version);
       if (ticket.requesterId !== user.id) throw new TicketError("Chỉ người yêu cầu mới bổ sung được phiếu.");
-      if (ticket.status !== "RETURNED" || ticket.typeId === "rbac") throw new TicketError("Phiếu không ở trạng thái chờ bổ sung.");
+      if (ticket.status !== "RETURNED" || ticket.typeId === "rbac" || isDtType(ticket.typeId) || isOpsType(ticket.typeId)) throw new TicketError("Phiếu không ở trạng thái chờ bổ sung.");
 
       const form = d.form;
       const snapshot = snapshotOf(form);
@@ -530,6 +539,7 @@ async function cancelInTx(
   meta: RequestMeta,
 ) {
   await tx.ticket.update({ where: { id: ticket.id }, data: { status: "CANCELLED", closedAt: new Date(), version: { increment: 1 } } });
+  await enqueueTicketClosed(tx, ticket.id, "CANCELLED");
   const cur = ticket.steps.find((s) => s.status === "CURRENT" && s.idx > 0);
   if (cur?.assigneeId && cur.assigneeId !== user.id) {
     await notify(tx, [{
@@ -566,6 +576,7 @@ export async function cancelTicket(user: CurrentUser, d: CancelInput, meta: Requ
       if (!reason) throw new TicketError("Nhập lý do huỷ phiếu.");
       await cancelInTx(tx, user, ticket, reason, meta);
     });
+    flushAfterCommit();
   } catch (e) {
     await denied(e, user, d.ticketId, { action: "cancel" }, meta);
   }
@@ -628,6 +639,131 @@ export async function createRbacTicket(user: CurrentUser, input: ReturnType<type
         title: `${input.op === "grant" ? "Cấp" : "Thu hồi"} vai trò ${roleLabel(input.roleCode)} – ${target.fullName}`.slice(0, 300),
         system: "SoD Flow (vai trò)",
         priority: "normal",
+        exception: false,
+        conflicts: [],
+        waived: new Set(),
+      },
+      cfg,
+      meta,
+    );
+    return { ok: true, id: created.id };
+  });
+}
+
+// ---------------------------------------------------------------- Phiếu do DataTrust gửi sang
+
+export type DtResult =
+  | { ok: true; id: string; code: string; status: string; created: boolean }
+  | { ok: false; errors: [string, string][] };
+
+/**
+ * Tạo phiếu duyệt một bước xử lý dữ liệu do DataTrust gửi sang. `user` là người gửi duyệt bên DataTrust (Requestor), được
+ * dựng từ username; người gọi API không phải người dùng SoD nên mọi bước kiểm quyền vẫn chạy như khi người đó tự tạo phiếu.
+ * Cùng externalRef + proposalHash đã có phiếu (đang xử lý hoặc đã xong) thì trả lại phiếu đó, không tạo phiếu thứ hai.
+ * Không có ngoại lệ SoD cho loại phiếu này.
+ */
+export async function createDatatrustTicket(user: CurrentUser, input: DtInput, meta: RequestMeta): Promise<DtResult> {
+  if (!canSubmitTicket(user)) throw new TicketError("Người gửi duyệt không có vai trò Requestor trong SoD Flow.");
+  const leak = findPersonalData(input);
+  if (leak) return { ok: false, errors: [[leak[0], `Nội dung phiếu có vẻ chứa ${leak[1]}. Phiếu chỉ được mô tả dữ liệu, không kèm giá trị dữ liệu.`]] };
+
+  return prisma.$transaction(async (tx): Promise<DtResult> => {
+    const existing = await tx.ticket.findFirst({
+      where: {
+        typeId: input.type,
+        status: { in: ["OPEN", "RETURNED", "DONE"] },
+        AND: [{ form: { path: ["externalRef"], equals: input.externalRef } }, { form: { path: ["proposalHash"], equals: input.proposalHash } }],
+      },
+      select: { id: true, code: true, status: true },
+    });
+    if (existing) return { ok: true, id: existing.id, code: existing.code, status: existing.status, created: false };
+
+    const people = await activePeople(tx);
+    const cfg = await activeConfig(tx);
+    const chain = buildChainFor(classifyDt(input), user.id, people, cfg.config.matrix);
+    if (chain.steps.some((s, i) => i > 0 && !s.assignee)) {
+      return { ok: false, errors: [["", "Không có người nào giữ vai trò cần thiết cho một bước. Liên hệ quản trị."]] };
+    }
+    if (violations(chain).length) {
+      return { ok: false, errors: [["", "Chuỗi duyệt sẽ vi phạm SoD (ví dụ người gửi duyệt giữ một vai trò duyệt và không có người thay thế). Loại phiếu này không có ngoại lệ."]] };
+    }
+    const form: DtForm = { kind: "datatrust", ...input };
+    const created = await persistTicket(
+      tx,
+      user,
+      chain,
+      {
+        snapshot: form,
+        title: `${DT_TYPE_LABEL[input.type]} – ${input.dataset}${input.column ? `.${input.column}` : ""} – ${input.expectedRows} dòng`.slice(0, 300),
+        system: `DataTrust OS (${input.dataset})`,
+        priority: "normal",
+        exception: false,
+        conflicts: [],
+        waived: new Set(),
+      },
+      cfg,
+      meta,
+    );
+    await writeAudit(
+      {
+        action: AuditAction.TicketSubmittedViaIntegration,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        targetType: "ticket",
+        targetId: created.id,
+        details: { code: created.code, via: "datatrust", externalRef: input.externalRef, proposalHash: input.proposalHash, type: input.type },
+        meta,
+      },
+      tx,
+    );
+    return { ok: true, id: created.id, code: created.code, status: "OPEN", created: true };
+  });
+}
+
+// ---------------------------------------------------------------- Phiếu nghiệp vụ (điều chuyển, PII, sự cố, giá, ngoại lệ)
+
+export type OpsResult = { ok: true; id: string } | { ok: false; errors: [string, string][] };
+
+/** Parse dữ liệu phiếu nghiệp vụ từ trình duyệt */
+export function parseOps(input: unknown): OpsInput {
+  const parsed = OpsInputSchema.safeParse(input);
+  if (!parsed.success) throw new TicketError("Dữ liệu phiếu không hợp lệ.");
+  return parsed.data;
+}
+
+/**
+ * Tạo phiếu nghiệp vụ. Chuỗi duyệt do ma trận đang hiệu lực sinh ra (classifyOps + buildChainFor), người xử lý tự gán không xung đột.
+ * Vi phạm SoD thì không tạo được; chỉ phiếu cấp quyền có đường xin ngoại lệ (phiếu "Ngoại lệ" là chính bước duyệt ngoại lệ).
+ */
+export async function createOpsTicket(user: CurrentUser, input: OpsInput, meta: RequestMeta): Promise<OpsResult> {
+  if (!canSubmitTicket(user)) throw new TicketError("Bạn không có vai trò Requestor để tạo phiếu.");
+  // Phiếu thay đổi mã nguồn: Developer lập phiếu và tự làm các bước Dev; mọi bước duyệt và triển khai thuộc người khác
+  const pin: Partial<Record<RoleKey, string>> = input.type === "change" ? { DEV: user.id } : {};
+  if (input.type === "change" && !hasRole(user, "DEV")) throw new TicketError("Chỉ Developer mới lập được phiếu thay đổi mã nguồn.");
+  const errors = validateOps(input);
+  if (errors.length) return { ok: false, errors };
+  const leak = findOpsPersonalData(input);
+  if (leak) return { ok: false, errors: [[leak[0], `Nội dung có vẻ chứa ${leak[1]}. Phiếu chỉ được mô tả dữ liệu, không kèm giá trị dữ liệu.`]] };
+
+  return prisma.$transaction(async (tx): Promise<OpsResult> => {
+    const cfg = await activeConfig(tx);
+    const chain = buildChainFor(classifyOps(input, cfg.config.matrix), user.id, await activePeople(tx), cfg.config.matrix, pin);
+    if (chain.steps.some((s, i) => i > 0 && !s.assignee)) {
+      return { ok: false, errors: [["", "Không có người nào giữ vai trò cần thiết cho một bước. Liên hệ quản trị."]] };
+    }
+    if (violations(chain).length) {
+      return { ok: false, errors: [["", "Chuỗi duyệt sẽ vi phạm SoD (ví dụ người lập phiếu giữ một vai trò duyệt và không có người thay thế). Loại phiếu này không có ngoại lệ."]] };
+    }
+    const form: OpsForm = { kind: "ops", ...input, fields: Object.fromEntries(Object.entries(input.fields).map(([k, v]) => [k, v.trim()])) };
+    const created = await persistTicket(
+      tx,
+      user,
+      chain,
+      {
+        snapshot: form,
+        title: `${OPS_TYPE_LABEL[input.type]} – ${input.title}`.slice(0, 300),
+        system: input.system,
+        priority: opsPriority(input),
         exception: false,
         conflicts: [],
         waived: new Set(),
@@ -705,6 +841,7 @@ export async function expireTicket(user: CurrentUser, d: ExpireInput, meta: Requ
         throw new TicketError(`Phiếu chưa đủ ${days} ngày không ai xử lý nên chưa đóng hết hạn được.`);
       }
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: "EXPIRED", closedAt: new Date(), version: { increment: 1 } } });
+      await enqueueTicketClosed(tx, ticket.id, "EXPIRED");
       const notice = (userId: string, message: string): NewNotificationInput => ({ userId, ticketId: ticket.id, kind: "EXPIRED", level: "warn", message, dedupeKey: `expired:${ticket.id}:${userId}` });
       const people = new Set([ticket.requesterId, cur.assigneeId].filter((x): x is string => !!x && x !== user.id));
       await notify(tx, [...people].map((id) => notice(id, `${ticket.code} đã bị đóng vì quá ${days} ngày không ai xử lý: ${reason}`)));
@@ -721,6 +858,7 @@ export async function expireTicket(user: CurrentUser, d: ExpireInput, meta: Requ
         tx,
       );
     });
+    flushAfterCommit();
   } catch (e) {
     await denied(e, user, d.ticketId, { action: "expire" }, meta);
   }

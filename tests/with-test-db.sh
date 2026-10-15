@@ -3,6 +3,8 @@
 set -e
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
+# Test không được gửi sự kiện sang DataTrust thật
+unset DATATRUST_URL
 owner_base="${DATABASE_URL%%/sod\?*}"
 app_base="${APP_DATABASE_URL%%/sod\?*}"
 export DATABASE_URL="$owner_base/sod_test?schema=public"
