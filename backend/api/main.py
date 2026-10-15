@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import base64
 import json
 import logging
+import math
 import uuid
 import hmac
 from pydantic import BaseModel
@@ -623,6 +624,12 @@ def get_dataset_profile_response(dataset_key: str) -> Dict[str, Any]:
                 all_cols = []
 
         # Build tables map
+        def finite_float(value: Any) -> Optional[float]:
+            if value is None:
+                return None
+            converted = float(value)
+            return converted if math.isfinite(converted) else None
+
         tables_map = {}
         cols_by_dataset = {}
         for c in all_cols:
@@ -638,13 +645,13 @@ def get_dataset_profile_response(dataset_key: str) -> Dict[str, Any]:
                 "type": c["data_type"],
                 "data_type": c["data_type"],
                 "null_count": c["null_count"],
-                "null_pct": float(c["null_pct"]),
+                "null_pct": finite_float(c["null_pct"]),
                 "unique_count": c["unique_count"],
                 "distinct_count": c["unique_count"],
                 "min_val": c["min_val"],
                 "max_val": c["max_val"],
-                "mean_val": float(c["mean_val"]) if c["mean_val"] is not None else None,
-                "std": float(c["std_val"]) if c["std_val"] is not None else None,
+                "mean_val": finite_float(c["mean_val"]),
+                "std": finite_float(c["std_val"]),
                 "zeros_count": c["zeros_count"],
                 "negative_count": c["negative_count"],
                 "top_values": c["top_values"] if isinstance(c["top_values"], list) else [],
@@ -1274,7 +1281,11 @@ def create_pipeline_run(
     user_str = x_user if isinstance(x_user, str) else None
     if not role_str or not user_str:
         raise HTTPException(status_code=401, detail="X-User and X-User-Role are required")
-    actor_role = role_str.upper()
+    role_aliases = {
+        "STEWARD": "DATA_STEWARD",
+        "ADMINISTRATOR": "ADMIN",
+    }
+    actor_role = role_aliases.get(role_str.upper(), role_str.upper())
     if actor_role not in {"ADMIN", "AUDITOR", "DATA_STEWARD"}:
         raise HTTPException(status_code=403, detail="Unsupported user role")
     actor_name = user_str or ("Trần Minh Hoàng" if actor_role == "AUDITOR" else "Nguyễn Quốc Bảo")

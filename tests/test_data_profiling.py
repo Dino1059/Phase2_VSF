@@ -31,7 +31,7 @@ def test_profiler_engine_single_and_all():
     telem = next((r for r in results if r["dataset_id"] == "synthetic_ev_telemetry_ved_ref"), None)
     assert telem is not None
     assert telem["total_rows"] == 57600
-    assert telem["columns_count"] == 21
+    assert telem["columns_count"] == 22
     assert 80.0 <= telem["health_score"] <= 100.0
 
 
@@ -138,9 +138,9 @@ def test_fastapi_profile_endpoints():
     data = res.json()
     assert data["dataset"] == "synthetic_ev_telemetry_ved_ref"
     assert data["total_rows"] == 57600
-    assert data["columns_count"] == 21
+    assert data["columns_count"] == 22
     assert "health_score" in data
-    assert len(data["columns"]) == 21
+    assert len(data["columns"]) == 22
     assert "tables" in data
     assert len(data["tables"]) >= 8
 
