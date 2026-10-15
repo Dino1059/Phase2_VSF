@@ -9,7 +9,8 @@ import { EXCEPTION_ACTIVITY, ROLES, ROLE_KEYS, VERB, type Priority, type RoleKey
 import { buildChain, buildChainFor, slaHours, type Chain, type Phase } from "@/lib/sod/chain";
 import { conflictsFor, violations, type Person } from "@/lib/sod/conflicts";
 import { notify } from "@/lib/notify/service";
-import { enqueueTicketClosed, flushAfterCommit } from "@/lib/integrations/outbox";
+import { enqueueTicketApproved, enqueueTicketClosed, flushAfterCommit } from "@/lib/integrations/outbox";
+import { loadUserByUsername } from "@/lib/integrations/datatrust";
 import { activeDelegationsTo } from "@/lib/delegations/queries";
 import { activeConfig, configById, type ConfigVersionRef } from "@/lib/config/queries";
 import type { Prisma } from "@/app/generated/prisma/client";
@@ -307,6 +308,11 @@ export async function decideStep(user: CurrentUser, d: Decision, meta: RequestMe
       const blockers = decisionBlockers(user, ticket, step, ticket.acting);
       if (blockers.length) throw new TicketError(blockers.join(" "));
       if (!d.approve && !comment) throw new TicketError("Nhập lý do từ chối.");
+      // Phiếu DataTrust: bước thực hiện chỉ hoàn tất khi Executor đã chạy trong DataTrust (completeDatatrustExecution).
+      // Prod. Op. vẫn từ chối được ở đây nếu không thực thi.
+      if (d.approve && step!.action === "P" && isDtType(ticket.typeId)) {
+        throw new TicketError("Bước thực hiện của phiếu DataTrust được ghi tự động khi Executor thực thi trong DataTrust.");
+      }
 
       const outcome = !d.approve ? "REJECT" : step!.action === "P" ? "COMPLETE" : "APPROVE";
       await tx.stepDecision.create({
@@ -317,6 +323,8 @@ export async function decideStep(user: CurrentUser, d: Decision, meta: RequestMe
       const next = ticket.steps[step!.idx + 1];
       const closing = !d.approve || !next;
       if (next && d.approve) await startStep(tx, ticket, next, ticket.rev);
+      // Phiếu DataTrust duyệt xong, tới bước thực hiện: báo DataTrust người thực thi được giao
+      if (next && d.approve && next.action === "P" && isDtType(ticket.typeId)) await enqueueTicketApproved(tx, ticket.id);
       // Bước cuối của phiếu RBAC (IAM thực hiện): ghi / thu hồi vai trò trong cùng transaction
       if (closing && d.approve && ticket.typeId === "rbac") await applyRbac(tx, ticket, user, meta);
 
@@ -718,6 +726,79 @@ export async function createDatatrustTicket(user: CurrentUser, input: DtInput, m
     );
     return { ok: true, id: created.id, code: created.code, status: "OPEN", created: true };
   });
+}
+
+export type DtExecution = { executedBy: string; proposalHash: string; evidenceRef: string; affectedRows: number };
+export type DtExecutionResult =
+  | { ok: true; alreadyRecorded: boolean }
+  | { ok: false; status: 403 | 404 | 409; error: string; detail?: string };
+
+/**
+ * DataTrust báo Executor đã thực thi. Ghi COMPLETE cho bước P (Prod. Op.) nhân danh người thực thi, phiếu sang DONE.
+ * Kiểm như khi người đó tự bấm trong SoD: đúng người được giao (hoặc người được ủy quyền), còn vai trò OPS, không xung đột
+ * với bước khác của phiếu (nên không thể là người đề xuất hay người duyệt); trigger DB kiểm lại lần cuối.
+ * Báo lại lần hai (cùng người, cùng mã băm) thì trả alreadyRecorded, không ghi thêm.
+ * Phiếu tạo trước khi có bước P thì không ghi được: DataTrust bắt gửi duyệt lại.
+ */
+export async function completeDatatrustExecution(code: string, x: DtExecution, meta: RequestMeta): Promise<DtExecutionResult> {
+  const head = await prisma.ticket.findUnique({ where: { code }, select: { id: true, typeId: true } });
+  if (!head || !isDtType(head.typeId)) return { ok: false, status: 404, error: "not_found" };
+  const user = await loadUserByUsername(x.executedBy);
+  if (!user) return { ok: false, status: 403, error: "unknown_executor" };
+
+  try {
+    const result = await prisma.$transaction(async (tx): Promise<DtExecutionResult> => {
+      await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${head.id}::uuid FOR UPDATE`;
+      const t = await tx.ticket.findUniqueOrThrow({
+        where: { id: head.id },
+        include: { steps: { orderBy: { idx: "asc" }, include: { decisions: { select: { actorId: true, outcome: true } } } } },
+      });
+      const form = t.form as Partial<DtForm>;
+      if (form.proposalHash !== x.proposalHash) return { ok: false, status: 409, error: "hash_mismatch" };
+      const execStep = t.steps.find((s) => s.idx > 0 && s.action === "P");
+      if (!execStep) return { ok: false, status: 409, error: "no_execution_step" };
+      if (t.status === "DONE") {
+        const done = execStep.decisions.find((d) => d.outcome === "COMPLETE");
+        if (done?.actorId !== user.id) return { ok: false, status: 409, error: "executed_by_other" };
+        return { ok: true, alreadyRecorded: true };
+      }
+      if (t.status !== "OPEN" || execStep.status !== "CURRENT") return { ok: false, status: 409, error: "not_awaiting_execution", detail: t.status };
+      const acting = await activeDelegationsTo(tx, user.id);
+      const blockers = decisionBlockers(user, { ...t, phases: t.phases as Phase[] }, execStep, acting);
+      if (blockers.length) return { ok: false, status: 403, error: "executor_not_allowed", detail: blockers.join(" ") };
+
+      await tx.stepDecision.create({
+        data: { stepId: execStep.id, actorId: user.id, outcome: "COMPLETE", comment: `Thực thi ở DataTrust: ${x.evidenceRef}`.slice(0, 2000), formHash: t.formHash, rev: t.rev },
+      });
+      await tx.ticketStep.update({ where: { id: execStep.id }, data: { status: "DONE" } });
+      await tx.ticket.update({ where: { id: t.id }, data: { version: { increment: 1 }, status: "DONE", closedAt: new Date() } });
+      await notify(tx, [{ userId: t.requesterId, ticketId: t.id, kind: "DONE", level: "ok", message: `${t.code} đã được ${user.fullName} thực thi ở DataTrust`, dedupeKey: `result:${execStep.id}:${t.rev}` }]);
+      await enqueueTicketClosed(tx, t.id, "DONE");
+      const base = { actorUserId: user.id, actorEmail: user.email, targetType: "ticket", targetId: t.id, meta };
+      await writeAudit({ ...base, action: AuditAction.StepCompleted, details: { code: t.code, step: execStep.idx, role: execStep.roleCode, via: "datatrust", onBehalfOf: execStep.assigneeId !== user.id ? execStep.assigneeId : undefined } }, tx);
+      await writeAudit({ ...base, action: AuditAction.TicketDone, details: { code: t.code } }, tx);
+      await writeAudit(
+        {
+          action: AuditAction.ExternalExecuted,
+          actorUserId: user.id,
+          actorEmail: user.email,
+          targetType: "ticket",
+          targetId: t.id,
+          details: { code: t.code, via: "datatrust", executedBy: x.executedBy, proposalHash: x.proposalHash, evidenceRef: x.evidenceRef, affectedRows: x.affectedRows },
+          meta,
+        },
+        tx,
+      );
+      return { ok: true, alreadyRecorded: false };
+    });
+    flushAfterCommit();
+    return result;
+  } catch (e) {
+    const reason = e instanceof Error ? /SoD: [^\n"]+/.exec(e.message)?.[0] : undefined;
+    if (!reason) throw e;
+    await writeAudit({ action: AuditAction.DecisionDenied, actorUserId: user.id, actorEmail: user.email, targetType: "ticket", targetId: head.id, details: { via: "datatrust", reason }, meta });
+    return { ok: false, status: 403, error: "executor_not_allowed", detail: reason };
+  }
 }
 
 // ---------------------------------------------------------------- Phiếu nghiệp vụ (điều chuyển, PII, sự cố, giá, ngoại lệ)

@@ -108,12 +108,14 @@ Các việc dưới đây đổi dữ liệu hoặc đổi cách xử lý dữ l
 3. SoD không phản hồi thì đề xuất ở "Chờ gửi", có nút gửi lại. Không bao giờ tự duyệt.
 4. Chuỗi duyệt chạy bên SoD (SLA, nhắc, leo thang có sẵn).
 5. SoD báo kết quả: Được duyệt, hoặc Từ chối / Hết hạn / Huỷ.
-6. Executor bấm "Thực thi". DataTrust kiểm:
+6. Duyệt xong, SoD giao bước thực hiện cho một Prod. Op. không xung đột và báo DataTrust "đã duyệt, Executor là …". Phiếu SoD vẫn mở, chờ bước thực hiện. Executor bấm "Thực thi" trong DataTrust. DataTrust kiểm:
    - phiếu đã duyệt;
    - nội dung không đổi so với lúc gửi, và dữ liệu nguồn không đổi. Lệch thì "Lỗi thời", phải gửi lại;
-   - người chạy không phải người đề xuất, không nằm trong danh sách người duyệt;
+   - người chạy đúng là Executor SoD đã giao, không phải người đề xuất, không nằm trong danh sách người duyệt;
    - chưa chạy lần nào (chạy lại không có tác dụng).
-7. Chạy xong (Đã xử lý hoặc Đã hoàn tác), DataTrust báo SoD "đã thực hiện", SoD ghi bước thực hiện vào phiếu.
+7. Chạy xong (Đã xử lý hoặc Đã hoàn tác), DataTrust báo SoD "đã thực hiện". SoD kiểm lại người chạy (đúng người được giao hoặc người được ủy quyền, còn vai trò OPS, không xung đột), ghi bước thực hiện nhân danh Executor, phiếu hoàn tất.
+8. Prod. Op. không thực thi thì từ chối bước thực hiện trong SoD, kèm lý do; đề xuất thành "Từ chối". Trong SoD không có nút "Hoàn tất" cho bước này.
+9. Phiếu duyệt theo quy trình cũ (không có bước thực hiện) không chạy được, phải gửi duyệt lại.
 
 Đề xuất đang chờ duyệt phải còn nguyên khi DataTrust khởi động lại. Khi đề xuất đã có phiếu SoD, DataTrust không cho duyệt nội bộ nữa. Duyệt hai người nội bộ của DataTrust bỏ, thay bằng chuỗi duyệt SoD.
 
@@ -186,12 +188,12 @@ Auditor chọn dataset và khoảng thời gian, xuất CSV hoặc PDF. Mỗi d�
 | SoD → DT | Đã cấp quyền | Phiếu cấp quyền hoàn tất | Ghi quyền kèm mã phiếu, hạn |
 | SoD → DT | Đã thu hồi | Phiếu thu hồi hoàn tất | Khoá quyền và phiên ngay |
 | SoD → DT | Lô được duyệt | Phiếu "Duyệt rule lô" hoàn tất | Mở quyền duyệt rule của lô cho Steward |
-| SoD → DT | Phiếu được duyệt | Phiếu xử lý / xuất duyệt xong | Đề xuất / yêu cầu sang "Được duyệt" |
+| SoD → DT | Phiếu được duyệt | Phiếu xử lý / xuất duyệt xong, tới bước thực hiện | Đề xuất / yêu cầu sang "Được duyệt", ghi Executor được giao và danh sách người duyệt |
 | SoD → DT | Phiếu đóng | Từ chối, huỷ, hết hạn | Đề xuất / yêu cầu sang "Từ chối" |
 | DT → SoD | Tạo phiếu | Gửi duyệt, lô mới, yêu cầu xuất | SoD sinh chuỗi duyệt, trả mã phiếu |
 | DT → SoD | Huỷ phiếu | Yêu cầu bên DT bị huỷ hoặc lỗi thời | Đóng phiếu (nếu chưa tới bước thực hiện) |
-| DT → SoD | Đã thực hiện | Executor chạy xong | Ghi bước thực hiện vào phiếu |
-| DT → SoD | Hỏi trạng thái | Định kỳ, phòng khi lỡ sự kiện | Trả trạng thái và danh sách người duyệt |
+| DT → SoD | Đã thực hiện | Executor chạy xong | Kiểm người chạy, ghi bước thực hiện, phiếu hoàn tất; báo lại "Phiếu đóng (hoàn tất)" |
+| DT → SoD | Hỏi trạng thái | Định kỳ, phòng khi lỡ sự kiện | Trả trạng thái, Executor được giao, danh sách người duyệt |
 
 Quy tắc chung:
 - Không có dữ liệu khách hàng trong bất kỳ thông điệp nào.
@@ -209,7 +211,7 @@ Giai đoạn sau chỉ bắt đầu khi giai đoạn trước đạt hết kịc
 | GĐ | Nội dung | Hiện trạng (15/10) |
 |---|---|---|
 | 0 | Chốt các mục còn mở chặn GĐ 1–2 | Đang làm |
-| 1 | Luồng duyệt xử lý dữ liệu cách ly (mục 6): đề xuất lưu bền, gửi phiếu, nhận kết quả, đối soát định kỳ, chặn duyệt nội bộ | **Phần lớn đã có** ở cả hai bên. Còn thiếu: Executor tách khỏi người đề xuất, báo "đã thực hiện" về SoD |
+| 1 | Luồng duyệt xử lý dữ liệu cách ly (mục 6): đề xuất lưu bền, gửi phiếu, nhận kết quả, đối soát định kỳ, chặn duyệt nội bộ, tách ba người | **Đã xong** ở cả hai bên (15/10), kể cả Executor và báo "đã thực hiện" về SoD. Áp cho D1; D2, D3 ở GĐ 3 |
 | 2 | Đăng nhập chung và tách ba người (mục 2, 3); cấp, thu quyền qua phiếu (mục 4) | Chưa có. DataTrust chưa có đăng nhập thật |
 | 3 | Thay đổi rule và gỡ cách ly qua phiếu (D2, D3) | Chưa có. Bật/tắt rule và gỡ cách ly hiện chưa cần duyệt |
 | 4 | Duyệt rule theo lô (mục 5), xuất PII có che (mục 7) | Chưa có |
@@ -289,7 +291,7 @@ Giai đoạn sau chỉ bắt đầu khi giai đoạn trước đạt hết kịc
 | Nội dung | Giá trị |
 |---|---|
 | Kiến trúc | Hai hệ thống, chung đăng nhập (qua SoD), gọi qua lại |
-| Người thực thi | Executor (OPS), khác người đề xuất và người duyệt |
+| Người thực thi | Executor (OPS), khác người đề xuất và người duyệt. Phiếu DataTrust nâng Prod. Op. lên P ở dòng 13 (cùng cách nâng DPO khi có PII), không thêm dòng ma trận. Duyệt xong, SoD giao bước thực hiện cho một OPS không xung đột; bước này chỉ hoàn tất khi DataTrust báo Executor đã chạy |
 | Danh tính hai bên | Tên đăng nhập SoD |
 | Duyệt hai người nội bộ DataTrust | Bỏ, dùng chuỗi duyệt SoD |
 | Đơn vị lô | Cấu hình theo dataset, mặc định theo ngày |
@@ -303,12 +305,11 @@ Giai đoạn sau chỉ bắt đầu khi giai đoạn trước đạt hết kịc
 | # | Câu hỏi | Đề xuất | Chặn GĐ |
 |---|---|---|---|
 | 1 | Ánh xạ việc → dòng ma trận (bảng mục 6) | Như bảng | 1, 3 |
-| 2 | Dòng 13 cho REQ là P (tự thực hiện). Có Executor thì cần dòng mới "Thực thi xử lý dữ liệu" với OPS là P | Thêm dòng qua trang Quản trị SoD, CISO duyệt phiên bản cấu hình | 1 |
-| 3 | Xuất PII ra nước ngoài có cho làm gấp (break-glass) không | Không | 4 |
-| 4 | Ai giữ khoá ký, xoay khi nào | IAM, xoay hằng quý | 2 |
-| 5 | Cột nào thuộc mức "nhạy cảm" và quy tắc che 50% từng loại | Như bảng mục 7, DPO duyệt | 4 |
-| 6 | Phiếu và tài khoản cũ có phải chuyển không | Tạo phiếu cấp quyền cho tài khoản đang dùng; phiếu đã đóng giữ nguyên | 6 |
-| 7 | Bản demo cho Auditor có cần đăng nhập thật không | Có, nếu demo cho Auditor; không, nếu chỉ demo luồng | 2 |
+| 2 | Xuất PII ra nước ngoài có cho làm gấp (break-glass) không | Không | 4 |
+| 3 | Ai giữ khoá ký, xoay khi nào | IAM, xoay hằng quý | 2 |
+| 4 | Cột nào thuộc mức "nhạy cảm" và quy tắc che 50% từng loại | Như bảng mục 7, DPO duyệt | 4 |
+| 5 | Phiếu và tài khoản cũ có phải chuyển không | Tạo phiếu cấp quyền cho tài khoản đang dùng; phiếu đã đóng giữ nguyên | 6 |
+| 6 | Bản demo cho Auditor có cần đăng nhập thật không | Có, nếu demo cho Auditor; không, nếu chỉ demo luồng | 2 |
 
 ---
 

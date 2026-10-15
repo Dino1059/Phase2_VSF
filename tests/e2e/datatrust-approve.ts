@@ -1,8 +1,10 @@
 // Công cụ chạy thử đầu-cuối (không phải test tự động): duyệt hoặc từ chối một phiếu bằng đúng service mà giao diện dùng,
-// theo từng người được giao bước. Dùng cho PLAN_NOI_SOD_DATATRUST.md bước 8, trên DB sod_test.
+// theo từng người được giao bước. Dừng ở bước thực hiện của Prod. Op.: bước đó chỉ hoàn tất khi Executor chạy ở DataTrust.
+// Dùng cho doc/KE_HOACH_SOD_DATATRUST.md mục 11, trên DB sod_test.
 //   DATABASE_URL=... APP_DATABASE_URL=... npx tsx --conditions=react-server tests/e2e/datatrust-approve.ts <mã phiếu> approve|reject [số bước tối đa]
 import { prisma } from "@/lib/db";
 import { decideStep } from "@/lib/tickets/service";
+import { flushDatatrustOutbox } from "@/lib/integrations/outbox";
 import { asUser, meta } from "../security/helpers";
 
 const [code, mode = "approve", maxArg] = process.argv.slice(2);
@@ -15,6 +17,11 @@ async function main() {
     const t = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id }, include: { steps: { orderBy: { idx: "asc" } } } });
     if (t.status !== "OPEN") break;
     const cur = t.steps.find((s) => s.status === "CURRENT" && s.idx > 0)!;
+    if (cur.action === "P" && mode === "approve") {
+      const ops = await prisma.user.findUniqueOrThrow({ where: { id: cur.assigneeId! } });
+      console.log(`chờ Executor: ${cur.roleCode}:P giao cho ${ops.username}, thực thi ở DataTrust`);
+      break;
+    }
     const who = await asUser((await prisma.user.findUniqueOrThrow({ where: { id: cur.assigneeId! } })).username);
     const approve = mode === "approve";
     await decideStep(who, { ticketId: t.id, stepId: cur.id, version: t.version, approve, comment: approve ? "" : "Không đồng ý (chạy thử)" }, meta);
@@ -23,7 +30,8 @@ async function main() {
   }
   const end = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
   console.log(`TRẠNG THÁI ${end.code}: ${end.status}`);
-  // Chờ gửi webhook xong (gửi ngay sau commit, không chờ worker)
-  await new Promise((r) => setTimeout(r, 2500));
+  // Gửi hẳn các sự kiện đang chờ trước khi thoát (lần gửi ngay sau commit chạy nền, tiến trình thoát sớm thì bị bỏ dở)
+  await new Promise((r) => setTimeout(r, 300));
+  console.log("outbox:", JSON.stringify(await flushDatatrustOutbox()));
 }
 main().finally(() => prisma.$disconnect());

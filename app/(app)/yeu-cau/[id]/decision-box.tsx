@@ -4,10 +4,10 @@ import { useActionState } from "react";
 import { decideAction } from "@/app/actions/tickets";
 import { FormAlert } from "@/app/ui/form";
 
-type Props = { ticketId: string; stepId: string; version: number; roleName: string; isP: boolean; onBehalfOf?: string; canReturn?: boolean };
+type Props = { ticketId: string; stepId: string; version: number; roleName: string; isP: boolean; onBehalfOf?: string; canReturn?: boolean; executeElsewhere?: string };
 
 /** Ô thao tác của người được giao bước đang xử lý. Server kiểm lại toàn bộ khi bấm. */
-export default function DecisionBox({ ticketId, stepId, version, roleName, isP, onBehalfOf, canReturn = true }: Props) {
+export default function DecisionBox({ ticketId, stepId, version, roleName, isP, onBehalfOf, canReturn = true, executeElsewhere }: Props) {
   const [state, action, pending] = useActionState(decideAction, {});
   return (
     <form action={action} className="box" style={{ margin: "10px 0 0" }}>
@@ -15,6 +15,7 @@ export default function DecisionBox({ ticketId, stepId, version, roleName, isP, 
         Bạn đang xử lý bước này với vai trò <b>{roleName}</b>
         {onBehalfOf && <> · thay mặt <b>{onBehalfOf}</b> (được ủy quyền)</>}
       </div>
+      {executeElsewhere && <div className="small" style={{ marginBottom: 6 }}>{executeElsewhere}</div>}
       <FormAlert state={state} />
       <input type="hidden" name="ticketId" value={ticketId} />
       <input type="hidden" name="stepId" value={stepId} />
@@ -27,9 +28,11 @@ export default function DecisionBox({ ticketId, stepId, version, roleName, isP, 
         style={{ minHeight: 50, marginBottom: 8 }}
       />
       <div className="row">
+        {!executeElsewhere && (
         <button className="btn ok sm" name="decision" value="approve" disabled={pending}>
           {isP ? "Hoàn tất" : "Duyệt"}
         </button>
+        )}
         <button className="btn bad sm" name="decision" value="reject" disabled={pending}>
           Từ chối
         </button>

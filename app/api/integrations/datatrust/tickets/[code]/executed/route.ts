@@ -1,10 +1,9 @@
-import { prisma } from "@/lib/db";
-import { AuditAction, requestMeta, writeAudit } from "@/lib/audit";
+import { requestMeta } from "@/lib/audit";
 import { verifyDatatrustRequest } from "@/lib/integrations/datatrust";
-import { isDtForm } from "@/lib/sod/datatrust";
+import { completeDatatrustExecution } from "@/lib/tickets/service";
 
-// DataTrust báo đã thực thi đề xuất sau khi phiếu DONE. Chỉ ghi nhật ký kiểm toán, không đổi trạng thái phiếu
-// (dòng 13 không có bước P cho người khác: Requestor thực thi ở DataTrust).
+// DataTrust báo Executor đã thực thi đề xuất. Ghi bước thực hiện (P, Prod. Op.) nhân danh người thực thi, phiếu sang DONE.
+// Người thực thi phải là người được giao bước P (hoặc người được ủy quyền), không phải người đề xuất hay người duyệt.
 export async function POST(request: Request, ctx: { params: Promise<{ code: string }> }) {
   const v = await verifyDatatrustRequest(request);
   if (!v.ok) return Response.json({ error: v.reason }, { status: v.status });
@@ -16,27 +15,16 @@ export async function POST(request: Request, ctx: { params: Promise<{ code: stri
   } catch {
     return Response.json({ error: "invalid_json" }, { status: 422 });
   }
-  const executedBy = String(body.executed_by ?? "");
-  const proposalHash = String(body.proposal_hash ?? "");
-  const evidenceRef = String(body.evidence_ref ?? "").slice(0, 200);
-
-  const t = await prisma.ticket.findUnique({ where: { code }, include: { requester: { select: { username: true, email: true } } } });
-  if (!t || !isDtForm(t.form)) return Response.json({ error: "not_found" }, { status: 404 });
-  if (t.status !== "DONE") return Response.json({ error: "ticket_not_done", status: t.status }, { status: 409 });
-  if (t.form.proposalHash !== proposalHash) return Response.json({ error: "hash_mismatch" }, { status: 409 });
-  if (executedBy !== t.requester.username) return Response.json({ error: "executor_is_not_requester" }, { status: 403 });
-
-  const already = await prisma.auditLog.findFirst({ where: { action: AuditAction.ExternalExecuted, targetId: t.id }, select: { id: true } });
-  if (already) return Response.json({ ok: true, already_recorded: true });
-
-  await writeAudit({
-    action: AuditAction.ExternalExecuted,
-    actorUserId: t.requesterId,
-    actorEmail: t.requester.email,
-    targetType: "ticket",
-    targetId: t.id,
-    details: { code: t.code, via: "datatrust", executedBy, proposalHash, evidenceRef, affectedRows: Number(body.affected_rows) || 0 },
-    meta: await requestMeta(),
-  });
-  return Response.json({ ok: true, already_recorded: false });
+  const r = await completeDatatrustExecution(
+    code,
+    {
+      executedBy: String(body.executed_by ?? ""),
+      proposalHash: String(body.proposal_hash ?? ""),
+      evidenceRef: String(body.evidence_ref ?? "").slice(0, 200),
+      affectedRows: Number(body.affected_rows) || 0,
+    },
+    await requestMeta(),
+  );
+  if (!r.ok) return Response.json({ error: r.error, detail: r.detail }, { status: r.status });
+  return Response.json({ ok: true, already_recorded: r.alreadyRecorded });
 }

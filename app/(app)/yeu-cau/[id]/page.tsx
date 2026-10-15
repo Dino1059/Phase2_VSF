@@ -158,7 +158,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
           <div><b>Dữ liệu:</b> {dt.dataset}{dt.column && `.${dt.column}`} · <b>Thao tác:</b> {dt.operation} · <b>Số dòng:</b> {dt.expectedRows} · <b>Rủi ro:</b> {dt.riskLevel}{dt.pii && " · có dữ liệu cá nhân"}</div>
           <div><b>Lý do:</b> {dt.reason}</div>
           <div className="muted" style={{ wordBreak: "break-all" }}>Mã băm nội dung đề xuất: {dt.proposalHash}</div>
-          <div className="muted">Người gửi duyệt ({t.requester.fullName}) thực thi ở DataTrust sau khi phiếu hoàn tất. Phiếu chỉ mô tả dữ liệu, không chứa giá trị dữ liệu.</div>
+          <div className="muted">Ba người khác nhau: người gửi duyệt ({t.requester.fullName}) đề xuất, các bước duyệt ở dưới, Prod. Op. thực thi ở DataTrust. Bước thực hiện được ghi khi DataTrust báo đã chạy. Phiếu chỉ mô tả dữ liệu, không chứa giá trị dữ liệu.</div>
         </div>
       ) : rbac ? (
         <div className="small" style={{ margin: "0 0 12px" }}>
@@ -237,6 +237,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/y
                       roleName={role(s).name}
                       isP={s.action === "P"}
                       canReturn={!rbac && !dt && !ops}
+                      executeElsewhere={dt && s.action === "P" ? "Thực thi trong DataTrust (mã đề xuất " + dt.externalRef + "). Bước này tự hoàn tất khi DataTrust báo đã chạy. Không thực thi thì bấm Từ chối kèm lý do." : undefined}
                       onBehalfOf={s.assigneeId !== user.id ? s.assignee?.fullName : undefined}
                     />
                   )}

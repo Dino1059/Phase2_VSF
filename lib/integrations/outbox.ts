@@ -10,21 +10,32 @@ import { signPayload } from "./datatrust";
 const TARGET = "datatrust";
 const MAX_ATTEMPTS = 10;
 export type ClosedStatus = "DONE" | "REJECTED" | "CANCELLED" | "EXPIRED";
+/** APPROVED: mọi bước duyệt đã xong, phiếu chờ Executor (bước P của Prod. Op.) thực thi ở DataTrust. Phiếu vẫn OPEN. */
+export type DtEventStatus = ClosedStatus | "APPROVED";
 
 /** Ghi sự kiện "phiếu đã đóng" nếu là phiếu DataTrust. Gọi trong transaction, sau khi đã cập nhật trạng thái phiếu. */
-export async function enqueueTicketClosed(tx: Tx, ticketId: string, status: ClosedStatus): Promise<void> {
+export const enqueueTicketClosed = (tx: Tx, ticketId: string, status: ClosedStatus) => enqueueDtEvent(tx, ticketId, status);
+
+/** Ghi sự kiện "đã duyệt, chờ thực thi" nếu là phiếu DataTrust. Gọi trong transaction, sau khi bước P đã sang CURRENT. */
+export const enqueueTicketApproved = (tx: Tx, ticketId: string) => enqueueDtEvent(tx, ticketId, "APPROVED");
+
+async function enqueueDtEvent(tx: Tx, ticketId: string, status: DtEventStatus): Promise<void> {
   const t = await tx.ticket.findUnique({
     where: { id: ticketId },
     include: {
       requester: { select: { username: true } },
       steps: {
         orderBy: { idx: "asc" },
-        include: { decisions: { orderBy: { decidedAt: "asc" }, include: { actor: { select: { username: true } } } } },
+        include: {
+          assignee: { select: { username: true } },
+          decisions: { orderBy: { decidedAt: "asc" }, include: { actor: { select: { username: true } } } },
+        },
       },
     },
   });
   if (!t || !isDtType(t.typeId) || !isDtForm(t.form)) return;
-  const eventId = `${t.code}:${status}`;
+  const eventId = status === "APPROVED" ? `${t.code}:APPROVED:${t.rev}` : `${t.code}:${status}`;
+  const exec = t.steps.find((s) => s.idx > 0 && s.action === "P");
   const payload = {
     event_id: eventId,
     ticket_code: t.code,
@@ -34,10 +45,12 @@ export async function enqueueTicketClosed(tx: Tx, ticketId: string, status: Clos
     proposal_hash: t.form.proposalHash,
     form_hash: t.formHash,
     requester_username: t.requester.username,
-    closed_at: (t.closedAt ?? new Date()).toISOString(),
+    /** Prod. Op. được giao bước thực thi: DataTrust chỉ cho đúng người này chạy */
+    executor_username: exec?.assignee?.username ?? null,
+    closed_at: status === "APPROVED" ? null : (t.closedAt ?? new Date()).toISOString(),
     approvers: t.steps
       .filter((s) => s.idx > 0)
-      .flatMap((s) => s.decisions.map((d) => ({ role: s.roleCode, actor: d.actor.username, outcome: d.outcome, decided_at: d.decidedAt.toISOString() }))),
+      .flatMap((s) => s.decisions.map((d) => ({ role: s.roleCode, action: s.action, actor: d.actor.username, outcome: d.outcome, decided_at: d.decidedAt.toISOString() }))),
   };
   await tx.integrationOutbox.upsert({
     where: { eventId },

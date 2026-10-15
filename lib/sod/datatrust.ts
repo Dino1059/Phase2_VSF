@@ -1,6 +1,8 @@
 // Phiếu do DataTrust gửi sang SoD Flow: duyệt một bước xử lý dữ liệu (sửa dữ liệu cách ly, đổi rule, gỡ cách ly).
 // Chuỗi duyệt lấy từ ma trận: dòng 13 (id 12) cho sửa dữ liệu / đổi rule; dòng 16 (id 15) rồi dòng 13 cho gỡ cách ly.
-// Dòng 13 không có bước P cho người khác: Requestor thực thi ở DataTrust sau khi phiếu DONE.
+// Ba người khác nhau (KE_HOACH_SOD_DATATRUST.md N3): người đề xuất (REQ) ≠ người duyệt ≠ người thực thi. Dòng 13 cho REQ là P,
+// nên phiếu DataTrust nâng Prod. Op. lên P ở dòng 13: duyệt xong, bước P giao cho một OPS không xung đột. Executor chạy ở
+// DataTrust, DataTrust báo lại thì bước P mới hoàn tất và phiếu DONE.
 // Phiếu chỉ mô tả dữ liệu (bảng, cột, số dòng, thao tác), không bao giờ chứa giá trị dữ liệu khách hàng.
 import * as z from "zod";
 import { ticketType, type RoleKey } from "./catalog";
@@ -42,17 +44,19 @@ export const isDtForm = (f: unknown): f is DtForm => !!f && typeof f === "object
 /** Phân loại phiếu → chuỗi hoạt động. Có DLCN thì DPO rà soát (QT 5.4), cùng cách classify.ts nâng vai trò. */
 export function classifyDt(input: Pick<DtInput, "type" | "pii">): Classification {
   const type = ticketType(input.type);
-  const mods: Mods = {};
+  const m: Partial<Record<RoleKey, "R" | "P">> = { OPS: "P" };
   const reasons = [
     input.type === "dt_override"
-      ? "Gỡ cách ly ngoại lệ → “Phê duyệt ngoại lệ kiểm soát” (dòng 16) rồi “Thay đổi chính sách vận hành” (dòng 13). Requestor thực thi ở DataTrust."
-      : "Xử lý / đổi rule dữ liệu → “Thay đổi chính sách vận hành” (dòng 13). Requestor thực thi ở DataTrust sau khi phiếu hoàn tất.",
+      ? "Gỡ cách ly ngoại lệ → “Phê duyệt ngoại lệ kiểm soát” (dòng 16) rồi “Thay đổi chính sách vận hành” (dòng 13)."
+      : "Xử lý / đổi rule dữ liệu → “Thay đổi chính sách vận hành” (dòng 13).",
+    "Tách ba người: Prod. Op. thực thi ở DataTrust sau khi duyệt xong, không phải người đề xuất hay người duyệt.",
   ];
   if (input.pii && input.type !== "dt_override") {
     // dòng 13: DPO là C → nâng lên R khi có DLCN
-    mods[12] = { DPO: "R" as const } satisfies Partial<Record<RoleKey, "R">>;
+    m.DPO = "R";
     reasons.push("Có DLCN → DPO rà soát ở “Thay đổi chính sách vận hành” (QT 5.4)");
   }
+  const mods: Mods = { 12: m };
   return { type, acts: [...type.acts], mods, reasons, level: input.pii ? 2 : 1, pii: input.pii, breakGlass: false };
 }
 

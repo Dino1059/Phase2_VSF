@@ -64,6 +64,7 @@ export async function ticketSummary(code: string) {
   });
   if (!t) return null;
   const f = (t.form ?? {}) as { externalRef?: string; proposalHash?: string };
+  const exec = t.steps.find((s) => s.idx > 0 && s.action === "P");
   return {
     ticket_code: t.code,
     type: t.typeId,
@@ -72,6 +73,9 @@ export async function ticketSummary(code: string) {
     proposal_hash: f.proposalHash ?? null,
     form_hash: t.formHash,
     requester_username: t.requester.username,
+    /** Prod. Op. được giao thực thi; awaiting_execution = đã duyệt xong, chờ Executor chạy ở DataTrust */
+    executor_username: exec?.assignee?.username ?? null,
+    awaiting_execution: t.status === "OPEN" && exec?.status === "CURRENT",
     created_at: t.createdAt.toISOString(),
     closed_at: t.closedAt?.toISOString() ?? null,
     steps: t.steps.map((s) => ({

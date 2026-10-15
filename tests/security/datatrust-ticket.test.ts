@@ -4,12 +4,11 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "@/lib/db";
 import type { CurrentUser } from "@/lib/auth/session";
-import { TicketError, createDatatrustTicket, decideStep, returnTicket } from "@/lib/tickets/service";
+import { TicketError, completeDatatrustExecution, createDatatrustTicket, decideStep, returnTicket } from "@/lib/tickets/service";
 import type { DtInput } from "@/lib/sod/datatrust";
 import { MAX_SKEW_SECONDS, signPayload, verifyDatatrustRequest } from "@/lib/integrations/datatrust";
-import { AuditAction, writeAudit } from "@/lib/audit";
 import { evidenceCsv, loadEvidence } from "@/lib/tickets/evidence";
-import { approveCurrent, asUser, meta, reload } from "./helpers";
+import { approveCurrent, asUser, current, meta, reload } from "./helpers";
 
 let an: CurrentUser, nam: CurrentUser;
 before(async () => {
@@ -40,14 +39,24 @@ const create = async (user: CurrentUser, i: DtInput) => {
 };
 const chainOf = async (id: string) => (await reload(id)).steps.map((s) => `${s.roleCode}:${s.action}`);
 
-test("K2.2: dt_remediation theo dòng 13 — Release Manager, CISO rà soát; Line Manager, System Owner phê duyệt; không có bước P", async () => {
+test("K2.2: dt_remediation theo dòng 13 — rà soát, phê duyệt, rồi Prod. Op. thực hiện; ba người khác nhau", async () => {
   const r = await create(an, input());
   assert.equal(r.created, true);
   const t = await reload(r.id);
   assert.equal(t.typeId, "dt_remediation");
-  assert.deepEqual(await chainOf(r.id), ["REQ:P", "REL:R", "CISO:R", "LM:A", "SO:A"]);
-  assert.ok(!t.steps.some((s) => s.idx > 0 && s.action === "P"), "dòng 13 không có bước P cho người khác");
+  assert.deepEqual(await chainOf(r.id), ["REQ:P", "REL:R", "CISO:R", "LM:A", "SO:A", "OPS:P"]);
+  const exec = t.steps.at(-1)!;
+  assert.ok(exec.assigneeId && exec.assigneeId !== an.id, "người đề xuất không thực thi");
   assert.ok(t.steps.every((s) => s.idx === 0 || s.assigneeId !== an.id), "người gửi duyệt không nằm trong chuỗi duyệt");
+  assert.ok(t.steps.slice(1, -1).every((s) => s.assigneeId !== exec.assigneeId), "người thực thi không duyệt");
+});
+
+test("K2.2b: người đề xuất giữ cả OPS cũng không được giao bước thực hiện", async () => {
+  const minh = await asUser("minh.ngo"); // REQ + OPS
+  const r = await create(minh, input({ requesterUsername: "minh.ngo" }));
+  const exec = (await reload(r.id)).steps.at(-1)!;
+  assert.equal(exec.roleCode, "OPS");
+  assert.notEqual(exec.assigneeId, minh.id);
 });
 
 test("K2.3: có dữ liệu cá nhân thì thêm DPO", async () => {
@@ -115,15 +124,77 @@ test("phiếu từ DataTrust không trả lại để bổ sung được; từ c
   assert.equal((await reload(r.id)).status, "REJECTED");
 });
 
-test("duyệt hết chuỗi thì phiếu DONE ngay, không còn bước thực hiện nào chờ", async () => {
-  const r = await create(an, input());
-  for (let i = 0; i < 8; i++) {
-    if ((await reload(r.id)).status !== "OPEN") break;
-    await approveCurrent(r.id);
+/** Duyệt hết các bước duyệt; dừng ở bước thực hiện của Prod. Op. */
+async function approveAll(id: string) {
+  for (let i = 0; i < 10; i++) {
+    const t = await reload(id);
+    if (t.status !== "OPEN" || current(t).action === "P") return t;
+    await approveCurrent(id);
   }
-  const t = await reload(r.id);
-  assert.equal(t.status, "DONE");
-  assert.ok(t.closedAt);
+  throw new Error("chuỗi duyệt quá dài");
+}
+const usernameOf = async (id: string | null) => (await prisma.user.findUniqueOrThrow({ where: { id: id! } })).username;
+const exec = (code: string, executedBy: string, proposalHash: string) =>
+  completeDatatrustExecution(code, { executedBy, proposalHash, evidenceRef: "AUDIT-1", affectedRows: 42 }, meta);
+
+test("K3: duyệt xong thì phiếu chờ Executor, báo DataTrust APPROVED kèm người thực thi; không hoàn tất tay trong SoD", async () => {
+  const i = input();
+  const r = await create(an, i);
+  const t = await approveAll(r.id);
+  assert.equal(t.status, "OPEN");
+  const step = current(t);
+  assert.deepEqual([step.roleCode, step.action], ["OPS", "P"]);
+  const ev = await prisma.integrationOutbox.findUnique({ where: { eventId: `${r.code}:APPROVED:${t.rev}` } });
+  assert.ok(ev, "có sự kiện APPROVED");
+  const p = ev.payload as { status: string; executor_username: string; proposal_hash: string };
+  assert.equal(p.status, "APPROVED");
+  assert.equal(p.executor_username, await usernameOf(step.assigneeId));
+  assert.equal(p.proposal_hash, i.proposalHash);
+  const ops = await asUser(p.executor_username);
+  await assert.rejects(
+    decideStep(ops, { ticketId: r.id, stepId: step.id, version: t.version, approve: true, comment: "" }, meta),
+    (e: unknown) => e instanceof TicketError && /Executor thực thi trong DataTrust/.test(e.message),
+  );
+});
+
+test("K4: chỉ Prod. Op. được giao mới ghi được thực thi; người đề xuất, người duyệt, mã băm sai đều bị chặn", async () => {
+  const i = input();
+  const r = await create(an, i);
+  const t = await approveAll(r.id);
+  const approver = await usernameOf(t.steps.find((s) => s.roleCode === "SO")!.assigneeId);
+  const executor = await usernameOf(current(t).assigneeId);
+
+  const byRequester = await exec(r.code, "an.nguyen", i.proposalHash);
+  assert.deepEqual([byRequester.ok, !byRequester.ok && byRequester.status], [false, 403]);
+  const byApprover = await exec(r.code, approver, i.proposalHash);
+  assert.equal(byApprover.ok, false);
+  assert.equal(!byApprover.ok && byApprover.status, 403);
+  const wrongHash = await exec(r.code, executor, "ff".repeat(32));
+  assert.equal(!wrongHash.ok && wrongHash.error, "hash_mismatch");
+  assert.equal((await reload(r.id)).status, "OPEN", "bị chặn thì phiếu vẫn chờ");
+
+  assert.deepEqual(await exec(r.code, executor, i.proposalHash), { ok: true, alreadyRecorded: false });
+  const done = await reload(r.id);
+  assert.equal(done.status, "DONE");
+  assert.ok(done.closedAt);
+  const d = await prisma.stepDecision.findFirstOrThrow({ where: { stepId: done.steps.at(-1)!.id }, include: { actor: true } });
+  assert.deepEqual([d.outcome, d.actor.username], ["COMPLETE", executor]);
+  assert.ok(await prisma.integrationOutbox.findUnique({ where: { eventId: `${r.code}:DONE` } }), "có sự kiện DONE");
+
+  // Báo lại lần hai: không ghi thêm; người khác báo: bị từ chối
+  assert.deepEqual(await exec(r.code, executor, i.proposalHash), { ok: true, alreadyRecorded: true });
+  const other = await exec(r.code, approver, i.proposalHash);
+  assert.equal(!other.ok && other.error, "executed_by_other");
+  assert.equal(await prisma.auditLog.count({ where: { action: "ticket.executed.external", targetId: r.id } }), 1);
+});
+
+test("K5: Prod. Op. từ chối thực thi thì phiếu REJECTED", async () => {
+  const r = await create(an, input());
+  const t = await approveAll(r.id);
+  const step = current(t);
+  const ops = await asUser(await usernameOf(step.assigneeId));
+  await decideStep(ops, { ticketId: r.id, stepId: step.id, version: t.version, approve: false, comment: "Dữ liệu nguồn đã đổi" }, meta);
+  assert.equal((await reload(r.id)).status, "REJECTED");
 });
 
 // ---------------------------------------------------------------- Chữ ký HMAC (K2.5)
@@ -163,11 +234,7 @@ test("K2.5: chữ ký đúng được chấp nhận; sai chữ ký, sai nội du
 test("K6: bằng chứng lọc được phiếu DataTrust; CSV có mã băm đề xuất, người duyệt từng bước và việc thực thi", async () => {
   const i = input({ pii: true });
   const r = await create(an, i);
-  for (let k = 0; k < 10; k++) {
-    if ((await reload(r.id)).status !== "OPEN") break;
-    await approveCurrent(r.id);
-  }
-  assert.equal((await reload(r.id)).status, "DONE");
+  const executor = await usernameOf(current(await approveAll(r.id)).assigneeId);
   const aud = nam; // Auditor
   // Trước khi DataTrust báo: chưa có thông tin thực thi
   let ev = await loadEvidence(aud, { type: "dt_remediation" });
@@ -176,13 +243,13 @@ test("K6: bằng chứng lọc được phiếu DataTrust; CSV có mã băm đ�
   assert.equal(t.dt?.proposalHash, i.proposalHash);
   assert.equal(t.dt?.executedAt, null);
   assert.ok(t.decisions.length >= 2 && t.decisions.every((d) => d.formHash.length === 64), "có từng quyết định kèm mã băm");
-  // DataTrust báo đã thực thi (route ghi nhật ký này)
-  const requester = await prisma.user.findUniqueOrThrow({ where: { username: "an.nguyen" } });
-  await writeAudit({ action: AuditAction.ExternalExecuted, actorUserId: requester.id, actorEmail: requester.email, targetType: "ticket", targetId: r.id, details: { code: r.code, executedBy: "an.nguyen", proposalHash: i.proposalHash }, meta });
+  // DataTrust báo Executor đã thực thi
+  assert.ok((await exec(r.code, executor, i.proposalHash)).ok);
   ev = await loadEvidence(aud, { type: "dt_remediation" });
   t = ev.tickets.find((x) => x.code === r.code)!;
   assert.ok(t.dt?.executedAt);
-  assert.equal(t.dt?.executedBy, "an.nguyen");
+  assert.equal(t.dt?.executedBy, executor);
+  assert.notEqual(executor, "an.nguyen");
   const csv = evidenceCsv(ev);
   assert.ok(csv.includes(i.proposalHash) && csv.includes(i.externalRef), "CSV phải có mã băm và mã đề xuất DataTrust");
   assert.ok(csv.includes("DataTrust thực thi lúc"));
