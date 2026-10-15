@@ -2,6 +2,7 @@
 DataTrust OS: Reset & Ingest Bronze Data + Data Catalog Metadata Initializer
 Truncates and ingests 8 CSV files from data/vingroup_pii_faulty_testset_3zone into schema bronze,
 and populates schema catalog (catalog.datasets and catalog.columns).
+Single source of truth for bronze ingestion contracts and catalog population.
 """
 
 import os
@@ -9,6 +10,7 @@ import sys
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Optional, Any
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -20,6 +22,33 @@ if os.path.exists("/home/airflow/.local/lib/python3.7/site-packages"):
 
 import psycopg2
 from psycopg2.extras import execute_values
+
+
+class DataContractValidationError(ValueError):
+    """Raised when an ingested file violates the expected schema contract."""
+    pass
+
+
+def normalize_opt_out_sharing(val: Any) -> int:
+    """Strictly normalizes opt_out_sharing to integer 0 or 1.
+    
+    Raises DataContractValidationError on invalid values.
+    """
+    if pd.isna(val) or val is None or val == "":
+        return 0
+    if isinstance(val, bool):
+        return 1 if val else 0
+    if isinstance(val, (int, float)):
+        ival = int(val)
+        if ival in (0, 1):
+            return ival
+        raise DataContractValidationError(f"Invalid opt_out_sharing numeric value: {val}")
+    s = str(val).strip().lower()
+    if s in ("0", "false"):
+        return 0
+    if s in ("1", "true"):
+        return 1
+    raise DataContractValidationError(f"Invalid opt_out_sharing value: {val}")
 
 
 DATASET_METADATA = {
@@ -60,6 +89,11 @@ DATASET_METADATA = {
             "phone_number": ("phone_number", "DIRECT_IDENTIFIER", "contact"),
             "created_at": ("timestamp", "TECHNICAL_METADATA", "technical_metadata"),
             "subject_zone": ("regulatory_jurisdiction", "NON_PERSONAL_REFERENCE", "location"),
+            "consent_at": ("consent_timestamp", "TECHNICAL_METADATA", "privacy_lifecycle"),
+            "consent_withdrawn_at": ("consent_timestamp", "TECHNICAL_METADATA", "privacy_lifecycle"),
+            "delete_requested_at": ("deletion_timestamp", "TECHNICAL_METADATA", "privacy_lifecycle"),
+            "delete_completed_at": ("deletion_timestamp", "TECHNICAL_METADATA", "privacy_lifecycle"),
+            "opt_out_sharing": ("opt_out_flag", "TECHNICAL_METADATA", "privacy_lifecycle"),
         }
     },
     "dim_drivers": {
@@ -76,6 +110,7 @@ DATASET_METADATA = {
             "phone_number": ("phone_number", "DIRECT_IDENTIFIER", "contact"),
             "created_at": ("timestamp", "TECHNICAL_METADATA", "technical_metadata"),
             "subject_zone": ("regulatory_jurisdiction", "NON_PERSONAL_REFERENCE", "location"),
+            "legal_basis": ("legal_basis", "NON_PERSONAL_REFERENCE", "legal_compliance"),
         }
     },
     "feedback_pii": {
@@ -161,6 +196,7 @@ DATASET_METADATA = {
             "accel_z": ("acceleration_z", "TECHNICAL_METADATA", "vehicle_technical"),
             "telemetry_coverage": ("coverage_status", "TECHNICAL_METADATA", "technical_metadata"),
             "subject_zone": ("regulatory_jurisdiction", "NON_PERSONAL_REFERENCE", "location"),
+            "fatigue_score": ("driver_fatigue_score", "SPECIAL_CATEGORY_HEALTH_DATA", "health_biometric"),
         }
     },
     "synthetic_feedback_scenario_driven": {
@@ -180,6 +216,62 @@ DATASET_METADATA = {
         }
     }
 }
+
+
+EXPECTED_SCHEMA_CONTRACT = {
+    "acn_charging_mapped": [
+        "session_id", "vehicle_vin", "station_id", "charger_id", "start_time",
+        "duration_mins", "kwh_consumed", "power_kw", "charging_pattern",
+        "assigned_day_index", "station_temp_c", "cost_vnd", "status",
+        "soft_overlap_flag", "event_sequence_index", "subject_zone"
+    ],
+    "dim_customers": [
+        "customer_id", "first_name", "last_name", "email", "phone_number",
+        "created_at", "subject_zone", "consent_at", "consent_withdrawn_at",
+        "delete_requested_at", "delete_completed_at", "opt_out_sharing"
+    ],
+    "dim_drivers": [
+        "driver_id", "vehicle_vin", "first_name", "last_name", "email",
+        "phone_number", "created_at", "subject_zone", "legal_basis"
+    ],
+    "feedback_pii": [
+        "feedback_id", "vehicle_vin", "scenario_date", "assigned_day_index",
+        "topic", "sentiment", "raw_comment_text", "subject_zone", "trip_id", "customer_id"
+    ],
+    "fleet_index": [
+        "vehicle_vin", "vehicle_type", "telemetry_equipped", "subject_zone"
+    ],
+    "ride_hailing_xanh_sm_trips": [
+        "trip_id", "vehicle_vin", "driver_id", "pickup_datetime", "dropoff_datetime",
+        "assigned_day_index", "trip_distance_km", "fare_amount", "currency_unverified",
+        "tip_amount", "total_fare", "pickup_latitude", "pickup_longitude",
+        "vehicle_type", "event_sequence_index", "subject_zone", "customer_id", "customer_contact"
+    ],
+    "synthetic_ev_telemetry_ved_ref": [
+        "record_id", "vehicle_vin", "day_idx", "sample_idx", "timestamp",
+        "speed_kmh", "motor_rpm", "battery_soc", "battery_voltage", "battery_current",
+        "battery_temp_c", "state_at_sample", "assigned_day_index", "ved_reference_veh_id",
+        "synthetic_gap_indicator", "event_sequence_index", "latitude", "longitude",
+        "accel_z", "telemetry_coverage", "subject_zone", "fatigue_score"
+    ],
+    "synthetic_feedback_scenario_driven": [
+        "feedback_id", "vehicle_vin", "scenario_date", "assigned_day_index",
+        "topic", "sentiment", "raw_comment_text"
+    ]
+}
+
+
+def validate_dataset_contract(tbl_name: str, df: pd.DataFrame):
+    """Validates that dataframe contains all required columns declared in EXPECTED_SCHEMA_CONTRACT."""
+    expected_cols = EXPECTED_SCHEMA_CONTRACT.get(tbl_name)
+    if not expected_cols:
+        return
+    actual_cols = set(df.columns)
+    missing = [c for c in expected_cols if c not in actual_cols]
+    if missing:
+        raise DataContractValidationError(
+            f"Dataset '{tbl_name}' violates schema contract: missing expected column(s): {missing}"
+        )
 
 
 def get_db_connection():
@@ -217,35 +309,44 @@ def resolve_data_dir() -> Path:
     raise FileNotFoundError("Could not find data/vingroup_pii_faulty_testset_3zone directory.")
 
 
-def execute_schema_ddl(conn):
-    """Executes schema_bronze_and_catalog.sql if tables are missing."""
-    ddl_candidates = [
-        Path("/opt/airflow/database/schema_bronze_and_catalog.sql"),
-        Path("database/schema_bronze_and_catalog.sql"),
-        Path("../database/schema_bronze_and_catalog.sql"),
-        Path("E:/Phase2_VSF/database/schema_bronze_and_catalog.sql"),
-    ]
-    ddl_path = next((p for p in ddl_candidates if p.exists()), None)
-    if not ddl_path:
-        print("[!] Warning: DDL file not found, assuming tables exist.")
-        return
-
-    print(f"Applying Schema DDL from {ddl_path}...")
-    with open(ddl_path, "r", encoding="utf-8") as f:
-        ddl_sql = f.read()
-    
-    with conn.cursor() as cur:
-        cur.execute(ddl_sql)
-    conn.commit()
-    print("Schema DDL applied successfully.")
-
-
-def truncate_and_ingest_all(conn, data_dir: Path, batch_id: str = None) -> dict:
+def truncate_and_ingest_all(
+    conn,
+    data_dir: Path,
+    batch_id: str = None,
+    target_dataset_id: Optional[str] = None
+) -> dict:
     batch_id = batch_id or f"batch_{uuid.uuid4().hex[:8]}"
     summary = {}
 
+    clean_target = None
+    if target_dataset_id and str(target_dataset_id).upper() not in ("ALL", "*", "NONE"):
+        clean_target = str(target_dataset_id).replace('.csv', '')
+        alias_map = {
+            "trips": "ride_hailing_xanh_sm_trips",
+            "telemetry": "synthetic_ev_telemetry_ved_ref",
+            "charging": "acn_charging_mapped",
+            "customers": "dim_customers",
+            "drivers": "dim_drivers",
+            "feedback": "feedback_pii",
+            "fleet": "fleet_index",
+        }
+        clean_target = alias_map.get(clean_target, clean_target)
+
+    # Pre-load fleet_index mapping for zone inference (vehicle_vin -> subject_zone)
+    fleet_csv = data_dir / "fleet_index.csv"
+    fleet_map = {}
+    if fleet_csv.exists():
+        try:
+            fleet_df = pd.read_csv(fleet_csv)
+            fleet_map = dict(zip(fleet_df["vehicle_vin"].astype(str), fleet_df["subject_zone"]))
+        except Exception as e:
+            print(f"[!] Warning: Unable to pre-load fleet_index.csv for zone inference: {e}")
+
     with conn.cursor() as cur:
         for tbl_name, meta in DATASET_METADATA.items():
+            if clean_target and tbl_name != clean_target:
+                continue
+
             csv_path = data_dir / meta["file"]
             if not csv_path.exists():
                 print(f"[!] Warning: File {csv_path} not found, skipping.")
@@ -255,8 +356,18 @@ def truncate_and_ingest_all(conn, data_dir: Path, batch_id: str = None) -> dict:
             full_table = f"bronze.{tbl_name}"
             cur.execute(f"TRUNCATE TABLE {full_table};")
 
-            # 2. Read CSV & prepare records
+            # 2. Read CSV & validate data contract
             df = pd.read_csv(csv_path)
+            validate_dataset_contract(tbl_name, df)
+
+            # Contract Normalization: opt_out_sharing in dim_customers
+            if tbl_name == "dim_customers" and "opt_out_sharing" in df.columns:
+                df["opt_out_sharing"] = df["opt_out_sharing"].apply(normalize_opt_out_sharing)
+
+            # Contract Inference: subject_zone in synthetic_feedback_scenario_driven
+            if tbl_name == "synthetic_feedback_scenario_driven" and "subject_zone" not in df.columns:
+                df["subject_zone"] = df["vehicle_vin"].astype(str).map(lambda vin: fleet_map.get(vin, None))
+
             # Replace NaN with None for clean SQL NULLs
             df = df.where(pd.notnull(df), None)
 
@@ -310,7 +421,7 @@ def truncate_and_ingest_all(conn, data_dir: Path, batch_id: str = None) -> dict:
                 col_tag_info = meta["tags"].get(col_name, ("unspecified", "NON_PERSONAL_REFERENCE", "general"))
                 semantic_tag, pii_role, data_cat = col_tag_info
                 is_pk = (col_name == meta.get("pk"))
-                is_personal = (pii_role in ("DIRECT_IDENTIFIER", "LINKABLE_IDENTIFIER", "CONTEXTUAL_PERSONAL_DATA", "AMBIGUOUS_UNSTRUCTURED_DATA"))
+                is_personal = (pii_role in ("DIRECT_IDENTIFIER", "LINKABLE_IDENTIFIER", "CONTEXTUAL_PERSONAL_DATA", "AMBIGUOUS_UNSTRUCTURED_DATA", "SPECIAL_CATEGORY_HEALTH_DATA"))
                 inferred_type = str(df[col_name].dtype)
                 
                 col_inserts.append((

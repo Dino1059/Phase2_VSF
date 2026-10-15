@@ -46,6 +46,7 @@ def test_bootstrap_references_every_existing_sql_file_in_safe_order():
         "migration_run_lineage_snapshots.sql",
         "schema_jurisdiction_policy_isolation.sql",
         "migration_lane_b_policy_packs.sql",
+        "migration_20261014_new_columns_and_injected_faults.sql",
         "seed_data.sql",
     ]
     for name in ordered_files:

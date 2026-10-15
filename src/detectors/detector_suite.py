@@ -33,9 +33,11 @@ class L1toL4DetectorSuite:
         "ranges": {
             "battery_soc": {"min": 0.0, "max": 100.0},
             "battery_temp_c": {"min": -20.0, "max": 65.0},
+            "battery_voltage": {"min": 0.0, "max": 1000.0},
             "power_kw": {"min": 0.0, "max": 350.0},
-            "fare_amount": {"min": 0.000001},
+            "fare_amount": {"min": 0.0},
             "trip_distance_km": {"min": 0.1},
+            "cost_vnd": {"min": 0.0},
         },
         "arithmetic_checks": [
             {"total_field": "total_fare", "sum_fields": ["fare_amount", "tip_amount"], "tolerance": 1.0},
@@ -132,11 +134,14 @@ class L1toL4DetectorSuite:
 
         entity_col = next((c for c in ["vehicle_vin", "driver_id", "customer_id"] if c in df.columns), resolved_pk)
 
-        record_signals: Dict[str, List[Signal]] = {str(row[resolved_pk]): [] for _, row in df.iterrows()}
+        # Technical evaluation identity vs business primary key
+        eval_col = "_raw_id" if "_raw_id" in df.columns else resolved_pk
+
+        record_signals: Dict[str, List[Signal]] = {str(row[eval_col]): [] for _, row in df.iterrows()}
 
         # Validate schema values before numeric detectors so malformed input is
         # a deterministic L1 failure rather than an exception or silent PASS.
-        self._run_schema_checks(df, record_signals, resolved_pk, time_col, dataset_id, cfg)
+        self._run_schema_checks(df, record_signals, resolved_pk, time_col, dataset_id, cfg, eval_col=eval_col)
         numeric_df = df.copy()
         if time_col in numeric_df.columns:
             safe_times = pd.to_datetime(numeric_df[time_col], errors="coerce", utc=True)
@@ -157,13 +162,13 @@ class L1toL4DetectorSuite:
             if field_name not in numeric_df.columns:
                 continue
             range_sigs = self.l1.detect_range_violations(
-                numeric_df, self.project_id, resolved_pk, time_col, field_name,
+                numeric_df, self.project_id, eval_col, time_col, field_name,
                 min_val=bounds.get("min"), max_val=bounds.get("max"), source_table=dataset_id
             )
             self._tag_signals(
                 range_sigs, bounds.get("rule_id") or f"L1.RANGE.{field_name}", cfg, bounds
             )
-            self._accumulate_signals(range_sigs, record_signals, df, resolved_pk, resolved_pk)
+            self._accumulate_signals(range_sigs, record_signals, df, eval_col, eval_col)
 
         # Ledger math uses fixed detector code with declarative field mappings.
         for check in cfg.get("arithmetic_checks", []):
@@ -171,12 +176,12 @@ class L1toL4DetectorSuite:
           sum_cols = [field for field in check.get("sum_fields", []) if field in df.columns]
           if total_field in df.columns and sum_cols:
             arith_sigs = self.l1.detect_arithmetic_violations(
-                df, self.project_id, resolved_pk, time_col,
+                df, self.project_id, eval_col, time_col,
                 total_col=total_field, sum_cols=sum_cols,
                 tolerance=float(check.get("tolerance", 1.0)), source_table=dataset_id
             )
             self._tag_signals(arith_sigs, check.get("rule_id", f"L1.ARITHMETIC.{total_field}"), cfg, check)
-            self._accumulate_signals(arith_sigs, record_signals, df, resolved_pk, resolved_pk)
+            self._accumulate_signals(arith_sigs, record_signals, df, eval_col, eval_col)
 
         # Named conditions are allowlisted; no expression from the DB is evaluated.
         for check in cfg.get("condition_checks", []):
@@ -186,22 +191,22 @@ class L1toL4DetectorSuite:
             rpm_max = float(check.get("rpm_max", 12000))
             cond = (pd.to_numeric(df[speed_field], errors="coerce") == 0) & (pd.to_numeric(df[rpm_field], errors="coerce") > rpm_max)
             cond_sigs = self.l1.detect_condition_violations(
-                df, self.project_id, resolved_pk, time_col,
+                df, self.project_id, eval_col, time_col,
                 condition_mask=cond, metric_name=f"{speed_field}_vs_{rpm_field}",
                 description=f"Impossible physical state: zero vehicle speed while motor RPM > {rpm_max:g}",
                 severity="CRITICAL", source_table=dataset_id
             )
             self._tag_signals(cond_sigs, check.get("rule_id", "L1.CONDITION.ZERO_SPEED_HIGH_RPM"), cfg, check)
-            self._accumulate_signals(cond_sigs, record_signals, df, resolved_pk, resolved_pk)
+            self._accumulate_signals(cond_sigs, record_signals, df, eval_col, eval_col)
 
         # Schema invariants: Non-null primary identifiers
         for col in [resolved_pk]:
             if col in df.columns:
                 null_sigs = self.l1.detect_null_violations(
-                    df, self.project_id, resolved_pk, time_col,
+                    df, self.project_id, eval_col, time_col,
                     required_cols=[col], source_table=dataset_id
                 )
-                self._accumulate_signals(null_sigs, record_signals, df, resolved_pk, resolved_pk)
+                self._accumulate_signals(null_sigs, record_signals, df, eval_col, eval_col)
 
         # =========================================================================
         # 2. LANE A - L2: Contextual Outlier Detection (Robust Z-Score)
@@ -216,7 +221,7 @@ class L1toL4DetectorSuite:
                 valid_count = int(pd.to_numeric(sub_df[metric_target], errors="coerce").notna().sum())
                 minimum = int(cfg.get("baseline_min_samples", 30))
                 if 5 <= valid_count < minimum:
-                    self._add_advisory(sub_df, record_signals, resolved_pk, time_col, dataset_id, metric_target, ent, minimum, cfg)
+                    self._add_advisory(sub_df, record_signals, eval_col, time_col, dataset_id, metric_target, ent, minimum, cfg)
                 elif valid_count >= minimum:
                     vals = pd.to_numeric(sub_df[metric_target], errors="coerce").dropna()
                     med = float(vals.median())
@@ -228,7 +233,7 @@ class L1toL4DetectorSuite:
                                 z = 0.6745 * abs(v - med) / mad
                                 z_threshold = float(l2_cfg.get("z_threshold", 4.5))
                                 if z > z_threshold:
-                                    pk_val = str(row[resolved_pk])
+                                    pk_val = str(row[eval_col])
                                     ev_time = pd.to_datetime(row[time_col]) if time_col in row and pd.notna(row[time_col]) else datetime.now(timezone.utc)
                                     sig = Signal(
                                         project_id=self.project_id,
@@ -264,7 +269,7 @@ class L1toL4DetectorSuite:
                 source_table=dataset_id
             )
             self._tag_signals(l3_sigs, relation.get("rule_id", f"L3.RELATION.{feature_y}_vs_{feature_x}"), cfg, relation)
-            self._accumulate_signals(l3_sigs, record_signals, df, resolved_pk, l3_target_col)
+            self._accumulate_signals(l3_sigs, record_signals, df, eval_col, l3_target_col)
 
         # =========================================================================
         # 4. LANE A - L4: Changepoint Shift & Granular Window Attribution
@@ -282,7 +287,7 @@ class L1toL4DetectorSuite:
             })
             # Map macro changepoint signal down to specific transition window records
             self._map_changepoints_to_records(
-                df, l4_signals, record_signals, resolved_pk, time_col,
+                df, l4_signals, record_signals, eval_col, time_col,
                 window_size=int(l4_cfg.get("attribution_window", 5)),
             )
 
@@ -338,15 +343,16 @@ class L1toL4DetectorSuite:
             rule_id=f"L1.{signal_type}.{metric}", rule_version=cfg["version"],
             observed_value=observed, evidence_refs=[evidence], source_table=dataset_id)
 
-    def _run_schema_checks(self, df, record_signals, pk_col, time_col, dataset_id, cfg):
+    def _run_schema_checks(self, df, record_signals, pk_col, time_col, dataset_id, cfg, eval_col: Optional[str] = None):
+        target_eval = eval_col or pk_col
         required = list(dict.fromkeys([pk_col, *cfg.get("required_fields", [])]))
         for col in required:
             missing_col = col not in df.columns
             for _, row in df.iterrows():
                 if missing_col or pd.isna(row.get(col)):
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "REQUIRED_FIELD", col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "REQUIRED_FIELD", col,
                         f"Required field '{col}' is missing or NULL", cfg, row.get(col))
-                    record_signals.setdefault(str(row.get(pk_col)), []).append(sig)
+                    record_signals.setdefault(str(row.get(target_eval)), []).append(sig)
 
         numeric_fields = set(cfg.get("ranges", {})) | {k for k, v in cfg.get("field_types", {}).items() if v in ("number", "float", "integer")}
         for col in numeric_fields:
@@ -355,16 +361,16 @@ class L1toL4DetectorSuite:
             converted = pd.to_numeric(df[col], errors="coerce")
             for idx in df.index[df[col].notna() & converted.isna()]:
                 row = df.loc[idx]
-                sig = self._signal(row, pk_col, time_col, dataset_id, "INVALID_TYPE", col,
+                sig = self._signal(row, target_eval, time_col, dataset_id, "INVALID_TYPE", col,
                     f"Field '{col}' is not parseable as numeric", cfg, str(row[col]))
-                record_signals[str(row[pk_col])].append(sig)
+                record_signals[str(row[target_eval])].append(sig)
             if cfg.get("field_types", {}).get(col) == "integer":
                 invalid_int = converted.notna() & (converted % 1 != 0)
                 for idx in df.index[invalid_int]:
                     row = df.loc[idx]
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "INVALID_TYPE", col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "INVALID_TYPE", col,
                         f"Field '{col}' is not an integer", cfg, row[col])
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
 
         for col, expected in cfg.get("field_types", {}).items():
             if col not in df.columns or expected in ("number", "float", "integer"):
@@ -377,9 +383,9 @@ class L1toL4DetectorSuite:
                          (expected == "datetime" and not pd.isna(pd.to_datetime(value, errors="coerce", utc=True))))
                 if not valid:
                     row = df.loc[idx]
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "INVALID_TYPE", col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "INVALID_TYPE", col,
                         f"Field '{col}' is not parseable as {expected}", cfg, str(value))
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
 
         for col, allowed_values in cfg.get("reference_values", {}).items():
             if col not in df.columns:
@@ -388,9 +394,9 @@ class L1toL4DetectorSuite:
             for idx, value in df[col].items():
                 if pd.notna(value) and str(value) not in allowed:
                     row = df.loc[idx]
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "REFERENTIAL_INTEGRITY", col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "REFERENTIAL_INTEGRITY", col,
                         f"Field '{col}' does not reference an approved entity", cfg, str(value))
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
 
         for col, allowed_units in cfg.get("unit_fields", {}).items():
             if col not in df.columns:
@@ -399,17 +405,41 @@ class L1toL4DetectorSuite:
             for idx, value in df[col].items():
                 if pd.notna(value) and str(value) not in allowed:
                     row = df.loc[idx]
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "INVALID_UNIT", col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "INVALID_UNIT", col,
                         f"Unit field '{col}' is outside the configured unit vocabulary", cfg, str(value))
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
 
         if pk_col in df.columns:
-            duplicate_mask = df[pk_col].notna() & df[pk_col].duplicated(keep=False)
-            for idx in df.index[duplicate_mask]:
-                row = df.loc[idx]
-                sig = self._signal(row, pk_col, time_col, dataset_id, "DUPLICATE_PRIMARY_KEY", pk_col,
-                    f"Duplicate primary key '{row[pk_col]}'", cfg, str(row[pk_col]))
-                record_signals[str(row[pk_col])].append(sig)
+            if target_eval != pk_col:
+                # Strategy A: Canonical retention for duplicate business primary keys
+                sort_candidates = [c for c in ["event_sequence_index", "start_time", "timestamp", "pickup_datetime"] if c in df.columns]
+                df_sorted = df.sort_values(by=sort_candidates, kind="mergesort") if sort_candidates else df
+                seen_keys = set()
+                for _, row in df_sorted.iterrows():
+                    val = row.get(pk_col)
+                    if pd.isna(val):
+                        continue
+                    str_val = str(val)
+                    e_id = str(row.get(target_eval))
+                    if str_val in seen_keys:
+                        # Subsequent duplicate occurrence -> Quarantined under Strategy A
+                        sig = self._signal(
+                            row, target_eval, time_col, dataset_id,
+                            "L1_DUPLICATE_SESSION_COLLISION", pk_col,
+                            f"Duplicate {pk_col} '{str_val}' collision (canonical copy retained in silver)",
+                            cfg, str_val, severity="CRITICAL"
+                        )
+                        record_signals[e_id].append(sig)
+                    else:
+                        seen_keys.add(str_val)
+            else:
+                # Standard unit-test mode without technical _raw_id: keep=False flags all duplicates
+                duplicate_mask = df[pk_col].notna() & df[pk_col].duplicated(keep=False)
+                for idx in df.index[duplicate_mask]:
+                    row = df.loc[idx]
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "DUPLICATE_PRIMARY_KEY", pk_col,
+                        f"Duplicate primary key '{row[pk_col]}'", cfg, str(row[pk_col]))
+                    record_signals[str(row[target_eval])].append(sig)
 
         if time_col != "_eval_time" and time_col in df.columns:
             parsed = pd.to_datetime(df[time_col], errors="coerce", utc=True)
@@ -419,17 +449,17 @@ class L1toL4DetectorSuite:
             for pos, idx in enumerate(df.index):
                 row, ts = df.loc[idx], parsed.iloc[pos]
                 if pd.isna(ts):
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "INVALID_TIMESTAMP", time_col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "INVALID_TIMESTAMP", time_col,
                         f"Timestamp '{row[time_col]}' is invalid", cfg, str(row[time_col]))
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
                 elif ts > now + tolerance:
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "FUTURE_TIMESTAMP", time_col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "FUTURE_TIMESTAMP", time_col,
                         f"Timestamp exceeds future tolerance of {tolerance.total_seconds():.0f}s", cfg, ts.isoformat())
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
                 elif freshness is not None and ts < now - pd.Timedelta(seconds=float(freshness)):
-                    sig = self._signal(row, pk_col, time_col, dataset_id, "STALE_TIMESTAMP", time_col,
+                    sig = self._signal(row, target_eval, time_col, dataset_id, "STALE_TIMESTAMP", time_col,
                         f"Timestamp exceeds freshness limit of {freshness}s", cfg, ts.isoformat(), severity="MEDIUM")
-                    record_signals[str(row[pk_col])].append(sig)
+                    record_signals[str(row[target_eval])].append(sig)
 
             max_gap = cfg.get("timestamp", {}).get("max_sequence_gap_seconds")
             if max_gap is not None:
@@ -440,9 +470,9 @@ class L1toL4DetectorSuite:
                     gaps = ordered["_parsed_time"].diff().dt.total_seconds()
                     for idx in ordered.index[gaps > float(max_gap)]:
                         row = df.loc[idx]
-                        sig = self._signal(row, pk_col, time_col, dataset_id, "SEQUENCE_GAP", time_col,
+                        sig = self._signal(row, target_eval, time_col, dataset_id, "SEQUENCE_GAP", time_col,
                             f"Timestamp gap exceeds {max_gap}s", cfg, float(gaps.loc[idx]), severity="MEDIUM")
-                        record_signals[str(row[pk_col])].append(sig)
+                        record_signals[str(row[target_eval])].append(sig)
 
         for metric, options in cfg.get("stuck_at", {}).items():
             if metric not in df.columns:

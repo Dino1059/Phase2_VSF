@@ -760,7 +760,8 @@ def persist_silver_records_chunk(cur, dataset_id: str, silver_records: List[Dict
     elif "customers" in dataset_id:
         table_name = "silver.dim_customers"
         cols = ["customer_id", "first_name", "last_name", "email", "phone_number",
-                "created_at", "subject_zone", "country", "lineage_hash", "_run_id"]
+                "created_at", "consent_at", "consent_withdrawn_at", "delete_requested_at",
+                "delete_completed_at", "opt_out_sharing", "subject_zone", "country", "lineage_hash", "_run_id"]
         seen = {}
         for r in silver_records:
             cid = r.get("customer_id")
@@ -768,6 +769,11 @@ def persist_silver_records_chunk(cur, dataset_id: str, silver_records: List[Dict
                 seen[cid] = (
                     cid, r.get("first_name"), r.get("last_name"), r.get("email"), r.get("phone_number"),
                     str(r.get("created_at") or ""),
+                    str(r.get("consent_at") or "") if r.get("consent_at") else None,
+                    str(r.get("consent_withdrawn_at") or "") if r.get("consent_withdrawn_at") else None,
+                    str(r.get("delete_requested_at") or "") if r.get("delete_requested_at") else None,
+                    str(r.get("delete_completed_at") or "") if r.get("delete_completed_at") else None,
+                    _int_or_none(r.get("opt_out_sharing")) or 0,
                     r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
                 )
         values = list(seen.values())
@@ -785,7 +791,7 @@ def persist_silver_records_chunk(cur, dataset_id: str, silver_records: List[Dict
     elif "drivers" in dataset_id:
         table_name = "silver.dim_drivers"
         cols = ["driver_id", "vehicle_vin", "first_name", "last_name", "email", "phone_number",
-                "created_at", "subject_zone", "country", "lineage_hash", "_run_id"]
+                "created_at", "legal_basis", "subject_zone", "country", "lineage_hash", "_run_id"]
         seen = {}
         for r in silver_records:
             did = r.get("driver_id")
@@ -793,6 +799,7 @@ def persist_silver_records_chunk(cur, dataset_id: str, silver_records: List[Dict
                 seen[did] = (
                     did, r.get("vehicle_vin"), r.get("first_name"), r.get("last_name"), r.get("email"), r.get("phone_number"),
                     str(r.get("created_at") or ""),
+                    str(r.get("legal_basis") or "") if r.get("legal_basis") else None,
                     r.get("subject_zone"), r.get("country"), r.get("lineage_hash"), run_id
                 )
         values = list(seen.values())

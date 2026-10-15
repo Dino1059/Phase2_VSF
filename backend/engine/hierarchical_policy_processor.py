@@ -131,6 +131,7 @@ class HierarchicalPolicyProcessor:
                     resolved_pk = candidate
                     break
         pk_val = str(raw_item.get(resolved_pk, "unknown"))
+        eval_id = str(raw_item["_raw_id"]) if "_raw_id" in raw_item and raw_item["_raw_id"] else pk_val
 
         zone = raw_item.get("subject_zone") or raw_item.get("zone")
         country = raw_item.get("country") or raw_item.get("subject_jurisdiction")
@@ -343,9 +344,12 @@ class HierarchicalPolicyProcessor:
                             jurisdiction=normalized_zone, **policy,
                         )
 
+        if "fatigue_score" in raw_item and raw_item["fatigue_score"] is not None:
+            evidence.append("Special category data detected: fatigue_score (GDPR Art. 9 / Health & Biometric Data)")
+
         status = "FAIL" if violations else ("WARNING" if is_warning else "PASS")
         return LaneBVerdict(
-            record_id=pk_val,
+            record_id=eval_id,
             status=status,
             treated_record=treated_item if status in {"PASS", "WARNING"} else None,
             raw_record=raw_item,
@@ -368,6 +372,7 @@ class HierarchicalPolicyProcessor:
             "feedback_id", "vehicle_vin", "vin", "id",
         ) if c in raw_item), None)
         pk_val = str(raw_item.get(resolved_pk, "unknown"))
+        eval_id = str(raw_item["_raw_id"]) if "_raw_id" in raw_item and raw_item["_raw_id"] else pk_val
         zone = raw_item.get("subject_zone") or raw_item.get("zone")
         country = raw_item.get("country") or raw_item.get("subject_jurisdiction")
         chain = self.hierarchy_config.resolve_chain(zone, country)
@@ -497,12 +502,15 @@ class HierarchicalPolicyProcessor:
         status = "FAIL" if blocking else ("WARNING" if warning or any(
             item.action != "FINDING_ONLY" for item in violations
         ) else "PASS")
+        if "fatigue_score" in raw_item and raw_item["fatigue_score"] is not None:
+            evidence.append("Special category data detected: fatigue_score (GDPR Art. 9 / Health & Biometric Data)")
+
         failure_reasons = [
             item.reason for item in violations
             if item.action in BLOCKING_ACTIONS and item.runtime_state == "executed"
         ]
         return LaneBVerdict(
-            record_id=pk_val, status=status,
+            record_id=eval_id, status=status,
             treated_record=treated_item if status != "FAIL" else None,
             raw_record=raw_item, compliance_evidence=evidence,
             required_treatments=required_treatments, failure_reasons=failure_reasons,

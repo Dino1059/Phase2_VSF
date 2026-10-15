@@ -148,10 +148,11 @@ class VerdictMergerAndRouter:
                         resolved_pk = cand
                         break
             pk_val = str(raw_item.get(resolved_pk, "unknown"))
+            eval_key = str(raw_item["_raw_id"]) if "_raw_id" in raw_item and raw_item["_raw_id"] else pk_val
 
-            res_a = lane_a_results.get(pk_val, {})
+            res_a = lane_a_results.get(eval_key) or lane_a_results.get(pk_val, {})
             status_a = res_a.get("status", "PASS")
-            verdict_b = lane_b_map.get(pk_val)
+            verdict_b = lane_b_map.get(eval_key) or lane_b_map.get(pk_val)
             status_b = _v_get(verdict_b, "status", "PASS")
             resolver = JurisdictionHierarchyConfig()
             v_chain = _v_get(verdict_b, "jurisdiction_chain")
@@ -219,10 +220,10 @@ class VerdictMergerAndRouter:
             if status_a == "FAIL" and status_b == "FAIL":
                 # Quarantine + Compliance Finding
                 result.quarantine_count += 1
-                lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
+                lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
                 fail_reasons = (res_a.get("evidence", []) + list(_v_get(verdict_b, "failure_reasons") or []))
-                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
-                fnd_id = f"FND-{hashlib.md5(f'{run_id}:{dataset_id}:{pk_val}'.encode('utf-8')).hexdigest()[:8]}"
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
+                fnd_id = f"FND-{hashlib.md5(f'{run_id}:{dataset_id}:{eval_key}'.encode('utf-8')).hexdigest()[:8]}"
 
                 quar_rec = {
                     "quarantine_id": quar_id,
@@ -263,9 +264,9 @@ class VerdictMergerAndRouter:
             elif status_a == "FAIL" and status_b != "FAIL":
                 # Quarantine (Data Reliability Defect)
                 result.quarantine_count += 1
-                lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
+                lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
                 fail_reasons = res_a.get("evidence", [])
-                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
 
                 quar_rec = {
                     "quarantine_id": quar_id,
@@ -299,10 +300,10 @@ class VerdictMergerAndRouter:
             elif status_a != "FAIL" and status_b == "FAIL":
                 # Policy Block (Quarantine)
                 result.quarantine_count += 1
-                lineage = self.compute_lineage_hash(run_id, pk_val, raw_item)
+                lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
                 b_fails = _v_get(verdict_b, "failure_reasons")
                 fail_reasons = list(b_fails) if b_fails else ["Failed compliance check"]
-                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{pk_val}"))
+                quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
 
                 quar_rec = {
                     "quarantine_id": quar_id,
@@ -333,7 +334,7 @@ class VerdictMergerAndRouter:
                     else raw_item
                 )
                 redacted = self.redact_pii_for_warning(warning_source)
-                lineage = self.compute_lineage_hash(run_id, pk_val, redacted)
+                lineage = self.compute_lineage_hash(run_id, eval_key, redacted)
 
                 warn_signals = res_a.get("signals", [])
                 first_sig = warn_signals[0] if warn_signals else None
@@ -342,7 +343,7 @@ class VerdictMergerAndRouter:
                 score = (first_sig.get("score") if isinstance(first_sig, dict) else getattr(first_sig, "score", 1.0)) if first_sig else 1.0
                 v_evidence = _v_get(verdict_b, "compliance_evidence") or []
                 evidence_reasons = res_a.get("evidence", []) + list(v_evidence)
-                warn_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"warning:{run_id}:{dataset_id}:{pk_val}"))
+                warn_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"warning:{run_id}:{dataset_id}:{eval_key}"))
 
                 warn_rec = {
                     "warning_id": warn_id,
@@ -371,7 +372,7 @@ class VerdictMergerAndRouter:
                 v_treated = _v_get(verdict_b, "treated_record")
                 treated = dict(v_treated if v_treated is not None else raw_item)
                 treated["_run_id"] = run_id
-                treated["lineage_hash"] = self.compute_lineage_hash(run_id, pk_val, treated)
+                treated["lineage_hash"] = self.compute_lineage_hash(run_id, eval_key, treated)
                 result.silver_records.append(treated)
 
         routed_count = result.silver_count + result.quarantine_count + result.warning_count

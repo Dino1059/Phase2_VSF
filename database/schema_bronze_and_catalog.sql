@@ -95,7 +95,12 @@ CREATE TABLE bronze.dim_customers (
     email VARCHAR(150),
     phone_number VARCHAR(50),
     created_at VARCHAR(50),
-    subject_zone VARCHAR(10)
+    subject_zone VARCHAR(10),
+    consent_at VARCHAR(50),
+    consent_withdrawn_at VARCHAR(50),
+    delete_requested_at VARCHAR(50),
+    delete_completed_at VARCHAR(50),
+    opt_out_sharing INT DEFAULT 0
 );
 
 -- 3. dim_drivers
@@ -110,7 +115,8 @@ CREATE TABLE bronze.dim_drivers (
     email VARCHAR(150),
     phone_number VARCHAR(50),
     created_at VARCHAR(50),
-    subject_zone VARCHAR(10)
+    subject_zone VARCHAR(10),
+    legal_basis VARCHAR(100)
 );
 
 -- 4. feedback_pii
@@ -191,7 +197,8 @@ CREATE TABLE bronze.synthetic_ev_telemetry_ved_ref (
     longitude NUMERIC(10,6),
     accel_z NUMERIC(8,4),
     telemetry_coverage VARCHAR(50),
-    subject_zone VARCHAR(10)
+    subject_zone VARCHAR(10),
+    fatigue_score NUMERIC(6,2)
 );
 
 -- 8. synthetic_feedback_scenario_driven

@@ -707,9 +707,13 @@ def task_4_emit_audit_evidence(**context):
     # 1. Query previous hash for hash-chain integrity
     previous_hash = "GENESIS_EVIDENCE_HASH_GSM_IPO_2026"
     try:
-        from dags.parallel_evaluation_engine import get_db_connection
+        from dags.parallel_evaluation_engine import get_db_connection, _json_safe
     except ImportError:
-        from parallel_evaluation_engine import get_db_connection
+        try:
+            from parallel_evaluation_engine import get_db_connection, _json_safe
+        except ImportError:
+            get_db_connection = None
+            def _json_safe(v): return v
 
     conn = None
     try:

@@ -4,6 +4,11 @@ Applies the canonical schemas/migrations, then loads non-rule platform seed
 data from database/seed_data.sql against PostgreSQL. Runtime Lane A/Lane B
 rules are owned by their named schema/migration files, not by the seed step.
 Falls back gracefully with helpful diagnostics if PostgreSQL is offline.
+
+WARNING:
+This script resets/initializes fresh database (runs DROP SCHEMA CASCADE).
+For upgrading existing/production databases without data loss, DO NOT run this script!
+Run database/run_migrations.py instead!
 """
 
 import os
@@ -32,6 +37,7 @@ def init_postgres():
         database_dir / "migration_run_lineage_snapshots.sql",
         database_dir / "schema_jurisdiction_policy_isolation.sql",
         database_dir / "migration_lane_b_policy_packs.sql",
+        database_dir / "migration_20261014_new_columns_and_injected_faults.sql",
     ]
     seed_path = Path(__file__).parent / "seed_data.sql"
 
