@@ -228,7 +228,7 @@ class VerdictMergerAndRouter:
                 # Quarantine + Compliance Finding
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
-                fail_reasons = (res_a.get("evidence", []) + list(_v_get(verdict_b, "failure_reasons") or []))
+                fail_reasons = list(dict.fromkeys([r.strip() for r in (res_a.get("evidence", []) + list(_v_get(verdict_b, "failure_reasons") or [])) if r and r.strip()]))
                 quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
                 fnd_id = f"FND-{hashlib.md5(f'{run_id}:{dataset_id}:{eval_key}'.encode('utf-8')).hexdigest()[:8]}"
 
@@ -272,7 +272,7 @@ class VerdictMergerAndRouter:
                 # Quarantine (Data Reliability Defect)
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
-                fail_reasons = res_a.get("evidence", [])
+                fail_reasons = list(dict.fromkeys([r.strip() for r in res_a.get("evidence", []) if r and r.strip()]))
                 quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
 
                 quar_rec = {
@@ -309,7 +309,7 @@ class VerdictMergerAndRouter:
                 result.quarantine_count += 1
                 lineage = self.compute_lineage_hash(run_id, eval_key, raw_item)
                 b_fails = _v_get(verdict_b, "failure_reasons")
-                fail_reasons = list(b_fails) if b_fails else ["Failed compliance check"]
+                fail_reasons = list(dict.fromkeys([r.strip() for r in (list(b_fails) if b_fails else ["Failed compliance check"]) if r and r.strip()]))
                 quar_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"quarantine:{run_id}:{dataset_id}:{eval_key}"))
 
                 quar_rec = {

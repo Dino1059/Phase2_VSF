@@ -140,6 +140,193 @@ class RemediationService:
 
         return records
 
+    def _map_row_to_model(self, row: Dict[str, Any]) -> StructuredRemediationProposalModel:
+        target_ids = [str(x) for x in (row.get("target_quarantine_ids") or [])]
+        target = ProposalTargetModel(
+            run_id=row.get("run_id", ""),
+            dataset_id=row.get("dataset_id", ""),
+            column=row.get("target_column", ""),
+            quarantine_ids=target_ids
+        )
+        dry_run_obj = None
+        if row.get("latest_dry_run"):
+            try:
+                dry_run_data = row["latest_dry_run"] if isinstance(row["latest_dry_run"], dict) else json.loads(row["latest_dry_run"])
+                dry_run_obj = DryRunResultModel(**dry_run_data)
+            except Exception:
+                pass
+
+        status_str = row.get("status", "DRAFT")
+        try:
+            status_enum = ProposalStatus(status_str)
+        except Exception:
+            status_enum = ProposalStatus.DRAFT
+
+        risk_str = row.get("risk_level", "MEDIUM")
+        try:
+            risk_enum = RemediationRiskLevel(risk_str)
+        except Exception:
+            risk_enum = RemediationRiskLevel.MEDIUM
+
+        params = row.get("params", {})
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except Exception:
+                params = {}
+
+        return StructuredRemediationProposalModel(
+            proposal_id=row["proposal_id"],
+            finding_id=row["finding_id"],
+            version=row.get("version", 1),
+            status=status_enum,
+            created_by=row.get("created_by", "ADMIN"),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            risk_level=risk_enum,
+            proposal_hash=row.get("proposal_hash", ""),
+            source_snapshot_hash=row.get("source_snapshot_hash", ""),
+            operation_id=row.get("operation_id", "MASK_PHONE"),
+            target=target,
+            params=params,
+            reason=row.get("reason", ""),
+            expected_rows=row.get("expected_rows", len(target_ids)),
+            latest_dry_run=dry_run_obj,
+            proposal_type=row.get("proposal_type") or "EXECUTABLE",
+            execution_block_reason=row.get("execution_block_reason"),
+            requires_human_input=bool(row.get("requires_human_input", False)),
+            created_at=row.get("created_at") or datetime.now(timezone.utc),
+            updated_at=row.get("updated_at") or datetime.now(timezone.utc)
+        )
+
+    def _persist_proposal(self, proposal: StructuredRemediationProposalModel):
+        try:
+            conn = get_db_connection()
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO remediation.proposals (
+                            proposal_id, finding_id, version, status, dataset_id, target_column,
+                            run_id, operation_id, params, target_quarantine_ids, expected_rows,
+                            risk_level, reason, source_snapshot_hash, proposal_hash, latest_dry_run,
+                            dry_run_hash, created_by, proposal_type, execution_block_reason,
+                            requires_human_input, created_at, updated_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s, NOW()
+                        ) ON CONFLICT (proposal_id) DO UPDATE SET
+                            version = EXCLUDED.version,
+                            status = EXCLUDED.status,
+                            operation_id = EXCLUDED.operation_id,
+                            params = EXCLUDED.params,
+                            target_quarantine_ids = EXCLUDED.target_quarantine_ids,
+                            expected_rows = EXCLUDED.expected_rows,
+                            risk_level = EXCLUDED.risk_level,
+                            reason = EXCLUDED.reason,
+                            source_snapshot_hash = EXCLUDED.source_snapshot_hash,
+                            proposal_hash = EXCLUDED.proposal_hash,
+                            latest_dry_run = EXCLUDED.latest_dry_run,
+                            dry_run_hash = EXCLUDED.dry_run_hash,
+                            proposal_type = EXCLUDED.proposal_type,
+                            execution_block_reason = EXCLUDED.execution_block_reason,
+                            requires_human_input = EXCLUDED.requires_human_input,
+                            updated_at = NOW();
+                    """, (
+                        proposal.proposal_id, proposal.finding_id, proposal.version,
+                        proposal.status.value if hasattr(proposal.status, "value") else str(proposal.status),
+                        proposal.target.dataset_id, proposal.target.column, proposal.target.run_id,
+                        proposal.operation_id, json.dumps(proposal.params),
+                        proposal.target.quarantine_ids, proposal.expected_rows,
+                        proposal.risk_level.value if hasattr(proposal.risk_level, "value") else str(proposal.risk_level),
+                        proposal.reason, proposal.source_snapshot_hash, proposal.proposal_hash,
+                        json.dumps(proposal.latest_dry_run.model_dump()) if proposal.latest_dry_run else None,
+                        proposal.latest_dry_run.dry_run_hash if proposal.latest_dry_run else None,
+                        proposal.created_by,
+                        proposal.proposal_type,
+                        proposal.execution_block_reason,
+                        proposal.requires_human_input,
+                        proposal.created_at
+                    ))
+            conn.close()
+        except Exception as e:
+            pass
+
+    def _persist_proposal_version(self, proposal: StructuredRemediationProposalModel):
+        try:
+            conn = get_db_connection()
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO remediation.proposal_versions (
+                            proposal_id, version, finding_id, dataset_id, target_column,
+                            run_id, operation_id, params, target_quarantine_ids, expected_rows,
+                            risk_level, reason, dry_run_hash, latest_dry_run, source_snapshot_hash,
+                            proposal_hash, created_by, proposal_type, execution_block_reason,
+                            requires_human_input, created_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, NOW()
+                        ) ON CONFLICT (proposal_id, version) DO NOTHING;
+                    """, (
+                        proposal.proposal_id, proposal.version, proposal.finding_id,
+                        proposal.target.dataset_id, proposal.target.column, proposal.target.run_id,
+                        proposal.operation_id, json.dumps(proposal.params),
+                        proposal.target.quarantine_ids, proposal.expected_rows,
+                        proposal.risk_level.value if hasattr(proposal.risk_level, "value") else str(proposal.risk_level),
+                        proposal.reason,
+                        proposal.latest_dry_run.dry_run_hash if proposal.latest_dry_run else None,
+                        json.dumps(proposal.latest_dry_run.model_dump()) if proposal.latest_dry_run else None,
+                        proposal.source_snapshot_hash, proposal.proposal_hash, proposal.created_by,
+                        proposal.proposal_type,
+                        proposal.execution_block_reason,
+                        proposal.requires_human_input
+                    ))
+            conn.close()
+        except Exception as e:
+            pass
+
+    def get_proposal(self, proposal_id: str) -> Optional[StructuredRemediationProposalModel]:
+        if proposal_id in self.proposals:
+            return self.proposals[proposal_id]
+        try:
+            conn = get_db_connection()
+            from psycopg2.extras import RealDictCursor
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM remediation.proposals WHERE proposal_id = %s;", (proposal_id,))
+                row = cur.fetchone()
+                if row:
+                    prop = self._map_row_to_model(dict(row))
+                    self.proposals[proposal_id] = prop
+                    return prop
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+    def get_proposal_by_finding(self, finding_id: str) -> Optional[StructuredRemediationProposalModel]:
+        for p in reversed(list(self.proposals.values())):
+            if p.finding_id == finding_id:
+                return p
+        try:
+            conn = get_db_connection()
+            from psycopg2.extras import RealDictCursor
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM remediation.proposals WHERE finding_id = %s ORDER BY version DESC, created_at DESC LIMIT 1;", (finding_id,))
+                row = cur.fetchone()
+                if row:
+                    prop = self._map_row_to_model(dict(row))
+                    self.proposals[prop.proposal_id] = prop
+                    return prop
+            conn.close()
+        except Exception:
+            pass
+        return None
+
     def create_proposal(
         self,
         finding_id: str,
@@ -153,7 +340,10 @@ class RemediationService:
         proposer: str = "AI_AGENT",
         confidence: str = "SUPPORTED",
         grounding_evidence_ids: Optional[List[str]] = None,
-        risk_level: Optional[RemediationRiskLevel] = None
+        risk_level: Optional[RemediationRiskLevel] = None,
+        proposal_type: str = "EXECUTABLE",
+        execution_block_reason: Optional[str] = None,
+        requires_human_input: bool = False
     ) -> StructuredRemediationProposalModel:
         """
         AI Agent (Maker) proposes structured remediation without generating SQL.
@@ -167,9 +357,20 @@ class RemediationService:
             quarantine_ids=quarantine_ids
         )
 
-        # Validate operation exists in OperationRegistry
-        norm_op = operation_id.strip().upper()
-        OperationRegistry.get_handler(norm_op)
+        norm_op = operation_id.strip().upper() if operation_id else "ADVISORY"
+        
+        # Enforce requires_human_input if operation is manual reconciliation
+        if norm_op in ("MANUAL_RECONCILIATION", "RECONCILE_LEDGER"):
+            requires_human_input = True
+
+        if proposal_type == "EXECUTABLE":
+            # Validate operation exists in OperationRegistry
+            OperationRegistry.get_handler(norm_op)
+        else:
+            proposal_type = "ADVISORY_ONLY"
+            if not execution_block_reason:
+                execution_block_reason = "Không có automated remediation handler trong RemediationRegistry. Yêu cầu tạo task cho Data Steward / System Owner."
+            requires_human_input = False
 
         # Query source records to compute snapshot hash
         source_records = self.fetch_quarantine_records(quarantine_ids)
@@ -181,7 +382,7 @@ class RemediationService:
         is_f8_gps_drift = ("F8" in finding_id or "drift" in reason.lower() or column in ("latitude", "longitude", "pickup_latitude", "pickup_longitude"))
 
         auto_risk = RemediationRiskLevel.LOW
-        if is_legal_basis_b15 or len(quarantine_ids) > 50 or norm_op in ("REMOVE", "REDACT"):
+        if is_legal_basis_b15 or len(quarantine_ids) > 50 or norm_op in ("REMOVE", "REDACT") or requires_human_input:
             auto_risk = RemediationRiskLevel.HIGH
         elif len(quarantine_ids) > 10 or norm_op in ("HASH", "HASH_SHA256", "HMAC_SHA256"):
             auto_risk = RemediationRiskLevel.MEDIUM
@@ -196,7 +397,8 @@ class RemediationService:
             "operation_id": norm_op,
             "params": params,
             "expected_rows": len(quarantine_ids),
-            "source_snapshot_hash": source_snapshot_hash
+            "source_snapshot_hash": source_snapshot_hash,
+            "proposal_type": proposal_type
         }
         prop_hash = compute_hash(proposal_data)
 
@@ -216,10 +418,15 @@ class RemediationService:
             reason=reason,
             expected_rows=len(quarantine_ids),
             confidence=confidence,
+            proposal_type=proposal_type,
+            execution_block_reason=execution_block_reason,
+            requires_human_input=requires_human_input,
             grounding_evidence_ids=grounding_evidence_ids or []
         )
 
         self.proposals[proposal.proposal_id] = proposal
+        self._persist_proposal(proposal)
+        self._persist_proposal_version(proposal)
         return proposal
 
     def update_proposal_params(
@@ -281,6 +488,8 @@ class RemediationService:
         }
         proposal.proposal_hash = compute_hash(proposal_data)
 
+        self._persist_proposal(proposal)
+        self._persist_proposal_version(proposal)
         return proposal
 
     def simulate_dry_run(self, proposal_id: str) -> DryRunResultModel:
@@ -289,9 +498,15 @@ class RemediationService:
         Generates controlled, PII-safe diff samples and benchmarks latency.
         Does NOT execute invalid UPDATE inside a READ ONLY transaction.
         """
-        proposal = self.proposals.get(proposal_id)
+        proposal = self.get_proposal(proposal_id)
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
+
+        if proposal.proposal_type == "ADVISORY_ONLY":
+            raise ValueError(
+                f"Đề xuất {proposal_id} thuộc loại ADVISORY_ONLY ({proposal.execution_block_reason or 'Không có automated handler'}). "
+                "Hệ thống không cho phép chạy Dry-run đối với đề xuất chỉ mang tính tư vấn."
+            )
 
         start_time = time.perf_counter()
         records = self.fetch_quarantine_records(proposal.target.quarantine_ids)
@@ -509,25 +724,26 @@ class RemediationService:
         idempotency_key: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Executes transactional remediation:
-        1. Validates status == APPROVED.
-        2. Begins transaction with SELECT ... FOR UPDATE.
-        3. Validates source snapshot hash (drift protection).
-        4. Writes cleaned records to staging.remediated_records (raw records remain immutable).
-        5. Executes compliance post-checks (blocking & finding rule must PASS).
-        6. Updates quarantine.records status to REMEDIATED.
-        7. Writes HMAC-SHA256 audit trail.
-        8. Commits transaction; automatically rolls back on any error.
+        Thực thi Transaction Remediation chuẩn Phase 3:
+        1. Hierarchical locking: Proposal -> Ticket/Subject -> Quarantine rows (sorted by ID ASC).
+        2. Live anti-drift check trên dữ liệu thật của quarantine.records.
+        3. Fail-Closed HITL gate: Phiếu SoD phải DONE khớp chính xác (proposal_id, version, proposal_hash).
+        4. Staging write & compliance post-checks.
+        5. Concurrency-safe evidence ledger append với Advisory Lock & sequence_no tường minh.
+        6. Nếu lỗi: Tự động rollback dữ liệu và kích hoạt Transaction độc lập ghi nhận REMEDIATION_EXECUTION_FAILED.
         """
-        proposal = self.proposals.get(proposal_id)
+        proposal = self.get_proposal(proposal_id)
         if not proposal:
             raise KeyError(f"Proposal {proposal_id} không tồn tại.")
 
+        if proposal.proposal_type == "ADVISORY_ONLY":
+            raise ValueError(
+                f"FAIL-CLOSED: Đề xuất {proposal_id} thuộc loại ADVISORY_ONLY ({proposal.execution_block_reason or 'Không có automated handler'}). "
+                "Không được phép thực thi tự động hoặc đưa dữ liệu vào Silver."
+            )
+
         if actor_role.upper() != "ADMIN":
             raise PermissionError(f"Chỉ có vai trò ADMIN mới được phép thực thi Remediation Transaction. Vai trò: '{actor_role}'")
-
-        if proposal.status != ProposalStatus.APPROVED:
-            raise ValueError(f"Proposal chưa được phê duyệt! Trạng thái hiện tại: {proposal.status}")
 
         is_legal_basis_b15 = (
             proposal.target.column == "legal_basis"
@@ -540,11 +756,13 @@ class RemediationService:
                 "Record the DPO/LEGAL decision and supporting document instead."
             )
 
-        if idempotency_key and proposal.idempotency_key != idempotency_key:
-            raise ValueError("Idempotency key không khớp với phiên phê duyệt.")
-
-        proposal.status = ProposalStatus.EXECUTING
-        proposal.updated_at = datetime.now(timezone.utc)
+        from backend.sod.integration_service import (
+            verify_hitl_approval_gate,
+            append_audit_evidence_safely,
+            record_execution_failure_independently,
+            compute_merkle_snapshot_hash,
+            GovernanceException
+        )
 
         col = proposal.target.column
         op_id = proposal.operation_id
@@ -554,13 +772,41 @@ class RemediationService:
         conn = None
         try:
             conn = get_db_connection()
+            conn.autocommit = False
             from psycopg2.extras import RealDictCursor
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Step 1: SELECT ... FOR UPDATE with row lock
+                # 1. KHÓA PROPOSAL (FOR UPDATE)
+                cur.execute("SELECT * FROM remediation.proposals WHERE proposal_id = %s FOR UPDATE;", (proposal_id,))
+                prop_row = cur.fetchone()
+                if not prop_row:
+                    raise KeyError(f"Proposal {proposal_id} không tìm thấy trong CSDL.")
+
+                # Idempotency check
+                if prop_row["status"] == "REMEDIATED":
+                    cur.execute("""
+                        SELECT * FROM remediation.execution_attempts 
+                        WHERE proposal_id = %s AND status = 'SUCCEEDED' LIMIT 1;
+                    """, (proposal_id,))
+                    prev_attempt = cur.fetchone()
+                    conn.rollback()
+                    conn.close()
+                    return {
+                        "success": True,
+                        "proposal_id": proposal_id,
+                        "status": "ALREADY_REMEDIATED",
+                        "affected_count": len(q_ids),
+                        "attempt": dict(prev_attempt) if prev_attempt else {}
+                    }
+
+                # 2. KHÓA TICKET VÀ VERIFY HITL GATE (FAIL-CLOSED)
+                ticket_row = verify_hitl_approval_gate(cur, prop_row)
+
+                # 3. KHÓA TỪNG DÒNG QUARANTINE (SORTED ASC ĐỂ CHỐNG DEADLOCK)
                 cur.execute("""
                     SELECT quarantine_id, status, lineage_hash, raw_record_json, run_id, dataset_id
                     FROM quarantine.records
                     WHERE quarantine_id::text = ANY(%s)
+                    ORDER BY quarantine_id ASC
                     FOR UPDATE;
                 """, (q_ids,))
                 locked_records = cur.fetchall()
@@ -576,17 +822,23 @@ class RemediationService:
                             f"Bản ghi {r['quarantine_id']} đã thay đổi trạng thái sang '{r['status']}' (không còn QUARANTINED)."
                         )
 
-                # Step 2: Validate source snapshot hash (anti-drift)
-                current_hashes = [r.get("lineage_hash", "") for r in locked_records]
-                current_snap_hash = compute_merkle_snapshot_hash(current_hashes)
-                if current_snap_hash != proposal.source_snapshot_hash:
-                    proposal.status = ProposalStatus.STALE
-                    raise ValueError(
-                        "Dữ liệu nguồn đã bị biến đổi kể từ khi tạo đề xuất! Snapshot hash không khớp."
+                # 4. ANTI-DRIFT TRÊN DỮ LIỆU THẬT VỪA KHÓA
+                live_hashes = [r.get("lineage_hash", "") for r in locked_records]
+                live_source_snapshot_hash = compute_merkle_snapshot_hash(live_hashes)
+
+                if live_source_snapshot_hash != prop_row["source_snapshot_hash"] or live_source_snapshot_hash != ticket_row["source_snapshot_hash"]:
+                    cur.execute("UPDATE remediation.proposals SET status = 'STALE', updated_at = NOW() WHERE proposal_id = %s;", (proposal_id,))
+                    conn.commit()
+                    raise GovernanceException(
+                        "SOURCE_SNAPSHOT_DRIFT",
+                        "Dữ liệu quarantine nguồn trong CSDL đã bị biến đổi so với thời điểm phê duyệt SoD!",
+                        {"live_hash": live_source_snapshot_hash, "approved_hash": ticket_row["source_snapshot_hash"]}
                     )
 
-                # Step 3: Insert into staging.remediated_records
+                # 5. GHI VÀO STAGING VÀ POST-CHECKS
+                from backend.engine.remediation_registry import RemediationRegistry
                 remediated_hashes = []
+                cleaned_rows = []
                 for r in locked_records:
                     raw_payload = r.get("raw_record_json", {})
                     before_val = raw_payload.get(col)
@@ -595,8 +847,20 @@ class RemediationService:
                     cleaned_payload = dict(raw_payload)
                     cleaned_payload[col] = cleaned_val
 
+                    # Chạy lại rule gây lỗi và kiểm tra bắt buộc (Post-Check)
+                    passed, pc_msg = RemediationRegistry.run_post_check(
+                        dataset_id=prop_row["dataset_id"],
+                        column=col,
+                        before_val=before_val,
+                        cleaned_val=cleaned_val,
+                        rule_id=r.get("violation_rule_id")
+                    )
+                    if not passed:
+                        raise ValueError(f"Post-Check vi phạm trên bản ghi {r['quarantine_id']}: {pc_msg}")
+
                     new_lineage_hash = compute_hash(cleaned_payload)
                     remediated_hashes.append(new_lineage_hash)
+                    cleaned_rows.append((r, cleaned_payload, new_lineage_hash))
 
                     cur.execute("""
                         INSERT INTO staging.remediated_records (
@@ -613,16 +877,78 @@ class RemediationService:
                         new_lineage_hash
                     ))
 
-                # Step 4: Compliance Post-Checks
-                # Verify that the remediated values resolve the finding rule and pass blocking checks
-                # Blocking check: Output must not be empty or invalid format
                 for h in remediated_hashes:
                     if not h:
                         raise ValueError("Post-check thất bại: Lineage hash của bản ghi remediated không hợp lệ.")
 
-                # Step 5: Update quarantine.records status to REMEDIATED
+                # 6. UPSERT VÀO SILVER QUA ALLOWLISTED SILVER-WRITER
+                SILVER_WRITERS = {
+                    "ride_hailing_xanh_sm_trips": {"table": "silver.ride_hailing_xanh_sm_trips", "pk": "trip_id"},
+                    "trips_clean": {"table": "silver.trips_clean", "pk": "trip_id"},
+                    "synthetic_ev_telemetry_ved_ref": {"table": "silver.synthetic_ev_telemetry_ved_ref", "pk": "record_id"},
+                    "dim_customers": {"table": "silver.dim_customers", "pk": "customer_id"},
+                    "customers_clean": {"table": "silver.customers_clean", "pk": "customer_id"},
+                    "dim_drivers": {"table": "silver.dim_drivers", "pk": "driver_id"},
+                    "feedback_pii": {"table": "silver.feedback_pii", "pk": "feedback_id"},
+                    "synthetic_feedback_scenario_driven": {"table": "silver.synthetic_feedback_scenario_driven", "pk": "feedback_id"},
+                    "fleet_index": {"table": "silver.fleet_index", "pk": "vehicle_vin"},
+                    "acn_charging_mapped": {"table": "silver.acn_charging_mapped", "pk": "session_id"},
+                }
+
+                ds_target = prop_row["dataset_id"].strip().lower()
+                writer_config = SILVER_WRITERS.get(ds_target)
+                if not writer_config:
+                    raise ValueError(f"FAIL-CLOSED: Dataset '{prop_row['dataset_id']}' không có Silver-writer được cấp phép trong allowlist. Không thể đưa bản ghi vào Silver.")
+
+                silver_table = writer_config["table"]
+                pk_col = writer_config["pk"]
+
+                # Lấy danh sách cột thực tế của silver_table trong CSDL
+                table_parts = silver_table.split(".")
+                s_schema = table_parts[0]
+                s_table = table_parts[1]
+                cur.execute("""
+                    SELECT column_name, data_type 
+                    FROM information_schema.columns 
+                    WHERE table_schema = %s AND table_name = %s;
+                """, (s_schema, s_table))
+                silver_cols_info = cur.fetchall()
+                if not silver_cols_info:
+                    raise ValueError(f"FAIL-CLOSED: Bảng Silver '{silver_table}' không tồn tại trong CSDL.")
+
+                silver_col_names = [c["column_name"] for c in silver_cols_info]
+                upsert_count = 0
+
+                for r, cleaned_payload, new_lineage_hash in cleaned_rows:
+                    record_dict = dict(cleaned_payload)
+                    record_dict["lineage_hash"] = new_lineage_hash
+                    record_dict["_run_id"] = prop_row["run_id"]
+                    record_dict["_processed_at"] = datetime.now(timezone.utc)
+
+                    if pk_col not in record_dict and r.get("source_row_pk"):
+                        record_dict[pk_col] = r["source_row_pk"]
+
+                    cols_to_insert = [c for c in silver_col_names if c in record_dict]
+                    if pk_col not in cols_to_insert:
+                        raise ValueError(f"FAIL-CLOSED: Bản ghi thiếu khóa chính '{pk_col}' cho bảng '{silver_table}'.")
+
+                    vals = [record_dict[c] for c in cols_to_insert]
+                    cols_str = ", ".join(f'"{c}"' for c in cols_to_insert)
+                    placeholders = ", ".join(["%s"] * len(cols_to_insert))
+                    update_cols = [c for c in cols_to_insert if c != pk_col]
+                    update_clause = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
+
+                    upsert_sql = f"""
+                        INSERT INTO {silver_table} ({cols_str})
+                        VALUES ({placeholders})
+                        ON CONFLICT ("{pk_col}") DO UPDATE SET {update_clause};
+                    """
+                    cur.execute(upsert_sql, vals)
+                    upsert_count += 1
+
+                # 7. CHỈ SAU KHI SILVER THÀNH CÔNG: CẬP NHẬT QUARANTINE -> REMEDIATED
                 now_utc = datetime.now(timezone.utc)
-                resolution_text = f"Đã khắc phục thành công qua đề xuất {proposal_id} ({op_id})"
+                resolution_text = f"Đã khắc phục thành công và đưa vào {silver_table} qua đề xuất {proposal_id} ({op_id}) theo phiếu SoD {ticket_row['code']}"
                 cur.execute("""
                     UPDATE quarantine.records
                     SET status = 'REMEDIATED',
@@ -632,62 +958,80 @@ class RemediationService:
                     WHERE quarantine_id::text = ANY(%s);
                 """, (f"{actor_id} ({actor_role})", now_utc, resolution_text, q_ids))
 
-                # Step 6: Generate Cryptographic Audit Trail (HMAC-SHA256)
                 target_snapshot_hash = compute_merkle_snapshot_hash(remediated_hashes)
-                audit_payload = {
-                    "proposal_id": proposal_id,
-                    "version": proposal.version,
-                    "actor_id": actor_id,
-                    "actor_role": actor_role,
-                    "operation_id": op_id,
-                    "affected_records": len(locked_records),
-                    "source_snapshot_hash": proposal.source_snapshot_hash,
-                    "target_snapshot_hash": target_snapshot_hash,
-                    "timestamp": now_utc.isoformat()
-                }
-                digital_signature = compute_hmac_signature(audit_payload)
 
+                # 8. KHÓA LEDGER HEAD & APPEND REMEDIATION_EXECUTED EVIDENCE
+                exec_ev = append_audit_evidence_safely(
+                    cur=cur,
+                    event_type="REMEDIATION_EXECUTED",
+                    run_id=prop_row["run_id"],
+                    dataset_id=prop_row["dataset_id"],
+                    payload={
+                        "event": "REMEDIATION_EXECUTED",
+                        "proposal_id": proposal_id,
+                        "proposal_version": prop_row["version"],
+                        "ticket_id": str(ticket_row["id"]),
+                        "ticket_code": ticket_row["code"],
+                        "silver_target": silver_table,
+                        "upsert_count": upsert_count,
+                        "actor_id": actor_id,
+                        "actor_role": actor_role,
+                        "affected_records": len(locked_records),
+                        "source_snapshot_hash": live_source_snapshot_hash,
+                        "target_snapshot_hash": target_snapshot_hash,
+                        "approval_evidence_id": str(prop_row["approval_evidence_id"]) if prop_row.get("approval_evidence_id") else None
+                    },
+                    quarantine_count=len(locked_records)
+                )
+
+                # 9. CẬP NHẬT PROPOSAL STATUS = REMEDIATED
                 cur.execute("""
-                    INSERT INTO audit.system_audit_trail (
-                        timestamp, actor, actor_role, action_type,
-                        entity_type, entity_id, previous_state, new_state,
-                        record_hash, previous_hash
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    UPDATE remediation.proposals
+                    SET status = 'REMEDIATED', updated_at = NOW()
+                    WHERE proposal_id = %s;
+                """, (proposal_id,))
+
+                # 10. GHI NHẬN EXECUTION ATTEMPT THÀNH CÔNG
+                cur.execute("""
+                    INSERT INTO remediation.execution_attempts (
+                        proposal_id, proposal_version, proposal_hash, ticket_id,
+                        actor_id, actor_role, idempotency_key, status, affected_rows,
+                        source_snapshot_hash, target_snapshot_hash, approval_evidence_id, execution_evidence_id
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'SUCCEEDED', %s, %s, %s, %s, %s);
                 """, (
-                    now_utc,
-                    actor_id,
-                    actor_role,
-                    "STRUCTURED_QUARANTINE_REMEDIATION",
-                    "QUARANTINE_BATCH",
-                    proposal_id,
-                    json.dumps({"source_hash": proposal.source_snapshot_hash, "count": len(locked_records)}),
-                    json.dumps({
-                        "target_hash": target_snapshot_hash,
-                        "audit_payload": audit_payload,
-                        "digital_signature": digital_signature
-                    }),
-                    digital_signature,
-                    proposal.source_snapshot_hash
+                    proposal_id, prop_row["version"], prop_row["proposal_hash"], ticket_row["id"],
+                    actor_id, actor_role, idempotency_key, len(locked_records),
+                    live_source_snapshot_hash, target_snapshot_hash,
+                    prop_row.get("approval_evidence_id"), exec_ev["evidence_id"]
                 ))
+
+                # 11. ĐÓNG FINDING TRONG AUDIT.FINDINGS -> RESOLVED
+                cur.execute("""
+                    UPDATE audit.findings
+                    SET status = 'RESOLVED', resolved_at = NOW(), resolved_by = %s
+                    WHERE finding_id = %s;
+                """, (f"{actor_id} ({actor_role} via SoD {ticket_row['code']})", prop_row["finding_id"]))
 
                 conn.commit()
 
             conn.close()
 
-            # Mark proposal as REMEDIATED
             proposal.status = ProposalStatus.REMEDIATED
             proposal.resolved_by = actor_id
-            proposal.resolved_at = datetime.now(timezone.utc)
+            proposal.resolved_at = now_utc
             proposal.resolution_note = resolution_text
-            proposal.updated_at = datetime.now(timezone.utc)
+            proposal.updated_at = now_utc
 
             return {
                 "success": True,
                 "proposal_id": proposal_id,
                 "status": "REMEDIATED",
+                "ticket_code": ticket_row["code"],
+                "silver_target": silver_table,
+                "upsert_count": upsert_count,
                 "affected_count": len(q_ids),
                 "target_snapshot_hash": target_snapshot_hash,
-                "digital_signature": digital_signature,
+                "execution_evidence_id": exec_ev["evidence_id"],
                 "resolved_at": proposal.resolved_at.isoformat()
             }
 
@@ -701,7 +1045,26 @@ class RemediationService:
 
             proposal.status = ProposalStatus.ROLLED_BACK
             proposal.updated_at = datetime.now(timezone.utc)
-            raise RuntimeError(f"Lỗi thực thi Transaction Remediation (Đã tự động Rollback 100%): {str(exc)}")
+
+            # Record failure independently in separate transaction!
+            err_code = getattr(exc, "error_code", "EXECUTION_ERROR")
+            err_msg = str(exc)
+            try:
+                record_execution_failure_independently(
+                    proposal_id=proposal_id,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    idempotency_key=idempotency_key,
+                    error_code=err_code,
+                    error_message=err_msg,
+                    conn=get_db_connection()
+                )
+            except Exception as failure_rec_err:
+                logger.error(f"Failed to record failure evidence: {failure_rec_err}")
+
+            if isinstance(exc, GovernanceException):
+                raise
+            raise RuntimeError(f"Lỗi thực thi Transaction Remediation (Đã tự động Rollback 100%): {err_msg}")
 
 
 # Global singleton instance

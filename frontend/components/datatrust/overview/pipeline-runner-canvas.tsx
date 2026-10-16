@@ -230,6 +230,11 @@ export function PipelineRunnerCanvas() {
           <span>
             Thời gian chạy: <strong className="font-semibold text-slate-800">{durationFormatted}</strong>
           </span>
+          {(pipelineLevels.activePurposeId || runDetail?.options?.purpose_id) && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              🎯 Mục đích: <span className="font-mono">{pipelineLevels.activePurposeId || runDetail?.options?.purpose_id}</span>
+            </span>
+          )}
         </div>
       </div>
 

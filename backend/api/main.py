@@ -64,7 +64,7 @@ from backend.engine.quarantine_manager import QuarantineManager
 from backend.ai.policy_rule_proposer import PolicyRuleProposerAgent
 from backend.ai.agents.orchestrator import DataTrustAgentOrchestrator
 from backend.ai.services.finding_analysis_store import FindingAnalysisStore
-from backend.ai.services.remediation_service import remediation_service
+from backend.ai.services.remediation_service import remediation_service; from backend.sod.integration_service import GovernanceException
 from backend.ai.services.guardrails import pre_llm_guard
 from backend.ingestion.load_3zone_pilot import (
     get_3zone_datasets,
@@ -131,6 +131,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from backend.api.auth_routes import router as auth_router
+from backend.api.sod_routes import router as sod_router
+
+app.include_router(auth_router, prefix="/api/auth", tags=["Unified Authentication"])
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Unified Authentication"])
+app.include_router(sod_router, prefix="/api/sod", tags=["SoD Flow Engine"])
+app.include_router(sod_router, prefix="/api/v1/sod", tags=["SoD Flow Engine"])
 
 # In-memory singletons / stores for the service
 quarantine_mgr = QuarantineManager()
@@ -254,6 +262,9 @@ class CreateRemediationProposalRequest(BaseModel):
     confidence: Optional[str] = "SUPPORTED"
     grounding_evidence_ids: Optional[List[str]] = None
     risk_level: Optional[RemediationRiskLevel] = None
+    proposal_type: Optional[str] = "EXECUTABLE"
+    execution_block_reason: Optional[str] = None
+    requires_human_input: Optional[bool] = False
 
 
 class UpdateRemediationParamsRequest(BaseModel):
@@ -1491,7 +1502,7 @@ def list_pipeline_runs(
                 SELECT run_id, dag_id, dataset_id, started_at, ended_at, status,
                        scanned_count, silver_count, quarantine_count, warning_count,
                        not_evaluated_count, execution_duration_ms, error_message,
-                       airflow_dag_run_id, current_step, current_step_progress
+                       airflow_dag_run_id, current_step, current_step_progress, options_json
                 FROM orchestration.pipeline_runs
                 WHERE 1=1
             """
@@ -1532,7 +1543,8 @@ def list_pipeline_runs(
                     "datasetId": r["dataset_id"],
                     "currentStep": r.get("current_step") or "INGEST",
                     "currentStepProgress": r.get("current_step_progress") or 0,
-                    "errorMessage": r["error_message"]
+                    "errorMessage": r["error_message"],
+                    "options": r.get("options_json") or {}
                 })
             return runs
     except Exception as e:
@@ -1985,6 +1997,7 @@ def get_finding_detail(finding_id: str):
                 SELECT q.quarantine_id, q.source_row_pk, q.failure_lane, q.violation_severity,
                        q.violation_reason, q.raw_record_json, q.status, q.quarantined_at,
                        q.lineage_hash, q.subject_zone, q.jurisdiction_chain,
+                       q.policy_violations,
                        q.matched_policy_id AS policy_id,
                        q.matched_policy_name AS policy_name,
                        q.matched_law_ref AS law_ref
@@ -2001,6 +2014,7 @@ def get_finding_detail(finding_id: str):
                     SELECT quarantine_id, source_row_pk, failure_lane, violation_severity,
                            violation_reason, raw_record_json, status, quarantined_at,
                            lineage_hash, subject_zone, jurisdiction_chain,
+                           policy_violations,
                            matched_policy_id AS policy_id,
                            matched_policy_name AS policy_name,
                            matched_law_ref AS law_ref
@@ -2013,13 +2027,22 @@ def get_finding_detail(finding_id: str):
                 q_rows = cur.fetchall()
 
             sample_records = []
+            distinct_violations = []
+            seen_v = set()
             for q in q_rows:
                 qi = dict(q)
                 qi["quarantine_id"] = str(qi["quarantine_id"])
                 if qi.get("quarantined_at"):
                     qi["quarantined_at"] = qi["quarantined_at"].isoformat()
+                for v in (qi.get("policy_violations") or []):
+                    if isinstance(v, dict):
+                        v_key = (v.get("rule_id"), v.get("column_name"), v.get("reason"))
+                        if v_key not in seen_v:
+                            seen_v.add(v_key)
+                            distinct_violations.append(v)
                 sample_records.append(qi)
             res["sample_records"] = sample_records
+            res["policy_violations"] = distinct_violations
 
             # Định nghĩa rule tương ứng
             cur.execute("""
@@ -2354,7 +2377,10 @@ def create_remediation_proposal(req: CreateRemediationProposalRequest):
             proposer=req.proposer or "AI_AGENT",
             confidence=req.confidence or "SUPPORTED",
             grounding_evidence_ids=req.grounding_evidence_ids,
-            risk_level=req.risk_level
+            risk_level=req.risk_level,
+            proposal_type=req.proposal_type or "EXECUTABLE",
+            execution_block_reason=req.execution_block_reason,
+            requires_human_input=bool(req.requires_human_input)
         )
         return prop
     except Exception as e:
@@ -2374,7 +2400,9 @@ def get_remediation_proposal(proposal_id: str):
 def get_or_create_remediation_proposal_for_finding(finding_id: str):
     """
     Lấy đề xuất xử lý cách ly liên kết với Finding.
-    Nếu chưa có, tự động phân tích Finding và tạo proposal dự thảo (DRAFT) từ các bản ghi cách ly.
+    Nếu chưa có, tự động đối chiếu RemediationRegistry:
+    - Tìm thấy active handler: EXECUTABLE (cho phép Dry-run, SoD).
+    - Không tìm thấy handler: ADVISORY_ONLY (chỉ tư vấn, chặn Dry-run/SoD/Silver).
     """
     for p in reversed(list(remediation_service.proposals.values())):
         if p.finding_id == finding_id:
@@ -2412,45 +2440,49 @@ def get_or_create_remediation_proposal_for_finding(finding_id: str):
     dataset = detail.get("dataset_id") or "trips"
     run_id = detail.get("run_id") or "RUN-DEFAULT"
 
-    norm_col = col.lower()
-    risk_level = None
-    if "phone" in norm_col or "contact" in norm_col:
-        op = "MASK_PHONE"
-        params = {"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}
-        reason = f"Che mờ số điện thoại tại cột '{col}' theo chuẩn Nghị định 13/2023/NĐ-CP Điều 9."
-        risk_level = RemediationRiskLevel.LOW
-    elif "email" in norm_col:
-        op = "MASK_EMAIL"
-        params = {"mask_char": "*", "keep_domain": True}
-        reason = f"Che mờ địa chỉ email tại cột '{col}' bảo vệ dữ liệu cá nhân."
-        risk_level = RemediationRiskLevel.LOW
-    elif "lat" in norm_col or "lon" in norm_col or "coord" in norm_col:
-        op = "ROUND_DECIMAL"
-        params = {"decimals": 4}
-        reason = f"Làm tròn tọa độ địa lý tại cột '{col}' bảo vệ vị trí chính xác."
-        risk_level = RemediationRiskLevel.LOW
-    elif "fare" in norm_col or "tip" in norm_col or "total" in norm_col or "price" in norm_col or "amount" in norm_col:
-        op = "RECONCILE_LEDGER"
-        params = {"action_type": "FLAG_DISCREPANCY", "require_reconciliation": True}
-        reason = (
-            f"Phát hiện sai lệch số học / sổ cái tài chính tại cột '{col}'. "
-            "Theo chuẩn kiểm toán IPO & IFRS 15, AI tuyệt đối không tự ý sửa đổi hoặc che mờ số tiền. "
-            "Đề xuất Kế toán viên đối soát chứng từ thực tế (voucher/hoàn tiền) hoặc đánh dấu Từ chối bản ghi (Reject/Discard)."
-        )
-        risk_level = RemediationRiskLevel.HIGH
-    elif "soc" in norm_col or "temp" in norm_col or "speed" in norm_col or "rpm" in norm_col or "battery" in norm_col:
-        op = "CALIBRATE_TELEMETRY"
-        params = {"action_type": "INSPECT_SENSOR"}
-        reason = (
-            f"Chỉ số cảm biến vật lý telemetry vượt ngưỡng an toàn tại cột '{col}'. "
-            "Đề xuất Kỹ sư phần cứng kiểm tra thiết bị IoT trên xe hoặc loại bỏ bản ghi lỗi khỏi tập phân tích."
-        )
-        risk_level = RemediationRiskLevel.HIGH
+    from backend.engine.remediation_registry import RemediationRegistry
+    mapping = RemediationRegistry.find_mapping(dataset, col, finding_id, detail.get("reason"))
+
+    if mapping:
+        proposal_type = "EXECUTABLE"
+        op = mapping["operation_id"]
+        risk_level = mapping["risk_level"]
+        requires_human_input = mapping["requires_human_input"]
+        execution_block_reason = None
+
+        if op == "MASK_PHONE":
+            params = {"prefix_len": 3, "suffix_len": 2, "mask_char": "*"}
+            reason = f"Che mờ số điện thoại tại cột '{col}' theo chuẩn Nghị định 13/2023/NĐ-CP Điều 9."
+        elif op == "MASK_EMAIL":
+            params = {"mask_char": "*", "keep_domain": True}
+            reason = f"Che mờ địa chỉ email tại cột '{col}' bảo vệ dữ liệu cá nhân."
+        elif op == "MASK_NAME":
+            params = {"mask_char": "*", "keep_initials": True}
+            reason = f"Che mờ họ tên cá nhân tại cột '{col}'."
+        elif op == "ROUND_DECIMAL":
+            params = {"decimals": 4}
+            reason = f"Làm tròn tọa độ địa lý tại cột '{col}' bảo vệ vị trí chính xác."
+        elif op == "MANUAL_RECONCILIATION":
+            params = {"action_type": "ADJUST_FARE", "corrected_value": None, "currency": "VND", "evidence_doc_ref": ""}
+            reason = (
+                f"Phát hiện sai lệch số học / cước phí tài chính tại cột '{col}'. "
+                "Theo chuẩn IFRS 15 / SOX-404, AI tuyệt đối không tự ý sửa đổi hoặc xóa số tiền. "
+                "Cần System Owner (SO) nhập giá trị đối soát chính thức kèm chứng từ và CISO duyệt trước khi chuyển sang Silver."
+            )
+        else:
+            params = {}
+            reason = f"Khắc phục vi phạm chất lượng dữ liệu tại cột '{col}' qua thao tác '{op}'."
     else:
-        op = "MASK"
-        params = {"prefix_len": 2, "suffix_len": 2, "mask_char": "*"}
-        reason = f"Chuẩn hóa bảo vệ dữ liệu nhạy cảm tại cột '{col}'."
-        risk_level = RemediationRiskLevel.MEDIUM
+        proposal_type = "ADVISORY_ONLY"
+        op = "ADVISORY"
+        risk_level = RemediationRiskLevel.HIGH
+        requires_human_input = False
+        execution_block_reason = (
+            f"Không có handler tự động nào trong RemediationRegistry được cấp phép cho lỗi tại cột '{col}' ({detail.get('reason', '')}). "
+            "Cần điều tra nguồn dữ liệu, đối soát thủ công hoặc re-ingest."
+        )
+        reason = f"[CHỈ TƯ VẤN - ADVISORY ONLY] {execution_block_reason}"
+        params = {"recommended_action": "SOURCE_CORRECTION_AND_REINGEST", "target_role": "DATA_STEWARD"}
 
     evidence_id = detail.get("evidence_id") or (detail.get("evidence", {}).get("evidence_id") if isinstance(detail.get("evidence"), dict) else None)
     evi_ids = [str(evidence_id)] if evidence_id else []
@@ -2465,15 +2497,19 @@ def get_or_create_remediation_proposal_for_finding(finding_id: str):
         params=params,
         reason=reason,
         proposer="AI_AGENT",
-        confidence="SUPPORTED",
+        confidence="SUPPORTED" if proposal_type == "EXECUTABLE" else "ADVISORY",
         grounding_evidence_ids=evi_ids,
-        risk_level=risk_level
+        risk_level=risk_level,
+        proposal_type=proposal_type,
+        execution_block_reason=execution_block_reason,
+        requires_human_input=requires_human_input
     )
 
-    try:
-        remediation_service.simulate_dry_run(prop.proposal_id)
-    except Exception as dry_err:
-        print(f"[AutoDryRun Notice] {dry_err}")
+    if proposal_type == "EXECUTABLE":
+        try:
+            remediation_service.simulate_dry_run(prop.proposal_id)
+        except Exception as dry_err:
+            print(f"[AutoDryRun Notice] {dry_err}")
 
     return prop
 
@@ -2533,7 +2569,7 @@ def submit_remediation_proposal(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/api/remediation/{proposal_id}/approve", response_model=StructuredRemediationProposalModel)
+@app.post("/api/remediation/{proposal_id}/approve")
 def approve_remediation_proposal(
     proposal_id: str,
     payload: Optional[ApproveRemediationProposalRequest] = None,
@@ -2541,35 +2577,42 @@ def approve_remediation_proposal(
     x_user: Optional[str] = Header(None, alias="X-User"),
 ):
     """
-    Checker phê duyệt đề xuất.
-    Thực thi nguyên tắc Maker-Checker: Người tạo đề xuất không được tự phê duyệt.
+    [DEPRECATED - Phase 3 SoD Integration]
+    Direct approval has been deprecated. Remediation proposals must be approved via SoD Flow (RACIX Governance)
+    at POST /api/sod/tickets/from-finding or through the SoD review process.
     """
-    actor = _require_admin_identity(x_user_role, x_user)
-    try:
-        return remediation_service.approve_proposal(proposal_id, actor_id=actor, actor_role="ADMIN")
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
-    except PermissionError as pe:
-        raise HTTPException(status_code=403, detail=str(pe))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "ENDPOINT_DEPRECATED",
+            "message": "Direct approval has been deprecated. Remediation proposals must be approved via SoD Flow (RACIX Governance) at /api/sod/tickets.",
+            "deprecated_action": "approve",
+            "proposal_id": proposal_id,
+            "next_steps": "Create SoD ticket at POST /api/sod/tickets/from-finding and complete RACIX approval flow."
+        }
+    )
 
 
-@app.post("/api/remediation/{proposal_id}/reject", response_model=StructuredRemediationProposalModel)
+@app.post("/api/remediation/{proposal_id}/reject")
 def reject_remediation_proposal(
     proposal_id: str,
-    req: RejectRemediationProposalRequest,
+    req: Optional[RejectRemediationProposalRequest] = None,
     x_user_role: Optional[str] = Header(None, alias="X-User-Role"),
     x_user: Optional[str] = Header(None, alias="X-User"),
 ):
-    """Checker từ chối đề xuất xử lý cách ly."""
-    actor = _require_admin_identity(x_user_role, x_user)
-    try:
-        return remediation_service.reject_proposal(proposal_id, actor_id=actor, reason=req.reason)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """
+    [DEPRECATED - Phase 3 SoD Integration]
+    Direct rejection has been deprecated. Remediation proposals are rejected via SoD review process.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "ENDPOINT_DEPRECATED",
+            "message": "Direct rejection has been deprecated. Remediation proposals must be rejected via SoD Flow at /api/sod/tickets.",
+            "deprecated_action": "reject",
+            "proposal_id": proposal_id
+        }
+    )
 
 
 @app.post("/api/remediation/{proposal_id}/execute")
@@ -2580,7 +2623,8 @@ def execute_remediation_transaction(
     x_user: Optional[str] = Header(None, alias="X-User"),
 ):
     """
-    Thực thi Transaction Remediation có bảo vệ chống Race Condition & Tự động Rollback.
+    Execute Remediation Transaction with anti-race condition & automatic rollback protection.
+    Enforces fail-closed HITL gating via SoD Flow and live source anti-drift verification.
     """
     actor = _require_admin_identity(x_user_role, x_user)
     idempotency_key = req.idempotency_key if req else None
@@ -2593,11 +2637,19 @@ def execute_remediation_transaction(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy proposal '{proposal_id}'")
+    except GovernanceException as ge:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": ge.code,
+                "message": ge.message,
+                "details": ge.details
+            }
+        )
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 
 @app.patch("/api/findings/{finding_id}/status")

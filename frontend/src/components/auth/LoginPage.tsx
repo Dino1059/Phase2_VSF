@@ -6,7 +6,6 @@ import {
   ArrowRight,
   UserCheck,
   KeyRound,
-  Info,
   Layers,
   Shield,
   Database,
@@ -71,73 +70,44 @@ export function LoginPage() {
   const dtPersonas = personasList.filter((p) => p.systemAccess === 'datatrust_only');
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col justify-between selection:bg-[#04D3D4] selection:text-slate-950 font-sans">
-      {/* Background ambient lighting */}
+    <div className="min-h-screen bg-[#f8fafb] text-slate-800 flex flex-col justify-between selection:bg-[#04D3D4]/30 selection:text-slate-900 font-sans relative overflow-x-hidden">
+      {/* Background ambient lighting - Light mode soft gradients */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 size-96 rounded-full bg-[#04D3D4]/10 blur-3xl" />
-        <div className="absolute top-1/3 -right-40 size-96 rounded-full bg-teal-500/10 blur-3xl" />
-        <div className="absolute -bottom-40 left-1/3 size-96 rounded-full bg-indigo-500/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 size-[450px] rounded-full bg-[#04D3D4]/12 blur-3xl" />
+        <div className="absolute top-1/3 -right-40 size-[500px] rounded-full bg-[#008b74]/8 blur-3xl" />
+        <div className="absolute -bottom-40 left-1/3 size-[450px] rounded-full bg-[#FFC402]/8 blur-3xl" />
       </div>
 
-      {/* Top Header */}
-      <header className="relative z-10 border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md px-6 py-4 flex items-center justify-between">
+      {/* Top Header - Light Mode Clean GSM Branding */}
+      <header className="relative z-10 border-b border-[#e2ece8] bg-white/90 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-2xs">
         <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-slate-900 border border-[#04D3D4]/50 text-[#04D3D4] shadow-xs">
+          <div className="grid size-10 place-items-center rounded-xl bg-slate-950 border border-slate-900 text-[#04D3D4] shadow-xs">
             <Zap size={20} className="fill-[#FFC402] text-[#04D3D4]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold tracking-tight text-white text-base">DataTrust OS</span>
-              <span className="text-slate-500">×</span>
-              <span className="font-bold text-teal-400 text-sm">SoD Flow</span>
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#04D3D4]/15 text-[#04D3D4] border border-[#04D3D4]/30 uppercase tracking-wider">
-                Phase 1 Demo
-              </span>
+              <span className="font-extrabold tracking-tight text-slate-900 text-base">USER LOGIN</span>
             </div>
-            <p className="text-[11px] text-slate-400">Cổng Đăng nhập Tập trung & Điều hướng Phân quyền RACIX</p>
+            <p className="text-[11px] text-slate-500">Cổng Đăng nhập Tập trung & Điều hướng Phân quyền RACIX</p>
           </div>
-        </div>
-
-        <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800">
-          <Shield size={14} className="text-[#04D3D4]" />
-          <span>Segregation of Duties (14 Vai trò)</span>
         </div>
       </header>
 
       {/* Main Content Container */}
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 py-8 sm:py-10 flex flex-col gap-6">
-        {/* Banner Notice */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex items-start gap-4 shadow-xl">
-          <div className="size-10 rounded-xl bg-teal-950/80 border border-teal-800/60 text-teal-400 grid place-items-center shrink-0 mt-0.5">
-            <Info size={18} />
-          </div>
-          <div className="space-y-1 text-xs leading-relaxed text-slate-300">
-            <div className="font-semibold text-white flex items-center gap-2">
-              <span>Cơ chế Xác thực Demo (Phase 1)</span>
-              <span className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono">
-                Client Session · Zero-backend-dep
-              </span>
-            </div>
-            <p>
-              Hệ thống cung cấp sẵn 14 Persona mẫu tương ứng đầy đủ các vai trò trong tài liệu{' '}
-              <span className="font-mono text-[#04D3D4]">KE_HOACH_SOD_DATATRUST.md mục 2</span>. Bạn có thể bấm chọn ngay một Persona để trải nghiệm luồng định tuyến tự động hoặc dùng form tài khoản tiêu chuẩn.
-            </p>
-          </div>
-        </div>
-
-        {/* Tab Switcher */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+        {/* Tab Switcher & Filter Pills */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#e2ece8] pb-3 gap-3">
+          <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200/80 shadow-inner">
             <button
               type="button"
               onClick={() => setActiveTab('personas')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'personas'
-                  ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
               }`}
             >
-              <UserCheck size={14} />
+              <UserCheck size={14} className={activeTab === 'personas' ? 'text-[#008b74]' : 'text-slate-500'} />
               <span>Chọn Persona nhanh (14 Roles)</span>
             </button>
             <button
@@ -145,25 +115,25 @@ export function LoginPage() {
               onClick={() => setActiveTab('credentials')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'credentials'
-                  ? 'bg-[#04D3D4] text-slate-950 shadow-xs'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
               }`}
             >
-              <KeyRound size={14} />
+              <KeyRound size={14} className={activeTab === 'credentials' ? 'text-[#008b74]' : 'text-slate-500'} />
               <span>Đăng nhập Tài khoản</span>
             </button>
           </div>
 
           {activeTab === 'personas' && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mr-1">Lọc nhóm:</span>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 overflow-x-auto pb-1 sm:pb-0">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mr-1 shrink-0">Lọc nhóm:</span>
               <button
                 type="button"
                 onClick={() => setSelectedGroupFilter('all')}
-                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
                   selectedGroupFilter === 'all'
-                    ? 'bg-slate-800 text-white font-bold'
-                    : 'hover:bg-slate-900 text-slate-400'
+                    ? 'bg-white text-slate-900 border border-slate-300 font-bold shadow-2xs'
+                    : 'hover:bg-white hover:text-slate-900 text-slate-600'
                 }`}
               >
                 Tất cả (14)
@@ -171,10 +141,10 @@ export function LoginPage() {
               <button
                 type="button"
                 onClick={() => setSelectedGroupFilter('both')}
-                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
                   selectedGroupFilter === 'both'
-                    ? 'bg-teal-950 text-teal-300 font-bold border border-teal-800/60'
-                    : 'hover:bg-slate-900 text-slate-400'
+                    ? 'bg-teal-50 text-teal-900 font-bold border border-teal-300 shadow-2xs'
+                    : 'hover:bg-teal-50/60 hover:text-teal-900 text-slate-600'
                 }`}
               >
                 Cả hai (4)
@@ -182,10 +152,10 @@ export function LoginPage() {
               <button
                 type="button"
                 onClick={() => setSelectedGroupFilter('sod_only')}
-                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
                   selectedGroupFilter === 'sod_only'
-                    ? 'bg-indigo-950 text-indigo-300 font-bold border border-indigo-800/60'
-                    : 'hover:bg-slate-900 text-slate-400'
+                    ? 'bg-indigo-50 text-indigo-900 font-bold border border-indigo-300 shadow-2xs'
+                    : 'hover:bg-indigo-50/60 hover:text-indigo-900 text-slate-600'
                 }`}
               >
                 Chỉ SoD (7)
@@ -193,10 +163,10 @@ export function LoginPage() {
               <button
                 type="button"
                 onClick={() => setSelectedGroupFilter('datatrust_only')}
-                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
                   selectedGroupFilter === 'datatrust_only'
-                    ? 'bg-sky-950 text-sky-300 font-bold border border-sky-800/60'
-                    : 'hover:bg-slate-900 text-slate-400'
+                    ? 'bg-amber-50 text-amber-900 font-bold border border-amber-300 shadow-2xs'
+                    : 'hover:bg-amber-50/60 hover:text-amber-900 text-slate-600'
                 }`}
               >
                 Chỉ DataTrust (3)
@@ -211,19 +181,15 @@ export function LoginPage() {
             {/* NHÓM 1: CẢ HAI HỆ THỐNG */}
             {(selectedGroupFilter === 'all' || selectedGroupFilter === 'both') && (
               <section className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="grid size-6 place-items-center rounded-md bg-teal-500/20 text-teal-400 text-xs font-bold">
+                    <span className="grid size-6 place-items-center rounded-md bg-teal-50 text-[#008b74] border border-teal-200 text-xs font-bold shadow-2xs">
                       <Layers size={13} />
                     </span>
-                    <h3 className="text-sm font-bold text-white tracking-wide uppercase">
+                    <h3 className="text-sm font-bold text-slate-900 tracking-wide uppercase">
                       Nhóm 1: Cả hai hệ thống (Both)
                     </h3>
-                    <span className="text-xs text-slate-400">· 4 vai trò tích hợp</span>
                   </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/30 font-medium">
-                    → Điều hướng: /overview + Tích hợp Tab Phân quyền & SoD
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -243,19 +209,15 @@ export function LoginPage() {
             {/* NHÓM 2: CHỈ SOD FLOW */}
             {(selectedGroupFilter === 'all' || selectedGroupFilter === 'sod_only') && (
               <section className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="grid size-6 place-items-center rounded-md bg-indigo-500/20 text-indigo-400 text-xs font-bold">
+                    <span className="grid size-6 place-items-center rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold shadow-2xs">
                       <Shield size={13} />
                     </span>
-                    <h3 className="text-sm font-bold text-white tracking-wide uppercase">
+                    <h3 className="text-sm font-bold text-slate-900 tracking-wide uppercase">
                       Nhóm 2: Hệ thống SoD Flow (SoD Only)
                     </h3>
-                    <span className="text-xs text-slate-400">· 7 vai trò chuỗi RACIX</span>
                   </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium">
-                    → Điều hướng: /sod (SoD Standalone Workspace)
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
@@ -275,19 +237,15 @@ export function LoginPage() {
             {/* NHÓM 3: CHỈ DATATRUST OS */}
             {(selectedGroupFilter === 'all' || selectedGroupFilter === 'datatrust_only') && (
               <section className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="grid size-6 place-items-center rounded-md bg-sky-500/20 text-sky-400 text-xs font-bold">
+                    <span className="grid size-6 place-items-center rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold shadow-2xs">
                       <Database size={13} />
                     </span>
-                    <h3 className="text-sm font-bold text-white tracking-wide uppercase">
+                    <h3 className="text-sm font-bold text-slate-900 tracking-wide uppercase">
                       Nhóm 3: Hệ thống DataTrust OS (DataTrust Only)
                     </h3>
-                    <span className="text-xs text-slate-400">· 3 vai trò dữ liệu</span>
                   </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/30 font-medium">
-                    → Điều hướng: /overview (3 Tabs tiêu chuẩn - Ẩn SoD)
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -308,25 +266,26 @@ export function LoginPage() {
 
         {/* Tab 2: Standard Credentials Login */}
         {activeTab === 'credentials' && (
-          <div className="max-w-md w-full mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5">
+          <div className="max-w-md w-full mx-auto bg-white border border-[#e2ece8] rounded-2xl p-6 sm:p-7 shadow-lg space-y-5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#04D3D4] via-[#008b74] to-[#FFC402]" />
             <div>
-              <h2 className="text-base font-bold text-white">Đăng nhập bằng Tài khoản</h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <h2 className="text-base font-bold text-slate-900">Đăng nhập bằng Tài khoản</h2>
+              <p className="text-xs text-slate-500 mt-1">
                 Nhập tên đăng nhập để hệ thống tự động nhận diện thẩm quyền vai trò.
               </p>
             </div>
 
             {errorMessage && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800/70 text-rose-300 text-xs font-medium">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
                 {errorMessage}
               </div>
             )}
 
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
                   <span>Tên tài khoản (Username)</span>
-                  <span className="text-[10px] text-slate-500">Ví dụ: admin, auditor, an.nguyen</span>
+                  <span className="text-[10px] text-slate-400 font-mono">admin, auditor, an.nguyen...</span>
                 </label>
                 <div className="relative">
                   <input
@@ -334,18 +293,18 @@ export function LoginPage() {
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     placeholder="Nhập username..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:outline-hidden focus:border-[#04D3D4] focus:ring-1 focus:ring-[#04D3D4]"
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:border-[#008b74] focus:ring-2 focus:ring-[#008b74]/20 transition"
                   />
-                  <div className="absolute right-3 top-2.5 text-slate-600">
+                  <div className="absolute right-3 top-2.5 text-slate-400">
                     <UserCheck size={14} />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
                   <span>Mật khẩu</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Bất kỳ trong Demo</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Bất kỳ trong Demo</span>
                 </label>
                 <div className="relative">
                   <input
@@ -353,9 +312,9 @@ export function LoginPage() {
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:outline-hidden focus:border-[#04D3D4] focus:ring-1 focus:ring-[#04D3D4]"
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:border-[#008b74] focus:ring-2 focus:ring-[#008b74]/20 transition"
                   />
-                  <div className="absolute right-3 top-2.5 text-slate-600">
+                  <div className="absolute right-3 top-2.5 text-slate-400">
                     <Lock size={14} />
                   </div>
                 </div>
@@ -363,15 +322,15 @@ export function LoginPage() {
 
               <button
                 type="submit"
-                className="w-full py-2.5 px-4 rounded-xl bg-[#04D3D4] hover:bg-[#04D3D4]/90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md shadow-[#04D3D4]/10"
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-[#04D3D4] font-extrabold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md hover:shadow-lg"
               >
                 <span>Xác nhận Đăng nhập</span>
                 <ArrowRight size={14} />
               </button>
             </form>
 
-            <div className="pt-2 border-t border-slate-800/80 space-y-2">
-              <span className="text-[11px] text-slate-400 font-semibold block">Tài khoản Demo gợi ý nhanh:</span>
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <span className="text-[11px] text-slate-500 font-semibold block">Tài khoản gợi ý nhanh:</span>
               <div className="flex flex-wrap gap-1.5">
                 {[
                   { label: 'admin', role: 'Admin (Both)' },
@@ -387,7 +346,7 @@ export function LoginPage() {
                       setUsernameInput(item.label);
                       setPasswordInput('demo123');
                     }}
-                    className="text-[11px] px-2 py-1 rounded-md bg-slate-800/70 hover:bg-slate-800 text-slate-300 border border-slate-700/60 font-mono transition cursor-pointer"
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 hover:text-slate-900 text-slate-700 border border-slate-200 font-mono transition cursor-pointer shadow-2xs"
                   >
                     {item.label}
                   </button>
@@ -397,11 +356,6 @@ export function LoginPage() {
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-slate-800/80 bg-slate-950/40 px-6 py-3 text-center text-xs text-slate-500">
-        DataTrust OS & SoD Flow · Segregation of Duties Integration · Phase 1: Unified UI & Authentication
-      </footer>
     </div>
   );
 }
@@ -414,31 +368,35 @@ interface PersonaCardProps {
 }
 
 function PersonaCard({ persona, isLoading, onSelect, colorTheme }: PersonaCardProps) {
+  // Light mode clean themes with GSM accents
   const themeStyles = {
     teal: {
-      border: 'hover:border-teal-500/60',
-      badge: 'bg-teal-500/10 text-teal-300 border-teal-500/30',
-      avatar: 'bg-teal-950 border-teal-500/40 text-teal-300',
-      arrow: 'group-hover:text-teal-400',
+      border: 'hover:border-[#04D3D4] hover:shadow-[0_8px_24px_rgba(4,211,212,0.18)]',
+      badge: 'bg-teal-50 text-[#008b74] border border-teal-200 font-mono',
+      avatar: 'bg-teal-50 border border-teal-200 text-[#008b74]',
+      arrow: 'group-hover:text-[#008b74]',
+      name: 'group-hover:text-[#008b74]',
     },
     indigo: {
-      border: 'hover:border-indigo-500/60',
-      badge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
-      avatar: 'bg-indigo-950 border-indigo-500/40 text-indigo-300',
-      arrow: 'group-hover:text-indigo-400',
+      border: 'hover:border-indigo-400 hover:shadow-[0_8px_24px_rgba(99,102,241,0.15)]',
+      badge: 'bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono',
+      avatar: 'bg-indigo-50 border border-indigo-200 text-indigo-700',
+      arrow: 'group-hover:text-indigo-700',
+      name: 'group-hover:text-indigo-700',
     },
     sky: {
-      border: 'hover:border-sky-500/60',
-      badge: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
-      avatar: 'bg-sky-950 border-sky-500/40 text-sky-300',
-      arrow: 'group-hover:text-sky-400',
+      border: 'hover:border-amber-400 hover:shadow-[0_8px_24px_rgba(245,158,11,0.18)]',
+      badge: 'bg-amber-50 text-amber-800 border border-amber-200 font-mono',
+      avatar: 'bg-amber-50 border border-amber-200 text-amber-800',
+      arrow: 'group-hover:text-amber-800',
+      name: 'group-hover:text-amber-800',
     },
   }[colorTheme];
 
   return (
     <div
       onClick={onSelect}
-      className={`group relative bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 ${themeStyles.border} rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-lg hover:shadow-xl hover:-translate-y-0.5`}
+      className={`group relative bg-white hover:bg-slate-50/80 border border-[#e2ece8] ${themeStyles.border} rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-xs hover:-translate-y-0.5`}
     >
       <div className="space-y-3">
         {/* Header with Avatar and Role Code */}
@@ -450,7 +408,7 @@ function PersonaCard({ persona, isLoading, onSelect, colorTheme }: PersonaCardPr
               {persona.avatar}
             </div>
             <div>
-              <div className="font-bold text-white text-xs leading-snug group-hover:text-[#04D3D4] transition">
+              <div className={`font-bold text-slate-900 text-xs leading-snug ${themeStyles.name} transition`}>
                 {persona.fullName}
               </div>
               <div className="text-[10px] text-slate-400 font-mono">{persona.username}</div>
@@ -464,21 +422,18 @@ function PersonaCard({ persona, isLoading, onSelect, colorTheme }: PersonaCardPr
 
         {/* Title & Badge */}
         <div className="space-y-1">
-          <div className="text-[11px] font-semibold text-slate-300 leading-tight">
+          <div className="text-[11px] font-semibold text-slate-700 leading-tight">
             {persona.badge}
           </div>
-          <div className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">
+          <div className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">
             {persona.description}
           </div>
         </div>
       </div>
 
       {/* Card Action footer */}
-      <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-        <span className="font-medium text-slate-400">
-          {persona.systemAccess === 'both' ? 'DataTrust + Tab SoD' : persona.systemAccess === 'sod_only' ? 'SoD Standalone' : 'DataTrust OS'}
-        </span>
-        <span className={`flex items-center gap-1 font-semibold text-slate-300 ${themeStyles.arrow} transition`}>
+      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+        <span className={`flex items-center gap-1 font-semibold text-slate-600 ${themeStyles.arrow} group-hover:translate-x-0.5 transition`}>
           <span>{isLoading ? 'Đang nạp...' : 'Đăng nhập'}</span>
           <ArrowRight size={12} />
         </span>

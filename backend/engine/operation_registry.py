@@ -118,11 +118,24 @@ class OperationRegistry:
         return None
 
     @staticmethod
-    def reconcile_ledger(val: Any, **_: Any) -> Any:
+    def reconcile_ledger(val: Any, **params: Any) -> Any:
         """
         Bảo toàn giá trị số liệu tài chính phục vụ đối soát kế toán thủ công (Manual Reconciliation / IFRS 15).
-        Tuyệt đối không tự ý sửa đổi hoặc che mờ số tiền.
+        Khi có corrected_value từ bước xác nhận của SO, sử dụng giá trị đã đối soát chính thức.
         """
+        if "corrected_value" in params and params["corrected_value"] is not None:
+            cv = params["corrected_value"]
+            try:
+                if isinstance(cv, (int, float)):
+                    return cv
+                if isinstance(cv, str):
+                    cv_clean = cv.replace(",", "").strip()
+                    if "." in cv_clean:
+                        return float(cv_clean)
+                    return int(cv_clean)
+            except Exception:
+                pass
+            return cv
         return val
 
     @staticmethod

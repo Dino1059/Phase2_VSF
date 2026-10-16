@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { FindingItem } from '@/lib/api-bridge';
+import { formatAuditReasonSummary } from '@/lib/formatters/audit-violation-formatter';
 
 export interface AuditFindingsTableProps {
   findings: FindingItem[];
@@ -342,8 +343,8 @@ export function AuditFindingsTable({
 
                     {/* Mô tả (Description / Reason) */}
                     <td className="py-3 px-3 text-slate-800 leading-relaxed font-normal">
-                      <span className="line-clamp-2" title={f.reason}>
-                        {f.reason}
+                      <span className="line-clamp-2 text-xs font-medium text-slate-900" title={f.reason}>
+                        {formatAuditReasonSummary(f.reason)}
                       </span>
                     </td>
 

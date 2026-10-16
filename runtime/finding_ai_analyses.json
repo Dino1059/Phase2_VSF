@@ -574,5 +574,118 @@
         "actor": "AI_AGENT"
       }
     ]
+  },
+  "F-f9724f7d67": {
+    "analysis_id": "268fbeba-45af-4aea-9b76-ace36af2d53f",
+    "finding_id": "F-f9724f7d67",
+    "failure_lane": "LANE_B",
+    "rule_id": "COMP-US-OPTOUT-MARKETING-V1",
+    "violation_type": "COMPLIANCE_GATE",
+    "observation": "fare_amount (-24573.0) < min_val (1e-06); observed_value=-24573.0; invalid input type; customer_id was not hashed according to policy; driver_id was not hashed according to policy; customer_id was not hashed according to policy; pickup_latitude exceeds permitted coordinate precision (2 decimals); pickup_longitude exceeds permitted coordinate precision (2 decimals); vehicle_vin was not hashed according to policy; invalid input type",
+    "explanation": "Dữ liệu mà chúng ta đã phân tích cho thấy có nhiều vấn đề nghiêm trọng ảnh hưởng đến an toàn thông tin và tuân thủ chính sách. Cụ thể, một số trường dữ liệu không được mã hóa theo quy định, và các giá trị tọa độ không đạt yêu cầu về độ chính xác.",
+    "root_cause": "Có thể do lỗi trong quy trình nhập dữ liệu hoặc thiếu sót trong quy định bảo mật, nhưng tôi không thể xác nhận điều này một cách chắc chắn.",
+    "confidence": 0.0,
+    "confidence_method": "evidence_grounded_ratio",
+    "issues": [
+      {
+        "field": "fare_amount",
+        "issue": "Giá trị âm (-24573.0)",
+        "observed_condition": "-24573.0",
+        "likely_cause": "Có thể là lỗi trong hệ thống hoặc quy trình nhập liệu không chính xác.",
+        "suggested_action": "Kiểm tra và sửa chữa quy trình nhập liệu để đảm bảo fare_amount không bao giờ là giá trị âm.",
+        "evidence_reference": "001be310-60ee-53de-84b3-4348f2051aa9"
+      },
+      {
+        "field": "pickup_latitude",
+        "issue": "Vượt quá độ chính xác cho phép (2 chữ số thập phân)",
+        "observed_condition": "40.78",
+        "likely_cause": "Có thể do nhập liệu sai hoặc thiếu kiểm tra dữ liệu.",
+        "suggested_action": "Giới hạn độ chính xác cho phép cho trường pickup_latitude.",
+        "evidence_reference": "001be310-60ee-53de-84b3-4348f2051aa9"
+      },
+      {
+        "field": "pickup_longitude",
+        "issue": "Vượt quá độ chính xác cho phép (2 chữ số thập phân)",
+        "observed_condition": "-74.01",
+        "likely_cause": "Có thể do nhập liệu sai hoặc thiếu kiểm tra dữ liệu.",
+        "suggested_action": "Giới hạn độ chính xác cho phép cho trường pickup_longitude.",
+        "evidence_reference": "001be310-60ee-53de-84b3-4348f2051aa9"
+      },
+      {
+        "field": "customer_id",
+        "issue": "Không được mã hóa theo chính sách",
+        "observed_condition": "CUS_10772",
+        "likely_cause": "Có thể do quy trình dữ liệu chưa thực hiện đúng quy định.",
+        "suggested_action": "Thực hiện mã hóa đầy đủ cho tất cả các trường dữ liệu nhạy cảm như customer_id.",
+        "evidence_reference": "001be310-60ee-53de-84b3-4348f2051aa9"
+      }
+    ],
+    "hypotheses": [],
+    "evidence_references": [
+      "001be310-60ee-53de-84b3-4348f2051aa9",
+      "006d4e4a-58d1-5a6e-ad62-d95629bb8f9c",
+      "0086ec71-dbf6-507a-b5dc-62dab76bcc68",
+      "00a870a5-5b1b-5589-a98b-3f8881bac336",
+      "00bbbbce-c110-564d-b16f-4d8e164eb988",
+      "00d46b0d-de31-5ca5-9f74-2f7afdd481f6",
+      "00fcc499-598f-5bb4-a6fc-44032affc8c1",
+      "00fecaca-06ed-5902-90cb-b3c23e3a0aa4",
+      "011ccb56-b66b-5f0b-9013-893ae2e79bd7",
+      "012a0eb2-1fbf-5163-ab06-246fd2f557c8",
+      "3362bc421b4c6e4185a6f1ca5b8661f6e20ee70c3f80a6beb2a4e0817b1666bf",
+      "cb9f98bc0c885f336497eb877c4ebcff739675c3b9f513b8ab3cbca11dab245a",
+      "eeb90f9ff651c50006edb4e056b2a05f14a234df0685a6c6b93e59cbf2f1b33d",
+      "819f87c32b4d2e9bed845747712ae692ba599f1001a5ad283f4e34079c71fd92",
+      "dbc5e21cecc5eeefb02e8a904211ae91185a3d1ac36a0901a9ff064a19841892",
+      "ecbe9575f6cb584f16a08fdeb1a31285accd70f50ebd8a40e8f758fa1d132b77",
+      "8c9100f70487b165101a0dbee386f23455232aeb5778eca4e18ed0810433b722",
+      "c7c44dd2248129b89c2fa3d37c78b6873f355c8bba4ec5dab7586c34dbf3b81f",
+      "f63a1b15d54dc64248bb9032317b32edf1c895c907a1063611d1cfb0f5dc4011",
+      "c5d50c5b9cc5f6bc2d8fc5b65ebbeb5a8ad93a812aaccc2c5c66e9875a94aa33"
+    ],
+    "missing_context": [
+      "lineage",
+      "rule",
+      "policy"
+    ],
+    "lane_specific_details": null,
+    "remediation": {
+      "status": "suggested",
+      "action": "fare_amount: Giá trị âm (-24573.0) → Kiểm tra và sửa chữa quy trình nhập liệu.",
+      "scope": {
+        "finding_id": "F-f9724f7d67",
+        "dataset_id": "ride_hailing_xanh_sm_trips",
+        "run_id": "run_de2e2a749417",
+        "affected_records": 2305
+      },
+      "rationale": "Điều này sẽ giúp cải thiện chất lượng dữ liệu và đảm bảo tuân thủ chính sách bảo mật thông tin, đồng thời giảm thiểu rủi ro cho người dùng.",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_comment": null,
+      "action_type": "MANUAL_INSPECTION",
+      "parameters": {},
+      "expected_outcome": "Điều này sẽ giúp cải thiện chất lượng dữ liệu và đảm bảo tuân thủ chính sách bảo mật thông tin, đồng thời giảm thiểu rủi ro cho người dùng.",
+      "dry_run_supported": false,
+      "requires_approval": true
+    },
+    "guardrail_report": {
+      "is_sanitized": true,
+      "redactions": {
+        "phones_masked": 0,
+        "emails_masked": 3,
+        "vins_masked": 20,
+        "gps_generalized": 20
+      },
+      "provider": "openai"
+    },
+    "created_at": "2026-10-16T07:30:18.302909Z",
+    "updated_at": "2026-10-16T07:30:18.302909Z",
+    "audit_events": [
+      {
+        "action": "analysis_created",
+        "at": "2026-10-16T07:30:18.302909+00:00",
+        "actor": "AI_AGENT"
+      }
+    ]
   }
 }

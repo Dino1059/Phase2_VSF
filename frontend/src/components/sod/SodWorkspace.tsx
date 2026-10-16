@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/src/stores/authStore';
+import { RoleSwitcherModal } from '@/src/components/auth/RoleSwitcherModal';
 import { SodMatrixView } from './SodMatrixView';
 import { SodTicketsView } from './SodTicketsView';
 import { SodInboxView } from './SodInboxView';
@@ -16,7 +17,6 @@ import {
   Settings,
   FileCheck,
   LogOut,
-  User,
 } from 'lucide-react';
 import '@/src/assets/sod.css';
 
@@ -32,10 +32,11 @@ export function SodWorkspace({ mode = 'embedded' }: SodWorkspaceProps) {
   const logout = useAuthStore((s) => s.logout);
 
   const [activeTab, setActiveTab] = useState<SodTab>('matrix');
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const navTabs: { id: SodTab; label: string; icon: typeof Grid; badge?: string }[] = [
@@ -82,15 +83,15 @@ export function SodWorkspace({ mode = 'embedded' }: SodWorkspaceProps) {
                 </div>
               </div>
 
-              {/* Quick Persona Switcher button */}
+              {/* Role Switcher button */}
               <button
                 type="button"
-                onClick={() => navigate('/login')}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition cursor-pointer"
-                title="Đổi vai trò Persona khác"
+                onClick={() => setIsRoleModalOpen(true)}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-xs font-bold text-indigo-900 transition cursor-pointer shadow-2xs"
+                title="Đổi vai trò trong 14 vai trò ITGC"
               >
-                <User size={13} />
-                <span>Đổi Persona</span>
+                <UserCheck size={14} className="text-indigo-600" />
+                <span>Đổi vai trò</span>
               </button>
 
               {/* Logout button */}
@@ -149,6 +150,12 @@ export function SodWorkspace({ mode = 'embedded' }: SodWorkspaceProps) {
         {activeTab === 'config' && <SodConfigAdminView />}
         {activeTab === 'evidence' && <SodEvidenceView />}
       </div>
+
+      {/* Role Switcher Modal */}
+      <RoleSwitcherModal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+      />
     </div>
   );
 }

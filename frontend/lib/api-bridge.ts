@@ -270,15 +270,20 @@ export interface FindingItem {
 }
 
 export interface FindingDetailData extends FindingItem {
+  policy_violations?: any[];
   sample_records: Array<{
     quarantine_id: string;
     source_row_pk?: string;
+    violation_rule_id?: string;
     violation_severity: string;
     violation_reason: string;
     raw_record_json: Record<string, any>;
     subject_zone?: string | null;
     status: string;
     quarantined_at?: string;
+    policy_name?: string;
+    law_ref?: string;
+    policy_violations?: any[];
   }>;
   rule_definition?: {
     rule_id: string;
@@ -378,7 +383,10 @@ export interface StructuredRemediationProposal {
   proposal_id: string;
   finding_id: string;
   version: number;
-  status: 'DRAFT' | 'DRY_RUN_PASSED' | 'DRY_RUN_FAILED' | 'PENDING_APPROVAL' | 'PENDING_2ND_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXECUTING' | 'REMEDIATED' | 'ROLLED_BACK' | 'STALE';
+  status: 'DRAFT' | 'DRY_RUN_PASSED' | 'DRY_RUN_FAILED' | 'PENDING_APPROVAL' | 'PENDING_2ND_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXECUTING' | 'REMEDIATED' | 'ROLLED_BACK' | 'STALE' | string;
+  proposal_type?: 'EXECUTABLE' | 'ADVISORY_ONLY' | string;
+  execution_block_reason?: string | null;
+  requires_human_input?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -1359,7 +1367,75 @@ export const apiBridge = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-      throw new Error(err.detail || `Lỗi thực thi transaction remediation (HTTP ${res.status})`);
+      const msg = typeof err.detail === 'object' && err.detail?.message
+        ? `${err.detail.message}${err.detail.code ? ` [${err.detail.code}]` : ''}`
+        : (typeof err.detail === 'string' ? err.detail : `Lỗi thực thi transaction remediation (HTTP ${res.status})`);
+      const errorObj: any = new Error(msg);
+      errorObj.detail = err.detail;
+      throw errorObj;
+    }
+    return res.json();
+  },
+
+  /**
+   * Phase 3 SoD Integration: Khởi tạo phiếu SoD Phê duyệt từ Finding và Proposal
+   */
+  async createSodTicketFromFinding(payload: { finding_id: string; proposal_id: string; reason?: string }): Promise<any> {
+    const res = await fetch(`${API_ROOT}/sod/tickets/from-finding`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      const msg = typeof err.detail === 'object' && err.detail?.message
+        ? err.detail.message
+        : (typeof err.detail === 'string' ? err.detail : `Lỗi khởi tạo phiếu SoD (HTTP ${res.status})`);
+      throw new Error(msg);
+    }
+    return res.json();
+  },
+
+  /**
+   * Phase 3 SoD Integration: Lấy thông tin phiếu SoD liên kết với Finding
+   */
+  async fetchSodTicketForFinding(findingId: string): Promise<any> {
+    const res = await fetch(`${API_ROOT}/sod/tickets/for-finding/${encodeURIComponent(findingId)}`, {
+      headers: getUserIdentityHeaders(),
+    });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `Lỗi nạp thông tin phiếu SoD (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Phase 3 SoD Integration: Ra quyết định phê duyệt / đối soát cho bước phiếu SoD
+   */
+  async decideSodStep(
+    ticketId: string,
+    stepId: string,
+    payload: { outcome: string; comment?: string; reconciliation?: any }
+  ): Promise<any> {
+    const res = await fetch(`${API_ROOT}/sod/tickets/${encodeURIComponent(ticketId)}/steps/${encodeURIComponent(stepId)}/decide`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getUserIdentityHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      const msg = typeof err.detail === 'object' && err.detail?.message
+        ? err.detail.message
+        : (typeof err.detail === 'string' ? err.detail : `Lỗi gửi quyết định phê duyệt SoD (HTTP ${res.status})`);
+      throw new Error(msg);
     }
     return res.json();
   },

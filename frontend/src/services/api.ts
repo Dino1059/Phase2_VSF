@@ -79,7 +79,8 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const url = endpoint.startsWith('/api') ? endpoint : `${API_BASE}${endpoint}`;
+  const res = await fetch(url, {
     ...options,
     headers,
   });
@@ -98,22 +99,70 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
   return res.json();
 }
 
+export interface SwitchRoleResponse {
+  token: string;
+  access_token?: string;
+  token_type?: string;
+  user: {
+    id: string;
+    user_id?: string;
+    username: string;
+    full_name: string;
+    active_role: string;
+    role?: string;
+    system_access: 'both' | 'sod_only' | 'datatrust_only';
+  };
+  redirect: string;
+}
+
+export interface UserMeResponse {
+  id: string;
+  user_id?: string;
+  username: string;
+  full_name: string;
+  active_role: string;
+  role?: string;
+  roles: string[];
+  system_access: 'both' | 'sod_only' | 'datatrust_only';
+  permissions: string[];
+}
+
 // Typed API clients
 export const authApi = {
-  login: (credentials: { username: string; password?: string; role?: string }) =>
-    request<{ access_token: string; token_type: string; user: { user_id: string; username: string; role: string } }>('/auth/login', {
+  login: async (credentials: { username: string; password?: string; role?: string } | string, password?: string, role?: string) => {
+    let payload: any = {};
+    if (typeof credentials === 'string') {
+      payload = { username: credentials, password, role };
+    } else {
+      payload = credentials;
+    }
+    const res = await request<SwitchRoleResponse>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify(credentials),
-    }),
-  quickSwitch: (role: string) =>
-    request<{ access_token: string; token_type: string; user: { user_id: string; username: string; role: string } }>('/auth/quick-switch', {
+      body: JSON.stringify(payload),
+    });
+    if (res.token && !res.access_token) {
+      res.access_token = res.token;
+      res.token_type = 'bearer';
+    }
+    if (res.user && !res.user.user_id) {
+      res.user.user_id = res.user.id;
+      res.user.role = res.user.active_role;
+    }
+    return res;
+  },
+  switchRole: (role: string) =>
+    request<SwitchRoleResponse>('/api/auth/switch-role', {
       method: 'POST',
       body: JSON.stringify({ role }),
     }),
-  getMe: () =>
-    request<{ user_id: string; username: string; role: string }>('/auth/me'),
+  quickSwitch: (role: string) =>
+    request<SwitchRoleResponse>('/api/auth/switch-role', {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
+  getMe: () => request<UserMeResponse>('/api/auth/me'),
   logout: () =>
-    request<{ status: string; message: string }>('/auth/logout', {
+    request<{ status: string; message: string }>('/api/auth/logout', {
       method: 'POST',
     }),
 };
@@ -1302,4 +1351,52 @@ export const ingestionApi = {
       method: 'POST',
       body: JSON.stringify({ quarantine_id: quarantineId, action, resolved_by: resolvedBy }),
     }),
+};
+
+
+export const sodApi = {
+  getMatrix: () => request<any>('/api/sod/matrix'),
+  getTickets: (status?: string, search?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (search) params.append('search', search);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<any[]>(`/api/sod/tickets${qs}`);
+  },
+  getTicketDetail: (ticketId: string) => request<any>(`/api/sod/tickets/${ticketId}`),
+  previewChain: (payload: any) =>
+    request<any>('/api/sod/tickets/preview', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  createTicket: (payload: any) =>
+    request<any>('/api/sod/tickets', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  decideStep: (ticketId: string, stepId: string, payload: { outcome: string; comment?: string; duration_days?: number; reconciliation?: any }) =>
+    request<any>(`/api/sod/tickets/${ticketId}/steps/${stepId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getInbox: () => request<any[]>('/api/sod/inbox'),
+  getDelegations: () => request<any[]>('/api/sod/delegations'),
+  createDelegation: (payload: any) =>
+    request<any>('/api/sod/delegations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  revokeDelegation: (id: string) =>
+    request<{ status: string; message: string }>(`/api/sod/delegations/${id}`, {
+      method: 'DELETE',
+    }),
+  getConfig: () => request<any>('/api/sod/config'),
+  getEvidence: (ticketId: string) => request<any>(`/api/sod/evidence/${ticketId}`),
+  createTicketFromFinding: (payload: { finding_id: string; proposal_id: string; reason?: string }) =>
+    request<any>('/api/sod/tickets/from-finding', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getTicketForFinding: (findingId: string) =>
+    request<any>(`/api/sod/tickets/for-finding/${encodeURIComponent(findingId)}`),
 };

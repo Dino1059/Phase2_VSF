@@ -799,5 +799,8 @@ class StructuredRemediationProposalModel(BaseModel):
     resolved_at: Optional[datetime] = None
     resolution_note: Optional[str] = None
     latest_dry_run: Optional[DryRunResultModel] = None
+    proposal_type: str = "EXECUTABLE"  # EXECUTABLE | ADVISORY_ONLY
+    execution_block_reason: Optional[str] = None
+    requires_human_input: bool = False
     audit_trail_id: Optional[str] = None
 

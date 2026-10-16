@@ -6,6 +6,7 @@ pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 apscheduler>=3.10.0
 python-multipart>=0.0.12
+pyjwt>=2.8.0
 
 # Data pipeline (scripts/build_source_db.py, scripts/profile_source_db.py)
 pandas>=2.0.0

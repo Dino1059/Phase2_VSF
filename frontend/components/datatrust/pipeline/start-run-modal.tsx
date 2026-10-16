@@ -9,10 +9,51 @@ import {
   AlertTriangle,
   Loader2,
   ShieldCheck,
+  Target,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiBridge, type DatasetCatalogItem } from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
+
+export interface AuditPurposeOption {
+  id: string;
+  name: string;
+  tag: string;
+  badgeColor: string;
+  description: string;
+}
+
+export const AUDIT_PURPOSES: AuditPurposeOption[] = [
+  {
+    id: 'ops_dispatch',
+    name: 'Vận hành & Điều phối xe (ops_dispatch)',
+    tag: 'Mặc định (Pass PII)',
+    badgeColor: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10',
+    description: 'Điều phối vận hành chuyến đi thông thường. Cho phép số điện thoại khách hàng (customer_contact) để tài xế liên hệ đón khách hợp pháp.',
+  },
+  {
+    id: 'fleet_analytics',
+    name: 'Phân tích Kỹ thuật & Pin (fleet_analytics)',
+    tag: 'GDPR Sensitive (Quarantine PII)',
+    badgeColor: 'border-amber-500/30 text-amber-400 bg-amber-500/10',
+    description: 'Phân tích kỹ thuật đội xe & pin. Kích hoạt GDPR Art. 5 (Data Minimization): Chặn và đưa vào Quarantine các bản ghi chứa SĐT/Email khách hàng.',
+  },
+  {
+    id: 'marketing',
+    name: 'Tiếp thị & Quảng cáo (marketing)',
+    tag: 'CCPA Sensitive (Quarantine Opt-Out)',
+    badgeColor: 'border-rose-500/30 text-rose-400 bg-rose-500/10',
+    description: 'Truy vấn tiếp thị. Kích hoạt CCPA § 1798.120: Chặn và đưa vào Quarantine 10 khách hàng đã thiết lập quyền từ chối (Opt-Out).',
+  },
+  {
+    id: 'security_audit',
+    name: 'Kiểm toán An ninh & Điều tra (security_audit)',
+    tag: 'Audit Mode',
+    badgeColor: 'border-cyan-500/30 text-cyan-400 bg-cyan-500/10',
+    description: 'Thanh tra kiểm toán độc lập và đánh giá tuân thủ quy chuẩn quốc tế.',
+  },
+];
 
 interface StartRunModalProps {
   isOpen: boolean;
@@ -30,11 +71,14 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
   const [selectedDataset, setSelectedDataset] = useState<string>(
     defaultDatasetId || 'ride_hailing_xanh_sm_trips'
   );
+  const [selectedPurpose, setSelectedPurpose] = useState<string>('ops_dispatch');
   // Mặc định luôn chạy tất cả tùy chọn kiểm toán (Evidence & Lineage)
   const collectEvidence = true;
   const generateLineage = true;
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const activePurpose = AUDIT_PURPOSES.find((p) => p.id === selectedPurpose) || AUDIT_PURPOSES[0];
 
   useEffect(() => {
     if (isOpen) {
@@ -65,6 +109,10 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
       const res = await apiBridge.createPipelineRun(selectedDataset, {
         collect_evidence: collectEvidence,
         generate_lineage: generateLineage,
+        purpose_id: selectedPurpose,
+        options: {
+          purpose_id: selectedPurpose,
+        },
       });
 
       onClose();
@@ -154,6 +202,44 @@ export function StartRunModal({ isOpen, onClose, onRunStarted, defaultDatasetId 
               ))}
               <option value="ALL">TẤT CẢ CÁC BẢNG (Chạy toàn bộ 8 datasets)</option>
             </select>
+          </div>
+
+          {/* Purpose Selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Target className="size-3.5 text-cyan-400" /> Mục đích khai thác dữ liệu (Purpose Limitation)
+              </span>
+              <span className="text-[11px] text-cyan-400 font-mono">Lane B Context-Aware</span>
+            </label>
+            <select
+              value={selectedPurpose}
+              onChange={(e) => setSelectedPurpose(e.target.value)}
+              disabled={isLoading}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800/90 px-3.5 py-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 disabled:opacity-50"
+            >
+              {AUDIT_PURPOSES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} [{p.tag}]
+                </option>
+              ))}
+            </select>
+            {activePurpose && (
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300 flex items-start gap-2.5">
+                <Info className="size-4 shrink-0 text-cyan-400 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-white">{activePurpose.name}</span>
+                    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${activePurpose.badgeColor}`}>
+                      {activePurpose.tag}
+                    </span>
+                  </div>
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    {activePurpose.description}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

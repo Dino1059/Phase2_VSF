@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { readAuthToken } from '../services/api';
+import { readAuthToken, authApi, persistAuthToken } from '../services/api';
 
 /**
  * Danh sách 14 vai trò theo chuẩn KE_HOACH_SOD_DATATRUST.md mục 2.
@@ -408,6 +408,7 @@ export function filterDatasetsByAcl<T extends { key?: string; dataset_key?: stri
 const DEMO_SESSION_KEY = 'datatrust_demo_session_v1';
 const LEGACY_USER_KEY = 'datatrust_user_profile';
 const TOKEN_KEY = 'datatrust_jwt_token';
+const LOGGED_OUT_KEY = 'datatrust_logged_out';
 
 interface AuthState {
   isDemoMode: boolean;
@@ -423,6 +424,7 @@ interface AuthState {
   loginWithCredentials: (username: string, password?: string) => Promise<string>;
   quickSwitchPersona: (personaId: string) => string;
   switchPersona: (personaId: string) => string;
+  switchRoleViaBackend: (role: UserRole) => Promise<string>;
   restoreSession: () => boolean;
   logout: () => void;
   resetSessionState: () => void;
@@ -455,10 +457,23 @@ function personaToProfile(p: PersonaAccount): UserProfile {
   };
 }
 
-function loadInitialSession(): { user: UserProfile | null; persona: PersonaAccount | null; systemAccess: SystemAccessType } {
+function loadInitialSession(): {
+  user: UserProfile | null;
+  persona: PersonaAccount | null;
+  systemAccess: SystemAccessType;
+  isAuthenticated: boolean;
+} {
   if (typeof window === 'undefined') {
-    return { user: null, persona: null, systemAccess: 'datatrust_only' };
+    return { user: null, persona: null, systemAccess: 'datatrust_only', isAuthenticated: false };
   }
+
+  // If user explicitly logged out, keep them logged out (do NOT auto-login)
+  try {
+    if (localStorage.getItem(LOGGED_OUT_KEY) === 'true') {
+      return { user: null, persona: null, systemAccess: 'datatrust_only', isAuthenticated: false };
+    }
+  } catch {}
+
   try {
     const raw = localStorage.getItem(DEMO_SESSION_KEY);
     if (raw) {
@@ -469,17 +484,19 @@ function loadInitialSession(): { user: UserProfile | null; persona: PersonaAccou
           user: personaToProfile(persona),
           persona,
           systemAccess: persona.systemAccess,
+          isAuthenticated: true,
         };
       }
     }
   } catch {}
 
-  // Fallback to default persona for smooth first experience: admin
+  // Fallback to default persona for initial developer demo experience if never logged out
   const defaultPersona = PERSONA_ACCOUNTS.admin;
   return {
     user: personaToProfile(defaultPersona),
     persona: defaultPersona,
     systemAccess: defaultPersona.systemAccess,
+    isAuthenticated: true,
   };
 }
 
@@ -487,11 +504,11 @@ const initial = loadInitialSession();
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   isDemoMode: true,
-  token: readAuthToken() || 'demo_token_phase1',
+  token: initial.isAuthenticated ? (readAuthToken() || 'demo_token_phase1') : null,
   user: initial.user,
   currentPersona: initial.persona,
   systemAccess: initial.systemAccess,
-  isAuthenticated: true,
+  isAuthenticated: initial.isAuthenticated,
   isAuthModalOpen: false,
 
   setAuthModalOpen: (open) => set({ isAuthModalOpen: open }),
@@ -512,6 +529,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const profile = personaToProfile(persona);
     try {
+      localStorage.removeItem(LOGGED_OUT_KEY);
       localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ personaId: persona.id, role: persona.primaryRole }));
       localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(profile));
       localStorage.setItem('datatrust-role', persona.primaryRole.toLowerCase());
@@ -561,6 +579,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     };
 
     try {
+      localStorage.removeItem(LOGGED_OUT_KEY);
       localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ personaId: 'admin', customUser: normUser }));
       localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(profile));
     } catch {}
@@ -586,6 +605,62 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   switchPersona: (personaId: string) => {
     return get().loginWithPersona(personaId);
+  },
+
+  /**
+   * Chuyển đổi vai trò thông qua Backend API /api/auth/switch-role.
+   * Cập nhật session_version và JWT token mới, hỗ trợ multi-party workflow context.
+   */
+  switchRoleViaBackend: async (role: UserRole) => {
+    get().resetSessionState();
+    try {
+      const res = await authApi.switchRole(role);
+      if (res && res.token) {
+        persistAuthToken(res.token, res.user.active_role);
+        const normRole = (normalizeUserRole(res.user.active_role) || role) as UserRole;
+        const matchingPersona =
+          Object.values(PERSONA_ACCOUNTS).find((p) => p.primaryRole === normRole) ||
+          PERSONA_ACCOUNTS[normRole.toLowerCase()] ||
+          PERSONA_ACCOUNTS.admin;
+
+        const profile: UserProfile = {
+          user_id: res.user.id,
+          username: res.user.username,
+          fullName: res.user.full_name,
+          role: normRole,
+          roles: [normRole],
+          systemAccess: res.user.system_access,
+          is_global: normRole === 'ADMIN' || normRole === 'AUDITOR',
+          datasets: ['*'],
+          dept: matchingPersona.company,
+          email: matchingPersona.email,
+          avatar: matchingPersona.avatar,
+          badge: matchingPersona.badge,
+        };
+
+        try {
+          localStorage.removeItem(LOGGED_OUT_KEY);
+          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ personaId: matchingPersona.id, role: normRole }));
+          localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(profile));
+          localStorage.setItem('datatrust-role', normRole.toLowerCase());
+        } catch {}
+
+        set({
+          user: profile,
+          currentPersona: matchingPersona,
+          systemAccess: res.user.system_access,
+          isAuthenticated: true,
+          token: res.token,
+        });
+
+        return res.redirect || (res.user.system_access === 'sod_only' ? '/sod' : '/overview');
+      }
+    } catch (err) {
+      console.warn('Backend switch-role call failed, falling back to local persona switch:', err);
+    }
+    // Fallback if backend API is offline
+    const targetPersona = Object.values(PERSONA_ACCOUNTS).find((p) => p.primaryRole === role);
+    return get().loginWithPersona(targetPersona ? targetPersona.id : 'admin');
   },
 
   /**
@@ -622,11 +697,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     get().resetSessionState();
     try {
+      localStorage.setItem(LOGGED_OUT_KEY, 'true');
       localStorage.removeItem(DEMO_SESSION_KEY);
       localStorage.removeItem(LEGACY_USER_KEY);
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem('datatrust-token');
+      localStorage.removeItem('datatrust_jwt_token');
+      localStorage.removeItem('datatrust_user_profile');
       localStorage.removeItem('datatrust-role');
+      sessionStorage.clear();
+    } catch {}
+
+    // Invalidate backend session asynchronously if reachable
+    try {
+      authApi.logout().catch(() => {});
     } catch {}
 
     set({

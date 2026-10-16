@@ -534,10 +534,10 @@ class HierarchicalPolicyProcessor:
         if "fatigue_score" in raw_item and raw_item["fatigue_score"] is not None:
             evidence.append("Special category data detected: fatigue_score (GDPR Art. 9 / Health & Biometric Data)")
 
-        failure_reasons = [
-            item.reason for item in violations
-            if item.action in BLOCKING_ACTIONS and item.runtime_state == "executed"
-        ]
+        failure_reasons = list(dict.fromkeys([
+            item.reason.strip() for item in violations
+            if item.action in BLOCKING_ACTIONS and item.runtime_state == "executed" and item.reason and item.reason.strip()
+        ]))
         return LaneBVerdict(
             record_id=eval_id, status=status,
             treated_record=treated_item if status != "FAIL" else None,

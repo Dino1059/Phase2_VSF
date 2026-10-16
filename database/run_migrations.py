@@ -22,6 +22,8 @@ INCREMENTAL_MIGRATIONS = [
     "migration_20261015_phase2_record_identity.sql",
     "migration_20261015_phase2_policy_rules.sql",
     "migration_20261015_seed_required_parent_policies.sql",
+    "migration_20261016_phase2_sod_schema.sql",
+    "migration_20261016_phase3_cross_system.sql",
 ]
 
 

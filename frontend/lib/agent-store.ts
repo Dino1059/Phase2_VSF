@@ -259,6 +259,7 @@ export interface PipelineLevelProgress {
 
 export interface PipelineLevelsState {
   currentLevel: 'L1' | 'L2' | 'L3' | 'L4' | 'COMPLETED' | 'IDLE' | 'FAILED';
+  activePurposeId?: string;
   l1: PipelineLevelProgress;
   l2: PipelineLevelProgress;
   l3: PipelineLevelProgress;
@@ -372,9 +373,9 @@ export const initialChatMessages: ChatMessageItem[] = [
   {
     id: 'MSG-01',
     sender: 'ai',
-    text: `Hế lô bạn nha! ✨ Mình là **DataTrust AI** – người bạn đồng hành siêu đáng yêu của bạn đây! 🚗💡
+    text: `Xin chào bạn! ✨ Mình là **DataTrust AI** – người bạn đồng hành của bạn đây! 🚗💡
 
-Tụi mình sẽ cùng nhau làm việc thật ăn ý để kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân (PII) an toàn tuyệt đối và chuẩn bị hồ sơ tuân thủ chuẩn IPO nhé! Đừng lo lắng gì cả, có mình ở đây hỗ trợ bạn từng bước rồi nè! 💖🛡️
+Tụi mình sẽ cùng nhau làm việc thật ăn ý để kiểm soát chất lượng dữ liệu, bảo vệ dữ liệu cá nhân (PII) an toàn tuyệt đối và chuẩn bị hồ sơ tuân thủ chuẩn IPO nhé! Mình sẽ ở đây hỗ trợ bạn từng bước! 💖🛡️
 
 Để bắt đầu, bạn chọn một bộ dữ liệu bên dưới để tụi mình cùng phân tích profiling và chạy pipeline kiểm tra nha:`,
     timestamp: 'Vừa xong',
@@ -393,6 +394,7 @@ Tụi mình sẽ cùng nhau làm việc thật ăn ý để kiểm soát chất 
 
 export const initialPipelineLevels: PipelineLevelsState = {
   currentLevel: 'IDLE',
+  activePurposeId: 'ops_dispatch',
   activeRunId: null,
   currentTaskName: 'Chờ kích hoạt pipeline',
   isPolling: false,
@@ -674,7 +676,7 @@ export interface AgentStoreState {
   activeRules: ActiveRule[];
   rulesSegmentTab: 'active' | 'proposed';
   setRulesSegmentTab: (tab: 'active' | 'proposed') => void;
-  startPipelineRun: (datasetId?: string) => Promise<void>;
+  startPipelineRun: (datasetId?: string, purposeId?: string) => Promise<void>;
   skipPipelineRunToResults: () => void;
   viewLatestCompletedResults: () => Promise<void>;
   returnToPipelineRunner: () => void;
@@ -1911,7 +1913,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     }));
   },
 
-  startPipelineRun: async (datasetId?: string) => {
+  startPipelineRun: async (datasetId?: string, purposeId: string = 'ops_dispatch') => {
     const targetDatasetId = normalizeDatasetId(datasetId || get().selectedDatasetId);
     const dataset = get().datasets[targetDatasetId] || get().datasets.trips;
     const cleanDs = targetDatasetId.replace('.csv', '');
@@ -1921,6 +1923,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       homepageViewMode: 'running_pipeline',
       pipelineLevels: {
         ...initialPipelineLevels,
+        activePurposeId: purposeId,
         currentLevel: 'L1',
         currentTaskName: 'Task 1: Đang nạp dữ liệu Bronze & Khởi tạo Catalog',
         activeRunId: null,
@@ -1944,13 +1947,13 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
         {
           id: `MSG-RUN-${Date.now()}`,
           sender: 'user',
-          text: 'Chạy kiểm tra với cấu hình đã xác nhận.',
+          text: `Chạy kiểm tra với mục đích: ${purposeId}.`,
           timestamp: 'Vừa xong',
         },
         {
           id: `MSG-AI-RUN-${Date.now() + 1}`,
           sender: 'ai',
-          text: `Đã bắt đầu lần chạy RUN-${cleanDs ? cleanDs.slice(0, 3).toUpperCase() : '021'}. Tôi sẽ hỗ trợ bạn theo dõi và giải thích kết quả.`,
+          text: `Đã bắt đầu lần chạy RUN-${cleanDs ? cleanDs.slice(0, 3).toUpperCase() : '021'} (Mục đích: ${purposeId}). Tôi sẽ hỗ trợ bạn theo dõi và giải thích kết quả.`,
           timestamp: 'Vừa xong',
         },
       ],
@@ -1964,6 +1967,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
       const res = await apiBridge.createPipelineRun(cleanDs, {
         collect_evidence: true,
         generate_lineage: true,
+        purpose_id: purposeId,
       });
       if (res && res.run_id) {
         runId = res.run_id;
@@ -2315,7 +2319,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => ({
     const welcomeMsg: ChatMessageItem = {
       id: `MSG-AI-WELCOME-${Date.now()}`,
       sender: 'ai',
-      text: `Hế lô bạn nha! ✨ Mình là DataTrust AI – người bạn đồng hành siêu nhiệt tình cho lần chạy **${targetRun}** nè! 🚗💡\n\nBạn cứ thoải mái hỏi mình về bức tranh tổng quan 📊, cùng mình gỡ rối nguyên nhân vi phạm (RCA) 🔍 hay soi chi tiết bằng chứng cách ly nhé! Tụi mình cùng làm nào! 💖🛡️`,
+      text: `Chào bạn nha! ✨ Mình là DataTrust AI – người bạn đồng hành siêu nhiệt tình cho lần chạy **${targetRun}**! 🚗💡\n\nBạn cứ thoải mái hỏi mình về bức tranh tổng quan 📊, cùng mình gỡ rối nguyên nhân vi phạm (RCA) 🔍 hay soi chi tiết bằng chứng cách ly nhé! Tụi mình cùng làm nào! 💖🛡️`,
       timestamp: 'Vừa xong',
     };
     const newSession: ChatSession = {

@@ -41,6 +41,8 @@ def init_postgres():
         database_dir / "migration_20261015_phase2_record_identity.sql",
         database_dir / "migration_20261015_phase2_policy_rules.sql",
         database_dir / "migration_20261015_seed_required_parent_policies.sql",
+        database_dir / "migration_20261016_phase2_sod_schema.sql",
+        database_dir / "migration_20261016_phase3_cross_system.sql",
     ]
     seed_path = Path(__file__).parent / "seed_data.sql"
 

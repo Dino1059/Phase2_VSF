@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiBridge, type FindingItem, type DatasetCatalogItem } from '@/lib/api-bridge';
 import { FindingDetailModal } from './finding-detail';
+import { formatAuditReasonSummary } from '@/lib/formatters/audit-violation-formatter';
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
@@ -389,7 +390,9 @@ export function RunFindingsPage() {
                       {f.failed_record_count.toLocaleString('vi-VN')}
                     </td>
                     <td className="py-3.5 px-3 text-slate-300 max-w-xs">
-                      <p className="line-clamp-2" title={f.reason}>{f.reason}</p>
+                      <p className="line-clamp-2 text-xs font-medium text-slate-200" title={f.reason}>
+                        {formatAuditReasonSummary(f.reason)}
+                      </p>
                     </td>
                     <td className="py-3.5 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
                       {formatDateTime(f.detected_at)}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   CheckSquare,
   ChevronLeft,
@@ -14,12 +14,12 @@ import {
   X,
   Zap,
   LogOut,
-  User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAgentStore, USER_ACCOUNTS, type AgentStoreState } from '@/lib/agent-store';
 import { useAuthStore } from '@/src/stores/authStore';
 import { AiChatPane } from '@/components/datatrust/overview/ai-chat-pane';
+import { RoleSwitcherModal } from '@/src/components/auth/RoleSwitcherModal';
 
 interface NavItem {
   label: string;
@@ -28,7 +28,9 @@ interface NavItem {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
   const pathname = useLocation().pathname;
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   // Desktop chat width & drag resize state
   const [chatWidth, setChatWidth] = useState<number>(() => {
     try {
@@ -91,12 +93,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isDragging, resize, stopResizing]);
 
   const currentRole = useAgentStore((s: AgentStoreState) => s.currentRole);
-  const setRole = useAgentStore((s: AgentStoreState) => s.setRole);
 
   const authUser = useAuthStore((s) => s.user);
   const authSystemAccess = useAuthStore((s) => s.systemAccess);
   const logout = useAuthStore((s) => s.logout);
-  const quickSwitchPersona = useAuthStore((s) => s.quickSwitchPersona);
 
   const currentUser = {
     avatar: authUser?.avatar || USER_ACCOUNTS[currentRole]?.avatar || 'AD',
@@ -197,21 +197,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   title={item.label}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'group relative flex size-11 items-center justify-center rounded-xl transition-all motion-reduce:transition-none cursor-pointer',
-                    'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4] focus-visible:ring-offset-2',
+                    'flex size-11 items-center justify-center rounded-xl transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4] focus-visible:ring-offset-2',
                     active
-                      ? 'bg-[#04D3D4]/15 border border-[#04D3D4]/40 text-[#04D3D4] shadow-2xs font-bold'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
+                      ? 'bg-[#04D3D4]/15 text-[#04D3D4]'
+                      : 'text-slate-500 hover:bg-slate-100'
                   )}
                 >
-                  <Icon size={19} className={active ? 'text-[#04D3D4]' : 'text-slate-500 group-hover:text-slate-800'} />
-                  {/* Tooltip on hover */}
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute left-[calc(100%+8px)] hidden rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white shadow-lg group-hover:block z-50 whitespace-nowrap"
-                  >
-                    {item.label}
-                  </span>
+                  <Icon
+                    size={19}
+                    className={active ? 'text-[#04D3D4]' : 'text-slate-500'}
+                  />
                 </RouterLink>
               );
             })}
@@ -220,18 +215,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Footer GSM Badge */}
         <div className="flex flex-col items-center gap-3 w-full">
-          {/* Mobile AI Chat toggle in rail */}
-          <button
-            type="button"
-            onClick={() => setIsMobileChatOpen((v) => !v)}
-            aria-label={isMobileChatOpen ? 'Đóng AI Chat' : 'Mở AI Chat'}
-            aria-expanded={isMobileChatOpen}
-            title="Bật/tắt AI Chat trên di động"
-            className="lg:hidden grid size-10 place-items-center rounded-xl bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100 transition motion-reduce:transition-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
-          >
-            <Sparkles size={18} className="text-[#04D3D4] fill-[#04D3D4]" />
-          </button>
-
           <div
             title="GSM Global · Chiến dịch V35 · 24 thị trường"
             className="grid size-9 place-items-center rounded-xl bg-[#04D3D4]/15 text-[10px] font-extrabold text-slate-900 border border-[#04D3D4]/30"
@@ -358,54 +341,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span>AI Chat</span>
             </button>
 
-            {/* Interactive Role Switcher Pill */}
-            <div
-              role="group"
-              aria-label="Chuyển đổi vai trò người dùng"
-              className="flex items-center rounded-xl border border-[#d2e2dc] bg-[#f0f6f4] p-0.5 text-xs font-semibold"
+            {/* Role Switcher Modal Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsRoleModalOpen(true)}
+              title="Đổi vai trò trong 14 vai trò ITGC"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-900 transition text-xs font-bold cursor-pointer shadow-2xs"
             >
-              <button
-                type="button"
-                onClick={() => {
-                  setRole('auditor');
-                  quickSwitchPersona('auditor');
-                }}
-                aria-pressed={currentRole === 'auditor'}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer motion-reduce:transition-none',
-                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]',
-                  currentRole === 'auditor'
-                    ? 'bg-slate-950 text-[#04D3D4] shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                )}
-                title="Chế độ Kiểm toán viên (Thẩm tra & Kiểm toán độc lập)"
-              >
-                <ShieldCheck size={14} className={currentRole === 'auditor' ? 'text-[#04D3D4]' : ''} />
-                <span>Auditor</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRole('admin');
-                  quickSwitchPersona('admin');
-                }}
-                aria-pressed={currentRole === 'admin'}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition text-xs cursor-pointer motion-reduce:transition-none',
-                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]',
-                  currentRole === 'admin'
-                    ? 'bg-[#04D3D4] text-slate-950 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                )}
-                title="Chế độ Quản trị viên hệ thống (Admin Controller)"
-              >
-                <UserCog size={14} />
-                <span>Admin</span>
-              </button>
-            </div>
+              <UserCog size={14} className="text-[#008b74]" />
+              <span>Đổi vai trò</span>
+            </button>
 
             {/* User Account Pill */}
-            <div className="hidden sm:flex items-center gap-2 rounded-xl border border-[#e2ece8] bg-white px-3 py-1.5 text-xs shadow-2xs">
+            <div className="hidden lg:flex items-center gap-2 rounded-xl border border-[#e2ece8] bg-white px-3 py-1.5 text-xs shadow-2xs">
               <div className="grid size-7 place-items-center rounded-lg bg-slate-950 font-mono text-[11px] font-bold text-[#04D3D4] border border-[#04D3D4]/30">
                 {currentUser.avatar}
               </div>
@@ -415,22 +363,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* Quick Switch Persona button */}
-            <RouterLink
-              to="/login"
-              title="Đổi vai trò Persona khác"
-              className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#e2ece8] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition text-xs font-semibold cursor-pointer shadow-2xs"
-            >
-              <User size={13} className="text-[#04D3D4]" />
-              <span>Đổi Persona</span>
-            </RouterLink>
-
             {/* Logout button */}
             <button
               type="button"
               onClick={() => {
                 logout();
-                window.location.href = '/login';
+                navigate('/login', { replace: true });
               }}
               title="Đăng xuất khỏi hệ thống"
               className="grid size-8 place-items-center rounded-xl border border-[#e2ece8] bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer shadow-2xs"
@@ -449,6 +387,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Role Switcher Modal */}
+      <RoleSwitcherModal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+      />
     </div>
   );
 }

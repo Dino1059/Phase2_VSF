@@ -191,10 +191,15 @@ export function RunsPage() {
                       {run.dagId}
                     </span>
                     {(run as any).datasetId && (
-                      <div className="mt-1">
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                         <span className="inline-flex items-center rounded-md bg-[#04D3D4]/10 border border-[#04D3D4]/30 px-1.5 py-0.5 text-[10px] font-mono font-bold text-slate-900">
                           {(run as any).datasetId}
                         </span>
+                        {run.options?.purpose_id && (
+                          <span className="inline-flex items-center rounded-md bg-cyan-50 border border-cyan-200 px-1.5 py-0.5 text-[10px] font-mono font-medium text-cyan-800">
+                            purpose: {run.options.purpose_id}
+                          </span>
+                        )}
                       </div>
                     )}
                   </td>

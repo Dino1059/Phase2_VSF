@@ -19,7 +19,8 @@ import {
   Copy,
   Check,
   Play,
-  GitFork
+  GitFork,
+  Target
 } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -180,6 +181,12 @@ export function PipelineRunDetail({ runId: propRunId }: { runId?: string }) {
                 <ShieldCheck className="size-3 text-emerald-400" />
                 <span>Tiêu chuẩn: SOX 404 / Luật 91/2025/QH15</span>
               </div>
+              {detail.options?.purpose_id && (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-cyan-950/60 px-2.5 py-1 text-xs font-medium text-cyan-300 border border-cyan-500/40">
+                  <Target className="size-3 text-cyan-400" />
+                  <span>Mục đích: <strong className="font-mono text-cyan-200">{detail.options.purpose_id}</strong></span>
+                </div>
+              )}
             </div>
           </div>
 

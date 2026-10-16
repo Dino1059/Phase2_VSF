@@ -14,9 +14,9 @@ import {
   Copy,
   Check,
   Loader2,
+  PlusCircle,
   FileText,
   Lock,
-  CheckCheck,
   RefreshCw,
   GitFork,
   BookOpen,
@@ -28,7 +28,8 @@ import {
   ArrowRight,
   ExternalLink,
   Workflow,
-  AlertOctagon
+  AlertOctagon,
+  ClipboardList
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ import {
   type StructuredRemediationProposal,
 } from '@/lib/api-bridge';
 import { useAgentStore } from '@/lib/agent-store';
+import { AuditorViolationCard } from './auditor-violation-card';
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
@@ -76,19 +78,10 @@ export function FindingDetailModal({
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [aiAnalysis, setAIAnalysis] = useState<FindingAIAnalysis | null>(null);
   const [isAILoading, setIsAILoading] = useState(false);
   const [aiActionError, setAIActionError] = useState<string | null>(null);
-  const [remediationDecision, setRemediationDecision] = useState<'approve' | 'reject' | null>(null);
   const [decisionComment, setDecisionComment] = useState('');
-  const [isDeciding, setIsDeciding] = useState(false);
-
-  // Remediation / Override Sub-modal
-  const [showOverrideModal, setShowOverrideModal] = useState(false);
-  const [overrideJustification, setOverrideJustification] = useState('');
-  const [showRemediateModal, setShowRemediateModal] = useState(false);
-  const [cleanedPayloadStr, setCleanedPayloadStr] = useState('');
 
   // Structured Quarantine Remediation States (Evidence-or-Abstain)
   const [structuredProposal, setStructuredProposal] = useState<StructuredRemediationProposal | null>(null);
@@ -97,8 +90,54 @@ export function FindingDetailModal({
   const [isExecutingTransaction, setIsExecutingTransaction] = useState(false);
   const [selectedOperation, setSelectedOperation] = useState('MASK_PHONE');
   const [operationParams, setOperationParams] = useState<Record<string, any>>({ prefix_len: 3, suffix_len: 2, mask_char: '*' });
-  const [rejectReasonInput, setRejectReasonInput] = useState('');
-  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  // Phase 3 Cross-System Integration: SoD Flow Gating States
+  const [sodTicket, setSodTicket] = useState<any | null>(null);
+  const [isCreatingSodTicket, setIsCreatingSodTicket] = useState(false);
+  const [reconcileCorrectedValue, setReconcileCorrectedValue] = useState<string>('');
+  const [reconcileCurrency, setReconcileCurrency] = useState('VND');
+  const [reconcileReason, setReconcileReason] = useState('');
+  const [reconcileEvidenceDocRef, setReconcileEvidenceDocRef] = useState('');
+  const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
+  const [stewardTaskCreated, setStewardTaskCreated] = useState(false);
+
+  const handleCreateStewardTask = () => {
+    setStewardTaskCreated(true);
+    setActionSuccessMsg(`Đã khởi tạo Task điều tra nguồn & phân công Data Steward / System Owner cho vi phạm ${findingId}!`);
+  };
+
+  const handleDecideSodStep = async (stepId: string, outcome: 'APPROVE' | 'RETURN' | 'REJECT', reconciliationData?: any) => {
+    if (!sodTicket) return;
+    setIsSubmittingDecision(true);
+    setAIActionError(null);
+    try {
+      const ticketId = sodTicket.ticket_id || sodTicket.id;
+      await apiBridge.decideSodStep(ticketId, stepId, {
+        outcome,
+        comment: decisionComment || (outcome === 'APPROVE' ? 'Phê duyệt bước thẩm định' : outcome === 'RETURN' ? 'Yêu cầu đối soát bổ sung' : 'Từ chối đề xuất'),
+        reconciliation: reconciliationData,
+      });
+      const outcomeText = outcome === 'APPROVE' ? 'Phê duyệt' : outcome === 'RETURN' ? 'Trả lại' : 'Từ chối';
+      setActionSuccessMsg(`${outcomeText} bước SoD thành công cho phiếu ${sodTicket.code || sodTicket.ticket_id}!`);
+      setDecisionComment('');
+      await loadSodTicket();
+      await loadProposal();
+    } catch (err: any) {
+      setAIActionError(err.message || 'Lỗi gửi quyết định phê duyệt SoD');
+    } finally {
+      setIsSubmittingDecision(false);
+    }
+  };
+
+  const loadSodTicket = useCallback(async () => {
+    if (!findingId) return;
+    try {
+      const ticket = await apiBridge.fetchSodTicketForFinding(findingId);
+      setSodTicket(ticket);
+    } catch {
+      setSodTicket(null);
+    }
+  }, [findingId]);
 
   const loadProposal = useCallback(async () => {
     if (!findingId) return;
@@ -118,8 +157,9 @@ export function FindingDetailModal({
   useEffect(() => {
     if (activeTab === 'remediation') {
       loadProposal();
+      loadSodTicket();
     }
-  }, [activeTab, loadProposal]);
+  }, [activeTab, loadProposal, loadSodTicket]);
 
   const handleRunDryRun = async () => {
     if (!structuredProposal) return;
@@ -146,6 +186,7 @@ export function FindingDetailModal({
       setActionSuccessMsg(`Đã cập nhật tham số (v${updated.version})! Trạng thái đặt về DRAFT. Đang chạy lại Dry-Run...`);
       await apiBridge.runDryRunForProposal(updated.proposal_id);
       await loadProposal();
+      await loadSodTicket();
     } catch (err: any) {
       setAIActionError(err.message || 'Lỗi cập nhật tham số');
     } finally {
@@ -153,40 +194,23 @@ export function FindingDetailModal({
     }
   };
 
-  const handleSubmitForReview = async () => {
+  const handleCreateSodTicket = async () => {
     if (!structuredProposal) return;
+    setIsCreatingSodTicket(true);
+    setAIActionError(null);
     try {
-      const updated = await apiBridge.submitProposalForReview(structuredProposal.proposal_id);
-      setStructuredProposal(updated);
-      setActionSuccessMsg('Đã chuyển đề xuất sang trạng thái Chờ Phê Duyệt (PENDING_APPROVAL).');
+      const res = await apiBridge.createSodTicketFromFinding({
+        finding_id: findingId,
+        proposal_id: structuredProposal.proposal_id,
+        reason: structuredProposal.reason || `Yêu cầu phê duyệt khắc phục vi phạm finding ${findingId}`,
+      });
+      setActionSuccessMsg(`Đã khởi tạo phiếu SoD thành công (${res.code || res.ticket_id})!`);
+      await loadSodTicket();
+      await loadProposal();
     } catch (err: any) {
-      setAIActionError(err.message || 'Lỗi gửi phê duyệt');
-    }
-  };
-
-  const handleApproveProposal = async () => {
-    if (!structuredProposal) return;
-    try {
-      const updated = await apiBridge.approveStructuredProposal(structuredProposal.proposal_id, decisionComment);
-      setStructuredProposal(updated);
-      setActionSuccessMsg('Đã phê duyệt đề xuất thành công! Bạn có thể thực thi Transaction ngay.');
-    } catch (err: any) {
-      setAIActionError(err.message || 'Lỗi phê duyệt đề xuất');
-    }
-  };
-
-  const handleRejectProposal = async () => {
-    if (!structuredProposal || !rejectReasonInput.trim()) {
-      alert('Vui lòng nhập lý do từ chối.');
-      return;
-    }
-    try {
-      const updated = await apiBridge.rejectStructuredProposal(structuredProposal.proposal_id, rejectReasonInput);
-      setStructuredProposal(updated);
-      setShowRejectInput(false);
-      setActionSuccessMsg('Đã từ chối đề xuất xử lý cách ly.');
-    } catch (err: any) {
-      setAIActionError(err.message || 'Lỗi từ chối');
+      setAIActionError(err.message || 'Lỗi khởi tạo phiếu SoD');
+    } finally {
+      setIsCreatingSodTicket(false);
     }
   };
 
@@ -196,9 +220,12 @@ export function FindingDetailModal({
     setAIActionError(null);
     try {
       const res = await apiBridge.executeStructuredRemediation(structuredProposal.proposal_id);
-      setActionSuccessMsg(`Thực thi thành công! ${res.affected_count} bản ghi đã chuyển sang Silver & đánh dấu REMEDIATED.`);
+      const count = res.upsert_count ?? res.affected_count ?? structuredProposal.expected_rows;
+      const target = res.silver_target || 'Silver Table';
+      setActionSuccessMsg(`Thực thi thành công! Đã chuyển ${count} bản ghi vào ${target} và cập nhật trạng thái REMEDIATED.`);
       await loadProposal();
       await loadDetail();
+      await loadSodTicket();
       onStatusUpdated?.();
     } catch (err: any) {
       setAIActionError(err.message || 'Lỗi thực thi Transaction');
@@ -212,9 +239,6 @@ export function FindingDetailModal({
     try {
       const data = await apiBridge.fetchFindingDetail(findingId);
       setDetail(data);
-      if (data.sample_records && data.sample_records.length > 0) {
-        setCleanedPayloadStr(JSON.stringify(data.sample_records[0].raw_record_json, null, 2));
-      }
       setError(null);
       try {
         setAIAnalysis(await apiBridge.getFindingAIAnalysis(findingId));
@@ -252,88 +276,6 @@ export function FindingDetailModal({
       setAIActionError(err.message || 'Không thể yêu cầu AI phân tích Finding.');
     } finally {
       setIsAILoading(false);
-    }
-  };
-
-  const handleRemediationDecision = async () => {
-    if (!detail || !remediationDecision) return;
-    setIsDeciding(true);
-    setAIActionError(null);
-    try {
-      const analysis = remediationDecision === 'approve'
-        ? await apiBridge.approveFindingRemediation(detail.finding_id, decisionComment)
-        : await apiBridge.rejectFindingRemediation(detail.finding_id, decisionComment);
-      setAIAnalysis(analysis);
-      const approved = remediationDecision === 'approve';
-      setRemediationDecision(null);
-      setDecisionComment('');
-      setActionSuccessMsg(approved
-        ? 'Đã phê duyệt đề xuất — đang chờ bước thực thi riêng.'
-        : 'Đã từ chối đề xuất remediation.');
-    } catch (err: any) {
-      setAIActionError(err.message || 'Không thể ghi nhận quyết định remediation.');
-    } finally {
-      setIsDeciding(false);
-    }
-  };
-
-  // Remediate & Reprocess
-  const handleExecuteRemediate = async () => {
-    if (isAuditor || !detail) return;
-    if (!detail.sample_records || detail.sample_records.length === 0) {
-      alert('Không có bản ghi cách ly nào để khắc phục.');
-      return;
-    }
-    try {
-      const qId = detail.sample_records[0].quarantine_id;
-      const parsed = JSON.parse(cleanedPayloadStr);
-      await apiBridge.reprocessQuarantine(qId, parsed, 'DataTrust Admin', 'ADMIN');
-      await apiBridge.updateFindingStatus(detail.finding_id, 'REMEDIATED', 'Đã khắc phục bản ghi dữ liệu');
-      setShowRemediateModal(false);
-      setActionSuccessMsg('Đã khắc phục và cập nhật trạng thái REMEDIATED thành công!');
-      loadDetail();
-      onStatusUpdated?.();
-    } catch (err: any) {
-      alert(`Lỗi khắc phục: ${err.message}`);
-    }
-  };
-
-  // Audit Override
-  const handleExecuteOverride = async () => {
-    if (isAuditor || !detail) return;
-    if (!overrideJustification.trim()) {
-      alert('Vui lòng nhập giải trình kiểm toán bắt buộc.');
-      return;
-    }
-    try {
-      if (detail.sample_records && detail.sample_records.length > 0) {
-        const qId = detail.sample_records[0].quarantine_id;
-        await apiBridge.overrideQuarantine(qId, overrideJustification, 'DataTrust Admin', 'ADMIN');
-      }
-      await apiBridge.updateFindingStatus(detail.finding_id, 'OVERRIDDEN', overrideJustification);
-      setShowOverrideModal(false);
-      setActionSuccessMsg('Đã phê duyệt ngoại lệ OVERRIDDEN kèm giải trình kiểm toán!');
-      loadDetail();
-      onStatusUpdated?.();
-    } catch (err: any) {
-      alert(`Lỗi ngoại lệ: ${err.message}`);
-    }
-  };
-
-  // Toggle Status
-  const handleToggleStatus = async () => {
-    if (isAuditor || !detail) return;
-    setIsUpdatingStatus(true);
-    try {
-      const targetStatus = detail.status === 'OPEN' ? 'IN_REVIEW' : 'RESOLVED';
-      await apiBridge.updateFindingStatus(detail.finding_id, targetStatus, 'Cập nhật bởi Admin');
-      setActionSuccessMsg(`Đã cập nhật trạng thái Finding thành: ${targetStatus}`);
-      loadDetail();
-      onStatusUpdated?.();
-    } catch (err: any) {
-      alert(`Lỗi cập nhật: ${err.message}`);
-    } finally {
-      setIsUpdatingStatus(false);
     }
   };
 
@@ -437,7 +379,7 @@ export function FindingDetailModal({
         {isAuditor && (
           <div className="bg-amber-50 border-b border-amber-100 px-6 py-2 text-[11px] text-amber-800 flex items-center gap-2 shrink-0">
             <Lock className="size-3.5 text-amber-600 shrink-0" />
-            <span>Chế độ Chỉ đọc (Auditor): Các nút Khắc phục, Ngoại lệ và Đổi trạng thái bị vô hiệu hóa.</span>
+            <span>Chế độ Chỉ đọc (Auditor): Tài khoản Kiểm toán viên có quyền tra cứu evidence, lịch sử và lineage; các quyền tạo phiếu SoD và thực thi Remediation bị vô hiệu hóa.</span>
           </div>
         )}
 
@@ -555,15 +497,16 @@ export function FindingDetailModal({
                   {/* ======================================================= */}
                   {activeTab === 'overview' && (
                     <div className="space-y-4 text-xs">
-                      {/* Reason Card */}
-                      <div className="rounded-2xl border border-rose-100 bg-[#fff5f5] p-4.5 space-y-1.5">
-                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-rose-600 block">
-                          LÝ DO VI PHẠM GHI NHẬN
-                        </span>
-                        <p className="text-sm font-bold text-slate-900 leading-relaxed">
-                          {detail.reason}
-                        </p>
-                      </div>
+                      {/* Reason Card -> Auditor-Grade Violation & Reason Report */}
+                      <AuditorViolationCard
+                        reason={detail.reason}
+                        policyViolations={detail.policy_violations}
+                        contextInfo={{
+                          ruleId: detail.rule_id,
+                          policyName: detail.policy_name,
+                          lawRef: detail.law_ref,
+                        }}
+                      />
 
                       {/* 3 Governance Cards */}
                       <div className="grid gap-3.5 sm:grid-cols-3">
@@ -646,9 +589,6 @@ export function FindingDetailModal({
                               <p className="text-xs font-semibold text-slate-800 mt-0.5">
                                 bản ghi bị cách ly
                               </p>
-                              <p className="text-[10px] text-slate-400">
-                                tổng {detail.failed_record_count ? detail.failed_record_count + 9 : 33} bản ghi phát hiện
-                              </p>
                             </div>
                           </div>
 
@@ -664,9 +604,6 @@ export function FindingDetailModal({
                               <p className="text-xs text-slate-500 mt-0.5">
                                 Dataset bị ảnh hưởng
                               </p>
-                              <p className="text-[10px] text-slate-400">
-                                Không được đưa vào Silver
-                              </p>
                             </div>
                           </div>
 
@@ -681,9 +618,6 @@ export function FindingDetailModal({
                               </div>
                               <p className="text-xs text-slate-500 mt-0.5">
                                 Mức độ nghiêm trọng
-                              </p>
-                              <p className="text-[10px] text-slate-400">
-                                Cần xử lý trước khi tiếp tục
                               </p>
                             </div>
                           </div>
@@ -835,12 +769,16 @@ export function FindingDetailModal({
                               </div>
 
                               <div className="space-y-1">
-                                <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">
-                                  Lý do cách ly:
-                                </span>
-                                <p className="text-xs text-rose-700 font-mono bg-rose-50/60 p-2 rounded-lg border border-rose-100">
-                                  {rec.violation_reason}
-                                </p>
+                                <AuditorViolationCard
+                                  reason={rec.violation_reason}
+                                  policyViolations={rec.policy_violations}
+                                  contextInfo={{
+                                    ruleId: rec.violation_rule_id || detail.rule_id,
+                                    policyName: rec.policy_name || detail.policy_name,
+                                    lawRef: rec.law_ref || detail.law_ref,
+                                  }}
+                                  compact
+                                />
                               </div>
 
                               <div>
@@ -890,6 +828,14 @@ export function FindingDetailModal({
                               <div className="flex items-center gap-2">
                                 <span className={cn(
                                   "rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider border",
+                                  structuredProposal.proposal_type === 'ADVISORY_ONLY'
+                                    ? "bg-amber-100 text-amber-900 border-amber-300"
+                                    : "bg-teal-50 text-teal-800 border-teal-200"
+                                )}>
+                                  {structuredProposal.proposal_type === 'ADVISORY_ONLY' ? 'CHỈ TƯ VẤN (ADVISORY ONLY)' : 'CÓ THỂ THỰC THI (EXECUTABLE)'}
+                                </span>
+                                <span className={cn(
+                                  "rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider border",
                                   structuredProposal.status === 'REMEDIATED'
                                     ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                                     : structuredProposal.status === 'APPROVED'
@@ -936,7 +882,52 @@ export function FindingDetailModal({
                             </div>
                           </div>
 
-                          {/* 2. Operation & Parameters Form */}
+                          {/* Advisory Guidance Card (Rendered when proposal is ADVISORY_ONLY) */}
+                          {structuredProposal.proposal_type === 'ADVISORY_ONLY' && (
+                            <div className="rounded-2xl border border-amber-300 bg-amber-50/50 p-5 space-y-4 shadow-2xs">
+                              <div className="flex items-start gap-3">
+                                <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+                                <div className="space-y-1 flex-1">
+                                  <h5 className="font-bold text-amber-900 text-sm">
+                                    Đề Xuất Chỉ Tư Vấn (Advisory Only) — Fail-Closed Gating
+                                  </h5>
+                                  <p className="text-xs text-amber-800 leading-relaxed">
+                                    {structuredProposal.execution_block_reason || 'Không tìm thấy Remediation Handler được phê duyệt trong RemediationRegistry. Quy tắc yêu cầu can thiệp nghiệp vụ hoặc sửa đổi dữ liệu từ hệ thống nguồn.'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-amber-200 bg-white p-3.5 text-xs text-slate-700 space-y-2">
+                                <span className="font-bold text-slate-900 block text-[11px] uppercase tracking-wide">
+                                  Chỉ dẫn phân công cho Data Steward & Kỹ sư Dữ liệu (ITGC / IPO Standard):
+                                </span>
+                                <ul className="list-disc list-inside space-y-1 text-slate-600 pl-1 text-[11px]">
+                                  <li><strong>Sửa nguồn dữ liệu (Source Data Fix):</strong> Đối soát với đội ngũ kỹ thuật vận hành nguồn (<code className="font-mono text-slate-800">{structuredProposal.target?.dataset_id}</code>) để hiệu chỉnh dữ liệu gốc.</li>
+                                  <li><strong>Tái nạp (Re-ingest):</strong> Sau khi nguồn khắc phục, kích hoạt pipeline nạp lại dữ liệu thay thế.</li>
+                                  <li><strong>Bảo toàn cách ly:</strong> Bản ghi vi phạm tiếp tục được lưu giữ an toàn trong <code className="font-mono text-slate-800">quarantine.records</code> nhằm bảo đảm tính toàn vẹn kiểm toán.</li>
+                                  <li><strong>Không tạo phiếu SoD thực thi:</strong> Hệ thống từ chối mô phỏng Dry-run hoặc ghi Silver tự động đối với các lỗi không có Handler đã kiểm định.</li>
+                                </ul>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1">
+                                <span className="text-[11px] text-slate-500 font-medium">
+                                  Trạng thái: {stewardTaskCreated ? '✓ Đã tạo Task phân công Data Steward' : 'Chưa phân công task'}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  disabled={isAuditor || stewardTaskCreated}
+                                  onClick={handleCreateStewardTask}
+                                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold gap-1.5"
+                                >
+                                  <ClipboardList className="size-3.5" />
+                                  <span>{stewardTaskCreated ? 'Đã Phân Công Task' : 'Tạo Task Khắc Phục Cho Data Steward'}</span>
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. Operation & Parameters Form (Only for EXECUTABLE) */}
+                          {structuredProposal.proposal_type !== 'ADVISORY_ONLY' && (
                           <div className="rounded-2xl border border-slate-200/90 bg-white p-5 space-y-4 shadow-2xs">
                             <div className="flex items-center justify-between">
                               <h5 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
@@ -1096,9 +1087,10 @@ export function FindingDetailModal({
                               </div>
                             )}
                           </div>
+                          )}
 
                           {/* 3. Dry-Run Simulation & Diff Preview */}
-                          {structuredProposal.latest_dry_run && (
+                          {structuredProposal.proposal_type !== 'ADVISORY_ONLY' && structuredProposal.latest_dry_run && (
                             <div className="rounded-2xl border border-blue-200 bg-white p-5 space-y-4 shadow-2xs">
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <div className="space-y-0.5">
@@ -1170,107 +1162,430 @@ export function FindingDetailModal({
                             </div>
                           )}
 
-                          {/* 4. Maker-Checker Action Bar */}
+                          {/* 4. SoD Flow Governance (RACIX Human-in-the-Loop) */}
+                          <div className="rounded-2xl border border-teal-200 bg-white p-5 space-y-4 shadow-2xs">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                              <div className="space-y-0.5">
+                                <h5 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                                  <Workflow className="size-4 text-teal-600" />
+                                  <span>Thẩm Quyền Phê Duyệt SoD Flow (RACIX Governance)</span>
+                                </h5>
+                                <p className="text-[11px] text-slate-500">
+                                  Quy định ITGC / IPO: Mọi can thiệp dữ liệu Quarantine bắt buộc phải thẩm định qua chuỗi SoD độc lập.
+                                </p>
+                              </div>
+
+                              {sodTicket && (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-xs bg-slate-900 text-[#04D3D4] px-2.5 py-0.5 rounded-lg">
+                                    {sodTicket.code || sodTicket.ticket_id}
+                                  </span>
+                                  <span className={cn(
+                                    "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border",
+                                    sodTicket.status === 'DONE'
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                      : sodTicket.status === 'REJECTED'
+                                      ? "bg-rose-50 text-rose-800 border-rose-300"
+                                      : "bg-amber-50 text-amber-800 border-amber-300 animate-pulse"
+                                  )}>
+                                    {sodTicket.status === 'DONE' ? '✓ ĐÃ DUYỆT (DONE)' : sodTicket.status === 'REJECTED' ? '✕ TỪ CHỐI' : 'ĐANG DUYỆT'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Ticket State or Create Ticket CTA */}
+                            {structuredProposal.proposal_type === 'ADVISORY_ONLY' ? (
+                              <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-4 text-center space-y-1">
+                                <p className="text-xs text-amber-900 font-semibold">
+                                  Đề xuất chỉ tư vấn (ADVISORY ONLY) không hỗ trợ khởi tạo phiếu SoD thực thi.
+                                </p>
+                                <p className="text-[11px] text-amber-700">
+                                  Tuân thủ nguyên tắc Fail-Closed: Vui lòng sử dụng tính năng Tạo Task phân công Data Steward ở trên để phối hợp khắc phục từ nguồn.
+                                </p>
+                              </div>
+                            ) : !sodTicket ? (
+                              <div className="rounded-xl border border-dashed border-teal-300 bg-teal-50/40 p-4 text-center space-y-3">
+                                <p className="text-xs text-slate-700 font-medium">
+                                  Chưa có phiếu SoD phê duyệt cho đề xuất này. Bạn cần hoàn thành mô phỏng Dry-Run đạt chuẩn trước khi phân bổ chuỗi thẩm định RACIX.
+                                </p>
+                                <Button
+                                  size="sm"
+                                  disabled={
+                                    isAuditor ||
+                                    isCreatingSodTicket ||
+                                    structuredProposal.status === 'REMEDIATED' ||
+                                    (structuredProposal.status !== 'DRY_RUN_PASSED' && structuredProposal.status !== 'APPROVED')
+                                  }
+                                  onClick={handleCreateSodTicket}
+                                  className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5"
+                                >
+                                  {isCreatingSodTicket ? <Loader2 className="size-3.5 animate-spin" /> : <PlusCircle className="size-3.5" />}
+                                  <span>
+                                    {structuredProposal.status !== 'DRY_RUN_PASSED' && structuredProposal.status !== 'APPROVED'
+                                      ? 'Cần Chạy Dry-Run Trước Khi Tạo Phiếu'
+                                      : 'Khởi Tạo Phiếu SoD Phê Duyệt (RACIX)'}
+                                  </span>
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="space-y-4 pt-2 border-t border-slate-100">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Tiêu đề phiếu:</span>
+                                    <span className="font-semibold text-slate-800 truncate block">{sodTicket.title}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Người yêu cầu (Requester):</span>
+                                    <span className="font-semibold text-slate-800">{sodTicket.requester_name || sodTicket.requester}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block font-medium">Thời điểm tạo:</span>
+                                    <span className="text-slate-700 font-mono">{formatDateTime(sodTicket.created_at)}</span>
+                                  </div>
+                                </div>
+
+                                {sodTicket.steps && sodTicket.steps.length > 0 && (
+                                  <div className="space-y-1.5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                                      Chuỗi Phê duyệt RACIX ({sodTicket.steps.length} bước):
+                                    </span>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {sodTicket.steps.map((st: any, idx: number) => (
+                                        <div
+                                          key={idx}
+                                          className={cn(
+                                            "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium",
+                                            st.status === 'APPROVED' || st.status === 'DONE'
+                                              ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                              : st.status === 'CURRENT'
+                                              ? "bg-white text-slate-900 border-[#04D3D4] ring-2 ring-[#04D3D4]/20 font-bold"
+                                              : st.status === 'REJECTED'
+                                              ? "bg-rose-50 text-rose-800 border-rose-300"
+                                              : "bg-slate-50 text-slate-400 border-slate-200"
+                                          )}
+                                        >
+                                          <span className="size-4 rounded-full flex items-center justify-center text-[9px] font-bold bg-slate-200 text-slate-700">
+                                            {idx + 1}
+                                          </span>
+                                          <span>{st.role_code || st.role}</span>
+                                          <span className="text-[9px] uppercase font-mono px-1 bg-black/5 rounded">
+                                            {st.status}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Interactive SoD Decision Forms */}
+                                {sodTicket.status === 'DONE' ? (
+                                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 p-3.5 text-xs text-emerald-800 flex items-center gap-2 font-medium">
+                                    <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                                    <span>Phiếu SoD đã hoàn tất phê duyệt qua tất cả các cấp (DONE). Đề xuất đã được APPROVED và sẵn sàng để thực thi transaction.</span>
+                                  </div>
+                                ) : sodTicket.status === 'REJECTED' ? (
+                                  <div className="rounded-xl border border-rose-300 bg-rose-50/70 p-3.5 text-xs text-rose-800 flex items-center gap-2 font-medium">
+                                    <AlertOctagon className="size-4 text-rose-600 shrink-0" />
+                                    <span>Phiếu SoD đã bị từ chối phê duyệt (REJECTED). Dữ liệu vi phạm được giữ nguyên trong Quarantine để bảo đảm tính toàn vẹn.</span>
+                                  </div>
+                                ) : sodTicket.status === 'RETURNED' ? (
+                                  <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-3.5 text-xs text-amber-800 flex items-center gap-2 font-medium">
+                                    <RefreshCw className="size-4 text-amber-600 shrink-0" />
+                                    <span>Phiếu SoD đã được trả lại để hiệu chỉnh. Đề xuất đã chuyển về DRAFT. Bạn có thể sửa tham số và chạy lại Dry-Run.</span>
+                                  </div>
+                                ) : (
+                                  (() => {
+                                    const activeStep = sodTicket.steps?.find((st: any) => st.status === 'CURRENT');
+                                    if (!activeStep) return null;
+                                    const isSoStep = (activeStep.role_code || activeStep.role) === 'SO';
+                                    const isCisoStep = (activeStep.role_code || activeStep.role) === 'CISO';
+                                    const needsHumanInput = structuredProposal.requires_human_input || structuredProposal.operation_id === 'MANUAL_RECONCILIATION' || structuredProposal.operation_id === 'RECONCILE_LEDGER';
+
+                                    if (isSoStep && needsHumanInput) {
+                                      return (
+                                        <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-3">
+                                          <div className="flex items-center justify-between">
+                                            <span className="font-bold text-amber-950 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                                              <AlertTriangle className="size-4 text-amber-600" />
+                                              Bước {activeStep.idx + 1}: Đối Soát Nghiệp Vụ Kế Toán Thủ Công (SO Action)
+                                            </span>
+                                            <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-mono font-bold">
+                                              Bắt buộc nhập số liệu
+                                            </span>
+                                          </div>
+                                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                                            Quy tắc tài chính / giá trị cước ({structuredProposal.target?.column}) yêu cầu SO xác nhận giá trị đối soát thực tế và số chứng từ trước khi chuyển sang CISO phê duyệt.
+                                          </p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                                Giá trị cước sau đối soát (Corrected Value) *
+                                              </label>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                placeholder="vd: 250000"
+                                                value={reconcileCorrectedValue}
+                                                onChange={(e) => setReconcileCorrectedValue(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 bg-white p-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 font-mono"
+                                              />
+                                            </div>
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                                Đơn vị tiền tệ (Currency)
+                                              </label>
+                                              <select
+                                                value={reconcileCurrency}
+                                                onChange={(e) => setReconcileCurrency(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 bg-white p-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                                              >
+                                                <option value="VND">VND (Việt Nam Đồng)</option>
+                                                <option value="USD">USD (Đô la Mỹ)</option>
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                                Mã / Số chứng từ đối soát (Evidence Doc Ref) *
+                                              </label>
+                                              <input
+                                                type="text"
+                                                placeholder="vd: INV-2026-XANHSM-001 hoặc STMT-VCB-987"
+                                                value={reconcileEvidenceDocRef}
+                                                onChange={(e) => setReconcileEvidenceDocRef(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 bg-white p-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-amber-500 font-mono"
+                                              />
+                                            </div>
+                                            <div>
+                                              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                                Lý do điều chỉnh nghiệp vụ (Reason) *
+                                              </label>
+                                              <input
+                                                type="text"
+                                                placeholder="vd: Đã đối soát hóa đơn đối tác / cước chuẩn"
+                                                value={reconcileReason}
+                                                onChange={(e) => setReconcileReason(e.target.value)}
+                                                className="w-full rounded-xl border border-slate-300 bg-white p-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                                              />
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-amber-200">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={isSubmittingDecision}
+                                              onClick={() => handleDecideSodStep(activeStep.id, 'REJECT')}
+                                              className="text-xs text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold"
+                                            >
+                                              Từ Chối
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              disabled={
+                                                isSubmittingDecision ||
+                                                !reconcileCorrectedValue ||
+                                                parseFloat(reconcileCorrectedValue) <= 0 ||
+                                                !reconcileReason.trim()
+                                              }
+                                              onClick={() =>
+                                                handleDecideSodStep(activeStep.id, 'APPROVE', {
+                                                  corrected_value: parseFloat(reconcileCorrectedValue),
+                                                  currency: reconcileCurrency,
+                                                  reason: reconcileReason,
+                                                  evidence_doc_ref: reconcileEvidenceDocRef,
+                                                })
+                                              }
+                                              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold gap-1.5"
+                                            >
+                                              {isSubmittingDecision ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+                                              <span>Xác Nhận Đối Soát & Chuyển Duyệt CISO</span>
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    if (isCisoStep) {
+                                      return (
+                                        <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
+                                          <div className="flex items-center justify-between">
+                                            <span className="font-bold text-indigo-950 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                                              <ShieldCheck className="size-4 text-indigo-600" />
+                                              Bước {activeStep.idx + 1}: Thẩm Định Rủi Ro & Phê Duyệt Cuối (CISO Approval)
+                                            </span>
+                                            <span className="text-[10px] bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded font-mono font-bold">
+                                              Gatekeeper Cuối Cùng
+                                            </span>
+                                          </div>
+
+                                          {/* Summary of SO reconciliation if present */}
+                                          {structuredProposal.params?.corrected_value !== undefined && (
+                                            <div className="bg-white p-3 rounded-xl border border-indigo-200 text-xs space-y-1">
+                                              <span className="text-[10px] font-bold uppercase text-indigo-700 block">
+                                                Chứng từ đối soát từ System Owner (SO):
+                                              </span>
+                                              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+                                                <div>Giá trị đối soát: <strong className="text-emerald-700">{Number(structuredProposal.params.corrected_value).toLocaleString()} {structuredProposal.params.currency || 'VND'}</strong></div>
+                                                <div>Mã chứng từ: <strong className="font-mono">{structuredProposal.params.evidence_doc_ref || 'N/A'}</strong></div>
+                                                <div className="col-span-2">Lý do SO: <em>{structuredProposal.params.reason || 'N/A'}</em></div>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              type="text"
+                                              placeholder="Ghi chú thẩm định của CISO (tùy chọn)..."
+                                              value={decisionComment}
+                                              onChange={(e) => setDecisionComment(e.target.value)}
+                                              className="flex-1 rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
+                                            />
+                                          </div>
+
+                                          <div className="flex items-center justify-end gap-2 pt-1 border-t border-indigo-200">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={isSubmittingDecision}
+                                              onClick={() => handleDecideSodStep(activeStep.id, 'REJECT')}
+                                              className="text-xs text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold"
+                                            >
+                                              Từ Chối (Reject)
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={isSubmittingDecision}
+                                              onClick={() => handleDecideSodStep(activeStep.id, 'RETURN')}
+                                              className="text-xs text-amber-800 border-amber-300 hover:bg-amber-100 font-semibold"
+                                            >
+                                              Trả Lại Hiệu Chỉnh (Return)
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              disabled={isSubmittingDecision}
+                                              onClick={() => handleDecideSodStep(activeStep.id, 'APPROVE')}
+                                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5"
+                                            >
+                                              {isSubmittingDecision ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}
+                                              <span>Phê Duyệt Cuối (CISO Approve)</span>
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    // Default step action for any other role
+                                    return (
+                                      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-3">
+                                        <div className="flex items-center justify-between text-xs">
+                                          <span className="font-bold text-slate-800">
+                                            Bước {activeStep.idx + 1}: Phê duyệt vai trò {activeStep.role_code || activeStep.role} ({activeStep.assignee_name || activeStep.assigneeName || activeStep.role})
+                                          </span>
+                                          <span className="text-[10px] text-slate-500 font-mono">Status: {activeStep.status}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            placeholder="Ghi chú quyết định (tùy chọn)..."
+                                            value={decisionComment}
+                                            onChange={(e) => setDecisionComment(e.target.value)}
+                                            className="flex-1 rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 focus:outline-none focus:border-teal-500"
+                                          />
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={isSubmittingDecision}
+                                            onClick={() => handleDecideSodStep(activeStep.id, 'REJECT')}
+                                            className="text-xs text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold"
+                                          >
+                                            Từ Chối
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            disabled={isSubmittingDecision}
+                                            onClick={() => handleDecideSodStep(activeStep.id, 'APPROVE')}
+                                            className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5"
+                                          >
+                                            {isSubmittingDecision ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+                                            <span>Phê Duyệt</span>
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()
+                                )}
+
+                                <div className="flex justify-end pt-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => navigate('/sod')}
+                                    className="text-xs font-semibold gap-1.5"
+                                  >
+                                    <ExternalLink className="size-3.5" />
+                                    <span>Mở Trung Tâm Phê Duyệt SoD</span>
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 5. Execution Action Bar (Fail-Closed HITL Gating) */}
                           <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 shadow-2xs">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                               <div className="space-y-0.5">
                                 <h5 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
-                                  Hành Động Phê Duyệt & Thực Thi (Maker-Checker Governance)
+                                  Thực Thi Transaction (Remediation Execution)
                                 </h5>
                                 <p className="text-[11px] text-slate-500">
-                                  AI là Proposer (Maker); Admin là Approver (Checker). Thực thi an toàn theo Transaction.
+                                  Bảo vệ Anti-Drift: Khóa dữ liệu nguồn, đối soát hash trước khi ghi Silver và lưu bằng chứng kiểm toán.
                                 </p>
                               </div>
 
-                              {/* Reject Reason input toggle */}
-                              {showRejectInput && (
-                                <div className="w-full space-y-2 pt-2">
-                                  <textarea
-                                    rows={2}
-                                    value={rejectReasonInput}
-                                    onChange={(e) => setRejectReasonInput(e.target.value)}
-                                    placeholder="Nhập lý do từ chối đề xuất xử lý..."
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs focus:outline-none focus:border-rose-500"
-                                  />
-                                  <div className="flex justify-end gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => setShowRejectInput(false)}>Hủy</Button>
-                                    <Button size="sm" onClick={handleRejectProposal} className="bg-rose-600 hover:bg-rose-700 text-white font-bold">
-                                      Xác nhận Từ Chối
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
-
-                              {!showRejectInput && (
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {structuredProposal.status === 'DRY_RUN_PASSED' && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={isAuditor}
-                                        onClick={handleSubmitForReview}
-                                        className="text-xs"
-                                      >
-                                        Gửi Chờ Duyệt (Submit)
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        disabled={isAuditor}
-                                        onClick={handleApproveProposal}
-                                        className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
-                                      >
-                                        Phê Duyệt Đề Xuất (Admin)
-                                      </Button>
-                                    </>
-                                  )}
-
-                                  {structuredProposal.status === 'PENDING_APPROVAL' && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={isAuditor}
-                                        onClick={() => setShowRejectInput(true)}
-                                        className="text-xs text-rose-600 hover:bg-rose-50"
-                                      >
-                                        Từ Chối Đề Xuất
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        disabled={isAuditor}
-                                        onClick={handleApproveProposal}
-                                        className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
-                                      >
-                                        Phê Duyệt Đề Xuất (Admin)
-                                      </Button>
-                                    </>
-                                  )}
-
-                                  {structuredProposal.status === 'APPROVED' && (
-                                    <Button
-                                      size="sm"
-                                      disabled={isAuditor || isExecutingTransaction}
-                                      onClick={handleExecuteTransaction}
-                                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1.5 shadow-sm px-4"
-                                    >
-                                      {isExecutingTransaction ? (
-                                        <Loader2 className="size-4 animate-spin" />
-                                      ) : (
-                                        <ShieldCheck className="size-4" />
-                                      )}
-                                      Phê Duyệt & Thực Thi Transaction (Promote to Silver)
-                                    </Button>
-                                  )}
-
-                                  {structuredProposal.status === 'REMEDIATED' && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
-                                      <CheckCircle2 className="size-4 text-emerald-600" />
-                                      Đã Khắc Phục & Chuyển Sang Silver Thành Công
-                                    </span>
-                                  )}
-                                </div>
-                              )}
+                              <div className="flex flex-wrap items-center gap-2">
+                                {structuredProposal.status === 'REMEDIATED' ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
+                                    <CheckCircle2 className="size-4 text-emerald-600" />
+                                    Đã Khắc Phục & Chuyển Sang Silver Thành Công
+                                  </span>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    disabled={
+                                      isAuditor ||
+                                      isExecutingTransaction ||
+                                      structuredProposal.proposal_type === 'ADVISORY_ONLY' ||
+                                      !sodTicket ||
+                                      sodTicket.status !== 'DONE' ||
+                                      structuredProposal.status !== 'APPROVED'
+                                    }
+                                    onClick={handleExecuteTransaction}
+                                    className={cn(
+                                      "text-xs font-bold gap-1.5 shadow-sm px-4",
+                                      structuredProposal.proposal_type === 'ADVISORY_ONLY'
+                                        ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                        : sodTicket && sodTicket.status === 'DONE' && structuredProposal.status === 'APPROVED'
+                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                    )}
+                                  >
+                                    {isExecutingTransaction ? (
+                                      <Loader2 className="size-4 animate-spin" />
+                                    ) : (
+                                      <ShieldCheck className="size-4" />
+                                    )}
+                                    {structuredProposal.proposal_type === 'ADVISORY_ONLY'
+                                      ? "Không Thể Thực Thi (Đề Xuất Chỉ Tư Vấn)"
+                                      : sodTicket && sodTicket.status === 'DONE' && structuredProposal.status === 'APPROVED'
+                                      ? "Thực Thi Transaction & Đưa Vào Silver (Đã Duyệt SoD ✓)"
+                                      : !sodTicket
+                                      ? "Cần Phiếu SoD Phê Duyệt"
+                                      : `Chờ Phê Duyệt SoD (${sodTicket.code || sodTicket.ticket_code || 'Chờ Duyệt'})`}
+                                  </Button>
+                                )}
+                              </div>
                             </div>
 
                             {/* Safety & Immutability Notice Banner */}
@@ -1583,159 +1898,70 @@ export function FindingDetailModal({
         {/* 3. MODAL FOOTER ACTION BAR                                               */}
         {/* ========================================================================= */}
         <div className="border-t border-slate-100 px-6 py-3.5 bg-white flex flex-wrap items-center justify-between gap-3 shrink-0">
-          {/* Nhóm nút bên trái: Phân tích & Xem dữ liệu */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Button 1: AI giải thích */}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleAskAIExplain}
-              disabled={isAILoading}
-              className="h-8.5 rounded-xl border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold gap-1.5 shadow-2xs cursor-pointer"
-            >
-              {isAILoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5 text-[#04D3D4]" />}
-              <span>{isAILoading ? 'Đang phân tích…' : 'AI giải thích'}</span>
-            </Button>
+          {/* Trạng thái & Governance Badges */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-slate-400 font-medium">Trạng thái Finding:</span>
+              <span className={cn(
+                "px-2.5 py-0.5 rounded-full font-bold text-[11px]",
+                detail?.status === 'OPEN' ? "bg-amber-100 text-amber-800" :
+                detail?.status === 'RESOLVED' || detail?.status === 'REMEDIATED' ? "bg-emerald-100 text-emerald-800" :
+                "bg-slate-100 text-slate-700"
+              )}>
+                {detail?.status || 'OPEN'}
+              </span>
+            </div>
+
+            {sodTicket && (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-400 font-medium">Phiếu SoD:</span>
+                <span className={cn(
+                  "px-2.5 py-0.5 rounded-full font-mono text-[11px] font-bold flex items-center gap-1",
+                  sodTicket.status === 'DONE' ? "bg-emerald-100 text-emerald-800" :
+                  sodTicket.status === 'REJECTED' ? "bg-rose-100 text-rose-800" :
+                  "bg-cyan-100 text-cyan-800"
+                )}>
+                  <ShieldCheck className="size-3" />
+                  {sodTicket.code || sodTicket.ticket_id} ({sodTicket.status})
+                </span>
+              </div>
+            )}
+
+            {structuredProposal?.proposal_type === 'ADVISORY_ONLY' && (
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold flex items-center gap-1">
+                <AlertOctagon className="size-3" />
+                Chỉ tư vấn (Giữ Quarantine)
+              </span>
+            )}
           </div>
 
-          {/* Nhóm nút bên phải: Phê duyệt & Chuyển xử lý (Góc phải) */}
+          {/* Nhóm điều hướng & Đóng */}
           <div className="flex items-center gap-2 ml-auto">
-            {/* Button 4: Phê duyệt Ngoại lệ */}
+            {activeTab !== 'remediation' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveTab('remediation')}
+                className="h-8.5 rounded-xl border-teal-200 hover:border-teal-300 bg-teal-50/50 hover:bg-teal-50 text-teal-800 text-xs font-semibold gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Workflow className="size-3.5 text-teal-600" />
+                <span>Xem Quy Trình SoD & Thực Thi</span>
+                <ArrowRight className="size-3 text-teal-600" />
+              </Button>
+            )}
+
             <Button
               size="sm"
               variant="outline"
-              disabled={isAuditor}
-              onClick={() => setShowOverrideModal(true)}
-              className="h-8.5 rounded-xl border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+              onClick={onClose}
+              className="h-8.5 rounded-xl border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold px-4 cursor-pointer"
             >
-              <ShieldCheck className="size-3.5 text-amber-500" />
-              <span>Phê duyệt Ngoại lệ</span>
-            </Button>
-
-            {/* Button 5: Phê duyệt & chuyển xử lý */}
-            <Button
-              size="sm"
-              disabled={isAuditor || isUpdatingStatus}
-              onClick={handleToggleStatus}
-              className="h-8.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
-            >
-              <CheckCheck className="size-3.5 text-emerald-400" />
-              <span>{detail?.status === 'OPEN' ? 'Phê duyệt & chuyển xử lý' : 'Đóng Vấn đề'}</span>
+              Đóng
             </Button>
           </div>
         </div>
       </div>
-
-      {/* ========================================================================= */}
-      {/* 4. SUB-MODALS (LIGHT THEME)                                               */}
-      {/* ========================================================================= */}
-      {/* REMEDIATION HITL DECISION MODAL */}
-      {remediationDecision && aiAnalysis?.remediation && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-slate-900">
-              {remediationDecision === 'approve' ? 'Xác nhận phê duyệt đề xuất AI?' : 'Xác nhận từ chối đề xuất AI?'}
-            </h3>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2 text-xs">
-              <p className="text-slate-500">Bạn đang {remediationDecision === 'approve' ? 'phê duyệt' : 'tối từ chối'}:</p>
-              <p className="font-mono text-xs font-semibold text-teal-800 bg-white p-2 rounded-lg border border-slate-200">
-                {aiAnalysis.remediation.action}
-              </p>
-              <p className="text-slate-500">Phạm vi:</p>
-              <p className="font-semibold text-slate-800">
-                {aiAnalysis.remediation.scope.affected_records} bản ghi bị cách ly
-              </p>
-              <p className="font-mono text-[11px] text-slate-400">
-                {aiAnalysis.remediation.scope.dataset_id} · {aiAnalysis.remediation.scope.run_id}
-              </p>
-            </div>
-            <textarea
-              rows={3}
-              value={decisionComment}
-              onChange={(e) => setDecisionComment(e.target.value)}
-              placeholder="Ghi chú quyết định (không bắt buộc)"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
-            {aiActionError && <p className="text-xs text-rose-600">{aiActionError}</p>}
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" disabled={isDeciding} onClick={() => setRemediationDecision(null)}>
-                Hủy
-              </Button>
-              <Button
-                size="sm"
-                disabled={isDeciding}
-                onClick={handleRemediationDecision}
-                className={remediationDecision === 'approve' ? 'bg-teal-600 hover:bg-teal-700 text-white font-bold' : 'bg-rose-600 hover:bg-rose-700 text-white font-bold'}
-              >
-                {isDeciding && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-                {remediationDecision === 'approve' ? 'Phê duyệt' : 'Từ chối'}
-              </Button>
-            </div>
-            {remediationDecision === 'approve' && (
-              <p className="text-[11px] text-amber-700">Phê duyệt chỉ chuyển trạng thái sang Pending execution; không tự thực thi remediation.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* OVERRIDE JUSTIFICATION MODAL */}
-      {showOverrideModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="size-4 text-amber-500" />
-              Phê duyệt Ngoại lệ Kiểm toán (Audit Override)
-            </h3>
-            <p className="text-xs text-slate-500">
-              Nhập giải trình lý do nghiệp vụ cho phép bản ghi này được thông qua (ghi vĩnh viễn vào nhật ký kiểm toán):
-            </p>
-            <textarea
-              rows={3}
-              value={overrideJustification}
-              onChange={(e) => setOverrideJustification(e.target.value)}
-              placeholder="Giải trình kiểm toán: Cuốc xe thử nghiệm nội bộ hoặc có chứng từ hợp lệ..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button size="sm" variant="outline" onClick={() => setShowOverrideModal(false)}>
-                Hủy
-              </Button>
-              <Button size="sm" onClick={handleExecuteOverride} className="bg-amber-500 text-slate-950 font-bold hover:bg-amber-400">
-                Xác nhận Ngoại lệ
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* REMEDIATE CLEANED PAYLOAD MODAL */}
-      {showRemediateModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <RefreshCw className="size-4 text-emerald-600" />
-              Khắc phục & Chạy lại Dữ liệu Cách ly (Remediate)
-            </h3>
-            <p className="text-xs text-slate-500">
-              Chỉnh sửa giá trị vi phạm trong JSON bên dưới trước khi đưa lại vào luồng xử lý:
-            </p>
-            <textarea
-              rows={7}
-              value={cleanedPayloadStr}
-              onChange={(e) => setCleanedPayloadStr(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-900 p-3 font-mono text-xs text-cyan-300 focus:outline-none focus:border-cyan-500"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button size="sm" variant="outline" onClick={() => setShowRemediateModal(false)}>
-                Hủy
-              </Button>
-              <Button size="sm" onClick={handleExecuteRemediate} className="bg-emerald-600 text-white font-bold hover:bg-emerald-700">
-                Lưu & Chạy lại
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

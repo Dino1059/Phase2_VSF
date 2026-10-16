@@ -6,17 +6,20 @@ import {
   Database,
   Eye,
   FileCheck2,
+  Info,
   Play,
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Target,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAgentStore, type DatasetItem } from '@/lib/agent-store';
 import { FindingInspectorModal } from '@/components/datatrust/findings/finding-inspector-modal';
 import { DatasetPreviewModal } from '@/components/datatrust/datasets/dataset-preview-modal';
+import { AUDIT_PURPOSES } from '@/components/datatrust/pipeline/start-run-modal';
 import { DatasetSelectorModal } from './dataset-selector-modal';
 import { PipelineRunnerCanvas } from './pipeline-runner-canvas';
 import { SlideDownDashboard } from './slide-down-dashboard';
@@ -37,6 +40,11 @@ export function OverviewPage() {
 
   const [isSelectorModalOpen, setIsSelectorModalOpen] = useState(false);
   const [previewDataset, setPreviewDataset] = useState<DatasetItem | null>(null);
+  const [selectedPurpose, setSelectedPurpose] = useState<string>('ops_dispatch');
+
+  const currentPurposeObj = useMemo(() => {
+    return AUDIT_PURPOSES.find((p) => p.id === selectedPurpose) || AUDIT_PURPOSES[0];
+  }, [selectedPurpose]);
 
   // Selected dataset object
   const currentDataset = useMemo(() => {
@@ -307,6 +315,68 @@ export function OverviewPage() {
                       </Button>
                     </div>
 
+                    {/* Purpose Limitation (Ngữ cảnh xử lý dữ liệu - GDPR Art. 5 / ISO 27701) */}
+                    <div className="rounded-xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50/40 via-sky-50/20 to-white p-4 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Target size={16} className="text-indigo-600" />
+                          <span className="text-xs font-bold text-slate-900">
+                            Mục đích xử lý dữ liệu (Purpose Limitation · GDPR Art. 5 / ISO 27701)
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border bg-white border-indigo-200 text-indigo-700 font-bold shadow-2xs">
+                          purpose_id: <span className="underline">{selectedPurpose}</span>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        {AUDIT_PURPOSES.map((p) => {
+                          const isSelected = selectedPurpose === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedPurpose(p.id)}
+                              className={`flex flex-col text-left p-3 rounded-lg border transition-all cursor-pointer relative ${
+                                isSelected
+                                  ? 'border-indigo-600 bg-white shadow-xs ring-2 ring-indigo-500/20'
+                                  : 'border-slate-200 bg-white/70 hover:bg-white hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full mb-1">
+                                <span className={`text-[11px] font-mono font-bold ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                                  {p.id}
+                                </span>
+                                {isSelected && (
+                                  <span className="flex h-2 w-2 relative">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] font-bold text-slate-900 leading-snug">
+                                {p.name.split(' (')[0]}
+                              </span>
+                              <span className="text-[10px] text-slate-500 mt-1 line-clamp-2 leading-tight">
+                                {p.tag}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Active purpose explanation callout */}
+                      {currentPurposeObj && (
+                        <div className="flex items-start gap-2 pt-1 text-[11px] text-slate-700 bg-white p-2.5 rounded-lg border border-indigo-100 shadow-2xs">
+                          <Info size={14} className="text-indigo-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-indigo-950">Quy tắc phân luồng áp dụng: </span>
+                            <span>{currentPurposeObj.description}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Primary Action Buttons */}
                     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
                       <Button
@@ -325,7 +395,7 @@ export function OverviewPage() {
 
                         <Button
                           size="sm"
-                          onClick={() => startPipelineRun(selectedDatasetId)}
+                          onClick={() => startPipelineRun(selectedDatasetId, selectedPurpose)}
                           className="h-9 gap-1.5 px-5 text-xs font-bold bg-slate-950 text-[#04D3D4] hover:bg-slate-900 hover:text-white shadow-xs cursor-pointer transition-all"
                         >
                           <Play size={12} className="fill-current text-[#04D3D4]" />

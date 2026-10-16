@@ -631,7 +631,7 @@ export function Header({ navOpen = false, onToggleNav }: { navOpen?: boolean; on
                       e.preventDefault();
                       setUserDropdownOpen(false);
                       logout();
-                      navigate('/');
+                      navigate('/login', { replace: true });
                     }}
                   >
                     <LogOut size={14} /> {t('signOut')}

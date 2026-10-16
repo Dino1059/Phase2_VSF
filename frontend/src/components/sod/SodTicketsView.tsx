@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/src/stores/authStore';
+import { sodApi } from '@/src/services/api';
 import {
   ROLES,
   DEFAULT_MATRIX,
@@ -19,6 +20,9 @@ import {
   Send,
   Eye,
   ArrowLeft,
+  AlertTriangle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 
 export interface SodTicketItem {
@@ -31,6 +35,7 @@ export interface SodTicketItem {
   status: 'OPEN' | 'RETURNED' | 'DONE' | 'REJECTED' | 'CANCELLED';
   currentStepIndex: number;
   steps: {
+    id?: string;
     idx: number;
     role: RoleKey;
     action: StepAction;
@@ -48,235 +53,34 @@ export interface SodTicketItem {
     isDbOrAdmin: boolean;
     reason: string;
     durationDays: number;
+    finding_id?: string;
+  };
+  ticketType?: string;
+  subject?: {
+    finding_id?: string;
+    proposal_id?: string;
+    proposal_version?: number;
+    dataset_id?: string;
+    column_name?: string;
+    source_hash?: string;
+    dry_run_hash?: string;
+    expected_rows?: number;
+    metadata?: any;
   };
 }
-
-const INITIAL_DEMO_TICKETS: SodTicketItem[] = [
-  {
-    id: 'tkt_001',
-    code: 'TK-2026-089',
-    title: 'Xin cấp quyền truy cập tập dữ liệu EV Telemetry & V-Green Charging',
-    requester: 'Nguyễn An',
-    requesterRole: 'REQ',
-    createdAt: '2026-10-15 08:30',
-    status: 'OPEN',
-    currentStepIndex: 1,
-    steps: [
-      {
-        idx: 0,
-        role: 'REQ',
-        action: 'P',
-        assigneeName: 'Nguyễn An',
-        assigneeUsername: 'an.nguyen',
-        status: 'APPROVED',
-        slaHours: 0,
-        decisionNote: 'Khởi tạo yêu cầu cấp quyền',
-        decidedAt: '2026-10-15 08:30',
-      },
-      {
-        idx: 1,
-        role: 'LM',
-        action: 'A',
-        assigneeName: 'Trần Bình',
-        assigneeUsername: 'binh.tran',
-        status: 'CURRENT',
-        slaHours: 24,
-      },
-      {
-        idx: 2,
-        role: 'SO',
-        action: 'A',
-        assigneeName: 'Hồ Sơn',
-        assigneeUsername: 'son.ho',
-        status: 'PENDING',
-        slaHours: 48,
-      },
-      {
-        idx: 3,
-        role: 'AUD',
-        action: 'R',
-        assigneeName: 'Trần Minh Hoàng',
-        assigneeUsername: 'hoang.tran',
-        status: 'PENDING',
-        slaHours: 24,
-      },
-      {
-        idx: 4,
-        role: 'IAM',
-        action: 'P',
-        assigneeName: 'Vũ Hà',
-        assigneeUsername: 'ha.vu',
-        status: 'PENDING',
-        slaHours: 12,
-      },
-    ],
-    form: {
-      system: 'BigQuery Telemetry Warehouse',
-      accessLevel: 'Đọc dữ liệu phân tích (Read-only)',
-      hasPii: false,
-      isDbOrAdmin: false,
-      reason: 'Phân tích dữ liệu sạc xe điện V-Green phục vụ tối ưu hóa trạm sạc khu vực Hà Nội.',
-      durationDays: 60,
-    },
-  },
-  {
-    id: 'tkt_002',
-    code: 'TK-2026-090',
-    title: 'Cấp quyền truy xuất danh tính khách hàng Xanh SM (Chứa dữ liệu PII)',
-    requester: 'Nguyễn Quốc Bảo',
-    requesterRole: 'ADMIN',
-    createdAt: '2026-10-14 14:15',
-    status: 'OPEN',
-    currentStepIndex: 2,
-    steps: [
-      {
-        idx: 0,
-        role: 'REQ',
-        action: 'P',
-        assigneeName: 'Nguyễn Quốc Bảo',
-        assigneeUsername: 'admin',
-        status: 'APPROVED',
-        slaHours: 0,
-        decidedAt: '2026-10-14 14:15',
-      },
-      {
-        idx: 1,
-        role: 'LM',
-        action: 'A',
-        assigneeName: 'Trần Bình',
-        assigneeUsername: 'binh.tran',
-        status: 'APPROVED',
-        slaHours: 24,
-        decisionNote: 'Xác nhận nhu cầu điều tra dữ liệu khách hàng theo yêu cầu IPO.',
-        decidedAt: '2026-10-14 16:00',
-      },
-      {
-        idx: 2,
-        role: 'DPO',
-        action: 'A',
-        assigneeName: 'Lê Chi',
-        assigneeUsername: 'chi.le',
-        status: 'CURRENT',
-        slaHours: 24,
-      },
-      {
-        idx: 3,
-        role: 'SO',
-        action: 'A',
-        assigneeName: 'Hồ Sơn',
-        assigneeUsername: 'son.ho',
-        status: 'PENDING',
-        slaHours: 48,
-      },
-      {
-        idx: 4,
-        role: 'AUD',
-        action: 'R',
-        assigneeName: 'Trần Minh Hoàng',
-        assigneeUsername: 'hoang.tran',
-        status: 'PENDING',
-        slaHours: 24,
-      },
-      {
-        idx: 5,
-        role: 'IAM',
-        action: 'P',
-        assigneeName: 'Vũ Hà',
-        assigneeUsername: 'ha.vu',
-        status: 'PENDING',
-        slaHours: 12,
-      },
-    ],
-    form: {
-      system: 'DataTrust Customer Profile Store',
-      accessLevel: 'Truy vấn bảng PII khách hàng (Masked)',
-      hasPii: true,
-      isDbOrAdmin: false,
-      reason: 'Rà soát tuân thủ Nghị định 13/2023/NĐ-CP và chuẩn bị hồ sơ IPO.',
-      durationDays: 30,
-    },
-  },
-  {
-    id: 'tkt_003',
-    code: 'TK-2026-085',
-    title: 'Phát hành bản vá bảo mật Hotfix pipeline Lane B (Production Deploy)',
-    requester: 'Đỗ Khoa',
-    requesterRole: 'DEV',
-    createdAt: '2026-10-12 10:00',
-    status: 'DONE',
-    currentStepIndex: 4,
-    steps: [
-      {
-        idx: 0,
-        role: 'DEV',
-        action: 'P',
-        assigneeName: 'Đỗ Khoa',
-        assigneeUsername: 'khoa.do',
-        status: 'APPROVED',
-        slaHours: 0,
-        decidedAt: '2026-10-12 10:00',
-      },
-      {
-        idx: 1,
-        role: 'LM',
-        action: 'A',
-        assigneeName: 'Trần Bình',
-        assigneeUsername: 'binh.tran',
-        status: 'APPROVED',
-        slaHours: 12,
-        decidedAt: '2026-10-12 11:30',
-      },
-      {
-        idx: 2,
-        role: 'REL',
-        action: 'A',
-        assigneeName: 'Bùi Lan',
-        assigneeUsername: 'lan.bui',
-        status: 'APPROVED',
-        slaHours: 12,
-        decisionNote: 'Đã kiểm tra biên bản UAT và rà soát quét SAST đạt chuẩn.',
-        decidedAt: '2026-10-12 14:00',
-      },
-      {
-        idx: 3,
-        role: 'AUD',
-        action: 'R',
-        assigneeName: 'Trần Minh Hoàng',
-        assigneeUsername: 'hoang.tran',
-        status: 'APPROVED',
-        slaHours: 12,
-        decisionNote: 'Rà soát chứng từ thay đổi mã nguồn trước khi deploy.',
-        decidedAt: '2026-10-12 15:00',
-      },
-      {
-        idx: 4,
-        role: 'OPS',
-        action: 'P',
-        assigneeName: 'Ngô Minh',
-        assigneeUsername: 'minh.ngo',
-        status: 'APPROVED',
-        slaHours: 6,
-        decisionNote: 'Đã deploy thành công lên cụm Production không gián đoạn dịch vụ.',
-        decidedAt: '2026-10-12 16:20',
-      },
-    ],
-    form: {
-      system: 'DataTrust Pipeline Core Engine',
-      accessLevel: 'Deploy Production Release',
-      hasPii: false,
-      isDbOrAdmin: true,
-      reason: 'Triển khai bản vá kiểm soát xung đột SoD và bổ sung policy IFRS-15.',
-      durationDays: 1,
-    },
-  },
-];
 
 export function SodTicketsView() {
   const user = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
-  const [tickets, setTickets] = useState<SodTicketItem[]>(INITIAL_DEMO_TICKETS);
+  const [tickets, setTickets] = useState<SodTicketItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedTicketDetail, setSelectedTicketDetail] = useState<SodTicketItem | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeciding, setIsDeciding] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'DONE' | 'REJECTED'>('ALL');
 
   // Form State for Ticket Creation
@@ -289,7 +93,127 @@ export function SodTicketsView() {
   const [decisionComment, setDecisionComment] = useState('');
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
 
-  const selectedTicket = tickets.find((t) => t.id === selectedTicketId);
+  const fetchTickets = useCallback(async () => {
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const rawTickets = await sodApi.getTickets();
+      const mapped: SodTicketItem[] = (rawTickets || []).map((t: any) => {
+        const rawSteps = t.steps || [];
+        const steps = rawSteps.map((s: any, idx: number) => ({
+          id: s.id,
+          idx: s.idx !== undefined ? s.idx : idx,
+          role: (s.role || s.role_code || 'REQ') as RoleKey,
+          action: (s.action || 'A') as StepAction,
+          assigneeName: s.assignee_name || s.assigneeName || ROLES[s.role as RoleKey]?.name || s.role || 'Người xử lý',
+          assigneeUsername: s.assignee_username || s.assigneeUsername || (s.role || '').toLowerCase(),
+          status: s.status === 'DONE' ? 'APPROVED' : (s.status === 'WAITING' ? 'PENDING' : s.status || 'PENDING'),
+          slaHours: s.sla_hours || s.slaHours || 24,
+          decisionNote: s.decisionNote,
+          decidedAt: s.decidedAt,
+        }));
+
+        return {
+          id: t.id,
+          code: t.code,
+          title: t.purpose || `Yêu cầu: ${t.system || 'Hệ thống'} (${t.access_level || 'Truy cập'})`,
+          requester: t.requester_name || 'Người dùng',
+          requesterRole: t.level === 3 ? 'ADMIN' : 'REQ',
+          createdAt: t.created_at ? new Date(t.created_at).toLocaleString('vi-VN') : '',
+          status: t.status || 'OPEN',
+          currentStepIndex: t.current_step_idx || 0,
+          steps,
+          form: {
+            system: t.system || 'Data Lakehouse',
+            accessLevel: t.access_level || 'Đọc (Read)',
+            hasPii: Boolean(t.pii),
+            isDbOrAdmin: t.level === 3,
+            reason: t.purpose || 'Thẩm tra tuân thủ dữ liệu & khắc phục vi phạm',
+            durationDays: 30,
+            finding_id: t.finding_id,
+          },
+          ticketType: t.kind || (t.proposal_id ? 'remediation' : 'access'),
+          subject: t.proposal_id ? {
+            finding_id: t.finding_id,
+            proposal_id: t.proposal_id,
+            proposal_version: t.proposal_version,
+            dataset_id: t.dataset_id,
+            column_name: t.column_name,
+            source_hash: t.source_hash,
+            dry_run_hash: t.dry_run_hash,
+          } : undefined,
+        };
+      });
+      setTickets(mapped);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Không thể tải danh sách phiếu từ máy chủ.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const fetchTicketDetail = useCallback(async (ticketId: string) => {
+    setIsDetailLoading(true);
+    try {
+      const t = await sodApi.getTicketDetail(ticketId);
+      if (!t) return;
+      const rawSteps = t.steps || [];
+      const steps = rawSteps.map((s: any, idx: number) => ({
+        id: s.id,
+        idx: s.idx !== undefined ? s.idx : idx,
+        role: (s.role || s.role_code || 'REQ') as RoleKey,
+        action: (s.action || 'A') as StepAction,
+        assigneeName: s.assignee_name || s.assigneeName || ROLES[s.role as RoleKey]?.name || s.role || 'Người xử lý',
+        assigneeUsername: s.assignee_username || s.assigneeUsername || (s.role || '').toLowerCase(),
+        status: s.status === 'DONE' ? 'APPROVED' : (s.status === 'WAITING' ? 'PENDING' : s.status || 'PENDING'),
+        slaHours: s.sla_hours || s.slaHours || 24,
+        decisionNote: s.decisionNote,
+        decidedAt: s.decidedAt,
+      }));
+
+      const item: SodTicketItem = {
+        id: t.id,
+        code: t.code,
+        title: t.form?.mucDich || `Yêu cầu: ${t.form?.rows?.[0]?.heThong || t.form?.system || 'Hệ thống'} (${t.form?.rows?.[0]?.mucQuyen || t.form?.access_level || 'Truy cập'})`,
+        requester: t.requester_name || 'Người dùng',
+        requesterRole: t.level === 3 ? 'ADMIN' : 'REQ',
+        createdAt: t.created_at ? new Date(t.created_at).toLocaleString('vi-VN') : '',
+        status: t.status || 'OPEN',
+        currentStepIndex: t.current_step_idx || 0,
+        steps,
+        form: {
+          system: t.form?.rows?.[0]?.heThong || t.form?.system || 'Data Lakehouse',
+          accessLevel: t.form?.rows?.[0]?.mucQuyen || t.form?.access_level || 'Đọc (Read)',
+          hasPii: Boolean(t.pii),
+          isDbOrAdmin: t.level === 3,
+          reason: t.form?.mucDich || t.form?.reason || 'Thẩm tra tuân thủ dữ liệu & khắc phục vi phạm',
+          durationDays: 30,
+          finding_id: t.subject?.finding_id || t.form?.finding_id,
+        },
+        ticketType: t.kind || (t.subject?.proposal_id ? 'remediation' : 'access'),
+        subject: t.subject,
+      };
+      setSelectedTicketDetail(item);
+    } catch (err: any) {
+      console.error('Error fetching ticket detail:', err);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTickets();
+  }, [fetchTickets, user?.role, user?.user_id]);
+
+  useEffect(() => {
+    if (selectedTicketId) {
+      fetchTicketDetail(selectedTicketId);
+    } else {
+      setSelectedTicketDetail(null);
+    }
+  }, [selectedTicketId, fetchTicketDetail]);
+
+  const selectedTicket = selectedTicketDetail || tickets.find((t) => t.id === selectedTicketId);
 
   // Dynamic Live Preview of the RACIX Approval Chain
   const previewChain = useMemo(() => {
@@ -332,95 +256,79 @@ export function SodTicketsView() {
     }
   }, [formSystem, formAccessLevel, formHasPii, formIsDbOrAdmin, formReason, formDuration, user]);
 
-  const handleCreateTicketSubmit = (e: React.FormEvent) => {
+  const handleCreateTicketSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formReason.trim()) return;
 
-    const newTicketId = `tkt_${Date.now()}`;
-    const newCode = `TK-2026-${String(tickets.length + 91).padStart(3, '0')}`;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    try {
+      const d: TicketForm = {
+        ...emptyForm(user?.fullName || 'Người dùng', user?.email || 'user@company.vn'),
+        loaiPhieu: 'new',
+        khan: formDuration === '1' ? 'urgent' : 'normal',
+        capBac: 'T3',
+        thiTruong: 'vn',
+        camKet: true,
+        dlcn: formHasPii ? 'basic' : 'none',
+        mucDich: formReason,
+        signature: 'data:image/png;base64,mock',
+        rows: [
+          {
+            heThong: formSystem,
+            taiNguyen: formReason || 'Yêu cầu cấp quyền công việc',
+            mucQuyen: formIsDbOrAdmin ? 'Full' : formAccessLevel === 'write' ? 'RW' : 'RO',
+            tang: formIsDbOrAdmin ? '3' : '2',
+            thoiHan: formDuration === '1' ? '2026-12-31' : '2027-06-30',
+          },
+        ],
+      };
 
-    const generatedSteps = previewChain?.steps.map((s: any, idx: number) => ({
-      idx,
-      role: s.role,
-      action: s.action,
-      assigneeName: s.assignee ? s.assignee.replace('.', ' ').toUpperCase() : ROLES[s.role as RoleKey]?.name || s.role,
-      assigneeUsername: s.assignee || s.role.toLowerCase(),
-      status: (idx === 0 ? 'APPROVED' : idx === 1 ? 'CURRENT' : 'PENDING') as any,
-      slaHours: s.role === 'LM' ? 24 : s.role === 'DPO' ? 48 : 24,
-      decidedAt: idx === 0 ? new Date().toLocaleString() : undefined,
-    })) || [];
-
-    const newTicket: SodTicketItem = {
-      id: newTicketId,
-      code: newCode,
-      title: `Yêu cầu cấp quyền: ${formSystem} (${formAccessLevel.toUpperCase()})`,
-      requester: user?.fullName || 'Người dùng',
-      requesterRole: user?.role || 'REQ',
-      createdAt: new Date().toLocaleString(),
-      status: 'OPEN',
-      currentStepIndex: 1,
-      steps: generatedSteps,
-      form: {
-        system: formSystem,
-        accessLevel: formAccessLevel === 'admin' ? 'Quản trị (Admin)' : formAccessLevel === 'write' ? 'Ghi / Sửa (Write)' : 'Đọc (Read)',
-        hasPii: formHasPii,
-        isDbOrAdmin: formIsDbOrAdmin,
-        reason: formReason,
-        durationDays: parseInt(formDuration, 10),
-      },
-    };
-
-    setTickets([newTicket, ...tickets]);
-    setSelectedTicketId(newTicket.id);
-    setActiveTab('list');
-    setActionSuccessMsg(`Đã tạo thành công phiếu ${newCode}! Chuỗi phê duyệt tuần tự đã được kích hoạt.`);
-    setTimeout(() => setActionSuccessMsg(''), 4000);
+      const res = await sodApi.createTicket({ form: d });
+      await fetchTickets();
+      if (res?.id) {
+        setSelectedTicketId(res.id);
+      }
+      setActiveTab('list');
+      setActionSuccessMsg(`Đã tạo thành công phiếu ${res?.code || 'mới'}! Chuỗi phê duyệt tuần tự đã được kích hoạt trong PostgreSQL.`);
+      setTimeout(() => setActionSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Lỗi tạo phiếu yêu cầu cấp quyền trên hệ thống.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDecision = (outcome: 'APPROVED' | 'REJECTED' | 'RETURNED') => {
+  const handleDecision = async (outcome: 'APPROVED' | 'REJECTED' | 'RETURNED') => {
     if (!selectedTicket) return;
 
-    const updatedTickets = tickets.map((t) => {
-      if (t.id !== selectedTicket.id) return t;
+    const currentStep = selectedTicket.steps.find((s) => s.status === 'CURRENT') || selectedTicket.steps[selectedTicket.currentStepIndex];
+    if (!currentStep || !currentStep.id) {
+      setErrorMsg('Không tìm thấy định danh bước duyệt cần xử lý.');
+      return;
+    }
 
-      const currentStep = t.steps[t.currentStepIndex];
-      const updatedSteps = [...t.steps];
+    setIsDeciding(true);
+    setErrorMsg(null);
+    try {
+      const backendOutcome = outcome === 'APPROVED' ? 'APPROVE' : outcome === 'REJECTED' ? 'REJECT' : 'RETURN';
+      const comment = decisionComment || (outcome === 'APPROVED' ? 'Đồng ý phê duyệt' : outcome === 'RETURNED' ? 'Yêu cầu kiểm tra & đối soát lại' : 'Từ chối');
 
-      updatedSteps[t.currentStepIndex] = {
-        ...currentStep,
-        status: outcome,
-        decisionNote: decisionComment || (outcome === 'APPROVED' ? 'Đồng ý phê duyệt' : 'Từ chối'),
-        decidedAt: new Date().toLocaleString(),
-      };
+      await sodApi.decideStep(selectedTicket.id, currentStep.id, {
+        outcome: backendOutcome,
+        comment,
+      });
 
-      const nextStepIndex = t.currentStepIndex + 1;
-      let newTicketStatus = t.status;
-
-      if (outcome === 'REJECTED') {
-        newTicketStatus = 'REJECTED';
-      } else if (outcome === 'RETURNED') {
-        newTicketStatus = 'RETURNED';
-      } else if (nextStepIndex >= t.steps.length) {
-        newTicketStatus = 'DONE';
-      } else {
-        updatedSteps[nextStepIndex] = {
-          ...updatedSteps[nextStepIndex],
-          status: 'CURRENT',
-        };
-      }
-
-      return {
-        ...t,
-        status: newTicketStatus,
-        currentStepIndex: outcome === 'APPROVED' && nextStepIndex < t.steps.length ? nextStepIndex : t.currentStepIndex,
-        steps: updatedSteps,
-      };
-    });
-
-    setTickets(updatedTickets);
-    setDecisionComment('');
-    setActionSuccessMsg(`Đã ghi nhận quyết định: ${outcome === 'APPROVED' ? 'Đã duyệt' : outcome === 'REJECTED' ? 'Đã từ chối' : 'Yêu cầu bổ sung'}`);
-    setTimeout(() => setActionSuccessMsg(''), 3000);
+      await fetchTicketDetail(selectedTicket.id);
+      await fetchTickets();
+      setDecisionComment('');
+      setActionSuccessMsg(`Đã ghi nhận quyết định: ${outcome === 'APPROVED' ? 'Đã duyệt' : outcome === 'REJECTED' ? 'Đã từ chối' : 'Yêu cầu bổ sung'}`);
+      setTimeout(() => setActionSuccessMsg(''), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Lỗi gửi quyết định phê duyệt tới máy chủ.');
+    } finally {
+      setIsDeciding(false);
+    }
   };
 
   const filteredTickets = tickets.filter((t) => {
@@ -434,6 +342,13 @@ export function SodTicketsView() {
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
           <span>{actionSuccessMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+          <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -472,31 +387,44 @@ export function SodTicketsView() {
           </button>
         </div>
 
-        {activeTab === 'list' && !selectedTicketId && (
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
-            <button
-              type="button"
-              onClick={() => setStatusFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'ALL' ? 'bg-white shadow-2xs font-bold text-slate-900' : 'text-slate-500'}`}
-            >
-              Tất cả
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('OPEN')}
-              className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'OPEN' ? 'bg-white shadow-2xs font-bold text-blue-700' : 'text-slate-500'}`}
-            >
-              Đang xử lý
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('DONE')}
-              className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'DONE' ? 'bg-white shadow-2xs font-bold text-emerald-700' : 'text-slate-500'}`}
-            >
-              Hoàn tất
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchTickets}
+            disabled={isLoading}
+            className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+            title="Tải lại danh sách"
+          >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin text-teal-600' : ''} />
+            <span className="hidden sm:inline">Làm mới</span>
+          </button>
+
+          {activeTab === 'list' && !selectedTicketId && (
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'ALL' ? 'bg-white shadow-2xs font-bold text-slate-900' : 'text-slate-500'}`}
+              >
+                Tất cả
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('OPEN')}
+                className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'OPEN' ? 'bg-white shadow-2xs font-bold text-blue-700' : 'text-slate-500'}`}
+              >
+                Đang xử lý
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('DONE')}
+                className={`px-2.5 py-1 rounded-lg transition ${statusFilter === 'DONE' ? 'bg-white shadow-2xs font-bold text-emerald-700' : 'text-slate-500'}`}
+              >
+                Hoàn tất
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* TAB 1: TICKETS LIST & DETAIL */}
@@ -519,8 +447,9 @@ export function SodTicketsView() {
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-200">
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2.5">
-                      <span className="font-mono font-bold text-sm bg-slate-900 text-[#04D3D4] px-2.5 py-0.5 rounded-lg">
-                        {selectedTicket.code}
+                      <span className="font-mono font-bold text-sm bg-slate-900 text-[#04D3D4] px-2.5 py-0.5 rounded-lg flex items-center gap-1.5">
+                        <span>{selectedTicket.code}</span>
+                        {isDetailLoading && <Loader2 size={13} className="animate-spin text-[#04D3D4]" />}
                       </span>
                       <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
                         selectedTicket.status === 'OPEN'
@@ -539,6 +468,49 @@ export function SodTicketsView() {
                     </div>
                   </div>
                 </div>
+
+                {/* DataTrust Cross-System Finding Context Card */}
+                {((selectedTicket as any).ticketType === 'remediation' || (selectedTicket as any).subject?.finding_id || (selectedTicket as any).form?.finding_id) && (
+                  <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-4 space-y-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-teal-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5">
+                          <CheckCircle2 size={14} className="text-teal-600" />
+                          <span>Hồ Sơ Liên Kết DataTrust Finding & Đề Xuất Remediation</span>
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10px] bg-teal-100 text-teal-900 px-2 py-0.5 rounded font-bold">
+                        Phase 3 Integration
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-teal-100 text-[11px]">
+                      <div>
+                        <span className="text-slate-400 block font-medium">Finding ID:</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {(selectedTicket as any).subject?.finding_id || (selectedTicket as any).form?.finding_id || 'FINDING-EV-001'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block font-medium">Proposal ID & Version:</span>
+                        <span className="font-mono font-bold text-teal-800">
+                          {(selectedTicket as any).subject?.proposal_id ? `${(selectedTicket as any).subject.proposal_id.slice(0, 8)}... (v${(selectedTicket as any).subject.proposal_version || 1})` : 'PRP-2026-v1'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block font-medium">Dữ liệu cách ly mục tiêu:</span>
+                        <span className="font-mono text-slate-700">
+                          {(selectedTicket as any).subject?.dataset_id || 'ev_telemetry'}.{(selectedTicket as any).subject?.column_name || 'driver_phone'}
+                        </span>
+                      </div>
+                      {(selectedTicket as any).subject?.source_hash && (
+                        <div className="sm:col-span-3 pt-1 border-t border-slate-100 text-[10px] text-slate-500 font-mono">
+                          Source Snapshot Hash: {(selectedTicket as any).subject.source_hash}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Form Metadata Box */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
@@ -639,26 +611,29 @@ export function SodTicketsView() {
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
+                        disabled={isDeciding}
                         onClick={() => handleDecision('APPROVED')}
-                        className="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        className="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
                       >
-                        <CheckCircle2 size={14} />
+                        {isDeciding ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                         <span>Phê duyệt Bước này</span>
                       </button>
                       <button
                         type="button"
+                        disabled={isDeciding}
                         onClick={() => handleDecision('RETURNED')}
-                        className="py-2 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        className="py-2 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
                       >
-                        <RotateCcw size={14} />
+                        {isDeciding ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                         <span>Yêu cầu bổ sung</span>
                       </button>
                       <button
                         type="button"
+                        disabled={isDeciding}
                         onClick={() => handleDecision('REJECTED')}
-                        className="py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                        className="py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
                       >
-                        <XCircle size={14} />
+                        {isDeciding ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
                         <span>Từ chối</span>
                       </button>
                     </div>
@@ -669,53 +644,64 @@ export function SodTicketsView() {
           ) : (
             /* LIST VIEW */
             <div className="space-y-3">
-              {filteredTickets.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => setSelectedTicketId(t.id)}
-                  className="bg-white hover:bg-slate-50 border border-slate-200/90 rounded-2xl p-4 sm:p-5 transition-all shadow-xs hover:shadow-md cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2.5">
-                      <span className="font-mono font-bold text-xs bg-slate-900 text-[#04D3D4] px-2 py-0.5 rounded-md">
-                        {t.code}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        t.status === 'OPEN'
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : t.status === 'DONE'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}>
-                        {t.status === 'OPEN' ? 'Đang duyệt' : t.status === 'DONE' ? 'Hoàn tất' : 'Từ chối'}
-                      </span>
-                      <span className="text-xs text-slate-400">· {t.createdAt}</span>
-                    </div>
-
-                    <h3 className="font-bold text-sm text-slate-900">{t.title}</h3>
-
-                    <div className="flex items-center gap-3 text-xs text-slate-500">
-                      <span>Người tạo: <strong className="text-slate-700">{t.requester}</strong></span>
-                      <span>Hệ thống: <strong className="text-slate-700">{t.form.system}</strong></span>
-                      {t.form.hasPii && (
-                        <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded-md font-bold">
-                          PII Data
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
-                      <span className="text-[11px] text-slate-400 block">Bước hiện tại</span>
-                      <span className="text-xs font-bold text-slate-800">
-                        {t.steps[t.currentStepIndex]?.role} ({ROLES[t.steps[t.currentStepIndex]?.role]?.name})
-                      </span>
-                    </div>
-                    <ChevronRight size={16} className="text-slate-400" />
-                  </div>
+              {isLoading ? (
+                <div className="p-12 text-center bg-white rounded-2xl border border-slate-200">
+                  <Loader2 size={24} className="animate-spin mx-auto text-teal-600 mb-2" />
+                  <p className="text-xs text-slate-500">Đang tải danh sách phiếu từ PostgreSQL...</p>
                 </div>
-              ))}
+              ) : filteredTickets.length === 0 ? (
+                <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-xs text-slate-500">
+                  Không có phiếu yêu cầu nào phù hợp với bộ lọc hiện tại.
+                </div>
+              ) : (
+                filteredTickets.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => setSelectedTicketId(t.id)}
+                    className="bg-white hover:bg-slate-50 border border-slate-200/90 rounded-2xl p-4 sm:p-5 transition-all shadow-xs hover:shadow-md cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono font-bold text-xs bg-slate-900 text-[#04D3D4] px-2 py-0.5 rounded-md">
+                          {t.code}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          t.status === 'OPEN'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : t.status === 'DONE'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}>
+                          {t.status === 'OPEN' ? 'Đang duyệt' : t.status === 'DONE' ? 'Hoàn tất' : 'Từ chối'}
+                        </span>
+                        <span className="text-xs text-slate-400">· {t.createdAt}</span>
+                      </div>
+
+                      <h3 className="font-bold text-sm text-slate-900">{t.title}</h3>
+
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span>Người tạo: <strong className="text-slate-700">{t.requester}</strong></span>
+                        <span>Hệ thống: <strong className="text-slate-700">{t.form.system}</strong></span>
+                        {t.form.hasPii && (
+                          <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded-md font-bold">
+                            PII Data
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <span className="text-[11px] text-slate-400 block">Bước hiện tại</span>
+                        <span className="text-xs font-bold text-slate-800">
+                          {t.steps && t.steps[t.currentStepIndex] ? `${t.steps[t.currentStepIndex].role} (${ROLES[t.steps[t.currentStepIndex].role]?.name || t.steps[t.currentStepIndex].role})` : 'Hoàn tất'}
+                        </span>
+                      </div>
+                      <ChevronRight size={16} className="text-slate-400" />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </>
@@ -819,10 +805,11 @@ export function SodTicketsView() {
 
               <button
                 type="submit"
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-[#04D3D4] font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-[#04D3D4] font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50"
               >
-                <Send size={14} />
-                <span>Gửi Phiếu Yêu cầu</span>
+                {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                <span>{isSubmitting ? 'Đang gửi yêu cầu...' : 'Gửi Phiếu Yêu cầu'}</span>
               </button>
             </form>
           </div>

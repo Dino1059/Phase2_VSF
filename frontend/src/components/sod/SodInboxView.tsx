@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/src/stores/authStore';
-import { type RoleKey } from '@/src/lib/sod/catalog';
+import { sodApi } from '@/src/services/api';
 import {
   Inbox,
   Clock,
@@ -8,14 +8,19 @@ import {
   AlertTriangle,
   RotateCcw,
   XCircle,
+  Loader2,
+  RefreshCw,
+  UserCheck
 } from 'lucide-react';
 
 interface PendingTask {
   id: string;
+  ticketId: string;
+  stepId: string;
   ticketCode: string;
   title: string;
   requester: string;
-  roleRequired: RoleKey;
+  roleRequired: string;
   stepAction: string;
   stepIndex: number;
   totalSteps: number;
@@ -23,87 +28,72 @@ interface PendingTask {
   isUrgent: boolean;
   system: string;
   reason: string;
+  isDelegated?: boolean;
 }
-
-const DEMO_TASKS: PendingTask[] = [
-  {
-    id: 'task_01',
-    ticketCode: 'TK-2026-089',
-    title: 'Xin cấp quyền truy cập tập dữ liệu EV Telemetry & V-Green Charging',
-    requester: 'Nguyễn An (Requestor)',
-    roleRequired: 'LM',
-    stepAction: 'Phê duyệt nhu cầu nghiệp vụ (A)',
-    stepIndex: 2,
-    totalSteps: 5,
-    slaRemainingHours: 18,
-    isUrgent: false,
-    system: 'BigQuery Telemetry Warehouse',
-    reason: 'Phân tích dữ liệu sạc xe điện V-Green phục vụ tối ưu hóa trạm sạc khu vực Hà Nội.',
-  },
-  {
-    id: 'task_02',
-    ticketCode: 'TK-2026-090',
-    title: 'Cấp quyền truy xuất danh tính khách hàng Xanh SM (Chứa dữ liệu PII)',
-    requester: 'Nguyễn Quốc Bảo (Lead Platform)',
-    roleRequired: 'DPO',
-    stepAction: 'Phê duyệt tuân thủ dữ liệu PII (A)',
-    stepIndex: 3,
-    totalSteps: 6,
-    slaRemainingHours: 6,
-    isUrgent: true,
-    system: 'DataTrust Customer Profile Store',
-    reason: 'Rà soát tuân thủ Nghị định 13/2023/NĐ-CP và chuẩn bị hồ sơ IPO.',
-  },
-  {
-    id: 'task_03',
-    ticketCode: 'TK-2026-091',
-    title: 'Phê duyệt ngoại lệ kiểm soát: Cấp quyền khẩn cấp truy cập Core DB',
-    requester: 'Ngô Minh (Prod Operator)',
-    roleRequired: 'CISO',
-    stepAction: 'Phê duyệt ngoại lệ cấp cao (A)',
-    stepIndex: 2,
-    totalSteps: 4,
-    slaRemainingHours: 3,
-    isUrgent: true,
-    system: 'Core Financial Database',
-    reason: 'Khắc phục sự cố tắc nghẽn giao dịch trong ca đêm.',
-  },
-  {
-    id: 'task_04',
-    ticketCode: 'TK-2026-092',
-    title: 'Rà soát kiểm soát trước thực thi cho bản cập nhật quy tắc ITGC',
-    requester: 'Nguyễn Quốc Bảo (Admin)',
-    roleRequired: 'AUD',
-    stepAction: 'Rà soát trước thực thi (R)',
-    stepIndex: 3,
-    totalSteps: 4,
-    slaRemainingHours: 20,
-    isUrgent: false,
-    system: 'DataTrust Policy Engine',
-    reason: 'Kiểm toán độc lập tính tuân thủ quy tắc kiểm soát chung CNTT.',
-  },
-];
 
 export function SodInboxView() {
   const user = useAuthStore((s) => s.user);
-  const [tasks, setTasks] = useState<PendingTask[]>(DEMO_TASKS);
+  const [tasks, setTasks] = useState<PendingTask[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'handled'>('pending');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [operatingTaskId, setOperatingTaskId] = useState<string | null>(null);
 
-  // Filter tasks: in demo mode, show matching tasks for user's role or all tasks if Admin/Auditor
-  const currentRole = user?.role;
-  const filteredTasks = tasks.filter((t) => {
-    if (!currentRole) return true;
-    if (currentRole === 'ADMIN' || currentRole === 'AUDITOR') return true;
-    return t.roleRequired === currentRole;
-  });
+  const fetchInbox = useCallback(async () => {
+    setIsLoading(true);
+    setErrorNotice(null);
+    try {
+      const rawTasks = await sodApi.getInbox();
+      const mapped: PendingTask[] = (rawTasks || []).map((r: any) => ({
+        id: r.step_id,
+        ticketId: r.ticket_id,
+        stepId: r.step_id,
+        ticketCode: r.ticket_code,
+        title: r.system ? `Xử lý vi phạm / Quyền truy cập: ${r.system}` : (r.purpose || `Phiếu SoD ${r.ticket_code}`),
+        requester: r.requester_name || 'Người dùng',
+        roleRequired: r.role_code,
+        stepAction: r.action === 'A' ? 'Phê duyệt (A)' : r.action === 'R' ? 'Rà soát kiểm soát (R)' : 'Chấp thuận (P)',
+        stepIndex: (r.step_idx || 0) + 1,
+        totalSteps: 3,
+        slaRemainingHours: r.sla_hours || 24,
+        isUrgent: r.priority === 'urgent',
+        system: r.system || 'Data Lakehouse',
+        reason: r.purpose || 'Thẩm tra tuân thủ dữ liệu Quarantine theo quy chế ITGC',
+        isDelegated: Boolean(r.is_delegated),
+      }));
+      setTasks(mapped);
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Không thể tải danh sách nhiệm vụ từ máy chủ.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const handleTaskAction = (taskId: string, outcome: 'APPROVE' | 'REJECT' | 'RETURN') => {
-    const task = tasks.find((t) => t.id === taskId);
-    setTasks(tasks.filter((t) => t.id !== taskId));
-    const actionText = outcome === 'APPROVE' ? 'Đã phê duyệt' : outcome === 'REJECT' ? 'Đã từ chối' : 'Đã yêu cầu bổ sung';
-    setActionNotice(`${actionText} thành công cho phiếu ${task?.ticketCode || taskId}!`);
-    setTimeout(() => setActionNotice(null), 3000);
+  useEffect(() => {
+    fetchInbox();
+  }, [fetchInbox, user?.role, user?.user_id]);
+
+  const handleTaskAction = async (task: PendingTask, outcome: 'APPROVE' | 'REJECT' | 'RETURN') => {
+    setOperatingTaskId(task.id);
+    setActionNotice(null);
+    setErrorNotice(null);
+    try {
+      const comment = outcome === 'APPROVE'
+        ? 'Đã phê duyệt từ Hộp việc cá nhân'
+        : outcome === 'RETURN'
+        ? 'Yêu cầu kiểm tra & đối soát lại'
+        : 'Từ chối yêu cầu';
+
+      await sodApi.decideStep(task.ticketId, task.stepId, { outcome, comment });
+      const actionText = outcome === 'APPROVE' ? 'Đã phê duyệt' : outcome === 'REJECT' ? 'Đã từ chối' : 'Đã yêu cầu bổ sung';
+      setActionNotice(`${actionText} thành công cho phiếu ${task.ticketCode}!`);
+      await fetchInbox();
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Lỗi gửi quyết định phê duyệt');
+    } finally {
+      setOperatingTaskId(null);
+    }
   };
 
   return (
@@ -112,6 +102,13 @@ export function SodInboxView() {
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
           <span>{actionNotice}</span>
+        </div>
+      )}
+
+      {errorNotice && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+          <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+          <span>{errorNotice}</span>
         </div>
       )}
 
@@ -124,46 +121,64 @@ export function SodInboxView() {
             </span>
             <h2 className="text-base font-bold text-slate-900">Hộp việc Cần xử lý (Personal Task Inbox)</h2>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
-              {filteredTasks.length} nhiệm vụ chờ
+              {tasks.length} nhiệm vụ chờ
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Danh sách phiếu yêu cầu đang chờ thẩm tra hoặc phê duyệt từ vai trò{' '}
+            Dữ liệu thời gian thực từ PostgreSQL cho vai trò{' '}
             <strong className="text-slate-700">{user?.role}</strong> ({user?.fullName}).
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl text-xs">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab('pending')}
-            className={`px-3 py-1.5 rounded-lg transition font-semibold cursor-pointer ${
-              activeTab === 'pending'
-                ? 'bg-white shadow-2xs text-slate-900'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+            onClick={fetchInbox}
+            disabled={isLoading}
+            className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            title="Tải lại hộp việc"
           >
-            Chờ xử lý ({filteredTasks.length})
+            <RefreshCw size={14} className={isLoading ? 'animate-spin text-teal-600' : ''} />
+            <span className="hidden sm:inline">Làm mới</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('handled')}
-            className={`px-3 py-1.5 rounded-lg transition font-semibold cursor-pointer ${
-              activeTab === 'handled'
-                ? 'bg-white shadow-2xs text-slate-900'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Đã xử lý
-          </button>
+
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('pending')}
+              className={`px-3 py-1.5 rounded-lg transition font-semibold cursor-pointer ${
+                activeTab === 'pending'
+                  ? 'bg-white shadow-2xs text-slate-900'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Chờ xử lý ({tasks.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('handled')}
+              className={`px-3 py-1.5 rounded-lg transition font-semibold cursor-pointer ${
+                activeTab === 'handled'
+                  ? 'bg-white shadow-2xs text-slate-900'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Đã xử lý
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Task Cards */}
       {activeTab === 'pending' && (
         <div className="space-y-4">
-          {filteredTasks.length > 0 ? (
-            filteredTasks.map((t) => (
+          {isLoading && tasks.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
+              <Loader2 size={24} className="animate-spin text-teal-600 mx-auto" />
+              <p className="text-xs text-slate-500 font-semibold">Đang tải nhiệm vụ từ cơ sở dữ liệu SoD...</p>
+            </div>
+          ) : tasks.length > 0 ? (
+            tasks.map((t) => (
               <div
                 key={t.id}
                 className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4 hover:shadow-md transition-all"
@@ -175,8 +190,14 @@ export function SodInboxView() {
                         {t.ticketCode}
                       </span>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                        {t.stepAction}
+                        {t.stepAction} ({t.roleRequired})
                       </span>
+                      {t.isDelegated && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                          <UserCheck size={10} />
+                          <span>Được ủy quyền</span>
+                        </span>
+                      )}
                       {t.isUrgent && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 animate-pulse flex items-center gap-1">
                           <AlertTriangle size={10} />
@@ -211,24 +232,27 @@ export function SodInboxView() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleTaskAction(t.id, 'APPROVE')}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                      disabled={operatingTaskId === t.id}
+                      onClick={() => handleTaskAction(t, 'APPROVE')}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
                     >
-                      <CheckCircle2 size={13} />
+                      {operatingTaskId === t.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                       <span>Phê duyệt</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleTaskAction(t.id, 'RETURN')}
-                      className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                      disabled={operatingTaskId === t.id}
+                      onClick={() => handleTaskAction(t, 'RETURN')}
+                      className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-800 border border-amber-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <RotateCcw size={13} />
-                      <span>Trả lại / Bổ sung</span>
+                      <span>Trả lại</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleTaskAction(t.id, 'REJECT')}
-                      className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                      disabled={operatingTaskId === t.id}
+                      onClick={() => handleTaskAction(t, 'REJECT')}
+                      className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 border border-rose-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <XCircle size={13} />
                       <span>Từ chối</span>
@@ -244,7 +268,7 @@ export function SodInboxView() {
               </div>
               <h3 className="font-bold text-slate-800 text-sm">Tuyệt vời! Bạn không còn nhiệm vụ nào tồn đọng</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Tất cả các phiếu yêu cầu thuộc thẩm quyền vai trò {user?.role} đã được xử lý xong.
+                Tất cả các phiếu yêu cầu thuộc thẩm quyền vai trò {user?.role} đã được xử lý xong trên hệ thống.
               </p>
             </div>
           )}
@@ -254,7 +278,7 @@ export function SodInboxView() {
       {activeTab === 'handled' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-xs text-slate-500 space-y-2">
           <Clock size={20} className="mx-auto text-slate-400" />
-          <p>Lịch sử 14 phiếu bạn đã phê duyệt hoặc từ chối trong 30 ngày qua đã được lưu vào sổ cái kiểm toán.</p>
+          <p>Lịch sử các phiếu bạn đã phê duyệt hoặc từ chối đã được ghi nhận vào sổ cái kiểm toán bất biến (PostgreSQL).</p>
         </div>
       )}
     </div>
