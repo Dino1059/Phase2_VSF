@@ -13,6 +13,8 @@ from database.run_migrations import DATABASE_DIR, INCREMENTAL_MIGRATIONS, ensure
 APP_SCHEMAS = ("bronze", "silver", "quarantine", "catalog", "policy", "engine", "orchestration", "audit")
 SOD_MIGRATION = "migration_20261016_phase2_sod_schema.sql"
 LEGACY_SOD_MIGRATION_CHECKSUM = "50ad9a6381549ae6e123cb926c4d9d0775a70adf7496f8afd88670d08eb8b3ea"
+PHASE3_MIGRATION = "migration_20261016_phase3_cross_system.sql"
+LEGACY_PHASE3_MIGRATION_CHECKSUM = "bda7e007f9885c45aeb31bb4fcd67a637cad0c1bd14252395d93554bbdb914b7"
 
 
 def ensure_production_admin(database_url: str) -> bool:
@@ -105,7 +107,18 @@ def main() -> int:
     # Older installs may contain the legacy login role with a password embedded
     # in the original migration. Disable that credential and accept the audited
     # replacement migration checksum before normal checksum enforcement runs.
-    sod_checksum = hashlib.sha256((DATABASE_DIR / SOD_MIGRATION).read_bytes()).hexdigest()
+    compatible_checksum_updates = (
+        (
+            SOD_MIGRATION,
+            LEGACY_SOD_MIGRATION_CHECKSUM,
+            hashlib.sha256((DATABASE_DIR / SOD_MIGRATION).read_bytes()).hexdigest(),
+        ),
+        (
+            PHASE3_MIGRATION,
+            LEGACY_PHASE3_MIGRATION_CHECKSUM,
+            hashlib.sha256((DATABASE_DIR / PHASE3_MIGRATION).read_bytes()).hexdigest(),
+        ),
+    )
     with psycopg2.connect(database_url) as connection:
         ensure_migration_table(connection)
         with connection.cursor() as cursor:
@@ -120,14 +133,15 @@ def main() -> int:
                 $cleanup$;
                 """
             )
-            cursor.execute(
-                """
-                UPDATE orchestration.schema_migrations
-                SET checksum = %s
-                WHERE migration_name = %s AND checksum = %s
-                """,
-                (sod_checksum, SOD_MIGRATION, LEGACY_SOD_MIGRATION_CHECKSUM),
-            )
+            for migration_name, legacy_checksum, current_checksum in compatible_checksum_updates:
+                cursor.execute(
+                    """
+                    UPDATE orchestration.schema_migrations
+                    SET checksum = %s
+                    WHERE migration_name = %s AND checksum = %s
+                    """,
+                    (current_checksum, migration_name, legacy_checksum),
+                )
 
     print("Existing DataTrust database detected; applying pending non-destructive migrations.")
     if not run_migrations():

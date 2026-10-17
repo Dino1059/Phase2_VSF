@@ -229,9 +229,5 @@ CREATE INDEX IF NOT EXISTS idx_findings_sod_ticket ON audit.findings(sod_ticket_
 CREATE INDEX IF NOT EXISTS idx_findings_sod_status ON audit.findings(sod_approval_status);
 
 -- 11. PHÂN QUYỀN TRUY CẬP CHO SOD_APP
-GRANT USAGE ON SCHEMA remediation TO sod_app;
-GRANT SELECT, INSERT, UPDATE ON remediation.proposals TO sod_app;
-GRANT SELECT, INSERT ON remediation.proposal_versions TO sod_app;
-GRANT SELECT, INSERT, UPDATE ON remediation.execution_attempts TO sod_app;
-GRANT SELECT, INSERT, UPDATE ON sod.ticket_subjects TO sod_app;
-GRANT USAGE, SELECT, UPDATE ON SEQUENCE audit.evidence_seq TO sod_app;
+-- Objects are owned by the managed DATABASE_URL identity. Do not grant to a
+-- separately provisioned login role or embed another database credential.
