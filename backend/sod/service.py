@@ -126,6 +126,7 @@ class SodService:
             # 3. Lưu các bước duyệt
             step_ids = {}
             for s in chain["steps"]:
+                init_status = "CURRENT" if s["idx"] == 0 else s["status"]
                 cur.execute("""
                     INSERT INTO sod.ticket_steps (
                         ticket_id, idx, phase, key, role_code, action, acts,
@@ -138,8 +139,8 @@ class SodService:
                     ) RETURNING id;
                 """, (
                     ticket_id, s["idx"], s["phase"], s["key"], s["role"], s["action"], [str(a) for a in s["acts"]],
-                    s.get("assignee_id"), s["status"], s.get("sla_hours", 24),
-                    s["status"], s["status"], s.get("sla_hours", 24)
+                    s.get("assignee_id"), init_status, s.get("sla_hours", 24),
+                    init_status, init_status, s.get("sla_hours", 24)
                 ))
                 step_ids[s["idx"]] = str(cur.fetchone()["id"])
 
@@ -149,6 +150,9 @@ class SodService:
                 INSERT INTO sod.step_decisions (step_id, actor_id, outcome, comment, form_hash, rev)
                 VALUES (%s, %s, 'SUBMIT', 'Khởi tạo phiếu đề nghị cấp quyền', %s, 1);
             """, (s0_id, requester_id, form_hash))
+
+            # Chuyển bước 0 thành DONE sau khi đã ghi nhận quyết định SUBMIT hợp lệ
+            cur.execute("UPDATE sod.ticket_steps SET status = 'DONE' WHERE id = %s;", (s0_id,))
 
             # Cập nhật active_step_id trỏ vào bước 1
             s1_id = step_ids.get(1)
