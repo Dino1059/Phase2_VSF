@@ -13,6 +13,7 @@ from pathlib import Path
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+from backend.sod.catalog import DEFAULT_MATRIX
 
 DATABASE_DIR = Path(__file__).resolve().parent
 load_dotenv(DATABASE_DIR.parent / ".env")
@@ -95,11 +96,22 @@ def seed_demo_data():
                         ON CONFLICT (user_id, role_code) DO NOTHING;
                     """, (demo_uid, p["role"]))
 
-            print(">>> [2/3] Kiểm tra phiên bản ma trận RACIX ACTIVE...")
-            cur.execute("SELECT id, seq FROM sod.config_versions WHERE status = 'ACTIVE' LIMIT 1;")
+            print(">>> [2/3] Cập nhật / Đồng bộ phiên bản ma trận RACIX ACTIVE chuẩn...")
+            cur.execute("""
+                INSERT INTO sod.config_versions (seq, config, status, reason, activated_at)
+                VALUES (
+                    1,
+                    jsonb_build_object('version', '1.0.0-standard', 'matrix', %s::jsonb),
+                    'ACTIVE',
+                    'Cấu hình ma trận RACIX chuẩn ISO 27001 / SoD Governance',
+                    now()
+                )
+                ON CONFLICT (seq) DO UPDATE SET
+                    config = EXCLUDED.config,
+                    status = 'ACTIVE'
+                RETURNING id, seq;
+            """, (json.dumps(DEFAULT_MATRIX),))
             active_cfg = cur.fetchone()
-            if not active_cfg:
-                raise RuntimeError("Chưa có phiên bản ma trận ACTIVE nào trong sod.config_versions. Hãy chạy migration trước!")
             config_id = active_cfg["id"]
             config_seq = active_cfg["seq"]
 

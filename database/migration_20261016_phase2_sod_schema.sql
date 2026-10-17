@@ -441,32 +441,32 @@ VALUES (
     jsonb_build_object(
         'version', '1.0.0-seed',
         'matrix', jsonb_build_array(
-            '--X--C--A-P',  -- 0: Đề nghị cấp / thay đổi quyền
-            '----R-A--P-',  -- 1: Phê duyệt cấp quyền thông thường
-            '--R-C--A--P',  -- 2: Phê duyệt quyền có truy cập PII
-            '---RC--A--P',  -- 3: Phê duyệt quyền đặc quyền hoặc quyền DB
-            '--A-P------',  -- 4: Khởi tạo & phân quyền tài khoản
-            '---P-A-----',  -- 5: Thu hồi quyền truy cập
-            '--X--R--A-P',  -- 6: Yêu cầu thay đổi mã nguồn
-            '--X-R--A-P-',  -- 7: Phê duyệt Merge Request vào main branch
-            '---R-A-P---',  -- 8: Build & đóng gói bản phát hành
-            '--X-R-A-P--',  -- 9: Phê duyệt phát hành (Release Approval)
-            '----R-A-P--',  -- 10: Phê duyệt triển khai Production
-            '---P-A-----',  -- 11: Triển khai hạ tầng Production
-            '--P--A-----',  -- 12: Đăng ký & cấu hình ứng dụng mới
-            '--R-A-P----',  -- 13: Cấp phát tài nguyên hệ thống
-            '---P-A-----',  -- 14: Đóng tài nguyên hệ thống
-            '--R-C--A--P',  -- 15: Phê duyệt ngoại lệ kiểm soát
-            '---P-A-----',  -- 16: Kích hoạt quyền khẩn cấp (Break-glass)
-            '--R-A-P----',  -- 17: Phê duyệt cấu hình ma trận phân quyền
-            '---P-A-----'   -- 18: Rà soát định kỳ quyền truy cập
+            'PXIIIXIIXI',  -- 0: Khởi tạo yêu cầu cấp quyền
+            'XACRIXXXXI',  -- 1: Xác nhận nhu cầu nghiệp vụ
+            'XAARCXXXXI',  -- 2: Phê duyệt quyền có truy cập PII
+            'XCCAAXXXXI',  -- 3: Phê duyệt quyền đặc quyền hoặc quyền DB
+            'XXXXRPXXXI',  -- 4: Cấp quyền qua IAM/PAM
+            'IAIRCPXXXR',  -- 5: Thu hồi quyền khi nhân sự nghỉ việc
+            'IACRIPXXXR',  -- 6: Điều chuyển hoặc thay đổi vai trò
+            'XXCAAPXRXI',  -- 7: Tạo hoặc sửa RBAC role
+            'XXXIRXPXXI',  -- 8: Phát triển mã nguồn
+            'XXCRRXPAXI',  -- 9: Kiểm thử và xác nhận kết quả
+            'XXCRAXXAXI',  -- 10: Phê duyệt phát hành Production
+            'XXXIRXXXPI',  -- 11: Triển khai Production
+            'PACARXXRII',  -- 12: Thay đổi giá, khuyến mại hoặc chính sách vận hành
+            'PXAARXXXXI',  -- 13: Truy vấn dữ liệu PII nghiệp vụ (khách hàng) trực tiếp
+            'PAARRXXXXI',  -- 14: Xuất dữ liệu PII nghiệp vụ (khách hàng)
+            'XCAAAXXXXI',  -- 15: Phê duyệt ngoại lệ kiểm soát
+            'CICRACCCPI',  -- 16: Điều tra sự cố bảo mật
+            'IICRAXXRRR',  -- 17: Đóng sự cố và xác nhận khắc phục
+            'IACPRIXXXR'   -- 18: Rà soát quyền định kỳ
         )
     ),
     'ACTIVE',
     'Cấu hình ma trận RACIX ban đầu chuẩn ISO 27001 / SoD Governance',
     now()
 )
-ON CONFLICT (seq) DO NOTHING;
+ON CONFLICT (seq) DO UPDATE SET config = EXCLUDED.config;
 
 -- =============================================================================
 -- 17. OBJECTS ARE OWNED BY THE MANAGED APPLICATION DATABASE IDENTITY
