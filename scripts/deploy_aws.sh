@@ -4,6 +4,7 @@ set -Eeuo pipefail
 TARGET_SHA="${1:?target git SHA is required}"
 DEPLOY_STAGE="app_directory"
 trap 'echo "DATATRUST_DEPLOY_FAILED_STAGE=$DEPLOY_STAGE" >&2' ERR
+umask 077
 APP_DIR="${DATATRUST_APP_DIR:-/opt/datatrust}"
 COMPOSE_FILE="docker-compose.aws.yml"
 ENV_FILE=".env.aws"
@@ -35,18 +36,15 @@ APP_SECRET="$(sed -n 's/^DATATRUST_API_PASSWORD=//p' "$ENV_FILE" 2>/dev/null | t
 if [ "${#APP_SECRET}" -lt 24 ] || [ "$APP_SECRET" = "$AIRFLOW_SECRET" ] || [ "$APP_SECRET" = "replace-with-a-distinct-long-random-value" ]; then
   APP_SECRET_VALUE="$(openssl rand -hex 24)"
   APP_CREDENTIAL_PARAMETER_NAME="${APP_CREDENTIAL_PARAMETER_NAME:-/datatrust/production/app_admin_password}"
-  if aws ssm put-parameter --name "$APP_CREDENTIAL_PARAMETER_NAME" --type SecureString \
-      --value "$APP_SECRET_VALUE" --overwrite >/dev/null; then
-    if grep -q '^DATATRUST_API_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
-      sed -i "s/^DATATRUST_API_PASSWORD=.*/DATATRUST_API_PASSWORD=$APP_SECRET_VALUE/" "$ENV_FILE"
-    else
-      printf '\nDATATRUST_API_PASSWORD=%s\n' "$APP_SECRET_VALUE" >> "$ENV_FILE"
-    fi
-  elif [ "${#APP_SECRET}" -ge 24 ] && [ "$APP_SECRET" != "replace-with-a-distinct-long-random-value" ]; then
-    echo "Warning: cannot persist a separated app credential to SSM; retaining the existing credential."
+  if grep -q '^DATATRUST_API_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s/^DATATRUST_API_PASSWORD=.*/DATATRUST_API_PASSWORD=$APP_SECRET_VALUE/" "$ENV_FILE"
   else
-    echo "Cannot provision DATATRUST_API_PASSWORD securely in SSM." >&2
-    exit 1
+    printf '\nDATATRUST_API_PASSWORD=%s\n' "$APP_SECRET_VALUE" >> "$ENV_FILE"
+  fi
+  chmod 600 "$ENV_FILE"
+  if ! aws ssm put-parameter --name "$APP_CREDENTIAL_PARAMETER_NAME" --type SecureString \
+      --value "$APP_SECRET_VALUE" --overwrite >/dev/null; then
+    echo "Warning: app credential is secured on-host but could not be mirrored to SSM." >&2
   fi
   unset APP_SECRET_VALUE APP_CREDENTIAL_PARAMETER_NAME
 fi
