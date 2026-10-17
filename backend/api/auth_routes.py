@@ -230,14 +230,8 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
                         ELSE u.password_hash = crypt(%s, u.password_hash)
                    END AS password_valid
             FROM sod.users u
-            LEFT JOIN sod.user_roles ur ON ur.user_id = u.id
-            WHERE (
-                u.username = %s 
-                OR u.username = %s 
-                OR (%s IS NOT NULL AND ur.role_code = %s AND (u.username LIKE 'demo_%%' OR u.username = 'demo_user'))
-            ) AND u.is_active = TRUE
-            LIMIT 1;
-        """, (payload.password, payload.password, username, f"demo_{username}", requested_role, requested_role))
+            WHERE u.username = %s AND u.is_active = TRUE;
+        """, (payload.password, payload.password, username))
         user_row = cur.fetchone()
 
         if user_row and is_production and not allow_demo:
@@ -248,9 +242,19 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
                 raise HTTPException(status_code=401, detail="Tài khoản hoặc mật khẩu không chính xác.")
 
         if not user_row:
-            # Nếu chưa có sẵn trong DB và đang ở Demo mode, tìm persona đầu tiên
+            # Nếu chưa có sẵn trong DB và đang ở Demo mode, tìm persona tương ứng
             if not is_production or allow_demo:
-                cur.execute("SELECT id, username, full_name, session_version, TRUE AS password_valid FROM sod.users WHERE username LIKE 'demo_%' LIMIT 1;")
+                cur.execute("""
+                    SELECT u.id, u.username, u.full_name, u.session_version, u.password_hash, TRUE AS password_valid
+                    FROM sod.users u
+                    LEFT JOIN sod.user_roles ur ON ur.user_id = u.id
+                    WHERE u.is_active = TRUE AND (
+                        u.username = %s
+                        OR (%s IS NOT NULL AND ur.role_code = %s AND (u.username LIKE 'demo_%%' OR u.username = 'demo_user'))
+                        OR u.username LIKE 'demo_%%'
+                    )
+                    LIMIT 1;
+                """, (f"demo_{username}", requested_role, requested_role))
                 user_row = cur.fetchone()
 
         if not user_row:
