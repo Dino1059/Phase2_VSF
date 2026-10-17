@@ -82,7 +82,9 @@ wait_for_postgres() {
 
 verify_authenticated_app() {
   local app_user app_password auth_file
+  DEPLOY_STAGE="authenticated_credential_load"
   app_user="$(sed -n 's/^DATATRUST_API_USER=//p' "$ENV_FILE" | tail -n 1)"
+  app_user="${app_user:-datatrust}"
   app_password="$(sed -n 's/^DATATRUST_API_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
   test -n "$app_user"
   test -n "$app_password"
