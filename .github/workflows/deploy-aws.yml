@@ -151,7 +151,7 @@ jobs:
             ("git show " + $sha + ":scripts/deploy_aws.sh > /tmp/datatrust-deploy.sh"),
             "chmod 700 /tmp/datatrust-deploy.sh",
             "echo DATATRUST_DEPLOY_WRAPPER_STAGE=deploy_script",
-            ("/tmp/datatrust-deploy.sh " + $sha)
+            ("bash /tmp/datatrust-deploy.sh " + $sha)
           ]}' > ssm-parameters.json
 
           command_id="$(aws ssm send-command \
