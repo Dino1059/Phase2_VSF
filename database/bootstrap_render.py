@@ -59,6 +59,17 @@ def ensure_production_admin(database_url: str) -> bool:
     return True
 
 
+def ensure_demo_personas() -> bool:
+    """Ensure demo personas are populated for multi-party testing."""
+    try:
+        from database.seed_sod_demo import seed_demo_data
+        seed_demo_data()
+        return True
+    except Exception as e:
+        print(f"Notice: demo persona seed: {e}", file=sys.stderr)
+        return False
+
+
 def main() -> int:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -94,6 +105,7 @@ def main() -> int:
                         """,
                         (migration_name, checksum),
                     )
+        ensure_demo_personas()
         return 0 if ensure_production_admin(database_url) else 1
 
     if "orchestration" not in existing:
@@ -146,6 +158,7 @@ def main() -> int:
     print("Existing DataTrust database detected; applying pending non-destructive migrations.")
     if not run_migrations():
         return 1
+    ensure_demo_personas()
     return 0 if ensure_production_admin(database_url) else 1
 
 

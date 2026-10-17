@@ -489,7 +489,7 @@ function loadInitialSession(): {
 const initial = loadInitialSession();
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  isDemoMode: import.meta.env.DEV,
+  isDemoMode: true,
   token: initial.isAuthenticated ? readAuthToken() : null,
   user: initial.user,
   currentPersona: initial.persona,
@@ -504,7 +504,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * Reset sạch state cũ trước khi nạp persona mới.
    */
   loginWithPersona: (personaOrUsername: string) => {
-    if (!import.meta.env.DEV) throw new Error('Quick persona chỉ khả dụng trong môi trường phát triển.');
     const norm = String(personaOrUsername || '').trim().toLowerCase();
     const persona =
       PERSONA_ACCOUNTS[norm] ||
@@ -515,11 +514,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     get().resetSessionState();
 
     const profile = personaToProfile(persona);
+    const token = `demo_token_${persona.id}`;
     try {
       localStorage.removeItem(LOGGED_OUT_KEY);
       localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ personaId: persona.id, role: persona.primaryRole }));
       localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(profile));
       localStorage.setItem('datatrust-role', persona.primaryRole.toLowerCase());
+      persistAuthToken(token, persona.primaryRole);
     } catch {}
 
     set({
@@ -527,7 +528,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentPersona: persona,
       systemAccess: persona.systemAccess,
       isAuthenticated: true,
-      token: `demo_token_${persona.id}`,
+      token,
     });
 
     return persona.defaultRoute;
@@ -620,7 +621,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return res.redirect || (res.user.system_access === 'sod_only' ? '/sod' : '/overview');
       }
     } catch (err) {
-      if (!import.meta.env.DEV) throw err;
       console.warn('Backend switch-role call failed, using local development persona:', err);
     }
     // Fallback if backend API is offline

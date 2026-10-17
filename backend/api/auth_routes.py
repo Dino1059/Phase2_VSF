@@ -100,7 +100,8 @@ async def get_current_user(
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:].strip()
 
-    is_demo = os.getenv("ENVIRONMENT", "").lower() != "production"
+    allow_demo = os.getenv("ALLOW_DEMO_LOGIN", "false").lower() in {"1", "true", "yes"}
+    is_demo = os.getenv("ENVIRONMENT", "").lower() != "production" or allow_demo
 
     if token:
         payload = decode_jwt_token(token)
@@ -218,6 +219,10 @@ class SwitchRoleRequest(BaseModel):
 def login(payload: LoginRequest, conn = Depends(get_db_connection)):
     """Đăng nhập tài khoản hoặc nạp phiên demo, trả về JWT token."""
     username = payload.username.strip().lower()
+    allow_demo = os.getenv("ALLOW_DEMO_LOGIN", "false").lower() in {"1", "true", "yes"}
+    is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
+    requested_role = payload.role.upper() if payload.role else None
+
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
             SELECT u.id, u.username, u.full_name, u.session_version, u.password_hash,
@@ -225,17 +230,26 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
                         ELSE u.password_hash = crypt(%s, u.password_hash)
                    END AS password_valid
             FROM sod.users u
-            WHERE u.username = %s AND u.is_active = TRUE;
-        """, (payload.password, payload.password, username))
+            LEFT JOIN sod.user_roles ur ON ur.user_id = u.id
+            WHERE (
+                u.username = %s 
+                OR u.username = %s 
+                OR (%s IS NOT NULL AND ur.role_code = %s AND (u.username LIKE 'demo_%%' OR u.username = 'demo_user'))
+            ) AND u.is_active = TRUE
+            LIMIT 1;
+        """, (payload.password, payload.password, username, f"demo_{username}", requested_role, requested_role))
         user_row = cur.fetchone()
 
-        is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
-        if user_row and is_production and not user_row["password_valid"]:
-            raise HTTPException(status_code=401, detail="Tài khoản hoặc mật khẩu không chính xác.")
+        if user_row and is_production and not allow_demo:
+            if user_row["password_hash"] is not None and not user_row["password_valid"]:
+                raise HTTPException(status_code=401, detail="Tài khoản hoặc mật khẩu không chính xác.")
+        elif user_row and is_production and allow_demo:
+            if payload.password and user_row["password_hash"] is not None and not user_row["password_valid"]:
+                raise HTTPException(status_code=401, detail="Tài khoản hoặc mật khẩu không chính xác.")
 
         if not user_row:
             # Nếu chưa có sẵn trong DB và đang ở Demo mode, tìm persona đầu tiên
-            if not is_production:
+            if not is_production or allow_demo:
                 cur.execute("SELECT id, username, full_name, session_version, TRUE AS password_valid FROM sod.users WHERE username LIKE 'demo_%' LIMIT 1;")
                 user_row = cur.fetchone()
 
@@ -294,7 +308,8 @@ def switch_active_role(
     Cập nhật session_version += 1 để vô hiệu hóa token cũ ngay lập tức.
     """
     target_role = payload.role.upper()
-    is_demo = os.getenv("ENVIRONMENT", "").lower() != "production"
+    allow_demo = os.getenv("ALLOW_DEMO_LOGIN", "false").lower() in {"1", "true", "yes"}
+    is_demo = os.getenv("ENVIRONMENT", "").lower() != "production" or allow_demo
 
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         if is_demo:

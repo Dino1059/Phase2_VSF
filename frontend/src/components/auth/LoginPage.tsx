@@ -29,15 +29,22 @@ export function LoginPage() {
 
   const handleSelectPersona = (p: PersonaAccount) => {
     setLoadingPersonaId(p.id);
-    const destination = loginWithPersona(p.id);
-    // If redirect param matches user's allowed target, respect it, else go to persona's default
-    const finalRoute = redirectTarget && isRouteAllowed(p.systemAccess, redirectTarget)
-      ? decodeURIComponent(redirectTarget)
-      : destination;
+    setErrorMessage('');
+    try {
+      const destination = loginWithPersona(p.id);
+      // If redirect param matches user's allowed target, respect it, else go to persona's default
+      const finalRoute = redirectTarget && isRouteAllowed(p.systemAccess, redirectTarget)
+        ? decodeURIComponent(redirectTarget)
+        : destination;
 
-    setTimeout(() => {
-      navigate(finalRoute);
-    }, 250);
+      setTimeout(() => {
+        navigate(finalRoute);
+      }, 250);
+    } catch (err: any) {
+      console.error('Lỗi khi chọn persona:', err);
+      setErrorMessage(err?.message || 'Không thể đăng nhập bằng vai trò này. Vui lòng thử lại.');
+      setLoadingPersonaId(null);
+    }
   };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
@@ -178,6 +185,11 @@ export function LoginPage() {
         {/* Tab 1: Personas Grid */}
         {activeTab === 'personas' && (
           <div className="space-y-8">
+            {errorMessage && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold shadow-xs">
+                {errorMessage}
+              </div>
+            )}
             {/* NHÓM 1: CẢ HAI HỆ THỐNG */}
             {(selectedGroupFilter === 'all' || selectedGroupFilter === 'both') && (
               <section className="space-y-3">
