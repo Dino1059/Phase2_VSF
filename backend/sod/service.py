@@ -328,17 +328,29 @@ class SodService:
                 raise HTTPException(status_code=409, detail="Phiếu này đã đóng hoặc không hợp lệ.")
 
             # 2b. Kiểm tra quy trình đối soát thủ công (requires_human_input) nếu là bước SO
-            cur.execute("""
-                SELECT ts.subject_type, ts.subject_id, ts.subject_version, ts.subject_hash,
-                       p.requires_human_input, p.target_column, p.dataset_id, p.finding_id,
-                       p.params, p.source_snapshot_hash, p.expected_rows, p.target_quarantine_ids, p.operation_id
-                FROM sod.ticket_subjects ts
-                JOIN remediation.proposals p ON ts.subject_id = p.proposal_id
-                WHERE ts.ticket_id = %s;
-            """, (ticket_id,))
-            prop_meta = cur.fetchone()
+            prop_meta = None
+            if step["role_code"] == "SO":
+                try:
+                    cur.execute("""
+                        SELECT ts.subject_type, ts.subject_id, ts.subject_version, ts.subject_hash,
+                               p.target_column, p.dataset_id, p.finding_id,
+                               p.params, p.source_snapshot_hash, p.expected_rows, p.target_quarantine_ids, p.operation_id
+                        FROM sod.ticket_subjects ts
+                        JOIN remediation.proposals p ON ts.subject_id = p.proposal_id
+                        WHERE ts.ticket_id = %s;
+                    """, (ticket_id,))
+                    prop_meta = cur.fetchone()
+                except Exception:
+                    prop_meta = None
 
-            if prop_meta and prop_meta.get("requires_human_input") and step["role_code"] == "SO":
+            needs_human_input = False
+            if prop_meta:
+                needs_human_input = (
+                    prop_meta.get("operation_id") in ("MANUAL_RECONCILIATION", "RECONCILE_LEDGER")
+                    or (prop_meta.get("params") or {}).get("requires_human_input", False)
+                )
+
+            if prop_meta and needs_human_input and step["role_code"] == "SO":
                 if outcome_norm in ("APPROVE", "COMPLETE"):
                     if not reconciliation or reconciliation.get("corrected_value") is None or str(reconciliation.get("corrected_value")).strip() == "":
                         raise HTTPException(
