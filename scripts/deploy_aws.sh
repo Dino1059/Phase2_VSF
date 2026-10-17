@@ -81,20 +81,26 @@ wait_for_postgres() {
 }
 
 verify_authenticated_app() {
-  local app_user app_password basic_config
+  local app_user app_password auth_file
   app_user="$(sed -n 's/^DATATRUST_API_USER=//p' "$ENV_FILE" | tail -n 1)"
   app_password="$(sed -n 's/^DATATRUST_API_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
   test -n "$app_user"
   test -n "$app_password"
-  basic_config="$(printf 'user = "%s:%s"\n' "$app_user" "$app_password")"
+  auth_file="$(mktemp)"
+  trap 'rm -f -- "$auth_file"' RETURN
+  printf 'machine localhost login %s password %s\n' "$app_user" "$app_password" > "$auth_file"
+  chmod 600 "$auth_file"
 
-  curl --config <(printf '%s' "$basic_config") --fail --silent --show-error \
+  DEPLOY_STAGE="authenticated_ui_smoke_test"
+  curl --netrc-file "$auth_file" --fail --silent --show-error \
     --max-time 10 http://localhost/ >/dev/null
+  DEPLOY_STAGE="authenticated_login_smoke_test"
   printf '{"username":"%s","password":"%s"}' "$app_user" "$app_password" \
-    | curl --config <(printf '%s' "$basic_config") --fail --silent --show-error \
-      --max-time 10 --json @- http://localhost/api/auth/login >/dev/null
+    | curl --netrc-file "$auth_file" --fail --silent --show-error \
+      --max-time 10 --header 'Content-Type: application/json' --data-binary @- \
+      http://localhost/api/auth/login >/dev/null
 
-  unset app_user app_password basic_config
+  unset app_user app_password
 }
 
 rollback() {
