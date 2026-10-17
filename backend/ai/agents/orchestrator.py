@@ -34,11 +34,15 @@ logger = logging.getLogger("DataTrust.Orchestrator")
 def sanitize_chat_markdown(text: str) -> str:
     """
     Cleans markdown formatting and removes escaped markdown characters,
-    internal variable tokens, and deep headings.
+    internal variable tokens, deep headings, and replacement characters.
     """
     import re
+    import unicodedata
     if not text:
         return ""
+    # Strip Unicode replacement character and normalize NFC
+    text = text.replace('\ufffd', '')
+    text = unicodedata.normalize('NFC', text)
     # 1. Remove backslash escapes for markdown characters: \####, 1\., \*, \_
     text = re.sub(r'\\+(#+)', r'\1', text)
     text = re.sub(r'([0-9]+)\\+\.', r'\1.', text)
@@ -128,8 +132,9 @@ class DataTrustAgentOrchestrator:
 
         msg_lower = message.lower().strip()
 
-        # Classify User Intent using negation-aware priority rules
-        user_intent = IntentClassifier.classify(message)
+        # 1. Multi-Tier Intent Classification
+        classification = IntentClassifier.classify_full(message, llm_adapter=self.llm_adapter)
+        user_intent = classification.intent
 
         # -------------------------------------------------------------
         # 1. TOPIC SWITCH: Explicit request to change topic / reset
@@ -151,7 +156,49 @@ class DataTrustAgentOrchestrator:
                 "response": reset_reply,
                 "session_id": session_id,
                 "run_id": run_id,
-                "data": {"status": "TOPIC_RESET"},
+                "data": {
+                    "intent": UserIntent.TOPIC_SWITCH.value,
+                    "sub_intents": [UserIntent.TOPIC_SWITCH.value],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED",
+                    "sources": [],
+                    "status": "TOPIC_RESET"
+                },
+                "traces": []
+            }
+
+        # -------------------------------------------------------------
+        # 1.5. CONTEXT ROUTER REGISTRY: Deterministic Grounded Handlers
+        # (RUN_METRICS, DOMAIN_GLOSSARY, UNSUPPORTED, MULTI_INTENT)
+        # -------------------------------------------------------------
+        from backend.ai.services.context_registry import ContextRouterRegistry
+        reg_result = ContextRouterRegistry.execute(classification, run_id)
+        if reg_result is not None:
+            clean_resp = sanitize_chat_markdown(reg_result.response_text)
+            logger.info(
+                f"ContextRouterRegistry dispatched for run {run_id}: intent={user_intent.value}, "
+                f"grounding={reg_result.grounding_status}, sources={reg_result.sources}"
+            )
+            session_manager.append_chat_turn(
+                session_id=session_id,
+                run_id=run_id,
+                user_text=message,
+                ai_text=clean_resp,
+                updates={}
+            )
+            return {
+                "response": clean_resp,
+                "session_id": session_id,
+                "run_id": run_id,
+                "intent": user_intent.value,
+                "data": {
+                    "intent": user_intent.value,
+                    "sub_intents": [s.value for s in classification.sub_intents],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": reg_result.grounding_status,
+                    "sources": reg_result.sources,
+                    **reg_result.data_payload
+                },
                 "traces": []
             }
 
@@ -234,7 +281,13 @@ class DataTrustAgentOrchestrator:
                 "response": greeting_reply,
                 "session_id": session_id,
                 "run_id": run_id,
-                "data": {"intent": "GENERAL_CONVERSATION"},
+                "data": {
+                    "intent": "GENERAL_CONVERSATION",
+                    "sub_intents": ["GENERAL_CONVERSATION"],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED",
+                    "sources": ["conversation_engine"]
+                },
                 "traces": []
             }
 
@@ -309,6 +362,17 @@ class DataTrustAgentOrchestrator:
                 "session_id": session_id,
                 "run_id": run_id,
                 "data": {
+                    "intent": "RUN_OVERVIEW",
+                    "sub_intents": ["RUN_OVERVIEW"],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED",
+                    "sources": ["orchestration.pipeline_runs", "audit.findings"],
+                    "scanned_count": scanned,
+                    "silver_count": silver,
+                    "silver_rate": round((silver / scanned) * 100, 2) if scanned and silver is not None and scanned > 0 else 0.0,
+                    "quarantine_count": quarantine,
+                    "warning_count": warning,
+                    "not_evaluated_count": not_eval,
                     "structured_analysis": {
                         "run_id": run_id,
                         "status": status,
@@ -875,6 +939,11 @@ class DataTrustAgentOrchestrator:
                 "run_id": run_id,
                 "data": {
                     "intent": "WARNING_INQUIRY",
+                    "sub_intents": ["WARNING_INQUIRY"],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED",
+                    "sources": ["orchestration.pipeline_runs", "catalog.table_profiles"],
+                    "warning_count": pipeline_cnt,
                     "pipeline_warning_count": pipeline_cnt,
                     "actual_records_count": actual_cnt,
                     "is_reconciled": we.get("is_reconciled", True),
@@ -1167,6 +1236,11 @@ Trả về JSON có cấu trúc gồm:
                 "session_id": session_id,
                 "run_id": run_id,
                 "data": {
+                    "intent": user_intent.value,
+                    "sub_intents": [s.value for s in classification.sub_intents],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED" if grounded_samples else "PARTIAL",
+                    "sources": ["audit.findings", "quarantine.records", "policy.compliance_rules"],
                     "finding": dict(finding_row),
                     "structured_analysis": structured_data,
                     "grounding_level": grounding_level,
@@ -1251,7 +1325,14 @@ Trả về JSON có cấu trúc gồm:
                 "response": clean_resp,
                 "session_id": session_id,
                 "run_id": run_id,
-                "data": {"dry_run_result": dry_run_res},
+                "data": {
+                    "intent": user_intent.value,
+                    "sub_intents": [s.value for s in classification.sub_intents],
+                    "intent_confidence": classification.confidence,
+                    "grounding_status": "GROUNDED",
+                    "sources": ["policy.data_treatment_rules", "catalog.table_profiles"],
+                    "dry_run_result": dry_run_res
+                },
                 "traces": [rule_trace.model_dump()]
             }
 
@@ -1283,6 +1364,13 @@ Trả về JSON có cấu trúc gồm:
             "response": clean_final,
             "session_id": res.get("session_id", session_id),
             "run_id": run_id,
+            "data": {
+                "intent": user_intent.value,
+                "sub_intents": [s.value for s in classification.sub_intents],
+                "intent_confidence": classification.confidence,
+                "grounding_status": "PARTIAL",
+                "sources": ["profiler_tool"]
+            },
             "traces": res.get("traces", [])
         }
 

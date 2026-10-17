@@ -43,8 +43,8 @@ export const LAYER_TOKENS: Record<'L1' | 'L2' | 'L3' | 'L4', LayerTokenMeta> = {
     hexColor: '#ef4444',
     iconName: 'ShieldAlert',
     defaultLabel: {
-      vi: 'L1 - Ràng buộc cứng & Schema',
-      en: 'L1 - Hard Constraints & Schema',
+      vi: 'L1 - Ràng buộc xác định & Schema',
+      en: 'L1 - Deterministic Rules & Schema',
     },
   },
   L2: {
@@ -54,8 +54,8 @@ export const LAYER_TOKENS: Record<'L1' | 'L2' | 'L3' | 'L4', LayerTokenMeta> = {
     hexColor: '#f59e0b',
     iconName: 'Activity',
     defaultLabel: {
-      vi: 'L2 - Trôi ngắt ngữ cảnh & Thống kê',
-      en: 'L2 - Statistical & Contextual Drift',
+      vi: 'L2 - Bất thường & Trôi dạt thống kê',
+      en: 'L2 - Contextual Statistical Drift',
     },
   },
   L3: {
@@ -65,8 +65,8 @@ export const LAYER_TOKENS: Record<'L1' | 'L2' | 'L3' | 'L4', LayerTokenMeta> = {
     hexColor: '#3b82f6',
     iconName: 'Network',
     defaultLabel: {
-      vi: 'L3 - Toàn vẹn quan hệ liên thực thể',
-      en: 'L3 - Cross-Entity Relational Integrity',
+      vi: 'L3 - Quan hệ đa biến & Liên thực thể',
+      en: 'L3 - Multivariate & Cross-Entity Integrity',
     },
   },
   L4: {
@@ -76,8 +76,8 @@ export const LAYER_TOKENS: Record<'L1' | 'L2' | 'L3' | 'L4', LayerTokenMeta> = {
     hexColor: '#a855f7',
     iconName: 'Brain',
     defaultLabel: {
-      vi: 'L4 - Độ tin cậy hệ thống & Thời gian',
-      en: 'L4 - Systemic Reliability & Temporal',
+      vi: 'L4 - Điểm thay đổi & Dịch chuyển chuỗi thời gian',
+      en: 'L4 - Temporal Regime Shifts & Change Points',
     },
   },
 };

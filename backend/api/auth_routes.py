@@ -6,7 +6,10 @@ Supports single unified session, token session_version validation, and Demo Mult
 import os
 import datetime
 from typing import Any, Dict, List, Optional
-import jwt
+try:
+    import jwt
+except ImportError:
+    from jose import jwt
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from psycopg2.extras import RealDictCursor

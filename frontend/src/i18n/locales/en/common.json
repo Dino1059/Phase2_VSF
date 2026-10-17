@@ -36,9 +36,9 @@
   "hypothesis": "Hypothesis",
   "preventiveControl": "Preventive Control",
   "operationalRecommendation": "Operational Recommendation",
-  "layerL1Label": "L1 Hard Constraints",
-  "layerL2Label": "L2 Contextual Drift",
-  "layerL3Label": "L3 Cross-Entity Integrity",
-  "layerL4Label": "L4 Systemic Reliability"
+  "layerL1Label": "L1 Deterministic Rules & Schema",
+  "layerL2Label": "L2 Contextual Statistical Drift",
+  "layerL3Label": "L3 Multivariate & Cross-Entity Integrity",
+  "layerL4Label": "L4 Temporal Regime Shifts & Change Points"
 }
 
