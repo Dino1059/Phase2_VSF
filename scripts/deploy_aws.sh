@@ -9,6 +9,7 @@ ENV_FILE=".env.aws"
 cd "$APP_DIR"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 DEPLOY_STAGE="credential_provisioning"
+trap 'echo "DATATRUST_DEPLOY_FAILED_STAGE=$DEPLOY_STAGE" >&2' ERR
 
 # Existing installations predate JWT authentication. Provision a strong,
 # persistent signing key once on the host without printing it to deployment
