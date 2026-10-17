@@ -91,7 +91,7 @@ def load_run_metrics_context(run_id: str) -> Dict[str, Any]:
         context["not_evaluated_count"] = not_eval
 
         # Determine readiness: Completed runs have final counts
-        if context["status"] in ("COMPLETED", "FAILED", "STOPPED"):
+        if context["status"] in ("COMPLETED", "SUCCESS", "FAILED", "STOPPED"):
             context["is_ready"] = True
             if scanned is not None and scanned > 0 and silver is not None:
                 context["silver_rate"] = round((silver / scanned) * 100, 2)
