@@ -40,6 +40,25 @@ class GlossaryTerm:
 # Canonical Glossary Definitions
 # -----------------------------------------------------------------------------
 GLOSSARY_REGISTRY: Dict[str, GlossaryTerm] = {
+    "detector_levels": GlossaryTerm(
+        term_id="detector_levels",
+        name_vi="Bộ kiểm định kỹ thuật L1–L4",
+        name_en="L1–L4 Technical Detector Suite",
+        category="Detector Suite",
+        definition_vi=(
+            "L1–L4 là bốn cấp kiểm định kỹ thuật của Lane A: L1 kiểm tra schema, kiểu dữ liệu, null, "
+            "giới hạn vật lý và bất biến xác định; L2 phát hiện bất thường và trôi dạt thống kê theo ngữ cảnh; "
+            "L3 kiểm tra quan hệ đa biến và liên thực thể; L4 phát hiện điểm thay đổi và dịch chuyển chế độ theo thời gian."
+        ),
+        definition_en=(
+            "The four Lane A technical validation levels: L1 deterministic schema and invariant checks; "
+            "L2 contextual statistical anomaly and drift detection; L3 multivariate and cross-entity relational checks; "
+            "and L4 temporal change-point and regime-shift detection."
+        ),
+        aliases=["l1-l4", "l1–l4", "l1 đến l4", "l1 tới l4", "l1 to l4", "các tầng l1 l2 l3 l4"],
+        details_vi="Bản ghi được đánh giá qua bộ kiểm định phù hợp với cấu hình dataset trước khi Lane C hợp nhất kết quả định tuyến.",
+        details_en="Records are evaluated by the configured detector suite before Lane C merges routing verdicts.",
+    ),
     "silver": GlossaryTerm(
         term_id="silver",
         name_vi="Bản ghi Silver (Dữ liệu đạt chuẩn)",

@@ -110,7 +110,23 @@ class IntentClassifier:
 
     GLOSSARY_TERMS_SET = {
         "silver", "bronze", "gold", "l1", "l2", "l3", "l4", "lane a", "lane b", "lan a", "lan b",
-        "hitl", "finding", "warning", "quarantine", "cach ly", "data treatment", "sod", "racix"
+        "l1 l4", "l1 den l4", "l1 toi l4", "hitl", "finding", "warning", "quarantine", "cach ly",
+        "data treatment", "sod", "racix"
+    }
+
+    # Match semantic slots anywhere in a sentence instead of requiring one
+    # exact Vietnamese word order (for example: "mấy record vào silver").
+    QUANTITY_SLOT_PATTERNS = [
+        r"\bbao\s+nhieu\b", r"\bmay\b", r"\bso\s+luong\b", r"\btong\s+so\b",
+        r"\bcount\b", r"\bhow\s+many\b", r"\bty\s+le\b", r"\bphan\s+tram\b",
+        r"\bpercentage\b", r"\brate\b", r"\byield\b",
+    ]
+    DATA_STATE_SLOT_PATTERNS = {
+        "silver_count": [r"\bsilver\b", r"\bdu\s+lieu\s+sach\b", r"\bban\s+ghi\s+sach\b", r"\bdong\s+sach\b", r"\bdat\s+chuan\b", r"\bpass(?:ed)?\b"],
+        "quarantine_count": [r"\bquarantine\b", r"\bcach\s+ly\b", r"\bbi\s+bat\b"],
+        "warning_count": [r"\bwarning(?:s)?\b", r"\bcanh\s+bao\b"],
+        "not_evaluated_count": [r"\bnot\s+evaluated\b", r"\bchua\s+danh\s+gia\b"],
+        "scanned_count": [r"\bscanned\b", r"\bquet\b", r"\btong\s+ban\s+ghi\b", r"\btong\s+record(?:s)?\b"],
     }
 
     # 4. RUN METRICS PATTERNS (counts, rates, volumes, clean vs quarantine)
@@ -248,6 +264,28 @@ class IntentClassifier:
         # 2. Strict Greetings / Pleasantries
         if any(re.search(p, text, re.IGNORECASE) or re.search(p, unaccented, re.IGNORECASE) for p in cls.GREETING_PATTERNS):
             return UserIntent.GENERAL_CONVERSATION, 0.99, None, None
+
+        # Semantic slots: quantity/rate + a governed record state. Tokens may
+        # be separated by natural connector words and may appear in any order.
+        has_quantity_slot = any(re.search(p, unaccented) for p in cls.QUANTITY_SLOT_PATTERNS)
+        metric_slot = next((
+            target for target, patterns in cls.DATA_STATE_SLOT_PATTERNS.items()
+            if any(re.search(p, unaccented) for p in patterns)
+        ), None)
+        if has_quantity_slot and metric_slot:
+            return UserIntent.RUN_METRICS, 0.97, None, metric_slot
+
+        # A layer range describes the detector suite, not a rule identifier.
+        layer_range = bool(
+            re.search(r"\bl1\s*(?:[-\u2013\u2014]|den|toi|to)\s*l4\b", text, re.IGNORECASE)
+            or re.search(r"\bl1\s+(?:den\s+|toi\s+|to\s+)?l4\b", unaccented)
+        )
+        definition_cue = bool(re.search(
+            r"\b(la\s+gi|nghia|dinh\s+nghia|giai\s+thich|what\s+(?:is|are)|define|hoat\s+dong|kiem\s+tra)\b",
+            unaccented,
+        ))
+        if layer_range and definition_cue:
+            return UserIntent.DOMAIN_GLOSSARY, 0.99, "detector_levels", None
 
         # 3. Rule Inquiry with explicit code/ID (e.g. "Rule L1-01 là gì?", "POL-VN-01", "rule CHK-01")
         # Must take precedence over glossary so "L1-01" is not misidentified as "L1" glossary concept

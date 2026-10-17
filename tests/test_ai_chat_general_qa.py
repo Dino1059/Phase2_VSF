@@ -60,6 +60,18 @@ class TestIntentClassifierBenchmark:
         assert res.intent == UserIntent.RUN_METRICS, f"Failed for query: {query}"
         assert res.confidence >= 0.70
 
+    @pytest.mark.parametrize("query", [
+        "có mấy record vào silver",
+        "có mấy record được đưa vào tầng Silver?",
+        "mấy dòng chuyển sang silver rồi",
+        "Silver hiện nhận được bao nhiêu records?",
+        "record pass được mấy dòng",
+    ])
+    def test_run_metrics_colloquial_slot_order(self, query):
+        res = IntentClassifier.classify_detailed(query)
+        assert res.intent == UserIntent.RUN_METRICS, f"Failed for query: {query}"
+        assert res.metric_target == "silver_count"
+
     @pytest.mark.parametrize("query, expected_term", [
         ("Silver là gì?", "silver"),
         ("silver la gi", "silver"),
@@ -85,6 +97,21 @@ class TestIntentClassifierBenchmark:
         assert res.intent == UserIntent.DOMAIN_GLOSSARY, f"Failed for query: {query}"
         assert res.glossary_term is not None
         assert expected_term in res.glossary_term.lower()
+
+    @pytest.mark.parametrize("query", [
+        "L1-L4 là gì",
+        "L1–L4 là gì?",
+        "L1 đến L4 nghĩa là gì",
+        "giải thích L1 tới L4",
+    ])
+    def test_l1_l4_range_is_glossary_not_rule_id(self, query):
+        res = IntentClassifier.classify_detailed(query)
+        assert res.intent == UserIntent.DOMAIN_GLOSSARY
+        assert res.glossary_term == "detector_levels"
+
+    def test_real_rule_id_still_routes_to_rule_inquiry(self):
+        res = IntentClassifier.classify_detailed("Rule L1-01 là gì?")
+        assert res.intent == UserIntent.RULE_INQUIRY
 
     def test_compound_multi_intent_query(self):
         """Compound query: 'Silver là gì và run này có bao nhiêu dòng đạt chuẩn?'"""
