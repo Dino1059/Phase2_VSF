@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/src/App';
 import { AppShell } from '@/components/datatrust/app-shell';
+import { useAuthStore } from '@/src/stores/authStore';
 
 // Mock apiBridge to avoid real network requests during unit tests
 vi.mock('@/lib/api-bridge', () => ({
@@ -32,6 +33,10 @@ vi.mock('@/lib/api-bridge', () => ({
 describe('Dual-Pane Global Layout & Navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    // Navigation tests exercise an authenticated shell explicitly. Production
+    // startup itself remains logged out and is covered by the auth suite.
+    useAuthStore.getState().switchPersona('admin');
   });
 
   it('renders Slim Icon Rail navigation without "Kết quả" tab', () => {

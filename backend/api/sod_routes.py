@@ -107,7 +107,7 @@ def decide_step(
     ticket_id: str,
     step_id: str,
     payload: DecideStepRequest,
-    current_user: UserContext = Depends(require_permission("sod_access")),
+    current_user: UserContext = Depends(require_permission("sod_approve_step")),
     conn = Depends(get_db_connection)
 ):
     """
@@ -148,6 +148,14 @@ def get_ticket_evidence(
 
 
 # 7. QUẢN TRỊ ỦY QUYỀN VẮNG MẶT (DELEGATIONS)
+@router.get("/people")
+def list_eligible_people(
+    current_user: UserContext = Depends(require_permission("sod_access")),
+    conn = Depends(get_db_connection),
+):
+    return SodService.get_eligible_people(conn)
+
+
 @router.get("/delegations")
 def list_delegations(
     current_user: UserContext = Depends(require_permission("sod_access")),
@@ -336,4 +344,3 @@ def get_sod_ticket_for_finding(
         res["has_ticket"] = True
         res["ticket"] = ticket_detail
         return res
-

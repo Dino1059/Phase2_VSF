@@ -24,9 +24,9 @@ export function phaseSteps(actId: number, mods: Mods[number] = {}, matrix: reado
   const L = (r: RoleKey) => mods[r] ?? letter(actId, r, matrix);
   const byRank = (a: RoleKey, b: RoleKey) => SOD_CONFIG.rank[a] - SOD_CONFIG.rank[b];
   const pick = (l: StepAction) =>
-    ROLE_KEYS.filter((r) => r !== "AUD" && L(r) === l && !(l === "P" && r === "REQ")).sort(byRank);
+    ROLE_KEYS.filter((r) => r !== "AUDITOR" && L(r) === l && !(l === "P" && r === "REQ")).sort(byRank);
   const [P, R, A] = [pick("P"), pick("R"), pick("A")];
-  const aud: [RoleKey, StepAction][] = "RA".includes(L("AUD")) ? [["AUD", L("AUD") as StepAction]] : [];
+  const aud: [RoleKey, StepAction][] = "RA".includes(L("AUDITOR")) ? [["AUDITOR", L("AUDITOR") as StepAction]] : [];
   const tag = (l: StepAction) => (r: RoleKey): [RoleKey, StepAction] => [r, l];
   const seq =
     ACTIVITIES[actId].kind === "approval"
@@ -71,7 +71,7 @@ export function buildChainFor(cl: Classification, requestor: string, people: Per
   }
   if (cl.breakGlass) {
     const phase = phases.push({ act: "bg", name: actName("bg"), C: ["CISO"], I: ["DPO"] }) - 1;
-    steps.push({ key: "bg-AUD-R", role: "AUD", action: "R", acts: ["bg"], phase, assignee: null, breakGlass: true });
+    steps.push({ key: "bg-AUDITOR-R", role: "AUDITOR", action: "R", acts: ["bg"], phase, assignee: null, breakGlass: true });
   }
   const chain: Chain = { requestor, steps, phases, classification: cl };
   autoAssign(chain, people);

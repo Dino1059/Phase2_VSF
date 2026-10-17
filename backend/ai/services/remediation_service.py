@@ -16,6 +16,7 @@ import uuid
 import time
 import hashlib
 import hmac
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -34,6 +35,7 @@ from database.profiler_engine import get_db_connection
 
 
 MAX_REMEDIATION_BATCH = 1000
+logger = logging.getLogger(__name__)
 
 
 def canonical_json_dumps(data: Any) -> str:
@@ -742,6 +744,12 @@ class RemediationService:
                 "Không được phép thực thi tự động hoặc đưa dữ liệu vào Silver."
             )
 
+        # These states can never have a governed SoD ticket: ticket creation is
+        # only allowed after DRY_RUN_PASSED. Other cached states may be stale, so
+        # the locked database proposal and ticket remain authoritative below.
+        if proposal.status in (ProposalStatus.PENDING_MAKER_CHECKER, ProposalStatus.PENDING_2ND_APPROVAL):
+            raise ValueError(f"Proposal chưa được phê duyệt (trạng thái hiện tại: {proposal.status}).")
+
         if actor_role.upper() != "ADMIN":
             raise PermissionError(f"Chỉ có vai trò ADMIN mới được phép thực thi Remediation Transaction. Vai trò: '{actor_role}'")
 
@@ -770,6 +778,7 @@ class RemediationService:
         q_ids = proposal.target.quarantine_ids
 
         conn = None
+        persistent_proposal_found = False
         try:
             conn = get_db_connection()
             conn.autocommit = False
@@ -780,6 +789,7 @@ class RemediationService:
                 prop_row = cur.fetchone()
                 if not prop_row:
                     raise KeyError(f"Proposal {proposal_id} không tìm thấy trong CSDL.")
+                persistent_proposal_found = True
 
                 # Idempotency check
                 if prop_row["status"] == "REMEDIATED":
@@ -1043,8 +1053,9 @@ class RemediationService:
                 except Exception:
                     pass
 
-            proposal.status = ProposalStatus.ROLLED_BACK
-            proposal.updated_at = datetime.now(timezone.utc)
+            if persistent_proposal_found:
+                proposal.status = ProposalStatus.ROLLED_BACK
+                proposal.updated_at = datetime.now(timezone.utc)
 
             # Record failure independently in separate transaction!
             err_code = getattr(exc, "error_code", "EXECUTION_ERROR")

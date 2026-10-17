@@ -15,8 +15,18 @@ from database.profiler_engine import get_db_connection
 
 router = APIRouter()
 
-JWT_SECRET = os.getenv("JWT_SECRET", "datatrust_os_sod_jwt_secret_phase2_dev")
+_DEV_JWT_SECRET = "datatrust_os_sod_jwt_secret_phase2_dev"
 JWT_ALGORITHM = "HS256"
+
+
+def _jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET")
+    is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
+    if secret and (not is_production or (secret != _DEV_JWT_SECRET and len(secret.encode("utf-8")) >= 32)):
+        return secret
+    if is_production:
+        raise RuntimeError("JWT_SECRET must be configured with at least 32 bytes in production")
+    return _DEV_JWT_SECRET
 
 # Danh sách quyền chi tiết cho từng vai trò (Fine-grained Authorization)
 ROLE_PERMISSIONS: Dict[str, set] = {
@@ -64,12 +74,12 @@ def create_jwt_token(payload: Dict[str, Any], expires_hours: int = 24) -> str:
     claims = dict(payload)
     claims["exp"] = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=expires_hours)
     claims["iat"] = datetime.datetime.now(datetime.timezone.utc)
-    return jwt.encode(claims, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(claims, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 def decode_jwt_token(token: str) -> Dict[str, Any]:
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên đăng nhập đã hết hạn")
     except Exception:
@@ -119,7 +129,12 @@ async def get_current_user(
                       AND (valid_to IS NULL OR valid_to > now())
                       AND revoked_at IS NULL;
                 """, (user_id,))
-                roles = [r["role_code"] for r in cur.fetchall()] or [active_role]
+                roles = [r["role_code"] for r in cur.fetchall()]
+                if active_role not in roles:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Vai trò đang hoạt động không còn được phân công cho tài khoản.",
+                    )
 
                 return UserContext(
                     user_id=str(user_row["id"]),
@@ -132,8 +147,7 @@ async def get_current_user(
                 )
         except HTTPException:
             raise
-        except Exception as e:
-            logger_err = str(e)
+        except Exception:
             if not is_demo:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Không thể xác thực phiên làm việc.")
 
@@ -206,16 +220,23 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
     username = payload.username.strip().lower()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT u.id, u.username, u.full_name, u.session_version
+            SELECT u.id, u.username, u.full_name, u.session_version, u.password_hash,
+                   CASE WHEN u.password_hash IS NULL OR %s IS NULL THEN FALSE
+                        ELSE u.password_hash = crypt(%s, u.password_hash)
+                   END AS password_valid
             FROM sod.users u
             WHERE u.username = %s AND u.is_active = TRUE;
-        """, (username,))
+        """, (payload.password, payload.password, username))
         user_row = cur.fetchone()
+
+        is_production = os.getenv("ENVIRONMENT", "").lower() == "production"
+        if user_row and is_production and not user_row["password_valid"]:
+            raise HTTPException(status_code=401, detail="Tài khoản hoặc mật khẩu không chính xác.")
 
         if not user_row:
             # Nếu chưa có sẵn trong DB và đang ở Demo mode, tìm persona đầu tiên
-            if os.getenv("ENVIRONMENT", "").lower() != "production":
-                cur.execute("SELECT id, username, full_name, session_version FROM sod.users WHERE username LIKE 'demo_%' LIMIT 1;")
+            if not is_production:
+                cur.execute("SELECT id, username, full_name, session_version, TRUE AS password_valid FROM sod.users WHERE username LIKE 'demo_%' LIMIT 1;")
                 user_row = cur.fetchone()
 
         if not user_row:
@@ -230,7 +251,11 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
               AND revoked_at IS NULL;
         """, (user_id,))
         roles = [r["role_code"] for r in cur.fetchall()]
-        active_role = payload.role.upper() if payload.role and payload.role.upper() in roles else (roles[0] if roles else "VIEWER")
+        if not roles:
+            raise HTTPException(status_code=403, detail="Tài khoản chưa được phân công vai trò hiệu lực.")
+        if payload.role and payload.role.upper() not in roles:
+            raise HTTPException(status_code=403, detail="Tài khoản không được phân công vai trò yêu cầu.")
+        active_role = payload.role.upper() if payload.role else roles[0]
 
         system_access = get_system_access_for_role(active_role)
         token = create_jwt_token({

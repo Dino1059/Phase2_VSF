@@ -2,13 +2,59 @@
 
 import os
 import sys
+import hashlib
 
 import psycopg2
 
 from database.init_db import init_postgres
+from database.run_migrations import DATABASE_DIR, INCREMENTAL_MIGRATIONS, ensure_migration_table, run_migrations
 
 
 APP_SCHEMAS = ("bronze", "silver", "quarantine", "catalog", "policy", "engine", "orchestration", "audit")
+SOD_MIGRATION = "migration_20261016_phase2_sod_schema.sql"
+LEGACY_SOD_MIGRATION_CHECKSUM = "50ad9a6381549ae6e123cb926c4d9d0775a70adf7496f8afd88670d08eb8b3ea"
+
+
+def ensure_production_admin(database_url: str) -> bool:
+    """Provision the deployment administrator from environment-managed secrets."""
+    if os.environ.get("ENVIRONMENT", "").lower() != "production":
+        return True
+    username = os.environ.get("DATATRUST_API_USER", "datatrust").strip().lower()
+    password = os.environ.get("DATATRUST_API_PASSWORD")
+    if not password:
+        print("DATATRUST_API_PASSWORD is required in production", file=sys.stderr)
+        return False
+    with psycopg2.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO sod.users (username, full_name, email, dept, is_active, password_hash)
+                VALUES (%s, 'DataTrust Production Administrator', %s, 'Platform Operations', TRUE,
+                        crypt(%s, gen_salt('bf')))
+                ON CONFLICT (username) DO UPDATE
+                SET is_active = TRUE,
+                    session_version = CASE
+                        WHEN sod.users.password_hash IS NULL
+                          OR sod.users.password_hash <> crypt(%s, sod.users.password_hash)
+                        THEN sod.users.session_version + 1
+                        ELSE sod.users.session_version
+                    END,
+                    password_hash = crypt(%s, gen_salt('bf'))
+                RETURNING id
+                """,
+                (username, f"{username}@datatrust.local", password, password, password),
+            )
+            user_id = cursor.fetchone()[0]
+            cursor.execute(
+                """
+                INSERT INTO sod.user_roles (user_id, role_code)
+                VALUES (%s, 'ADMIN')
+                ON CONFLICT (user_id, role_code) DO UPDATE
+                SET revoked_at = NULL, valid_to = NULL
+                """,
+                (user_id,),
+            )
+    return True
 
 
 def main() -> int:
@@ -27,7 +73,26 @@ def main() -> int:
 
     if not existing:
         print("Fresh database detected; applying the canonical bootstrap.")
-        return 0 if init_postgres() else 1
+        if not init_postgres():
+            return 1
+
+        with psycopg2.connect(database_url) as connection:
+            ensure_migration_table(connection)
+            with connection.cursor() as cursor:
+                for migration_name in INCREMENTAL_MIGRATIONS:
+                    migration_path = DATABASE_DIR / migration_name
+                    checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
+                    cursor.execute(
+                        """
+                        INSERT INTO orchestration.schema_migrations
+                            (migration_name, applied_at, checksum)
+                        VALUES (%s, CURRENT_TIMESTAMP, %s)
+                        ON CONFLICT (migration_name) DO UPDATE
+                        SET checksum = EXCLUDED.checksum
+                        """,
+                        (migration_name, checksum),
+                    )
+        return 0 if ensure_production_admin(database_url) else 1
 
     if "orchestration" not in existing:
         print(
@@ -37,8 +102,37 @@ def main() -> int:
         )
         return 1
 
-    print("Existing DataTrust database detected; destructive bootstrap skipped.")
-    return 0
+    # Older installs may contain the legacy login role with a password embedded
+    # in the original migration. Disable that credential and accept the audited
+    # replacement migration checksum before normal checksum enforcement runs.
+    sod_checksum = hashlib.sha256((DATABASE_DIR / SOD_MIGRATION).read_bytes()).hexdigest()
+    with psycopg2.connect(database_url) as connection:
+        ensure_migration_table(connection)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DO $cleanup$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sod_app') THEN
+                        ALTER ROLE sod_app NOLOGIN PASSWORD NULL;
+                    END IF;
+                END
+                $cleanup$;
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE orchestration.schema_migrations
+                SET checksum = %s
+                WHERE migration_name = %s AND checksum = %s
+                """,
+                (sod_checksum, SOD_MIGRATION, LEGACY_SOD_MIGRATION_CHECKSUM),
+            )
+
+    print("Existing DataTrust database detected; applying pending non-destructive migrations.")
+    if not run_migrations():
+        return 1
+    return 0 if ensure_production_admin(database_url) else 1
 
 
 if __name__ == "__main__":

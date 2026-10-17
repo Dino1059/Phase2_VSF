@@ -15,7 +15,7 @@ PAIR_NAMES: Dict[str, str] = {
 
 
 def pair_name(a: str, b: str) -> str:
-    if a == "AUD" or b == "AUD":
+    if a == "AUDITOR" or b == "AUDITOR":
         return "Auditor ↔ Control Operator"
     if a == "IAM" or b == "IAM":
         return "Approver ↔ IAM Provisioner"
@@ -112,4 +112,3 @@ def check_step_conflict(
             if str(p.get("actor_id")) == str(actor_id) and p.get("role") != step_role:
                 return f"Xung đột SoD: {pair_name(step_role, p.get('role', ''))}"
     return None
-

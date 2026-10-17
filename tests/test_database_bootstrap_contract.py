@@ -56,9 +56,16 @@ def test_bootstrap_references_every_existing_sql_file_in_safe_order():
         assert (DATABASE / name).is_file(), f"missing bootstrap SQL file: {name}"
         assert name in init_source, f"init_db.py does not reference {name}"
 
-    # rindex avoids mentions in the module docstring and checks the executable
-    # path declarations themselves.
-    positions = [init_source.rindex(name) for name in ordered_files]
+    # Match the executable path declarations exactly. A plain substring search
+    # confuses schema.sql with migration_*_schema.sql added later in the list.
+    positions = []
+    for name in ordered_files:
+        declaration = (
+            f'database_dir / "{name}"'
+            if name != "seed_data.sql"
+            else 'Path(__file__).parent / "seed_data.sql"'
+        )
+        positions.append(init_source.index(declaration))
     assert positions == sorted(positions), "bootstrap SQL files are in an unsafe order"
 
 

@@ -30,6 +30,10 @@ Parameters:
     Type: String
     Default: /datatrust/production/audit_hmac_secret
     Description: Existing SSM SecureString parameter containing the audit HMAC secret.
+  AppCredentialParameterName:
+    Type: String
+    Default: /datatrust/production/app_admin_password
+    Description: SSM SecureString path used to retrieve the initial DataTrust administrator password.
   AllowedHttpCidr:
     Type: String
     Default: 0.0.0.0/0
@@ -121,7 +125,12 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AuditHmacSecretParameterName}
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AuditHmacSecretParameterName}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AppCredentialParameterName}
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AppCredentialParameterName}
               - Effect: Allow
                 Action: kms:Decrypt
                 Resource: "*"
@@ -190,6 +199,8 @@ Resources:
 
           POSTGRES_PASSWORD=$(openssl rand -hex 24)
           AIRFLOW_PASSWORD=$(openssl rand -hex 24)
+          DATATRUST_API_PASSWORD=$(openssl rand -hex 24)
+          JWT_SECRET=$(openssl rand -hex 32)
           PSEUDONYMIZATION_KEY=$(openssl rand -hex 32)
           OPENAI_API_KEY=$(printf '%s' '${OpenAIApiKeyBase64}' | base64 -d)
           cat > .env.aws <<ENVFILE
@@ -197,7 +208,9 @@ Resources:
           AIRFLOW_USER=datatrust
           AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD
           DATATRUST_API_USER=datatrust
-          DATATRUST_API_PASSWORD=$AIRFLOW_PASSWORD
+          DATATRUST_API_PASSWORD=$DATATRUST_API_PASSWORD
+          APP_CREDENTIAL_PARAMETER_NAME=${AppCredentialParameterName}
+          JWT_SECRET=$JWT_SECRET
           DATATRUST_PSEUDONYMIZATION_KEY=$PSEUDONYMIZATION_KEY
           OPENAI_API_KEY=$OPENAI_API_KEY
           ENVIRONMENT=production
@@ -205,6 +218,8 @@ Resources:
           AWS_SSM_AUDIT_SECRET_PATH=${AuditHmacSecretParameterName}
           ENVFILE
           chmod 600 .env.aws
+          aws ssm put-parameter --name '${AppCredentialParameterName}' --type SecureString \
+            --value "$DATATRUST_API_PASSWORD" --overwrite --region '${AWS::Region}' >/dev/null
 
           docker compose --env-file .env.aws -f docker-compose.aws.yml build
           docker compose --env-file .env.aws -f docker-compose.aws.yml up -d postgres

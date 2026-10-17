@@ -2,8 +2,7 @@ const API_BASE = '/api/v1';
 
 export function getRoleHeader(): string {
   const role = localStorage.getItem('datatrust-role');
-  if (!role) return 'Steward';
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  return role ? role.toUpperCase() : '';
 }
 
 function getActorHeader(): string {
@@ -68,12 +67,13 @@ export function persistAuthToken(token: string, role?: string) {
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const customHeaders = (options.headers as Record<string, string>) || {};
   const token = readAuthToken();
-  const headers: Record<string, string> = {
-    'X-User-Role': getRoleHeader(),
-    'X-User': getActorHeader(),
-    ...customHeaders,
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers: Record<string, string> = { ...customHeaders };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (import.meta.env.DEV) {
+    headers['X-Actor-Role'] = getRoleHeader();
+    headers['X-Actor'] = getActorHeader();
+  }
 
   if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
@@ -168,6 +168,7 @@ export const authApi = {
 };
 
 export async function ensureDemoAuth(): Promise<void> {
+  if (!import.meta.env.DEV) return;
   const role = (localStorage.getItem('datatrust-role') || '').toLowerCase();
   let profileRole = '';
   try {
@@ -1356,6 +1357,7 @@ export const ingestionApi = {
 
 export const sodApi = {
   getMatrix: () => request<any>('/api/sod/matrix'),
+  getPeople: () => request<Array<{ id: string; name: string; roles: string[] }>>('/api/sod/people'),
   getTickets: (status?: string, search?: string) => {
     const params = new URLSearchParams();
     if (status) params.append('status', status);
@@ -1391,6 +1393,13 @@ export const sodApi = {
       method: 'DELETE',
     }),
   getConfig: () => request<any>('/api/sod/config'),
+  proposeConfig: (config: any, reason: string) => request<any>('/api/sod/config/propose', {
+    method: 'POST', body: JSON.stringify({ config, reason }),
+  }),
+  decideConfig: (id: string, outcome: 'ACTIVE' | 'REJECTED', decision_note = '') =>
+    request<any>(`/api/sod/config/${id}/decide`, {
+      method: 'POST', body: JSON.stringify({ outcome, decision_note }),
+    }),
   getEvidence: (ticketId: string) => request<any>(`/api/sod/evidence/${ticketId}`),
   createTicketFromFinding: (payload: { finding_id: string; proposal_id: string; reason?: string }) =>
     request<any>('/api/sod/tickets/from-finding', {

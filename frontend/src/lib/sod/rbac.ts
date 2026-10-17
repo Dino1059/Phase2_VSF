@@ -5,7 +5,7 @@ import { ROLES, ticketType, type RoleKey } from "./catalog";
 import type { Classification } from "./classify";
 
 /** Vai trò cấp được qua phiếu. REQ không cần phiếu (tự có khi xác nhận email). */
-export const RBAC_ROLES = ["LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUD", "ADMIN"] as const satisfies readonly (Exclude<RoleKey, "REQ"> | "ADMIN")[];
+export const RBAC_ROLES = ["LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUDITOR", "ADMIN"] as const satisfies readonly (Exclude<RoleKey, "REQ"> | "ADMIN")[];
 export const roleLabel = (code: string) => (code === "ADMIN" ? "Quản trị SoD (Admin)" : (ROLES[code as RoleKey]?.name ?? code));
 
 export const RBAC_OPS = { grant: "Cấp vai trò", revoke: "Thu hồi vai trò" } as const;

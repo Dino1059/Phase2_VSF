@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/src/stores/authStore';
+import { sodApi } from '@/src/services/api';
 import {
   Settings,
   ShieldAlert,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 
 interface ConfigVersion {
+  id: string;
   seq: number;
   status: 'ACTIVE' | 'PROPOSED' | 'REJECTED' | 'SUPERSEDED';
   proposedBy: string;
@@ -20,10 +22,12 @@ interface ConfigVersion {
   decidedAt?: string;
   note: string;
   changeSummary: string;
+  config: any;
 }
 
 const INITIAL_CONFIG_VERSIONS: ConfigVersion[] = [
   {
+    id: 'legacy-1',
     seq: 1,
     status: 'ACTIVE',
     proposedBy: 'Nguyễn Quốc Bảo',
@@ -34,8 +38,10 @@ const INITIAL_CONFIG_VERSIONS: ConfigVersion[] = [
     decidedAt: '2026-10-01 10:30',
     note: 'Cấu hình ma trận SoD ban đầu theo chuẩn ITGC và RACIX 10 vai trò.',
     changeSummary: '19 hoạt động kiểm soát ban đầu, 10 cột vai trò.',
+    config: {},
   },
   {
+    id: 'legacy-2',
     seq: 2,
     status: 'PROPOSED',
     proposedBy: 'Nguyễn Quốc Bảo',
@@ -43,17 +49,48 @@ const INITIAL_CONFIG_VERSIONS: ConfigVersion[] = [
     proposedAt: '2026-10-15 11:20',
     note: 'Bổ sung bước rà soát bắt buộc của Kiểm toán viên (Auditor R) trước khi triển khai Production cho hoạt động #11.',
     changeSummary: 'Ô (11, AUD) chuyển từ I sang R (Rà soát trước khi thực thi).',
+    config: {},
   },
 ];
 
 export function SodConfigAdminView() {
+  void INITIAL_CONFIG_VERSIONS;
   const user = useAuthStore((s) => s.user);
-  const [versions, setVersions] = useState<ConfigVersion[]>(INITIAL_CONFIG_VERSIONS);
+  const [versions, setVersions] = useState<ConfigVersion[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const loadConfig = () => sodApi.getConfig().then((rows) => setVersions(rows.map((v: any) => ({
+    id: String(v.id), seq: v.seq, status: v.status, proposedBy: v.proposer_name || v.proposed_by,
+    proposedRole: 'ADMIN', proposedAt: String(v.proposed_at || v.created_at || ''),
+    decidedBy: v.decider_name, decidedRole: v.decider_name ? 'CISO' : undefined,
+    decidedAt: v.decided_at ? String(v.decided_at) : undefined, note: v.reason || '',
+    changeSummary: v.change_summary || `Cấu hình SoD phiên bản ${v.seq}`,
+    config: v.config,
+  }))));
+  useEffect(() => { loadConfig().catch((e) => setError(String(e))).finally(() => setLoading(false)); }, []);
 
   const isCiso = user?.role === 'CISO';
+  const isAdmin = user?.role === 'ADMIN';
 
-  const handleCisoDecision = (seq: number, outcome: 'ACTIVE' | 'REJECTED') => {
+  const handleProposeConfig = async () => {
+    const active = versions.find((v) => v.status === 'ACTIVE');
+    if (!active) { setError('Không tìm thấy cấu hình ACTIVE để tạo phiên bản mới.'); return; }
+    const reason = window.prompt('Nhập lý do đề xuất phiên bản cấu hình mới:')?.trim();
+    if (!reason) return;
+    try {
+      await sodApi.proposeConfig(active.config, reason);
+      await loadConfig();
+      setActionNotice('Đã tạo đề xuất cấu hình mới và chuyển CISO phê duyệt.');
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const handleCisoDecision = async (seq: number, outcome: 'ACTIVE' | 'REJECTED') => {
+    const target = versions.find((v) => v.seq === seq);
+    if (!target) return;
+    try { await sodApi.decideConfig(target.id, outcome); await loadConfig(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
     setVersions(
       versions.map((v) => {
         if (v.seq !== seq) {
@@ -79,6 +116,8 @@ export function SodConfigAdminView() {
 
   return (
     <div className="space-y-6">
+      {loading && <div className="p-3 bg-slate-50 rounded-xl text-xs">Đang tải cấu hình SoD...</div>}
+      {error && <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs">{error}</div>}
       {actionNotice && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -100,6 +139,12 @@ export function SodConfigAdminView() {
         <p className="text-xs text-slate-500 leading-relaxed">
           Thay đổi ma trận SoD hoặc quy định SLA chỉ có hiệu lực khi tuân thủ cơ chế <strong>Maker-Checker</strong>: Quản trị viên (<code>ADMIN</code>) lập đề xuất, Giám đốc An toàn Thông tin (<code>CISO</code>) thẩm tra và duyệt kích hoạt.
         </p>
+        {isAdmin && (
+          <button type="button" onClick={handleProposeConfig}
+            className="px-3.5 py-2 rounded-xl bg-slate-900 text-[#04D3D4] font-bold text-xs">
+            Tạo đề xuất từ cấu hình ACTIVE
+          </button>
+        )}
       </div>
 
       {/* Two Person Rule Explanation Card */}
@@ -112,7 +157,7 @@ export function SodConfigAdminView() {
           <p className="text-xs text-slate-300">
             Được phép chỉnh sửa các ô trong ma trận, thay đổi thời gian cam kết SLA và nộp bản đề xuất có giải trình lý do. <strong>Không được phép tự duyệt đề xuất của mình</strong>.
           </p>
-          <div className="text-[11px] text-slate-400 font-mono">Người đề xuất hiện tại: Nguyễn Quốc Bảo (admin)</div>
+          <div className="text-[11px] text-slate-400 font-mono">Người đề xuất hiện tại: {isAdmin ? `${user?.fullName} (${user?.username})` : 'Đăng nhập vai trò ADMIN để đề xuất'}</div>
         </div>
 
         <div className="p-4 bg-teal-950 text-white rounded-2xl border border-teal-800 space-y-2">
@@ -123,7 +168,7 @@ export function SodConfigAdminView() {
           <p className="text-xs text-teal-100">
             Có thẩm quyền thẩm tra độ an toàn của cấu hình mới, so sánh diff với ma trận hiện tại và ký duyệt kích hoạt phiên bản. Quyết định sẽ được lưu vết kiểm toán vĩnh viễn.
           </p>
-          <div className="text-[11px] text-teal-300 font-mono">Người duyệt hiện tại: Hoàng Giang (ciso)</div>
+          <div className="text-[11px] text-teal-300 font-mono">Người duyệt hiện tại: {isCiso ? `${user?.fullName} (${user?.username})` : 'Đăng nhập vai trò CISO để duyệt'}</div>
         </div>
       </div>
 

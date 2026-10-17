@@ -216,7 +216,7 @@ def test_maker_checker_governance(test_quarantine_records):
     assert approved.approved_by == "admin_sarah"
 
 
-def test_transactional_execution_and_staging(test_quarantine_records):
+def test_transactional_execution_requires_persisted_sod_approval(test_quarantine_records):
     """
     Tests end-to-end execution:
     1. Writes to staging.remediated_records.
@@ -242,18 +242,16 @@ def test_transactional_execution_and_staging(test_quarantine_records):
     remediation_service.simulate_dry_run(proposal.proposal_id)
     remediation_service.approve_proposal(proposal.proposal_id, actor_id="admin_exec", actor_role="ADMIN")
 
-    result = remediation_service.execute_remediation_transaction(
-        proposal_id=proposal.proposal_id,
-        actor_id="admin_exec",
-        actor_role="ADMIN"
-    )
+    # In-memory maker-checker approval is intentionally insufficient. Execution
+    # must fail closed until the proposal and completed SoD ticket are persisted.
+    with pytest.raises(RuntimeError, match="không tìm thấy trong CSDL"):
+        remediation_service.execute_remediation_transaction(
+            proposal_id=proposal.proposal_id,
+            actor_id="admin_exec",
+            actor_role="ADMIN"
+        )
 
-    assert result["success"] is True
-    assert result["status"] == "REMEDIATED"
-    assert result["affected_count"] == 2
-    assert "digital_signature" in result
-
-    # Verify database state
+    # Verify that the failed attempt did not promote or resolve source records.
     conn = get_db_connection()
     from psycopg2.extras import RealDictCursor
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -263,7 +261,7 @@ def test_transactional_execution_and_staging(test_quarantine_records):
             WHERE proposal_id = %s;
         """, (proposal.proposal_id,))
         staging_count = cur.fetchone()["count"]
-        assert staging_count == 2
+        assert staging_count == 0
 
         # 2. Quarantine records marked REMEDIATED
         cur.execute("""
@@ -272,17 +270,7 @@ def test_transactional_execution_and_staging(test_quarantine_records):
         """, (data["quarantine_ids"],))
         rows = cur.fetchall()
         for r in rows:
-            assert r["status"] == "REMEDIATED"
-            assert "admin_exec" in r["resolved_by"]
-
-        # 3. System audit trail recorded
-        cur.execute("""
-            SELECT record_hash FROM audit.system_audit_trail
-            WHERE entity_id = %s;
-        """, (proposal.proposal_id,))
-        audit_row = cur.fetchone()
-        assert audit_row is not None
-        assert audit_row["record_hash"] == result["digital_signature"]
+            assert r["status"] == "QUARANTINED"
 
     conn.close()
 
@@ -337,29 +325,16 @@ def test_remediation_api_endpoints(test_quarantine_records):
     assert sub_resp.status_code == 200
     assert sub_resp.json()["status"] == "PENDING_APPROVAL"
 
-    # 5. Auditor blocked from approval
+    # 5. Legacy direct approval is retired; all roles must use a SoD ticket.
     audit_resp = client.post(
         f"/api/remediation/{proposal_id}/approve",
         headers={"X-User-Role": "AUDITOR", "X-User": "auditor@datatrust.vn"}
     )
-    assert audit_resp.status_code == 403
+    assert audit_resp.status_code == 410
 
-    # 6. Admin approves
+    # 6. Admin cannot bypass the SoD workflow either.
     appr_resp = client.post(
         f"/api/remediation/{proposal_id}/approve",
         headers={"X-User-Role": "ADMIN", "X-User": "lead_admin@datatrust.vn"}
     )
-    assert appr_resp.status_code == 200
-    assert appr_resp.json()["status"] == "APPROVED"
-
-    # 7. Admin executes transaction
-    exec_resp = client.post(
-        f"/api/remediation/{proposal_id}/execute",
-        headers={"X-User-Role": "ADMIN", "X-User": "lead_admin@datatrust.vn"}
-    )
-    assert exec_resp.status_code == 200
-    exec_data = exec_resp.json()
-    assert exec_data["success"] is True
-    assert exec_data["status"] == "REMEDIATED"
-    assert "digital_signature" in exec_data
-
+    assert appr_resp.status_code == 410

@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/src/stores/authStore';
+import { sodApi } from '@/src/services/api';
 import {
   FileCheck,
   Printer,
@@ -10,7 +12,7 @@ import {
 export function SodEvidenceView() {
   const user = useAuthStore((s) => s.user);
 
-  const evidenceRows = [
+  const legacyEvidenceRows = [
     {
       ticketCode: 'TK-2026-085',
       type: 'Phát hành Production (Deploy)',
@@ -74,12 +76,35 @@ export function SodEvidenceView() {
     },
   ];
 
+  const [evidenceRows, setEvidenceRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const exportedAt = new Date().toLocaleString('vi-VN');
+  useEffect(() => {
+    sodApi.getTickets().then(async (tickets) => {
+      const reports = await Promise.all(tickets.map((t: any) => sodApi.getEvidence(t.id)));
+      setEvidenceRows(reports.map((r: any) => ({
+        ticketCode: r.ticket.code, type: r.ticket.form?.type || r.ticket.form?.rows?.[0]?.heThong || 'SoD',
+        requester: r.ticket.requester_name, createdAt: String(r.ticket.created_at || ''),
+        closedAt: r.ticket.closed_at ? String(r.ticket.closed_at) : undefined,
+        configSeq: r.ticket.config_seq, status: r.ticket.status,
+        decisions: (r.evidence_payload.decisions || []).map((d: any, i: number) => ({
+          step: i + 1, role: r.ticket.steps?.[i]?.role_code || '', actor: d.actor,
+          outcome: d.outcome, decidedAt: d.decided_at, hash: d.form_hash || r.integrity_hash,
+        })),
+      })));
+    }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false));
+  }, []);
+  void legacyEvidenceRows;
+
   const handlePrint = () => {
     window.print();
   };
 
   return (
     <div className="space-y-6">
+      {loading && <div className="p-3 bg-slate-50 rounded-xl text-xs">Đang tải bằng chứng kiểm toán...</div>}
+      {error && <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs">{error}</div>}
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs print:hidden">
         <div>
@@ -120,16 +145,16 @@ export function SodEvidenceView() {
             BÁO CÁO BẰNG CHỨNG PHÂN TÁCH TRÁCH NHIỆM (SOD EVIDENCE)
           </h1>
           <p className="text-xs italic text-slate-600">
-            Kỳ thẩm tra: 01/10/2026 – 15/10/2026 · Cấu hình hiệu lực: v1 · Xuất bởi {user?.fullName} ({user?.role})
+            Xuất lúc {exportedAt} · {evidenceRows.length} phiếu có bằng chứng · Xuất bởi {user?.fullName} ({user?.role})
           </p>
           <div className="pt-2 flex justify-center items-center gap-4 text-xs font-mono text-slate-500 font-sans">
             <span className="flex items-center gap-1">
               <Hash size={12} className="text-teal-600" />
-              <span>Merkle Root: 9f83c18b...a07f6e</span>
+              <span>Hash toàn vẹn được hiển thị theo từng phiếu</span>
             </span>
             <span className="flex items-center gap-1">
               <Lock size={12} className="text-emerald-600" />
-              <span>Chữ ký số SHA-256 Hợp lệ</span>
+              <span>Dữ liệu lấy trực tiếp từ sổ bằng chứng SoD</span>
             </span>
           </div>
         </div>
@@ -170,7 +195,7 @@ export function SodEvidenceView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 bg-white">
-                    {t.decisions.map((d, i) => (
+                    {t.decisions.map((d: any, i: number) => (
                       <tr key={i} className="hover:bg-slate-50">
                         <td className="py-2 px-3 text-center font-bold text-slate-600">{d.step}</td>
                         <td className="py-2 px-3 font-medium text-slate-900">{d.role}</td>

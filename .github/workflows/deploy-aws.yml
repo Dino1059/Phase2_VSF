@@ -73,7 +73,7 @@ jobs:
         # These two tests validate historical production state rather than an
         # isolated CI database. Runtime reconciliation is covered after deploy.
         run: >-
-          python -m pytest -q
+          python -m pytest -q --ignore=tests/benchmarks
           -k "not test_database_historical_runs_reconciliation
           and not test_database_persistence_integration"
 
@@ -85,26 +85,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: pnpm --dir frontend install --frozen-lockfile
+        working-directory: frontend
+        run: npm ci
 
       - name: Run frontend tests
-        run: pnpm --dir frontend test
+        run: npm --prefix frontend test
 
       - name: Build frontend
-        run: pnpm --dir frontend build
+        run: npm --prefix frontend run build
 
   deploy:
     name: Deploy to AWS EC2

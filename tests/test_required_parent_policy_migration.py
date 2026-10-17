@@ -15,10 +15,12 @@ def _migration_sql():
     return MIGRATION_PATH.read_text(encoding="utf-8")
 
 
-def test_required_parent_policy_migration_is_registered_last():
+def test_required_parent_policy_migration_precedes_dependent_sod_migrations():
     assert MIGRATION_PATH.is_file()
     assert MIGRATION_NAME in INCREMENTAL_MIGRATIONS
-    assert INCREMENTAL_MIGRATIONS[-1] == MIGRATION_NAME
+    parent_index = INCREMENTAL_MIGRATIONS.index(MIGRATION_NAME)
+    assert parent_index < INCREMENTAL_MIGRATIONS.index("migration_20261016_phase2_sod_schema.sql")
+    assert parent_index < INCREMENTAL_MIGRATIONS.index("migration_20261016_phase3_cross_system.sql")
 
 
 def test_required_parent_policy_migration_seeds_ifrs_parent_idempotently():

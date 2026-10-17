@@ -475,36 +475,22 @@ function loadInitialSession(): {
   } catch {}
 
   try {
-    const raw = localStorage.getItem(DEMO_SESSION_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.personaId && PERSONA_ACCOUNTS[parsed.personaId]) {
-        const persona = PERSONA_ACCOUNTS[parsed.personaId];
-        return {
-          user: personaToProfile(persona),
-          persona,
-          systemAccess: persona.systemAccess,
-          isAuthenticated: true,
-        };
-      }
+    const token = readAuthToken();
+    const rawProfile = localStorage.getItem(LEGACY_USER_KEY);
+    if (token && rawProfile) {
+      const user = JSON.parse(rawProfile) as UserProfile;
+      const persona = Object.values(PERSONA_ACCOUNTS).find((p) => p.primaryRole === user.role) || null;
+      return { user, persona, systemAccess: user.systemAccess, isAuthenticated: true };
     }
   } catch {}
-
-  // Fallback to default persona for initial developer demo experience if never logged out
-  const defaultPersona = PERSONA_ACCOUNTS.admin;
-  return {
-    user: personaToProfile(defaultPersona),
-    persona: defaultPersona,
-    systemAccess: defaultPersona.systemAccess,
-    isAuthenticated: true,
-  };
+  return { user: null, persona: null, systemAccess: 'datatrust_only', isAuthenticated: false };
 }
 
 const initial = loadInitialSession();
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  isDemoMode: true,
-  token: initial.isAuthenticated ? (readAuthToken() || 'demo_token_phase1') : null,
+  isDemoMode: import.meta.env.DEV,
+  token: initial.isAuthenticated ? readAuthToken() : null,
   user: initial.user,
   currentPersona: initial.persona,
   systemAccess: initial.systemAccess,
@@ -518,6 +504,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * Reset sạch state cũ trước khi nạp persona mới.
    */
   loginWithPersona: (personaOrUsername: string) => {
+    if (!import.meta.env.DEV) throw new Error('Quick persona chỉ khả dụng trong môi trường phát triển.');
     const norm = String(personaOrUsername || '').trim().toLowerCase();
     const persona =
       PERSONA_ACCOUNTS[norm] ||
@@ -550,49 +537,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * Đăng nhập bằng username và password (form tiêu chuẩn).
    */
   loginWithCredentials: async (username: string, _password?: string) => {
-    const normUser = String(username || '').trim().toLowerCase();
-    // Tìm persona phù hợp với username
-    const foundEntry = Object.entries(PERSONA_ACCOUNTS).find(
-      ([, p]) => p.username.toLowerCase() === normUser || p.id.toLowerCase() === normUser
-    );
-
-    if (foundEntry) {
-      return get().loginWithPersona(foundEntry[0]);
-    }
-
-    // Nếu không khớp sẵn, tạo profile tự động dựa trên username
-    get().resetSessionState();
-    const fallbackPersona = PERSONA_ACCOUNTS.admin;
-    const profile: UserProfile = {
-      user_id: `usr_${normUser}`,
-      username: normUser,
-      fullName: username,
-      role: 'ADMIN',
-      roles: ['ADMIN'],
-      systemAccess: 'both',
-      is_global: true,
+    const auth = await authApi.login({ username: username.trim(), password: _password || '' });
+    const jwt = auth.access_token || auth.token;
+    const serverRole = normalizeUserRole(auth.user?.active_role || auth.user?.role);
+    if (!jwt || !auth.user || !serverRole) throw new Error('Phản hồi đăng nhập không hợp lệ.');
+    const serverProfile: UserProfile = {
+      user_id: auth.user.user_id || auth.user.id,
+      username: auth.user.username,
+      fullName: auth.user.full_name,
+      role: serverRole,
+      roles: [serverRole],
+      systemAccess: auth.user.system_access,
+      is_global: serverRole === 'ADMIN' || serverRole === 'AUDITOR',
       datasets: ['*'],
-      dept: 'Data Platform',
-      email: `${normUser}@company.vn`,
-      avatar: normUser.slice(0, 2).toUpperCase(),
-      badge: 'Quản trị viên hệ thống',
     };
-
-    try {
-      localStorage.removeItem(LOGGED_OUT_KEY);
-      localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ personaId: 'admin', customUser: normUser }));
-      localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(profile));
-    } catch {}
-
-    set({
-      user: profile,
-      currentPersona: fallbackPersona,
-      systemAccess: 'both',
-      isAuthenticated: true,
-      token: 'demo_token_custom',
-    });
-
-    return '/overview';
+    localStorage.removeItem(LOGGED_OUT_KEY);
+    localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(serverProfile));
+    persistAuthToken(jwt, serverRole);
+    set({ user: serverProfile, currentPersona: null, systemAccess: serverProfile.systemAccess,
+      isAuthenticated: true, token: jwt });
+    return auth.redirect || (serverProfile.systemAccess === 'sod_only' ? '/sod' : '/overview');
   },
 
   /**
@@ -656,7 +620,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return res.redirect || (res.user.system_access === 'sod_only' ? '/sod' : '/overview');
       }
     } catch (err) {
-      console.warn('Backend switch-role call failed, falling back to local persona switch:', err);
+      if (!import.meta.env.DEV) throw err;
+      console.warn('Backend switch-role call failed, using local development persona:', err);
     }
     // Fallback if backend API is offline
     const targetPersona = Object.values(PERSONA_ACCOUNTS).find((p) => p.primaryRole === role);

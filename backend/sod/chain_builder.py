@@ -28,7 +28,7 @@ def phase_steps(act_id: int, mods: Optional[Dict[str, str]] = None, matrix: Opti
     def pick(l_val: str) -> List[str]:
         roles = [
             r for r in ROLE_KEYS
-            if r != "AUD" and L(r) == l_val and not (l_val == "P" and r == "REQ")
+            if r != "AUDITOR" and L(r) == l_val and not (l_val == "P" and r == "REQ")
         ]
         roles.sort(key=by_rank)
         return roles
@@ -37,8 +37,8 @@ def phase_steps(act_id: int, mods: Optional[Dict[str, str]] = None, matrix: Opti
     R = pick("R")
     A = pick("A")
 
-    aud_l = L("AUD")
-    aud: List[Tuple[str, str]] = [("AUD", aud_l)] if aud_l in "RA" else []
+    aud_l = L("AUDITOR")
+    aud: List[Tuple[str, str]] = [("AUDITOR", aud_l)] if aud_l in "RA" else []
 
     kind = ACTIVITIES[act_id]["kind"]
     if kind == "approval":

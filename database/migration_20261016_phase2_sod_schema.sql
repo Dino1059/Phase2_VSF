@@ -2,20 +2,13 @@
 -- DataTrust OS × SoD Flow: Phase 2 Backend SoD & RBAC Schema Migration
 -- Migration: migration_20261016_phase2_sod_schema.sql
 -- Namespace: Schema "sod"
--- Dedicated Database Role: sod_app (Least Privilege)
+-- Access uses the managed application's database identity; this migration
+-- intentionally does not create login roles or embed credentials.
 -- =============================================================================
 
--- 1. TẠO ROLE DATABASE RIÊNG BIỆT CHO SOD BACKEND (Tách biệt hoàn toàn khỏi airflow)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sod_app') THEN
-        CREATE ROLE sod_app WITH LOGIN PASSWORD 'sod_secure_password_phase2';
-    END IF;
-END $$;
-
+-- 1. DATABASE IDENTITY IS PROVIDED BY THE MANAGED DATABASE PLATFORM
 -- 2. TẠO SCHEMA RIÊNG
 CREATE SCHEMA IF NOT EXISTS sod;
-GRANT USAGE ON SCHEMA sod TO sod_app;
 
 -- 3. TẠO CÁC ENUM TYPE CHUẨN TRONG SCHEMA SOD
 DO $$ BEGIN
@@ -476,11 +469,5 @@ VALUES (
 ON CONFLICT (seq) DO NOTHING;
 
 -- =============================================================================
--- 17. PHÂN QUYỀN TRUY CẬP CHO ROLE SOD_APP (LEAST PRIVILEGE)
+-- 17. OBJECTS ARE OWNED BY THE MANAGED APPLICATION DATABASE IDENTITY
 -- =============================================================================
-GRANT SELECT, INSERT, UPDATE ON sod.tickets, sod.ticket_steps, sod.delegations, sod.config_versions TO sod_app;
-GRANT SELECT, INSERT ON sod.users, sod.roles, sod.user_roles, sod.step_decisions, sod.sla_events, sod.notifications TO sod_app;
-GRANT USAGE, SELECT ON SEQUENCE sod.config_versions_seq_seq, sod.ticket_code_seq TO sod_app;
-
--- Tước bỏ triệt để quyền UPDATE / DELETE trên bảng quyết định để bảo đảm Append-Only
-REVOKE UPDATE, DELETE ON sod.step_decisions, sod.sla_events FROM sod_app;

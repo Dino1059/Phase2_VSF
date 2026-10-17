@@ -12,13 +12,21 @@ services:
     region: singapore
     plan: starter
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
+    healthCheckPath: /ready
     preDeployCommand: python -m database.bootstrap_render
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: datatrust-postgres
           property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATATRUST_API_USER
+        value: datatrust
+      - key: DATATRUST_API_PASSWORD
+        generateValue: true
       - key: AIRFLOW_API_URL
         value: http://datatrust-airflow:8080/api/v1
       - key: AIRFLOW_USER

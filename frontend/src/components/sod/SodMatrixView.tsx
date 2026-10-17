@@ -1,4 +1,5 @@
-import { useState, Fragment } from 'react';
+import { useEffect, useState, Fragment } from 'react';
+import { sodApi } from '@/src/services/api';
 import {
   ACTIVITIES,
   DEFAULT_MATRIX,
@@ -14,8 +15,19 @@ import { Shield, ChevronRight } from 'lucide-react';
 
 export function SodMatrixView() {
   const [selectedActivityId, setSelectedActivityId] = useState<number>(0);
+  const [matrix, setMatrix] = useState<readonly string[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    sodApi.getMatrix().then((data) => setMatrix(data.matrix || []))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Không thể tải ma trận SoD'))
+      .finally(() => setLoading(false));
+  }, []);
   const selectedActivity = ACTIVITIES.find((a) => a.id === selectedActivityId) || ACTIVITIES[0];
-  const steps = phaseSteps(selectedActivity.id, {}, DEFAULT_MATRIX);
+  const activeMatrix = matrix.length === ACTIVITIES.length ? matrix : (import.meta.env.DEV ? DEFAULT_MATRIX : []);
+  const steps: ReturnType<typeof phaseSteps> = activeMatrix.length
+    ? phaseSteps(selectedActivity.id, {}, activeMatrix)
+    : { seq: [], C: [], I: [] };
 
   const getLetterBadge = (l: Letter | string) => {
     const letter = l as Letter;
@@ -41,6 +53,8 @@ export function SodMatrixView() {
 
   return (
     <div className="space-y-6">
+      {loading && <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-500">Đang tải ma trận SoD...</div>}
+      {error && <div className="p-3 rounded-xl bg-rose-50 text-xs text-rose-700">{error}</div>}
       {/* Header Info */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
@@ -153,7 +167,7 @@ export function SodMatrixView() {
             <tbody className="divide-y divide-slate-100 font-sans">
               {ACTIVITIES.map((act) => {
                 const isSelected = act.id === selectedActivityId;
-                const matrixRow = DEFAULT_MATRIX[act.id];
+                const matrixRow = activeMatrix[act.id] || '';
 
                 return (
                   <tr

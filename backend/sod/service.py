@@ -6,6 +6,7 @@ SoD Flow Service: Core Business Operations with Transaction Concurrency & Fail-C
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 from psycopg2.extras import RealDictCursor
@@ -311,6 +312,8 @@ class SodService:
             step = cur.fetchone()
             if not step:
                 raise HTTPException(status_code=404, detail="Không tìm thấy bước duyệt.")
+            if str(step["ticket_id"]) != str(ticket_id):
+                raise HTTPException(status_code=404, detail="Bước duyệt không thuộc phiếu yêu cầu này.")
             if step["status"] != "CURRENT":
                 raise HTTPException(status_code=409, detail=f"Bước này không ở trạng thái chờ duyệt (hiện tại: {step['status']}).")
 
@@ -493,7 +496,9 @@ class SodService:
                                     WHERE finding_id = %s;
                                 """, (finding_id,))
                     except Exception as hook_err:
-                        logger.error(f"Phase 3 SoD completion hook error: {hook_err}")
+                        conn.rollback()
+                        logger.exception("Phase 3 SoD completion hook failed; transaction rolled back")
+                        raise HTTPException(status_code=503, detail="Không thể đồng bộ kết quả SoD sang hệ thống khắc phục.") from hook_err
             elif outcome_norm == "REJECT":
                 cur.execute("UPDATE sod.ticket_steps SET status = 'REJECTED' WHERE id = %s;", (step_id,))
                 cur.execute("""
@@ -528,7 +533,9 @@ class SodService:
                                 WHERE finding_id = %s;
                             """, (finding_id,))
                 except Exception as hook_err:
-                    logger.error(f"Phase 3 SoD rejection hook error: {hook_err}")
+                    conn.rollback()
+                    logger.exception("Phase 3 SoD rejection hook failed; transaction rolled back")
+                    raise HTTPException(status_code=503, detail="Không thể đồng bộ kết quả từ chối SoD sang hệ thống khắc phục.") from hook_err
             elif outcome_norm == "RETURN":
                 cur.execute("UPDATE sod.ticket_steps SET status = 'RETURNED' WHERE id = %s;", (step_id,))
                 cur.execute("""
@@ -563,7 +570,9 @@ class SodService:
                                 WHERE finding_id = %s;
                             """, (finding_id,))
                 except Exception as hook_err:
-                    logger.error(f"Phase 3 SoD return hook error: {hook_err}")
+                    conn.rollback()
+                    logger.exception("Phase 3 SoD return hook failed; transaction rolled back")
+                    raise HTTPException(status_code=503, detail="Không thể đồng bộ kết quả hoàn trả SoD sang hệ thống khắc phục.") from hook_err
 
             conn.commit()
 

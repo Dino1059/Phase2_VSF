@@ -81,6 +81,8 @@ from backend.ingestion.load_3zone_pilot import (
 
 logger = logging.getLogger("DataTrust.API")
 
+from database.profiler_engine import get_db_connection as auth_db_connection
+
 
 app = FastAPI(
     title="DataTrust OS - Adaptive Policy & Governance API",
@@ -102,6 +104,64 @@ async def require_production_basic_auth(request, call_next):
             content={"detail": "Production API authentication is not configured"},
         )
     auth_header = request.headers.get("Authorization", "")
+
+    # The SPA exchanges the outer Basic-auth session for a signed application
+    # JWT. Accept that JWT here; SoD routes still perform the stronger database
+    # role/session-version validation in get_current_user.
+    if auth_header.startswith("Bearer "):
+        conn = None
+        try:
+            from backend.api.auth_routes import decode_jwt_token
+
+            payload = decode_jwt_token(auth_header[7:].strip())
+            user_id = payload.get("sub")
+            active_role = str(payload.get("active_role") or "")
+            token_version = payload.get("session_version")
+            conn = auth_db_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT u.username
+                    FROM sod.users u
+                    JOIN sod.user_roles ur ON ur.user_id = u.id
+                    WHERE u.id = %s AND u.is_active = TRUE
+                      AND u.session_version = %s
+                      AND ur.role_code = %s
+                      AND ur.valid_from <= now()
+                      AND (ur.valid_to IS NULL OR ur.valid_to > now())
+                      AND ur.revoked_at IS NULL
+                    """,
+                    (user_id, token_version, active_role),
+                )
+                row = cur.fetchone()
+            if not row:
+                raise ValueError("JWT identity is no longer active")
+
+            # Legacy DataTrust handlers still consume actor headers. Replace any
+            # client-supplied values with the DB-validated JWT identity.
+            verified_user = row[0] if not isinstance(row, dict) else row["username"]
+            filtered = [
+                (key, value) for key, value in request.scope["headers"]
+                if key.lower() not in {b"x-user", b"x-user-role", b"x-actor", b"x-actor-role"}
+            ]
+            filtered.extend([
+                (b"x-user", str(verified_user).encode("utf-8")),
+                (b"x-user-role", active_role.encode("utf-8")),
+                (b"x-actor", str(verified_user).encode("utf-8")),
+                (b"x-actor-role", active_role.encode("utf-8")),
+            ])
+            request.scope["headers"] = filtered
+        except Exception:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or expired application token"},
+                headers={"WWW-Authenticate": 'Bearer realm="DataTrust OS"'},
+            )
+        finally:
+            if conn is not None:
+                conn.close()
+        return await call_next(request)
+
     supplied_user = supplied_password = ""
     if auth_header.startswith("Basic "):
         try:

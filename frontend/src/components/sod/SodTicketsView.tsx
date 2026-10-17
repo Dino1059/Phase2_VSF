@@ -216,7 +216,7 @@ export function SodTicketsView() {
   const selectedTicket = selectedTicketDetail || tickets.find((t) => t.id === selectedTicketId);
 
   // Dynamic Live Preview of the RACIX Approval Chain
-  const previewChain = useMemo(() => {
+  const localPreviewChain = useMemo(() => {
     const d: TicketForm = {
       ...emptyForm(user?.fullName || 'Người dùng', user?.email || 'user@company.vn'),
       loaiPhieu: 'new',
@@ -248,13 +248,31 @@ export function SodTicketsView() {
         { id: 'khoa.do', name: 'Đỗ Khoa', roles: ['DEV'] as RoleKey[] },
         { id: 'lan.bui', name: 'Bùi Lan', roles: ['REL'] as RoleKey[] },
         { id: 'minh.ngo', name: 'Ngô Minh', roles: ['OPS'] as RoleKey[] },
-        { id: 'hoang.tran', name: 'Trần Minh Hoàng', roles: ['AUD'] as RoleKey[] },
+        { id: 'hoang.tran', name: 'Trần Minh Hoàng', roles: ['AUDITOR'] as RoleKey[] },
       ];
       return buildChain(d, user?.username || 'an.nguyen', people, DEFAULT_MATRIX);
     } catch {
       return null;
     }
   }, [formSystem, formAccessLevel, formHasPii, formIsDbOrAdmin, formReason, formDuration, user]);
+  const [serverPreviewChain, setServerPreviewChain] = useState<any>(null);
+  const [previewError, setPreviewError] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const form = {
+        ...emptyForm(user?.fullName || '', user?.email || ''), loaiPhieu: 'new',
+        khan: formDuration === '1' ? 'urgent' : 'normal', capBac: 'T3', thiTruong: 'vn', camKet: true,
+        dlcn: formHasPii ? 'basic' : 'none', mucDich: formReason,
+        rows: [{ heThong: formSystem, taiNguyen: formReason, mucQuyen: formIsDbOrAdmin ? 'Full' : formAccessLevel === 'write' ? 'RW' : 'RO', tang: formIsDbOrAdmin ? '3' : '2', thoiHan: '' }],
+      };
+      sodApi.previewChain({ form }).then(setServerPreviewChain)
+        .catch((e) => { setServerPreviewChain(null); setPreviewError(e instanceof Error ? e.message : String(e)); });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [formSystem, formAccessLevel, formHasPii, formIsDbOrAdmin, formReason, formDuration, user]);
+  void localPreviewChain;
+  void previewError;
+  const previewChain = serverPreviewChain;
 
   const handleCreateTicketSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

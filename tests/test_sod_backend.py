@@ -57,7 +57,7 @@ def test_catalog_itgc_activities_and_roles():
         assert act_name(idx) == act["name"]
 
     # Verify role keys
-    for rk in ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUD"]:
+    for rk in ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUDITOR"]:
         assert rk in ROLES
         assert len(role_name(rk)) > 0
 
@@ -312,9 +312,11 @@ def test_database_migration_contains_required_triggers():
     assert "ticket_guard" in sql_lower
     assert "ticket_step_guard" in sql_lower
 
-    # 5. Dedicated sod_app role & Least Privilege REVOKE
-    assert "sod_app" in sql_lower
-    assert "revoke update, delete on sod.step_decisions, sod.sla_events" in sql_lower
+    # 5. Managed deployments must not embed or create database credentials.
+    # Append-only protection is enforced by the triggers above under the
+    # platform-provided DATABASE_URL identity.
+    assert "create role sod_app" not in sql_lower
+    assert "sod_secure_password" not in sql_lower
 
 
 # ==============================================================================

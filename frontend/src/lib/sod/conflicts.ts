@@ -15,7 +15,7 @@ const PAIR_NAMES: Record<string, string> = {
 };
 
 function pairName(a: RoleKey, b: RoleKey) {
-  if (a === "AUD" || b === "AUD") return "Auditor ↔ Control Operator";
+  if (a === "AUDITOR" || b === "AUDITOR") return "Auditor ↔ Control Operator";
   if (a === "IAM" || b === "IAM") return "Approver ↔ IAM Provisioner";
   return PAIR_NAMES[[a, b].sort().join("|")] ?? `${ROLES[a].name} ↔ ${ROLES[b].name}`;
 }

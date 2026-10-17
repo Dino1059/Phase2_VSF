@@ -5,8 +5,8 @@ Direct 1:1 fidelity with sod-production.
 
 from typing import Dict, List, Literal, Tuple, Union
 
-ROLE_KEYS = ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUD"]
-RoleKey = Literal["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUD"]
+ROLE_KEYS = ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUDITOR"]
+RoleKey = Literal["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUDITOR"]
 
 ROLES: Dict[str, Dict[str, str]] = {
     "REQ": {"name": "Requestor", "short": "Req."},
@@ -18,7 +18,7 @@ ROLES: Dict[str, Dict[str, str]] = {
     "DEV": {"name": "Developer", "short": "Dev"},
     "REL": {"name": "Release Manager", "short": "Rel. Mgr"},
     "OPS": {"name": "Production Operator", "short": "Prod. Op."},
-    "AUD": {"name": "Auditor", "short": "Auditor"},
+    "AUDITOR": {"name": "Auditor", "short": "Auditor"},
 }
 
 Letter = Literal["P", "A", "R", "C", "I", "X"]
@@ -70,7 +70,7 @@ SOD_CONFIG = {
     "retentionDays": 1825,
     "delegationMaxDays": 30,
     "staleCloseDays": 7,
-    "rank": {"REQ": 0, "DEV": 1, "OPS": 1, "IAM": 2, "LM": 3, "REL": 3, "SO": 4, "DPO": 5, "CISO": 6, "AUD": 9},
+    "rank": {"REQ": 0, "DEV": 1, "OPS": 1, "IAM": 2, "LM": 3, "REL": 3, "SO": 4, "DPO": 5, "CISO": 6, "AUDITOR": 9},
 }
 
 TICKET_TYPES = [

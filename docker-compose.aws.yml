@@ -121,9 +121,10 @@ services:
       AIRFLOW_USER: ${AIRFLOW_USER:-datatrust}
       AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD:?required}
       DATATRUST_API_USER: ${DATATRUST_API_USER:-datatrust}
-      DATATRUST_API_PASSWORD: ${AIRFLOW_PASSWORD:?required}
+      DATATRUST_API_PASSWORD: ${DATATRUST_API_PASSWORD:?required}
       DATATRUST_PSEUDONYMIZATION_KEY: ${DATATRUST_PSEUDONYMIZATION_KEY:?required}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      JWT_SECRET: ${JWT_SECRET:?required}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-southeast-1}
       AWS_SSM_AUDIT_SECRET_PATH: ${AWS_SSM_AUDIT_SECRET_PATH:-/datatrust/production/audit_hmac_secret}
       DATATRUST_CHAT_SESSION_DB_PATH: /var/data/chat_sessions.db

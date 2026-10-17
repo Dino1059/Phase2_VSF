@@ -1,7 +1,7 @@
 ﻿// Quy tắc SoD theo rule.md — chuyển từ ../data.js của bản mẫu.
 // Sau này chuyển thành bảng cấu hình có phiên bản (KE_HOACH.md 9.5).
 
-export const ROLE_KEYS = ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUD"] as const;
+export const ROLE_KEYS = ["REQ", "LM", "DPO", "SO", "CISO", "IAM", "DEV", "REL", "OPS", "AUDITOR"] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export const ROLES: Record<RoleKey, { name: string; short: string }> = {
@@ -14,7 +14,7 @@ export const ROLES: Record<RoleKey, { name: string; short: string }> = {
   DEV: { name: "Developer", short: "Dev" },
   REL: { name: "Release Manager", short: "Rel. Mgr" },
   OPS: { name: "Production Operator", short: "Prod. Op." },
-  AUD: { name: "Auditor", short: "Auditor" },
+  AUDITOR: { name: "Auditor", short: "Auditor" },
 };
 
 export type Letter = "P" | "A" | "R" | "C" | "I" | "X";
@@ -76,14 +76,14 @@ export const MATRIX_RULES: string[] = [
 // Ghi chú các ô đã sửa, theo id hoạt động. roles = cột liên quan (được tô nổi trên ma trận).
 export const MATRIX_NOTES: Record<number, { roles: RoleKey[]; text: string }> = {
   4: { roles: ["IAM"], text: "IAM được đọc dữ liệu định danh nhân viên (mã NV, phòng ban, chức danh, trạng thái làm việc) để mở account. Không đọc dữ liệu nghiệp vụ / khách hàng." },
-  5: { roles: ["IAM", "AUD"], text: "IAM đọc trạng thái nghỉ việc của nhân viên để thu hồi account, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu thu hồi có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
-  6: { roles: ["IAM", "AUD"], text: "IAM đọc phòng ban / chức danh mới của nhân viên để đổi quyền, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu điều chuyển có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
+  5: { roles: ["IAM", "AUDITOR"], text: "IAM đọc trạng thái nghỉ việc của nhân viên để thu hồi account, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu thu hồi có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
+  6: { roles: ["IAM", "AUDITOR"], text: "IAM đọc phòng ban / chức danh mới của nhân viên để đổi quyền, không đọc dữ liệu nghiệp vụ. Auditor giữ R: kiểm tra yêu cầu điều chuyển có bị cấm / vượt quyền không, trước khi IAM thực hiện." },
   12: { roles: ["OPS"], text: "Bỏ P thứ hai: chỉ Requestor thực hiện sau khi được duyệt; Prod. Op. P → I." },
   13: { roles: ["IAM"], text: "IAM P → X với dữ liệu khách hàng. IAM vẫn đọc dữ liệu định danh nhân viên để mở account ở dòng 5 (PAM/JIT), được nối sau bước duyệt; rồi Requestor mới truy vấn." },
   14: { roles: ["IAM"], text: "IAM P → X với dữ liệu khách hàng. IAM vẫn đọc dữ liệu định danh nhân viên để mở account ở dòng 5 (PAM/JIT), được nối sau bước duyệt; rồi Requestor mới xuất dữ liệu." },
   16: { roles: ["IAM"], text: "Bỏ P thứ hai: Prod. Op. điều tra; IAM P → C (cung cấp log truy cập, thông tin account)." },
-  17: { roles: ["AUD"], text: "Auditor A → R: Auditor không phê duyệt đóng sự cố, chỉ kiểm tra; CISO duyệt cuối." },
-  18: { roles: ["SO", "IAM", "AUD"], text: "Sys Owner R → P (thực hiện rà soát); IAM P → I (nhận kết quả để thu hồi, không tự rà soát quyền mình cấp); Auditor A → R." },
+  17: { roles: ["AUDITOR"], text: "Auditor A → R: Auditor không phê duyệt đóng sự cố, chỉ kiểm tra; CISO duyệt cuối." },
+  18: { roles: ["SO", "IAM", "AUDITOR"], text: "Sys Owner R → P (thực hiện rà soát); IAM P → I (nhận kết quả để thu hồi, không tự rà soát quyền mình cấp); Auditor A → R." },
 };
 
 /** Mã hoạt động: số = dòng ma trận, 'init' = khởi tạo ticket, 'bg' = hậu kiểm break-glass */
@@ -135,7 +135,7 @@ export const SOD_CONFIG = {
   delegationMaxDays: 30, // ủy quyền vắng mặt tối đa [Cần chốt]
   staleCloseDays: 7, // quá số ngày này không ai xử lý thì Admin đóng phiếu "hết hạn" (BUILD_PLAN 4.5)
   // Cấp thẩm quyền: số nhỏ duyệt trước, số lớn chốt sau
-  rank: { REQ: 0, DEV: 1, OPS: 1, IAM: 2, LM: 3, REL: 3, SO: 4, DPO: 5, CISO: 6, AUD: 9 } as Record<RoleKey, number>,
+  rank: { REQ: 0, DEV: 1, OPS: 1, IAM: 2, LM: 3, REL: 3, SO: 4, DPO: 5, CISO: 6, AUDITOR: 9 } as Record<RoleKey, number>,
 };
 
 export const PRIORITY_LABEL: Record<Priority, string> = { urgent: "Khẩn cấp", high: "Cao", normal: "Trung bình", low: "Thấp" };

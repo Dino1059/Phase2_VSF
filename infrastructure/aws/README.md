@@ -38,6 +38,18 @@ Use the `SessionManagerCommand` stack output to open a shell without exposing
 SSH. The checkout lives at `/opt/datatrust` and bootstrap logs are written to
 `/var/log/datatrust-bootstrap.log`.
 
+Retrieve the initial application administrator password through encrypted SSM
+(the caller needs `ssm:GetParameter` permission):
+
+```bash
+aws ssm get-parameter --region ap-southeast-1 \
+  --name /datatrust/production/app_admin_password --with-decryption \
+  --query Parameter.Value --output text
+```
+
+The username is `datatrust`. This password is distinct from the Airflow
+administrator credential.
+
 ```bash
 cd /opt/datatrust
 sudo docker compose --env-file .env.aws -f docker-compose.aws.yml ps

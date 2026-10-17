@@ -397,7 +397,7 @@ def create_governed_remediation_ticket(
             "finding_id": finding_id,
             "proposal_id": proposal_id,
             "version": prop["version"],
-            "total_steps": len(chain["steps"]) - 1
+            "total_steps": len(steps) - 1
         }
 
 

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { sodApi } from '@/src/services/api';
 import { useAuthStore } from '@/src/stores/authStore';
 import { ROLES, ROLE_KEYS, type RoleKey } from '@/src/lib/sod/catalog';
 import {
@@ -47,8 +48,11 @@ const INITIAL_DELEGATIONS: DelegationItem[] = [
 ];
 
 export function SodDelegationView() {
+  void INITIAL_DELEGATIONS;
   const user = useAuthStore((s) => s.user);
-  const [delegations, setDelegations] = useState<DelegationItem[]>(INITIAL_DELEGATIONS);
+  const [delegations, setDelegations] = useState<DelegationItem[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
 
   // Form fields
@@ -58,8 +62,20 @@ export function SodDelegationView() {
   const [endDate, setEndDate] = useState('2026-10-23');
   const [reason, setReason] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [people, setPeople] = useState<Array<{ id: string; name: string; roles: string[] }>>([]);
 
-  const handleCreate = (e: React.FormEvent) => {
+  const loadDelegations = () => sodApi.getDelegations().then((rows) => setDelegations(rows.map((d: any) => ({
+    id: String(d.id), delegatorName: d.delegator_name, delegatorRole: d.role_code,
+    delegateName: d.delegate_name, delegateRole: d.role_code,
+    startDate: String(d.valid_from).slice(0, 10), endDate: String(d.valid_to).slice(0, 10),
+    status: d.revoked_at ? 'EXPIRED' : (new Date(d.valid_from) > new Date() ? 'SCHEDULED' : 'ACTIVE'), reason: d.reason,
+  }))));
+  useEffect(() => {
+    Promise.all([loadDelegations(), sodApi.getPeople().then(setPeople)])
+      .catch((e) => setError(String(e))).finally(() => setLoading(false));
+  }, []);
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!delegateName.trim() || !reason.trim()) return;
 
@@ -74,8 +90,12 @@ export function SodDelegationView() {
       status: 'ACTIVE',
       reason: reason.trim(),
     };
+    void newItem;
 
-    setDelegations([newItem, ...delegations]);
+    try {
+      await sodApi.createDelegation({ delegate_id: delegateName.trim(), role_code: delegateRole, valid_from: startDate, valid_to: endDate, reason: reason.trim() });
+      await loadDelegations();
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
     setIsCreating(false);
     setDelegateName('');
     setReason('');
@@ -85,6 +105,8 @@ export function SodDelegationView() {
 
   return (
     <div className="space-y-6">
+      {loading && <div className="p-3 bg-slate-50 rounded-xl text-xs">Đang tải danh sách ủy quyền...</div>}
+      {error && <div className="p-3 bg-rose-50 text-rose-700 rounded-xl text-xs">{error}</div>}
       {successMsg && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -128,13 +150,16 @@ export function SodDelegationView() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="font-semibold text-slate-700">Người được ủy quyền (Cùng vai trò):</label>
-                <input
-                  type="text"
+                <select
                   value={delegateName}
                   onChange={(e) => setDelegateName(e.target.value)}
-                  placeholder="Nhập họ tên nhân sự được ủy quyền..."
                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:border-[#04D3D4]"
-                />
+                >
+                  <option value="">Chọn nhân sự có cùng vai trò...</option>
+                  {people.filter((person) => person.roles.includes(delegateRole)).map((person) => (
+                    <option key={person.id} value={person.id}>{person.name}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1.5">
