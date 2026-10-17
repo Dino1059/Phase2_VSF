@@ -531,6 +531,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       token,
     });
 
+    // Asynchronously authenticate with backend to upgrade to a signed JWT in the background
+    authApi.login({ username: persona.id, role: persona.primaryRole })
+      .then((res) => {
+        if (res && (res.token || res.access_token)) {
+          const jwtToken = res.token || res.access_token!;
+          persistAuthToken(jwtToken, persona.primaryRole);
+          const serverRole = normalizeUserRole(res.user?.active_role || res.user?.role) || persona.primaryRole;
+          const updatedProfile: UserProfile = {
+            ...profile,
+            user_id: res.user?.id || res.user?.user_id || profile.user_id,
+            role: serverRole,
+            roles: [serverRole],
+          };
+          try {
+            localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(updatedProfile));
+          } catch {}
+          set((prev) => {
+            if (prev.currentPersona?.id === persona.id) {
+              return {
+                token: jwtToken,
+                user: updatedProfile,
+              };
+            }
+            return {};
+          });
+        }
+      })
+      .catch(() => {
+        // Backend offline or mock test environment, demo_token continues to work seamlessly
+      });
+
     return persona.defaultRoute;
   },
 
@@ -634,11 +665,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   restoreSession: () => {
     const { user, persona, systemAccess } = loadInitialSession();
     if (user && persona) {
+      const token = readAuthToken();
+      if (token && token.startsWith('demo_token_')) {
+        authApi.login({ username: persona.id, role: persona.primaryRole })
+          .then((res) => {
+            if (res && (res.token || res.access_token)) {
+              const jwtToken = res.token || res.access_token!;
+              persistAuthToken(jwtToken, persona.primaryRole);
+              set({ token: jwtToken });
+            }
+          })
+          .catch(() => {});
+      }
       set({
         user,
         currentPersona: persona,
         systemAccess,
         isAuthenticated: true,
+        token: token || null,
       });
       return true;
     }

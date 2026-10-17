@@ -77,7 +77,35 @@ def create_jwt_token(payload: Dict[str, Any], expires_hours: int = 24) -> str:
     return jwt.encode(claims, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+PERSONA_TO_ROLE: Dict[str, str] = {
+    "admin": "ADMIN",
+    "auditor": "AUDITOR",
+    "dpo": "DPO",
+    "so": "SO",
+    "req": "REQ",
+    "lm": "LM",
+    "iam": "IAM",
+    "dev": "DEV",
+    "rel": "REL",
+    "ops": "OPS",
+    "ciso": "CISO",
+    "steward": "DATA_STEWARD",
+    "analyst": "ANALYST",
+    "viewer": "VIEWER",
+}
+
+
 def decode_jwt_token(token: str) -> Dict[str, Any]:
+    if token.startswith("demo_token_"):
+        code = token[len("demo_token_"):].strip().lower()
+        role = PERSONA_TO_ROLE.get(code, code.upper())
+        return {
+            "sub": f"demo_{code}",
+            "username": f"demo_{code}",
+            "active_role": role,
+            "session_version": 1,
+            "is_demo_token": True,
+        }
     try:
         return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -104,13 +132,67 @@ async def get_current_user(
     is_demo = os.getenv("ENVIRONMENT", "").lower() != "production" or allow_demo
 
     if token:
-        payload = decode_jwt_token(token)
-        user_id = payload.get("sub")
-        token_ver = payload.get("session_version", 1)
-        active_role = payload.get("active_role", "VIEWER")
+        if token.startswith("demo_token_"):
+            if not is_demo:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
 
-        # So khớp session_version trong CSDL để chống Privilege Escalation
+            persona_code = token[len("demo_token_"):].strip().lower()
+            expected_role = PERSONA_TO_ROLE.get(persona_code, persona_code.upper())
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT u.id, u.username, u.full_name, u.session_version
+                        FROM sod.users u
+                        LEFT JOIN sod.user_roles ur ON u.id = ur.user_id
+                        WHERE u.is_active = TRUE AND (
+                            u.username = %s
+                            OR u.username = %s
+                            OR ur.role_code = %s
+                            OR u.username = 'demo_user'
+                        )
+                        ORDER BY (u.username = %s) DESC, (ur.role_code = %s) DESC
+                        LIMIT 1;
+                    """, (persona_code, f"demo_{persona_code}", expected_role, f"demo_{persona_code}", expected_role))
+                    row = cur.fetchone()
+                    if row:
+                        user_id = str(row["id"])
+                        cur.execute("""
+                            SELECT role_code FROM sod.user_roles
+                            WHERE user_id = %s AND valid_from <= now()
+                              AND (valid_to IS NULL OR valid_to > now())
+                              AND revoked_at IS NULL;
+                        """, (user_id,))
+                        assigned_roles = [r["role_code"] for r in cur.fetchall()]
+                        active_role = expected_role if expected_role in assigned_roles else (assigned_roles[0] if assigned_roles else expected_role)
+                        return UserContext(
+                            user_id=user_id,
+                            username=row["username"],
+                            full_name=row["full_name"],
+                            active_role=active_role,
+                            roles=assigned_roles or [active_role],
+                            system_access=get_system_access_for_role(active_role),
+                            session_version=row["session_version"]
+                        )
+            except Exception:
+                pass
+
+            return UserContext(
+                user_id="00000000-0000-0000-0000-000000000001",
+                username=f"demo_{persona_code}",
+                full_name=f"Tài khoản {persona_code.upper()}",
+                active_role=expected_role,
+                roles=[expected_role],
+                system_access=get_system_access_for_role(expected_role),
+                session_version=1
+            )
+
         try:
+            payload = decode_jwt_token(token)
+            user_id = payload.get("sub")
+            token_ver = payload.get("session_version", 1)
+            active_role = payload.get("active_role", "VIEWER")
+
+            # So khớp session_version trong CSDL để chống Privilege Escalation
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT id, username, full_name, session_version FROM sod.users WHERE id = %s;", (user_id,))
                 user_row = cur.fetchone()
@@ -147,7 +229,8 @@ async def get_current_user(
                     session_version=db_ver
                 )
         except HTTPException:
-            raise
+            if not is_demo:
+                raise
         except Exception:
             if not is_demo:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Không thể xác thực phiên làm việc.")
@@ -250,11 +333,12 @@ def login(payload: LoginRequest, conn = Depends(get_db_connection)):
                     LEFT JOIN sod.user_roles ur ON ur.user_id = u.id
                     WHERE u.is_active = TRUE AND (
                         u.username = %s
+                        OR u.username = %s
                         OR (%s IS NOT NULL AND ur.role_code = %s AND (u.username LIKE 'demo_%%' OR u.username = 'demo_user'))
                         OR u.username LIKE 'demo_%%'
                     )
                     LIMIT 1;
-                """, (f"demo_{username}", requested_role, requested_role))
+                """, (username, f"demo_{username}", requested_role, requested_role))
                 user_row = cur.fetchone()
 
         if not user_row:
