@@ -149,7 +149,9 @@ jobs:
             "git fetch --prune origin mvp",
             "echo DATATRUST_DEPLOY_WRAPPER_STAGE=script_extract",
             ("git show " + $sha + ":scripts/deploy_aws.sh > /tmp/datatrust-deploy.sh"),
+            "sed -i 's/\\r$//' /tmp/datatrust-deploy.sh",
             "chmod 700 /tmp/datatrust-deploy.sh",
+            "bash -n /tmp/datatrust-deploy.sh",
             "echo DATATRUST_DEPLOY_WRAPPER_STAGE=deploy_script",
             ("DATATRUST_APP_DIR=/opt/datatrust bash /tmp/datatrust-deploy.sh " + $sha)
           ]}' > ssm-parameters.json
