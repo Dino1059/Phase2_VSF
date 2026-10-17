@@ -143,10 +143,14 @@ jobs:
         run: |
           jq -n --arg sha "$TARGET_SHA" '{commands: [
             "set -euo pipefail",
+            "echo DATATRUST_DEPLOY_WRAPPER_STAGE=app_directory",
             "cd /opt/datatrust",
+            "echo DATATRUST_DEPLOY_WRAPPER_STAGE=source_fetch",
             "git fetch --prune origin mvp",
+            "echo DATATRUST_DEPLOY_WRAPPER_STAGE=script_extract",
             ("git show " + $sha + ":scripts/deploy_aws.sh > /tmp/datatrust-deploy.sh"),
             "chmod 700 /tmp/datatrust-deploy.sh",
+            "echo DATATRUST_DEPLOY_WRAPPER_STAGE=deploy_script",
             ("/tmp/datatrust-deploy.sh " + $sha)
           ]}' > ssm-parameters.json
 
@@ -177,8 +181,11 @@ jobs:
                 failed_stage="$(printf '%s\n%s' "$stdout" "$stderr" \
                   | grep -oE 'DATATRUST_DEPLOY_FAILED_STAGE=[a-z_]+' \
                   | tail -n 1 | cut -d= -f2 || true)"
+                wrapper_stage="$(printf '%s\n%s' "$stdout" "$stderr" \
+                  | grep -oE 'DATATRUST_DEPLOY_WRAPPER_STAGE=[a-z_]+' \
+                  | tail -n 1 | cut -d= -f2 || true)"
                 response_code="$(jq -r '.ResponseCode // "unknown"' <<<"$invocation")"
-                echo "::error title=AWS SSM deployment failed::stage=${failed_stage:-unknown}, response_code=$response_code"
+                echo "::error title=AWS SSM deployment failed::wrapper=${wrapper_stage:-unknown}, stage=${failed_stage:-unknown}, response_code=$response_code"
                 exit 1
                 ;;
             esac
