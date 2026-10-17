@@ -80,6 +80,23 @@ wait_for_postgres() {
   return 1
 }
 
+verify_authenticated_app() {
+  local app_user app_password basic_config
+  app_user="$(sed -n 's/^DATATRUST_API_USER=//p' "$ENV_FILE" | tail -n 1)"
+  app_password="$(sed -n 's/^DATATRUST_API_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
+  test -n "$app_user"
+  test -n "$app_password"
+  basic_config="$(printf 'user = "%s:%s"\n' "$app_user" "$app_password")"
+
+  curl --config <(printf '%s' "$basic_config") --fail --silent --show-error \
+    --max-time 10 http://localhost/ >/dev/null
+  printf '{"username":"%s","password":"%s"}' "$app_user" "$app_password" \
+    | curl --config <(printf '%s' "$basic_config") --fail --silent --show-error \
+      --max-time 10 --json @- http://localhost/api/auth/login >/dev/null
+
+  unset app_user app_password basic_config
+}
+
 rollback() {
   local exit_code=$?
   trap - ERR
@@ -113,6 +130,8 @@ DEPLOY_STAGE="service_startup"
 compose up -d --remove-orphans
 DEPLOY_STAGE="health_check"
 wait_for_health 120 5
+DEPLOY_STAGE="authenticated_smoke_test"
+verify_authenticated_app
 
 trap - ERR
 echo "Deployment health check passed at $TARGET_SHA"
