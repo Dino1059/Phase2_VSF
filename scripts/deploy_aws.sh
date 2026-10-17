@@ -2,14 +2,16 @@
 set -Eeuo pipefail
 
 TARGET_SHA="${1:?target git SHA is required}"
+DEPLOY_STAGE="app_directory"
+trap 'echo "DATATRUST_DEPLOY_FAILED_STAGE=$DEPLOY_STAGE" >&2' ERR
 APP_DIR="${DATATRUST_APP_DIR:-/opt/datatrust}"
 COMPOSE_FILE="docker-compose.aws.yml"
 ENV_FILE=".env.aws"
 
 cd "$APP_DIR"
+DEPLOY_STAGE="source_state"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 DEPLOY_STAGE="credential_provisioning"
-trap 'echo "DATATRUST_DEPLOY_FAILED_STAGE=$DEPLOY_STAGE" >&2' ERR
 
 # Existing installations predate JWT authentication. Provision a strong,
 # persistent signing key once on the host without printing it to deployment
