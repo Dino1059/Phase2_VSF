@@ -24,6 +24,7 @@ INCREMENTAL_MIGRATIONS = [
     "migration_20261015_seed_required_parent_policies.sql",
     "migration_20261016_phase2_sod_schema.sql",
     "migration_20261016_phase3_cross_system.sql",
+    "migration_20261017_phase2_sod_matrix_fix.sql",
 ]
 
 
