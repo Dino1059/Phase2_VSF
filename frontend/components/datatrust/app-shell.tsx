@@ -30,6 +30,7 @@ interface NavItem {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
+  const isSodRoute = pathname.startsWith('/sod');
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   // Desktop chat width & drag resize state
   const [chatWidth, setChatWidth] = useState<number>(() => {
@@ -117,9 +118,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : []),
   ];
 
-  // Keyboard shortcut Alt + [ to toggle chat
+  // Keyboard shortcut Alt + [ to toggle chat (disabled on SoD tab)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isSodRoute) return;
       if (e.altKey && e.key === '[') {
         e.preventDefault();
         setIsChatCollapsed((prev) => !prev);
@@ -127,7 +129,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isSodRoute]);
+
+  // Ensure mobile chat drawer is closed when navigating to SoD
+  useEffect(() => {
+    if (isSodRoute) {
+      setIsMobileChatOpen(false);
+    }
+  }, [isSodRoute]);
 
   const getBreadcrumbTitle = () => {
     if (pathname.startsWith('/sod')) return 'PHÂN QUYỀN & SOD';
@@ -228,7 +237,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* 2. PERSISTENT AI CHAT PANE (DUAL-PANE LEFT)                                */}
       {/* ========================================================================= */}
       {/* Mobile Backdrop */}
-      {isMobileChatOpen && (
+      {!isSodRoute && isMobileChatOpen && (
         <div
           role="button"
           tabIndex={0}
@@ -241,63 +250,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* The Chat Container - Persistent in React tree across navigation */}
-      <aside
-        aria-label="Khung trợ lý DataTrust AI"
-        data-testid="persistent-ai-chat-pane"
-        style={{
-          width: isChatCollapsed ? 0 : `${chatWidth}px`,
-        }}
-        className={cn(
-          // Base shared styles
-          'h-full flex flex-col bg-white border-r border-[#e2ece8] z-30',
-          !isDragging && 'transition-[width] duration-200 ease-in-out motion-reduce:transition-none motion-reduce:transform-none',
-          // Desktop styles: inline side-by-side with dynamic workspace
-          'hidden lg:flex relative shrink-0',
-          isChatCollapsed && 'lg:border-r-0 lg:overflow-hidden',
-          // Mobile styles: slide-over overlay drawer when open
-          isMobileChatOpen && 'flex! fixed inset-y-0 left-[68px] z-50 w-[min(400px,calc(100vw-68px))]! shadow-2xl'
-        )}
-      >
-        {/* Mobile close header */}
-        <div className="lg:hidden flex items-center justify-between border-b border-slate-100 bg-[#fafcfb] px-4 py-2 shrink-0">
-          <span className="text-xs font-bold text-slate-700">Trợ lý AI Orchestrator</span>
-          <button
-            type="button"
-            onClick={() => setIsMobileChatOpen(false)}
-            aria-label="Đóng AI Chat"
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition motion-reduce:transition-none"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* The persistent AI Chat Component */}
-        <div className="flex-1 min-h-0 h-full overflow-hidden">
-          <AiChatPane />
-        </div>
-
-        {/* Desktop Draggable Resize Handle */}
-        {!isChatCollapsed && (
-          <div
-            onMouseDown={startResizing}
-            role="separator"
-            aria-orientation="vertical"
-            title="Kéo sang trái/phải để tùy chỉnh kích thước khung chat"
-            className={cn(
-              'hidden lg:flex absolute top-0 -right-1 w-2.5 h-full cursor-col-resize z-40 items-center justify-center transition-colors select-none group',
-              isDragging ? 'bg-[#04D3D4]/80' : 'hover:bg-[#04D3D4]/40'
-            )}
-          >
-            <div
-              className={cn(
-                'w-1 h-9 rounded-full transition-colors',
-                isDragging ? 'bg-white shadow-xs' : 'bg-slate-300 group-hover:bg-[#008b74]'
-              )}
-            />
+      {/* The Chat Container - Persistent in React tree across navigation (Hidden on SoD) */}
+      {!isSodRoute && (
+        <aside
+          aria-label="Khung trợ lý DataTrust AI"
+          data-testid="persistent-ai-chat-pane"
+          style={{
+            width: isChatCollapsed ? 0 : `${chatWidth}px`,
+          }}
+          className={cn(
+            // Base shared styles
+            'h-full flex flex-col bg-white border-r border-[#e2ece8] z-30',
+            !isDragging && 'transition-[width] duration-200 ease-in-out motion-reduce:transition-none motion-reduce:transform-none',
+            // Desktop styles: inline side-by-side with dynamic workspace
+            'hidden lg:flex relative shrink-0',
+            isChatCollapsed && 'lg:border-r-0 lg:overflow-hidden',
+            // Mobile styles: slide-over overlay drawer when open
+            isMobileChatOpen && 'flex! fixed inset-y-0 left-[68px] z-50 w-[min(400px,calc(100vw-68px))]! shadow-2xl'
+          )}
+        >
+          {/* Mobile close header */}
+          <div className="lg:hidden flex items-center justify-between border-b border-slate-100 bg-[#fafcfb] px-4 py-2 shrink-0">
+            <span className="text-xs font-bold text-slate-700">Trợ lý AI Orchestrator</span>
+            <button
+              type="button"
+              onClick={() => setIsMobileChatOpen(false)}
+              aria-label="Đóng AI Chat"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition motion-reduce:transition-none"
+            >
+              <X size={16} />
+            </button>
           </div>
-        )}
-      </aside>
+
+          {/* The persistent AI Chat Component */}
+          <div className="flex-1 min-h-0 h-full overflow-hidden">
+            <AiChatPane />
+          </div>
+
+          {/* Desktop Draggable Resize Handle */}
+          {!isChatCollapsed && (
+            <div
+              onMouseDown={startResizing}
+              role="separator"
+              aria-orientation="vertical"
+              title="Kéo sang trái/phải để tùy chỉnh kích thước khung chat"
+              className={cn(
+                'hidden lg:flex absolute top-0 -right-1 w-2.5 h-full cursor-col-resize z-40 items-center justify-center transition-colors select-none group',
+                isDragging ? 'bg-[#04D3D4]/80' : 'hover:bg-[#04D3D4]/40'
+              )}
+            >
+              <div
+                className={cn(
+                  'w-1 h-9 rounded-full transition-colors',
+                  isDragging ? 'bg-white shadow-xs' : 'bg-slate-300 group-hover:bg-[#008b74]'
+                )}
+              />
+            </div>
+          )}
+        </aside>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. DYNAMIC WORKSPACE CANVAS (DUAL-PANE RIGHT)                             */}
@@ -307,17 +318,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-20 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-[#e2ece8] bg-white/95 px-4 sm:px-6 backdrop-blur-md">
           {/* Breadcrumb Title */}
           <div className="flex items-center gap-2.5 min-w-0">
-            {/* Desktop Toggle Button for AI Chat (Collapse/Expand) */}
-            <button
-              type="button"
-              onClick={() => setIsChatCollapsed((prev) => !prev)}
-              aria-label={isChatCollapsed ? "Mở rộng khung AI Chat" : "Thu gọn khung AI Chat"}
-              aria-expanded={!isChatCollapsed}
-              title={isChatCollapsed ? "Mở rộng khung AI Chat (Alt + [)" : "Thu gọn khung AI Chat (Alt + [)"}
-              className="hidden lg:grid size-7 place-items-center rounded-lg border border-[#e2ece8] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
-            >
-              {isChatCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-            </button>
+            {/* Desktop Toggle Button for AI Chat (Collapse/Expand) - Hidden on SoD */}
+            {!isSodRoute && (
+              <button
+                type="button"
+                onClick={() => setIsChatCollapsed((prev) => !prev)}
+                aria-label={isChatCollapsed ? "Mở rộng khung AI Chat" : "Thu gọn khung AI Chat"}
+                aria-expanded={!isChatCollapsed}
+                title={isChatCollapsed ? "Mở rộng khung AI Chat (Alt + [)" : "Thu gọn khung AI Chat (Alt + [)"}
+                className="hidden lg:grid size-7 place-items-center rounded-lg border border-[#e2ece8] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
+              >
+                {isChatCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+              </button>
+            )}
 
             <span className="grid size-7 place-items-center rounded-lg bg-teal-50 text-[#008b74] border border-teal-200 shrink-0">
               <SectionIcon size={15} />
@@ -329,17 +342,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* Mobile AI Chat summon button */}
-            <button
-              type="button"
-              onClick={() => setIsMobileChatOpen((prev) => !prev)}
-              aria-label="Bật/tắt khung AI Chat"
-              aria-expanded={isMobileChatOpen}
-              className="lg:hidden flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-800 shadow-2xs hover:bg-teal-100 transition motion-reduce:transition-none cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
-            >
-              <Sparkles size={13} className="text-[#04D3D4] fill-[#04D3D4]" />
-              <span>AI Chat</span>
-            </button>
+            {/* Mobile AI Chat summon button - Hidden on SoD */}
+            {!isSodRoute && (
+              <button
+                type="button"
+                onClick={() => setIsMobileChatOpen((prev) => !prev)}
+                aria-label="Bật/tắt khung AI Chat"
+                aria-expanded={isMobileChatOpen}
+                className="lg:hidden flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-800 shadow-2xs hover:bg-teal-100 transition motion-reduce:transition-none cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#04D3D4]"
+              >
+                <Sparkles size={13} className="text-[#04D3D4] fill-[#04D3D4]" />
+                <span>AI Chat</span>
+              </button>
+            )}
 
             {/* Role Switcher Modal Trigger */}
             <button

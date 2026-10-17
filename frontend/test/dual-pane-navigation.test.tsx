@@ -205,4 +205,41 @@ describe('Dual-Pane Global Layout & Navigation', () => {
     fireEvent.click(backdrop);
     expect(mobileToggleBtn).toHaveAttribute('aria-expanded', 'false');
   });
+
+  it('hides dual-pane AI Chat and its toggle buttons on /sod route', async () => {
+    // Ensure persona has access to both systems so /sod renders inside AppShell
+    useAuthStore.getState().switchPersona('admin');
+
+    render(
+      <MemoryRouter initialEntries={['/overview']}>
+        <App />
+      </MemoryRouter>
+    );
+
+    // On /overview, chat pane and collapse toggle exist
+    expect(screen.getByTestId('persistent-ai-chat-pane')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Thu gọn khung AI Chat/i })).toBeInTheDocument();
+
+    // Navigate to /sod
+    const sodLink = screen.getByRole('link', { name: /Phân quyền & SoD/i });
+    fireEvent.click(sodLink);
+
+    await waitFor(() => {
+      expect(screen.getByText('PHÂN QUYỀN & SOD')).toBeInTheDocument();
+    });
+
+    // In /sod, dual-pane AI chat pane and toggle buttons are removed
+    expect(screen.queryByTestId('persistent-ai-chat-pane')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /khung AI Chat/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /AI Chat/i })).not.toBeInTheDocument();
+
+    // Navigate back to /overview
+    const homeLink = screen.getByRole('link', { name: /^Trang chủ$/i });
+    fireEvent.click(homeLink);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('persistent-ai-chat-pane')).toBeInTheDocument();
+    });
+  });
 });
+
