@@ -169,9 +169,16 @@ jobs:
             case "$status" in
               Success) break ;;
               Failed|Cancelled|TimedOut|Cancelling)
-                aws ssm get-command-invocation \
+                invocation="$(aws ssm get-command-invocation \
                   --command-id "$command_id" \
-                  --instance-id "$INSTANCE_ID"
+                  --instance-id "$INSTANCE_ID")"
+                stderr="$(jq -r '.StandardErrorContent // empty' <<<"$invocation")"
+                stdout="$(jq -r '.StandardOutputContent // empty' <<<"$invocation")"
+                failed_stage="$(printf '%s\n%s' "$stdout" "$stderr" \
+                  | grep -oE 'DATATRUST_DEPLOY_FAILED_STAGE=[a-z_]+' \
+                  | tail -n 1 | cut -d= -f2 || true)"
+                response_code="$(jq -r '.ResponseCode // "unknown"' <<<"$invocation")"
+                echo "::error title=AWS SSM deployment failed::stage=${failed_stage:-unknown}, response_code=$response_code"
                 exit 1
                 ;;
             esac

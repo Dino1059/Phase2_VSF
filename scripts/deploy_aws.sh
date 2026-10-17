@@ -8,6 +8,7 @@ ENV_FILE=".env.aws"
 
 cd "$APP_DIR"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
+DEPLOY_STAGE="credential_provisioning"
 
 # Existing installations predate JWT authentication. Provision a strong,
 # persistent signing key once on the host without printing it to deployment
@@ -81,6 +82,7 @@ wait_for_postgres() {
 rollback() {
   local exit_code=$?
   trap - ERR
+  echo "DATATRUST_DEPLOY_FAILED_STAGE=$DEPLOY_STAGE" >&2
   echo "Deployment failed; rolling back to $PREVIOUS_SHA"
   compose logs --tail=200 || true
   git checkout --detach "$PREVIOUS_SHA"
@@ -93,17 +95,22 @@ rollback() {
 
 trap rollback ERR
 
+DEPLOY_STAGE="source_checkout"
 git fetch --prune origin mvp
 git cat-file -e "${TARGET_SHA}^{commit}"
 git checkout --detach "$TARGET_SHA"
 
+DEPLOY_STAGE="compose_build"
 compose config --quiet
 compose build
 compose up -d postgres
 wait_for_postgres 60 2
+DEPLOY_STAGE="database_migration"
 compose run --rm --no-deps app python -m database.bootstrap_render
 compose run --rm --no-deps app python -m database.run_migrations
+DEPLOY_STAGE="service_startup"
 compose up -d --remove-orphans
+DEPLOY_STAGE="health_check"
 wait_for_health 120 5
 
 trap - ERR
