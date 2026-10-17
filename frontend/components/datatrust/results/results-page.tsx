@@ -36,6 +36,7 @@ import {
   type AuditEvidenceItem,
   type DashboardOverview,
 } from '@/lib/api-bridge';
+import { formatWarningExplanation } from '@/lib/formatters/audit-warning-formatter';
 
 export function ResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -76,6 +77,7 @@ export function ResultsPage() {
   const [warningLayerFilter, setWarningLayerFilter] = useState('all');
   const [warningDatasetFilter, setWarningDatasetFilter] = useState('all');
   const [selectedWarning, setSelectedWarning] = useState<WarningRecord | null>(null);
+  const [showTechnicalDetailsWarning, setShowTechnicalDetailsWarning] = useState(false);
 
   // 4. Evidence State
   const [evidenceList, setEvidenceList] = useState<AuditEvidenceItem[]>([]);
@@ -696,7 +698,7 @@ export function ResultsPage() {
             <table className="w-full min-w-[1020px] text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>
-                  {['Mã PK', 'Bộ Dữ Liệu', 'Làn', 'Tầng', 'Loại Bất Thường', 'Lý Do Ghi Nhận', 'Z-Score / Điểm', 'Thời Điểm', ''].map(
+                  {['Mã PK', 'Bộ Dữ Liệu', 'Làn', 'Tầng', 'Loại Bất Thường', 'Lý Do Ghi Nhận (Nghiệp Vụ)', 'Thời Điểm', ''].map(
                     (col, idx) => (
                       <th key={idx} className="px-4 py-3 font-semibold">
                         {col}
@@ -723,11 +725,25 @@ export function ResultsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800">{w.warning_type}</td>
-                    <td className="max-w-xs px-4 py-3 text-slate-600 truncate" title={w.warning_reason}>
-                      {w.warning_reason}
-                    </td>
-                    <td className="px-4 py-3 font-mono font-semibold text-amber-700">
-                      {w.score_or_zvalue !== null && w.score_or_zvalue !== undefined ? w.score_or_zvalue.toFixed(2) : 'N/A'}
+                    <td className="max-w-sm px-4 py-3 text-slate-800">
+                      {(() => {
+                        const exp = formatWarningExplanation(w);
+                        return (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-900">
+                                {exp.business.metricName}
+                              </span>
+                              <span className="font-semibold text-xs text-slate-900 truncate">
+                                {exp.business.changeSummary}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 line-clamp-1" title={exp.business.sampleSizeEvaluation}>
+                              {exp.business.sampleSizeEvaluation}
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-400">
                       {w.detected_at ? new Date(w.detected_at).toLocaleString('vi-VN') : 'N/A'}
@@ -1168,32 +1184,82 @@ export function ResultsPage() {
                   <p className="font-bold text-amber-700">{selectedWarning.signal_layer || 'L2'} ({selectedWarning.warning_type})</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Z-Score / Điểm:</span>
-                  <p className="font-mono font-bold text-slate-900">{selectedWarning.score_or_zvalue ?? 'N/A'}</p>
-                </div>
-                <div>
                   <span className="text-slate-500">Bộ Dữ Liệu:</span>
                   <p className="font-mono text-slate-800">{selectedWarning.dataset_id}</p>
                 </div>
               </div>
 
-              <div>
-                <span className="text-slate-500 font-semibold">Lý Do Cảnh Báo:</span>
-                <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2.5 font-medium text-amber-900">
-                  {selectedWarning.warning_reason}
-                </p>
-              </div>
+              {(() => {
+                const exp = formatWarningExplanation(selectedWarning);
+                return (
+                  <div className="space-y-3.5 text-xs">
+                    {/* Layer 1: Business Explanation */}
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900">
+                          {exp.business.metricName} ({exp.business.metricField})
+                        </span>
+                        {exp.business.percentChangeStr && (
+                          <span className="font-bold text-amber-950 font-mono">
+                            Biến động: {exp.business.percentChangeStr}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-semibold text-slate-800 text-xs">
+                        {exp.business.changeSummary}
+                      </p>
+                    </div>
 
-              {selectedWarning.evidence_json && Object.keys(selectedWarning.evidence_json).length > 0 && (
-                <div>
-                  <span className="text-slate-500 font-semibold block mb-1">
-                    Bằng Chứng Thống Kê (Evidence Metrics):
-                  </span>
-                  <pre className="max-h-36 overflow-auto rounded-lg border border-slate-200 bg-slate-900 p-2.5 font-mono text-[11px] text-amber-300">
-                    {JSON.stringify(selectedWarning.evidence_json, null, 2)}
-                  </pre>
-                </div>
-              )}
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                      <div>
+                        <span className="font-bold text-slate-700 block mb-0.5">Bản chất nghiệp vụ:</span>
+                        <p className="text-slate-600 leading-relaxed">
+                          {exp.business.businessMeaning}
+                        </p>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-amber-50/50 border border-amber-200/50 text-amber-900 text-[11px]">
+                        <span className="font-bold block">Lưu ý về cỡ mẫu quan sát:</span>
+                        <p className="leading-relaxed">{exp.business.sampleSizeEvaluation}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-emerald-950">
+                      <span className="font-bold text-[11px] uppercase tracking-wide text-emerald-800 block mb-1">
+                        Hướng kiểm tra & Xác minh khuyến nghị cho Auditor:
+                      </span>
+                      <p className="leading-relaxed">{exp.business.recommendedAction}</p>
+                    </div>
+
+                    {/* Layer 2: Technical Details (Collapsible) */}
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowTechnicalDetailsWarning(!showTechnicalDetailsWarning)}
+                        className="flex items-center justify-between w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors"
+                      >
+                        <span>Chi tiết kỹ thuật thuật toán (Technical Details & Debug)</span>
+                        <span>{showTechnicalDetailsWarning ? '▲ Thu gọn' : '▼ Mở rộng'}</span>
+                      </button>
+
+                      {showTechnicalDetailsWarning && (
+                        <div className="mt-2 space-y-2">
+                          {selectedWarning.evidence_json && Object.keys(selectedWarning.evidence_json).length > 0 && (
+                            <div>
+                              <span className="text-slate-500 font-semibold block mb-1">
+                                Bằng Chứng Thống Kê Gốc (Evidence JSON):
+                              </span>
+                              <pre className="max-h-36 overflow-auto rounded-lg border border-slate-200 bg-slate-900 p-2.5 font-mono text-[11px] text-amber-300">
+                                {JSON.stringify(selectedWarning.evidence_json, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <div className="flex items-center justify-between mb-1">

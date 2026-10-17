@@ -55,6 +55,43 @@ const formatDateTime = (value?: string | null) => {
   }
 };
 
+const getZonePolicyMeta = (
+  zone?: string | null,
+  policyName?: string | null,
+  policyId?: string | null,
+  lawRef?: string | null
+) => {
+  const z = (zone || 'VN').toUpperCase().trim();
+  const defaults: Record<string, { name: string; id: string; law: string; principle: string }> = {
+    VN: {
+      name: 'Vietnam Personal Data Protection (Luật 91/2025/QH15)',
+      id: 'POL-VN-LAW91',
+      law: 'Luật 91/2025/QH15 & NĐ 356/2025/NĐ-CP',
+      principle: 'Bảo vệ dữ liệu cá nhân & Tuân thủ NĐ 356',
+    },
+    US: {
+      name: 'US CCPA/CPRA Privacy Standard',
+      id: 'POL-US-CCPA',
+      law: 'CCPA/CPRA § 1798.100 et seq.',
+      principle: 'Quyền riêng tư dữ liệu người tiêu dùng California',
+    },
+    EU: {
+      name: 'EU General Data Protection Regulation (GDPR)',
+      id: 'POL-EU-GDPR',
+      law: 'GDPR Art. 5(1)(c) & Art. 25',
+      principle: 'Tính chính xác & Tối thiểu hóa dữ liệu',
+    },
+  };
+  const def = defaults[z] || defaults.VN;
+  const isMismatch = (z === 'VN' || z === 'US') && (policyId === 'POL-EU-GDPR' || policyName === 'EU GDPR');
+  return {
+    policyName: isMismatch || !policyName ? def.name : policyName,
+    policyId: isMismatch || !policyId ? def.id : policyId,
+    lawRef: isMismatch || !lawRef ? def.law : lawRef,
+    principle: def.principle,
+  };
+};
+
 type TabKey = 'overview' | 'samples' | 'remediation' | 'lineage' | 'rule' | 'history';
 
 interface FindingDetailModalProps {
@@ -509,66 +546,76 @@ export function FindingDetailModal({
                       />
 
                       {/* 3 Governance Cards */}
-                      <div className="grid gap-3.5 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
-                          <div className="flex items-center gap-2.5">
-                            <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                              <BookOpen size={16} />
+                      {(() => {
+                        const policyMeta = getZonePolicyMeta(
+                          detail.subject_zone,
+                          detail.policy_name,
+                          detail.policy_id,
+                          detail.law_ref
+                        );
+                        return (
+                          <div className="grid gap-3.5 sm:grid-cols-3">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
+                              <div className="flex items-center gap-2.5">
+                                <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                                  <BookOpen size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-[11px] font-medium text-slate-500 block truncate">
+                                    Chính sách áp dụng (Policy)
+                                  </span>
+                                  <h4 className="text-xs font-bold text-slate-900 truncate" title={policyMeta.policyName}>
+                                    {policyMeta.policyName}
+                                  </h4>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-slate-400 font-mono pl-1">
+                                Mã chính sách: {policyMeta.policyId}
+                              </p>
                             </div>
-                            <div className="min-w-0">
-                              <span className="text-[11px] font-medium text-slate-500 block truncate">
-                                Chính sách áp dụng (Policy)
-                              </span>
-                              <h4 className="text-xs font-bold text-slate-900 truncate">
-                                {detail.policy_name || 'EU GDPR'}
-                              </h4>
-                            </div>
-                          </div>
-                          <p className="text-[11px] text-slate-400 font-mono pl-1">
-                            Mã chính sách: {detail.policy_id || 'POL-EU-GDPR'}
-                          </p>
-                        </div>
 
-                        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
-                          <div className="flex items-center gap-2.5">
-                            <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                              <Scale size={16} />
+                            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
+                              <div className="flex items-center gap-2.5">
+                                <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                                  <Scale size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-[11px] font-medium text-slate-500 block truncate">
+                                    Căn cứ pháp lý (Law Standard)
+                                  </span>
+                                  <h4 className="text-xs font-bold text-slate-900 truncate" title={policyMeta.lawRef}>
+                                    {policyMeta.lawRef}
+                                  </h4>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-slate-400 pl-1">
+                                Nguyên tắc: {policyMeta.principle}
+                              </p>
                             </div>
-                            <div className="min-w-0">
-                              <span className="text-[11px] font-medium text-slate-500 block truncate">
-                                Căn cứ pháp lý (Law Standard)
-                              </span>
-                              <h4 className="text-xs font-bold text-slate-900 truncate">
-                                {detail.law_ref || 'GDPR Art. 5'}
-                              </h4>
-                            </div>
-                          </div>
-                          <p className="text-[11px] text-slate-400 pl-1">
-                            Nguyên tắc: Tính chính xác dữ liệu
-                          </p>
-                        </div>
 
-                        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
-                          <div className="flex items-center gap-2.5">
-                            <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                              <Globe size={16} />
-                            </div>
-                            <div className="min-w-0">
-                              <span className="text-[11px] font-medium text-slate-500 block truncate">
-                                Phạm vi tài phán (Jurisdiction)
-                              </span>
-                              <h4 className="text-xs font-bold text-slate-900 truncate">
-                                {detail.subject_zone || 'EU'}
-                              </h4>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2 shadow-2xs">
+                              <div className="flex items-center gap-2.5">
+                                <div className="grid size-8.5 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                                  <Globe size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-[11px] font-medium text-slate-500 block truncate">
+                                    Phạm vi tài phán (Jurisdiction)
+                                  </span>
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">
+                                    {detail.subject_zone || 'VN'}
+                                  </h4>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-slate-400 font-mono pl-1">
+                                {detail.jurisdiction_chain && detail.jurisdiction_chain.length > 0
+                                  ? detail.jurisdiction_chain.join(' → ')
+                                  : `GLOBAL → ${detail.subject_zone || 'VN'}`}
+                              </p>
                             </div>
                           </div>
-                          <p className="text-[11px] text-slate-400 font-mono pl-1">
-                            {detail.jurisdiction_chain && detail.jurisdiction_chain.length > 0
-                              ? detail.jurisdiction_chain.join(' → ')
-                              : `GLOBAL → ${detail.subject_zone || 'EU'}`}
-                          </p>
-                        </div>
-                      </div>
+                        );
+                      })()}
 
                       {/* Data Impact Card */}
                       <div className="rounded-2xl border border-slate-200/80 bg-white p-4.5 space-y-3 shadow-2xs">

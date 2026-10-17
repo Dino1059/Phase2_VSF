@@ -2048,7 +2048,26 @@ def get_finding_detail(finding_id: str):
                 elif "motor_rpm" in reason_lower or "speed_kmh" in reason_lower:
                     res["column_name"] = "motor_rpm"
 
-            res["subject_zone"] = res.get("jurisdiction")
+            res["subject_zone"] = res.get("jurisdiction") or "VN"
+            zone = str(res.get("subject_zone") or "VN").upper().strip()
+            if not res.get("policy_id") or not res.get("policy_name") or not res.get("law_ref") or (zone in ("VN", "US") and res.get("policy_id") == "POL-EU-GDPR"):
+                if zone == "VN":
+                    res["policy_id"] = "POL-VN-LAW91"
+                    res["policy_name"] = "Vietnam Personal Data Protection (Luật 91/2025/QH15 & NĐ 356/2025/NĐ-CP)"
+                    res["law_ref"] = "Luật 91/2025/QH15 & NĐ 356/2025/NĐ-CP"
+                elif zone == "US":
+                    res["policy_id"] = "POL-US-CCPA"
+                    res["policy_name"] = "US CCPA/CPRA Privacy Standard"
+                    res["law_ref"] = "CCPA/CPRA § 1798.100 et seq."
+                elif zone == "EU":
+                    res["policy_id"] = "POL-EU-GDPR"
+                    res["policy_name"] = "EU General Data Protection Regulation (GDPR)"
+                    res["law_ref"] = "GDPR Art. 5(1)(c) & Art. 25"
+                else:
+                    res["policy_id"] = "POL-GLOBAL-BASELINE"
+                    res["policy_name"] = "Global Data Trust Baseline Policy"
+                    res["law_ref"] = "ISO/IEC 27001 & ISO 27701"
+
             if res.get("detected_at"):
                 res["detected_at"] = res["detected_at"].isoformat()
             if res.get("resolved_at"):

@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { WarningRecord } from '@/lib/api-bridge';
+import { formatWarningExplanation } from '@/lib/formatters/audit-warning-formatter';
 
 export interface AuditWarningsTableProps {
   warnings: WarningRecord[];
@@ -106,8 +107,9 @@ export function AuditWarningsTable({
   const [searchText, setSearchText] = useState('');
   const [selectedLayer, setSelectedLayer] = useState('ALL');
   const [selectedLane, setSelectedLane] = useState('ALL');
-  const [selectedSort, setSelectedSort] = useState('score_desc');
+  const [selectedSort, setSelectedSort] = useState('newest');
   const [selectedWarningModal, setSelectedWarningModal] = useState<WarningRecord | null>(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   // Pagination state (10 records per page for crisp display)
   const [currentPage, setCurrentPage] = useState(1);
@@ -246,7 +248,6 @@ export function AuditWarningsTable({
             icon={<SlidersHorizontal size={13} className="text-slate-500" />}
             value={selectedSort}
             options={[
-              { value: 'score_desc', label: 'Điểm dị thường cao nhất' },
               { value: 'newest', label: 'Mới nhất' },
               { value: 'oldest', label: 'Cũ nhất' },
             ]}
@@ -277,7 +278,7 @@ export function AuditWarningsTable({
               setSearchText('');
               setSelectedLayer('ALL');
               setSelectedLane('ALL');
-              setSelectedSort('score_desc');
+              setSelectedSort('newest');
             }}
             className="mt-2 h-7 text-xs"
           >
@@ -292,9 +293,8 @@ export function AuditWarningsTable({
                 <tr className="border-b border-slate-200/80 bg-white text-slate-600 font-semibold text-[11px]">
                   <th className="py-3 px-3 whitespace-nowrap">Mã Warning</th>
                   <th className="py-3 px-3 whitespace-nowrap">Tầng / Làn</th>
-                  <th className="py-3 px-3 text-slate-700 min-w-[280px]">Mô tả & Lý do cảnh báo</th>
+                  <th className="py-3 px-3 text-slate-700 min-w-[280px]">Mô tả & Lý do cảnh báo (Nghiệp vụ)</th>
                   <th className="py-3 px-3 whitespace-nowrap text-slate-700">Mã chuyến xe / PK</th>
-                  <th className="py-3 px-3 whitespace-nowrap text-slate-700">Điểm dị thường (Score)</th>
                   <th className="py-3 px-3 whitespace-nowrap text-slate-700">Trạng thái dữ liệu</th>
                   <th className="py-3 px-3 whitespace-nowrap text-slate-700 text-center">Thao tác</th>
                 </tr>
@@ -303,9 +303,6 @@ export function AuditWarningsTable({
                 {paginatedWarnings.map((w) => {
                   const layerStr = (w.signal_layer || 'L2').toUpperCase();
                   const laneStr = (w.signal_lane || 'LANE_A').toUpperCase();
-                  const scoreVal = w.score_or_zvalue !== null && w.score_or_zvalue !== undefined
-                    ? Number(w.score_or_zvalue).toFixed(2)
-                    : 'N/A';
 
                   return (
                     <tr
@@ -331,29 +328,32 @@ export function AuditWarningsTable({
                         </div>
                       </td>
 
-                      {/* Mô tả & Lý do */}
+                      {/* Mô tả & Lý do (Business Explanation) */}
                       <td className="py-3 px-3 text-slate-800 leading-relaxed font-normal">
-                        <div className="space-y-0.5">
-                          <div className="font-medium text-slate-900 truncate max-w-md" title={w.warning_type}>
-                            {w.warning_type}
-                          </div>
-                          <div className="text-[11px] text-slate-500 line-clamp-1" title={w.warning_reason}>
-                            {w.warning_reason}
-                          </div>
-                        </div>
+                        {(() => {
+                          const exp = formatWarningExplanation(w);
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                  {exp.business.metricName}
+                                </span>
+                                <span className="font-semibold text-slate-900 text-xs">
+                                  {exp.business.changeSummary}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 line-clamp-1" title={exp.business.sampleSizeEvaluation}>
+                                {exp.business.sampleSizeEvaluation}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Mã chuyến xe / PK */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <span className="font-mono text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/60">
                           {w.source_row_pk || '—'}
-                        </span>
-                      </td>
-
-                      {/* Điểm dị thường (Score / Z-value) */}
-                      <td className="py-3 px-3 whitespace-nowrap">
-                        <span className="font-mono font-bold text-xs text-amber-700">
-                          {scoreVal}
                         </span>
                       </td>
 
@@ -460,51 +460,192 @@ export function AuditWarningsTable({
               </button>
             </div>
 
-            {/* Info grid */}
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                <span className="text-slate-400">Mã chuyến xe (PK)</span>
-                <div className="font-mono font-semibold text-slate-800">
-                  {selectedWarningModal.source_row_pk || 'N/A'}
+            {(() => {
+              const exp = formatWarningExplanation(selectedWarningModal);
+              return (
+                <div className="space-y-4">
+                  {/* Info grid (Clean metadata, no score) */}
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                      <span className="text-slate-400">Mã chuyến xe (PK)</span>
+                      <div className="font-mono font-semibold text-slate-800">
+                        {selectedWarningModal.source_row_pk || 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                      <span className="text-slate-400">Thời điểm phát hiện</span>
+                      <div className="font-medium text-slate-800">
+                        {exp.business.detectedTime}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ======================================================== */}
+                  {/* LỚP 1: GIẢI THÍCH NGHIỆP VỤ (BUSINESS EXPLANATION - DEFAULT) */}
+                  {/* ======================================================== */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 border-b border-amber-100 pb-1.5">
+                      <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+                      <h5 className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                        Giải thích nghiệp vụ (Business Explanation)
+                      </h5>
+                    </div>
+
+                    {/* Card 1: Chỉ số & Mức độ thay đổi */}
+                    <div className="p-3.5 rounded-xl border border-amber-200/80 bg-amber-50/50 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-200 text-amber-900">
+                            {exp.business.metricName}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500">
+                            ({exp.business.metricField})
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-amber-950 font-mono">
+                          {exp.business.percentChangeStr && `Biến động: ${exp.business.percentChangeStr}`}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-800">
+                        {exp.business.changeSummary}
+                      </p>
+                    </div>
+
+                    {/* Card 2: Ý nghĩa nghiệp vụ & Đánh giá cỡ mẫu */}
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2.5 text-xs">
+                      <div>
+                        <span className="font-bold text-slate-700 block mb-1">Bản chất nghiệp vụ:</span>
+                        <p className="text-slate-600 leading-relaxed">
+                          {exp.business.businessMeaning}
+                        </p>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg border border-amber-200/60 bg-amber-50/30 text-amber-900">
+                        <div className="flex items-start gap-1.5">
+                          <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-[11px] block">Đánh giá về cỡ mẫu quan sát:</span>
+                            <p className="text-[11px] leading-relaxed">
+                              {exp.business.sampleSizeEvaluation}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Hướng kiểm tra & Xác minh tiếp theo */}
+                    <div className="p-3.5 rounded-xl border border-emerald-200/80 bg-emerald-50/40 text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-[11px] uppercase tracking-wide">
+                        <CheckCircle2 size={13} className="text-emerald-600" />
+                        <span>Hướng xử lý & Xác minh khuyến nghị cho Auditor:</span>
+                      </div>
+                      <p className="text-emerald-950 font-medium leading-relaxed pl-4.5">
+                        {exp.business.recommendedAction}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ======================================================== */}
+                  {/* LỚP 2: CHI TIẾT KỸ THUẬT (TECHNICAL DETAILS - COLLAPSIBLE) */}
+                  {/* ======================================================== */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+                      className="flex items-center justify-between w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <SlidersHorizontal size={13} className="text-slate-500" />
+                        <span>Chi tiết kỹ thuật thuật toán (Technical Details & Debug)</span>
+                      </span>
+                      <ChevronDown
+                        size={14}
+                        className={`text-slate-500 transition-transform ${showTechnicalDetails ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {showTechnicalDetails && (
+                      <div className="mt-3 space-y-3 text-xs animate-in fade-in-50 duration-150">
+                        {/* Technical Parameters Table */}
+                        <div className="rounded-xl border border-slate-200 overflow-hidden">
+                          <table className="w-full text-left text-[11px]">
+                            <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-semibold">
+                              <tr>
+                                <th className="p-2">Tham số thuật toán</th>
+                                <th className="p-2">Giá trị phát hiện</th>
+                                <th className="p-2">Ý nghĩa kỹ thuật</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono">
+                              <tr>
+                                <td className="p-2 text-slate-600">Thuật toán</td>
+                                <td className="p-2 font-bold text-slate-900">{exp.technical.algorithm}</td>
+                                <td className="p-2 text-slate-500 font-sans">Phát hiện dịch chuyển phân phối chuỗi thời gian</td>
+                              </tr>
+                              {exp.technical.peltPenalty !== null && (
+                                <tr>
+                                  <td className="p-2 text-slate-600">pelt_penalty</td>
+                                  <td className="p-2 font-bold text-slate-900">{exp.technical.peltPenalty}</td>
+                                  <td className="p-2 text-slate-500 font-sans">Hệ số phạt tối ưu chi phí phân đoạn</td>
+                                </tr>
+                              )}
+                              {exp.technical.changeMagnitude !== null && (
+                                <tr>
+                                  <td className="p-2 text-slate-600">change_magnitude</td>
+                                  <td className="p-2 font-bold text-slate-900">{exp.technical.changeMagnitude}</td>
+                                  <td className="p-2 text-slate-500 font-sans">Độ dịch chuyển tuyệt đối giữa hai cửa sổ</td>
+                                </tr>
+                              )}
+                              {exp.technical.preMean !== null && (
+                                <tr>
+                                  <td className="p-2 text-slate-600">pre_window_mean / std</td>
+                                  <td className="p-2 font-bold text-slate-900">{exp.technical.preMean.toFixed(4)} (std: {exp.technical.preStd?.toFixed(4) ?? 'N/A'})</td>
+                                  <td className="p-2 text-slate-500 font-sans">Giá trị nền và độ lệch chuẩn trước bước nhảy</td>
+                                </tr>
+                              )}
+                              {exp.technical.postMean !== null && (
+                                <tr>
+                                  <td className="p-2 text-slate-600">post_window_mean / std</td>
+                                  <td className="p-2 font-bold text-slate-900">{exp.technical.postMean.toFixed(4)} (std: {exp.technical.postStd?.toFixed(4) ?? 'N/A'})</td>
+                                  <td className="p-2 text-slate-500 font-sans">Giá trị trung bình và độ lệch sau bước nhảy</td>
+                                </tr>
+                              )}
+                              {selectedWarningModal.score_or_zvalue !== null && selectedWarningModal.score_or_zvalue !== undefined && (
+                                <tr>
+                                  <td className="p-2 text-slate-600">score_or_zvalue</td>
+                                  <td className="p-2 font-bold text-slate-900">{Number(selectedWarningModal.score_or_zvalue).toFixed(4)}</td>
+                                  <td className="p-2 text-slate-500 font-sans">Điểm lệch chuẩn toán học (ẩn khỏi bảng chính)</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Evidence JSON */}
+                        {selectedWarningModal.evidence_json && Object.keys(selectedWarningModal.evidence_json).length > 0 && (
+                          <div className="space-y-1">
+                            <span className="font-semibold text-slate-700">Bằng chứng thống kê gốc (Evidence JSON):</span>
+                            <pre className="p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto max-h-40">
+                              {JSON.stringify(selectedWarningModal.evidence_json, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* Redacted Data */}
+                        {selectedWarningModal.redacted_record_json && Object.keys(selectedWarningModal.redacted_record_json).length > 0 && (
+                          <div className="space-y-1">
+                            <span className="font-semibold text-slate-700">Bản ghi trích mẫu (Đã bảo vệ PII):</span>
+                            <pre className="p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto max-h-40">
+                              {JSON.stringify(selectedWarningModal.redacted_record_json, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                <span className="text-slate-400">Điểm dị thường (Score / Z-value)</span>
-                <div className="font-mono font-semibold text-amber-700">
-                  {selectedWarningModal.score_or_zvalue !== null && selectedWarningModal.score_or_zvalue !== undefined
-                    ? Number(selectedWarningModal.score_or_zvalue).toFixed(2)
-                    : 'N/A'}
-                </div>
-              </div>
-            </div>
-
-            {/* Lý do chi tiết */}
-            <div className="space-y-1.5 text-xs">
-              <span className="font-semibold text-slate-700">Lý do ghi nhận cảnh báo:</span>
-              <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-200/60 text-amber-950 font-medium leading-relaxed">
-                {selectedWarningModal.warning_reason}
-              </div>
-            </div>
-
-            {/* Evidence JSON */}
-            {selectedWarningModal.evidence_json && Object.keys(selectedWarningModal.evidence_json).length > 0 && (
-              <div className="space-y-1.5 text-xs">
-                <span className="font-semibold text-slate-700">Bằng chứng thống kê & Thông số phát hiện:</span>
-                <pre className="p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto">
-                  {JSON.stringify(selectedWarningModal.evidence_json, null, 2)}
-                </pre>
-              </div>
-            )}
-
-            {/* Redacted Data */}
-            {selectedWarningModal.redacted_record_json && Object.keys(selectedWarningModal.redacted_record_json).length > 0 && (
-              <div className="space-y-1.5 text-xs">
-                <span className="font-semibold text-slate-700">Bản ghi trích mẫu (Đã bảo vệ PII):</span>
-                <pre className="p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto">
-                  {JSON.stringify(selectedWarningModal.redacted_record_json, null, 2)}
-                </pre>
-              </div>
-            )}
+              );
+            })()}
 
             <div className="flex justify-end pt-2 border-t border-slate-100">
               <Button
